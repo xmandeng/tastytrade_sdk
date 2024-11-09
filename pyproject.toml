@@ -4,6 +4,9 @@ version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
+packages = [
+    { include = "tastytrade", from = "src" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -14,9 +17,9 @@ jupyter = "^1.1.1"
 ipython = "^8.29.0"
 matplotlib = "^3.9.2"
 seaborn = "^0.13.2"
-# Removed types-all
 types-Pillow = "^10.0.0"
 types-Flask = "^1.1.6"
+python-dotenv = "^1.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
@@ -31,12 +34,14 @@ pandas-stubs = "^2.2.3.241009"
 black = "^23.3.0"
 isort = "^5.10.1"
 flake8 = "^5.0.4"
+types-requests = "^2.32.0.20241016"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
+lint.ignore = ["D104"]
 lint.extend-select = ["E303"]
 lint.select = ["E", "F", "W"]
 line-length = 100
@@ -45,3 +50,24 @@ lint.preview = true
 [tool.flake8]
 max-line-length = 100
 extend-ignore = ["E303"]
+
+[tool.black]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+
+    # The following are specific to Black, you probably don't want those.
+    | blib2to3
+    | tests/data
+)/
+    '''
+line-length = 100
