@@ -1,87 +1,94 @@
 import json
 from types import SimpleNamespace
+from typing import Any, Optional
 
 import requests
+from injector import inject, singleton
+from requests import Session
 
 from tastytrade import Credentials
-from tastytrade.utilties import logger, response_to_class
+from tastytrade.exceptions import validate_response
+from tastytrade.utilties import dict_to_class, logger
+
+QueryParams = Optional[dict[str, Any]]
 
 
-class Session:
+@singleton
+class SessionHandler:
     """Tastytrade session."""
 
-    session_info: SimpleNamespace
-    api_quote_info: SimpleNamespace
+    session = Session()
+    is_active: bool = False  # Track if the session is active
 
-    headers: dict[str, str | None] = {
-        "Authorization": None,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
+    api_quote_info: SimpleNamespace  # TODO Check DXLink Streamer to how this is used
 
+    @inject
     def __init__(self, credentials: Credentials) -> None:
-        self.credentials = credentials
+        self.base_url = credentials.base_url
 
-    def create_session(self, remember_me: bool = True) -> None:
-        """Login to the Tastytrade API."""
-        payload = json.dumps(
+        self.session.headers.update(
             {
-                "login": self.credentials.login,
-                "password": self.credentials.password,
-                "remember-me": remember_me,
+                "User-Agent": "my_tastytrader_sdk",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
             }
         )
 
-        response = requests.request(
-            "POST", self.credentials.base_url + "/sessions", headers=self.headers, data=payload
+        self.create_session(**credentials.as_dict)
+
+    def request(
+        self, method: str, url: str, params: QueryParams = None, **kwargs
+    ) -> requests.Response:
+        # TODO Add URL params
+        response = self.session.request(
+            method, url, headers=self.session.headers, params=params, **kwargs
         )
 
-        if response.status_code != 201:
-            logger.error(f"Failed to login [{response.status_code}]")
-            raise Exception(f"Failed to login [{response.status_code}]")
+        validate_response(response)
 
-        self.session_info = response_to_class(json.loads(response.text)["data"])
+        return response
 
-        cookies = [f"{cookie.name}={cookie.value}" for cookie in response.cookies]
-        self.session_info.cookies = ";".join(cookies)
+    def create_session(self, **kwargs) -> None:
+        """Login to the Tastytrade API."""
+        if self.is_session_active():
+            logger.warning("Session already active")
+            return
 
-        self.headers["Authorization"] = self.session_info.session_token
+        response = self.request(
+            method="POST",
+            url=self.base_url + "/sessions",
+            data=json.dumps(
+                {
+                    "login": kwargs.get("login"),
+                    "password": kwargs.get("password"),
+                    "remember-me": kwargs.get("remember_me"),
+                }
+            ),
+        )
+
+        self.session.headers["Authorization"] = response.json()["data"]["session-token"]
+        self.is_active = True
+
+    def close_session(self) -> None:
+        """Close the Tastytrade session."""
+        response = self.session.request("DELETE", self.base_url + "/sessions")
+
+        if validate_response(response):
+            logger.info("Session closed successfully")
+            self.is_active = False
+        else:
+            logger.error(f"Failed to close session [{response.status_code}]")
+            raise Exception(f"Failed to close session [{response.status_code}]")
+
+    def is_session_active(self) -> bool:
+        """Check if the session is active."""
+        return self.is_active
 
     def get_api_quote_token(self) -> None:
         """Get the quote token."""
-        if "session_token" not in vars(self.session_info):
-            logger.error("Session token not found. Please login first.")
-            raise Exception("Session token not found. Please login first.")
-
-        token_response = requests.get(
-            self.credentials.base_url + "/api-quote-tokens", headers=self.headers
+        response = self.session.request(
+            method="GET",
+            url=self.base_url + "/api-quote-tokens",
         )
 
-        if token_response.status_code == 200:
-            self.api_quote_info = response_to_class(token_response.json()["data"])
-        else:
-            logger.error(f"Failed to get quote token [{token_response.status_code}]")
-            raise Exception(f"Failed to get quote token [{token_response.status_code}]")
-
-
-def request_options_chains(session: Session, symbol: str) -> requests.Response:
-    """Get the options chains for a given symbol."""
-
-    if "session_token" not in vars(session.session_info):
-        logger.error("Session token not found. Please login first.")
-        raise Exception("Session token not found. Please login first.")
-
-    payload: dict = {}
-
-    response = requests.request(
-        "GET",
-        session.credentials.base_url + "/option-chains/" + symbol,
-        headers=session.headers,
-        data=payload,
-    )
-
-    if response.status_code != 200:
-        logger.error(f"Failed to get options chains [{response.status_code}]")
-        raise Exception(f"Failed to get options chains [{response.status_code}]")
-
-    return response
+        self.api_quote_info = dict_to_class(response.json()["data"])

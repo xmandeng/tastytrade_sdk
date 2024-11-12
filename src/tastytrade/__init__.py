@@ -9,11 +9,13 @@ class Credentials:
     base_url: str
     is_sandbox: bool
 
+    @property
+    def as_dict(self) -> dict:
+        return vars(self)
+
     def __init__(self, env: str = "Test"):
         """Tastytrade credentials are read from OS environment variables which can be
         loaded from a `.env` file, exported in the shell, or directly set in the environment.
-
-        TODO: Add support for loading credentials in a secure manner.
 
         Args:
             env (str, optional): Environment is either "Test" or "Live". Defaults to "Test".
@@ -33,5 +35,7 @@ class Credentials:
         self.base_url: str = (
             os.environ["TT_SANDBOX_URL"] if env == "Test" else os.environ["TT_API_URL"]
         )
+
+        self.remember_me: bool = True
 
         self.is_sandbox: bool = True if env == "Test" else False
