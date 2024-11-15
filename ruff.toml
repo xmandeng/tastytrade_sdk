@@ -5,7 +5,7 @@ line-length = 120
 # default for select is ["E4", "E7", "E9", "F"]
 # we add D for docstrings, and N for naming conventions
 extend-select = ["D", "N"]
-ignore = ["E501", "D100", "D102", "D103", "D104", "D105", "E731", "D407"]
+ignore = ["E501", "D100", "D101", "D102", "D103", "D104", "D105", "E731", "D407"]
 
 [lint.pydocstyle]
 convention = "numpy"

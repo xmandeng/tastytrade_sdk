@@ -2,6 +2,7 @@ import logging
 from abc import ABC
 from typing import Optional
 
+import aiohttp
 import requests
 from requests import JSONDecodeError
 
@@ -99,7 +100,7 @@ def validate_response(response: requests.Response) -> bool:
     if response.status_code == 204:
         return True
 
-    elif 200 <= response.status_code < 300:
+    elif response.status_code in range(200, 300):
 
         try:
             response.json()
@@ -116,3 +117,68 @@ def validate_response(response: requests.Response) -> bool:
     # Handle unknown error status codes
     logger.error(f"Unknown error: {response.status_code} - {response.text}")
     raise UnknownError(response)
+
+
+class AsyncTastytradeSdkError(Exception, ABC):
+    """Base exception for Async Tastytrade SDK."""
+
+    def __init__(self, message: str, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__(message)
+        self.response = response
+        self._error_message: Optional[str] = None
+
+    def __str__(self) -> str:
+        base_message = super().__str__()
+        if self.response is not None and self._error_message:
+            return (
+                f"{base_message} (Status: {self.response.status}, Message: {self._error_message})"
+            )
+        return base_message
+
+
+class AsyncUnauthorizedError(AsyncTastytradeSdkError):
+    """Raised on 401 authentication errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("UnauthorizedError - Please check your credentials", response)
+
+
+class AsyncBadRequestError(AsyncTastytradeSdkError):
+    """Raised on 400 bad request errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("Bad request - Please check your input parameters", response)
+
+
+class AsyncServerError(AsyncTastytradeSdkError):
+    """Raised on 5XX server errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("Server error - Please try again later", response)
+
+
+class AsyncResponseParsingError(AsyncTastytradeSdkError):
+    """Raised when async response parsing fails."""
+
+    def __init__(self, response: aiohttp.ClientResponse):
+        super().__init__("Failed to parse JSON response", response)
+
+
+class AsyncUnknownError(AsyncTastytradeSdkError):
+    """Raised for unexpected errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("An unexpected error occurred", response)
+
+
+def validate_async_response(response: aiohttp.ClientResponse) -> bool:
+    """Validate the response from the API.
+
+    Args:
+        response: The aiohttp response object
+    """
+    if response.status not in range(200, 300):
+        error_message = "Unknown error"
+        if response.headers.get("content-type") == "application/json":
+            raise Exception(f"Request failed with status {response.status}: {error_message}")
+    return True
