@@ -1,26 +1,35 @@
+import asyncio
 import json
-from types import SimpleNamespace
+import logging
 from typing import Any, Optional
 
+import aiohttp
 import requests
-from injector import inject, singleton
+from injector import inject
 from requests import Session
 
 from tastytrade import Credentials
-from tastytrade.exceptions import validate_response
-from tastytrade.utilties import dict_to_class, logger
+from tastytrade.exceptions import validate_async_response, validate_response
+from tastytrade.utilties import setup_logging
 
 QueryParams = Optional[dict[str, Any]]
 
+logger = logging.getLogger(__name__)
 
-@singleton
+
 class SessionHandler:
     """Tastytrade session."""
 
     session = Session()
-    is_active: bool = False  # Track if the session is active
+    is_active: bool = False
 
-    api_quote_info: SimpleNamespace  # TODO Check DXLink Streamer to how this is used
+    @classmethod
+    @inject
+    def create(cls, credentials: Credentials) -> "SessionHandler":
+        instance = cls(credentials)
+        instance.create_session(credentials)
+        instance.get_dxlink_token()
+        return instance
 
     @inject
     def __init__(self, credentials: Credentials) -> None:
@@ -34,8 +43,6 @@ class SessionHandler:
             }
         )
 
-        self.create_session(**credentials.as_dict)
-
     def request(
         self, method: str, url: str, params: QueryParams = None, **kwargs
     ) -> requests.Response:
@@ -48,7 +55,7 @@ class SessionHandler:
 
         return response
 
-    def create_session(self, **kwargs) -> None:
+    def create_session(self, credentials: Credentials) -> None:
         """Login to the Tastytrade API."""
         if self.is_session_active():
             logger.warning("Session already active")
@@ -59,14 +66,16 @@ class SessionHandler:
             url=self.base_url + "/sessions",
             data=json.dumps(
                 {
-                    "login": kwargs.get("login"),
-                    "password": kwargs.get("password"),
-                    "remember-me": kwargs.get("remember_me"),
+                    "login": credentials.login,
+                    "password": credentials.password,
+                    "remember-me": credentials.remember_me,
                 }
             ),
         )
 
-        self.session.headers["Authorization"] = response.json()["data"]["session-token"]
+        self.session.headers.update({"Authorization": response.json()["data"]["session-token"]})
+
+        logger.info("Session created successfully")
         self.is_active = True
 
     def close_session(self) -> None:
@@ -84,11 +93,92 @@ class SessionHandler:
         """Check if the session is active."""
         return self.is_active
 
-    def get_api_quote_token(self) -> None:
+    def get_dxlink_token(self) -> None:
         """Get the quote token."""
         response = self.session.request(
             method="GET",
             url=self.base_url + "/api-quote-tokens",
         )
 
-        self.api_quote_info = dict_to_class(response.json()["data"])
+        self.session.headers.update({"dxlink-url": response.json()["data"]["dxlink-url"]})
+        self.session.headers.update({"token": response.json()["data"]["token"]})
+
+
+@inject
+class AsyncSessionHandler:
+    """Tastytrade session handler for API interactions."""
+
+    @classmethod
+    async def create(cls, credentials: Credentials) -> "AsyncSessionHandler":
+        instance = cls(credentials)
+        await instance.create_session(credentials)
+        await instance.get_dxlink_token()
+        return instance
+
+    def __init__(self, credentials: Credentials) -> None:
+        self.base_url: str = credentials.base_url
+        self.session: aiohttp.ClientSession = aiohttp.ClientSession(
+            headers={
+                "User-Agent": "my_tastytrader_sdk",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+        )
+        self.is_active: bool = False
+
+    async def create_session(self, credentials: Credentials) -> None:
+        """Create and authenticate a session with Tastytrade API."""
+        if self.is_active:
+            logger.warning("Session already active")
+            return
+
+        async with self.session.post(
+            url=f"{self.base_url}/sessions",
+            json={
+                "login": credentials.login,
+                "password": credentials.password,
+                "remember-me": credentials.remember_me,
+            },
+        ) as response:
+            response_data = await response.json()
+
+            if validate_async_response(response):
+                logger.info("Session created successfully")
+
+            self.session.headers.update({"Authorization": response_data["data"]["session-token"]})
+            self.is_active = True
+
+    async def get_dxlink_token(self) -> None:
+        """Get the dxlink token."""
+        async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
+            response_data = await response.json()
+
+            if validate_async_response(response):
+                logger.debug("Retrieved dxlink token")
+
+            self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
+            self.session.headers.update({"token": response_data["data"]["token"]})
+
+    async def close_session(self) -> None:
+        """Close the session and cleanup resources."""
+        if self.session:
+            await self.session.close()
+            self.is_active = False
+            logger.info("Session closed")
+
+    def is_session_active(self) -> bool:
+        """Check if the session is active."""
+        return self.is_active
+
+
+async def main():
+
+    try:
+        session = await AsyncSessionHandler.create(Credentials(env="Test"))
+    finally:
+        await session.close_session()
+
+
+if __name__ == "__main__":
+    setup_logging(logging.DEBUG)
+    asyncio.run(main())
