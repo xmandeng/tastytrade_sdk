@@ -32,18 +32,23 @@ class AsyncSessionHandler:
             logger.warning("Session already active")
             return
 
-        logger.info("Establishing session with Tastytrade API")
-
         async with self.session.post(
             url=f"{self.base_url}/sessions",
             json={"login": self.login, "password": self.password, "remember-me": self.remember_me},
         ) as response:
-            data = await response.json()
+            respense_data = await response.json()
+
             await validate_async_response(response)
 
-            self.session.headers.update({"Authorization": data["data"]["session-token"]})
+            self.session.headers.update({"Authorization": respense_data["data"]["session-token"]})
             self.is_active = True
+
             logger.info("Session created successfully")
+
+    async def get_dxlink_token(self) -> None:
+        """Get the dxlink token."""
+        async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
+            await validate_async_response(response)
 
     async def close(self) -> None:
         """Close the session and cleanup resources."""

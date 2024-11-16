@@ -100,7 +100,7 @@ def validate_response(response: requests.Response) -> bool:
     if response.status_code == 204:
         return True
 
-    elif 200 <= response.status_code < 300:
+    elif response.status_code in range(200, 300):
 
         try:
             response.json()
@@ -211,7 +211,7 @@ async def validate_async_response(response: aiohttp.ClientResponse) -> bool:
     if response.status == 204:
         return True
 
-    elif 200 <= response.status < 300:
+    elif response.status in range(200, 300):
         try:
             await response.json()
             return True
