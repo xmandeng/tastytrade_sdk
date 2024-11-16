@@ -2,6 +2,7 @@ import logging
 from abc import ABC
 from typing import Optional
 
+import aiohttp
 import requests
 from requests import JSONDecodeError
 
@@ -116,3 +117,115 @@ def validate_response(response: requests.Response) -> bool:
     # Handle unknown error status codes
     logger.error(f"Unknown error: {response.status_code} - {response.text}")
     raise UnknownError(response)
+
+
+class AsyncTastytradeSdkError(Exception, ABC):
+    """Base exception for Async Tastytrade SDK."""
+
+    def __init__(self, message: str, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__(message)
+        self.response = response
+        self._error_message: Optional[str] = None
+
+    def __str__(self) -> str:
+        base_message = super().__str__()
+        if self.response is not None and self._error_message:
+            return (
+                f"{base_message} (Status: {self.response.status}, Message: {self._error_message})"
+            )
+        return base_message
+
+    async def get_error_details(self) -> str:
+        """Asynchronously get error details from response."""
+        if self.response is not None:
+            try:
+                error_info = await self.response.json()
+                self._error_message = error_info.get("error", {}).get(
+                    "message", "No detailed error message available."
+                )
+            except aiohttp.ContentTypeError:
+                self._error_message = await self.response.text()
+
+            return f"(Status: {self.response.status}, Message: {self._error_message})"
+        return ""
+
+
+class AsyncUnauthorizedError(AsyncTastytradeSdkError):
+    """Raised on 401 authentication errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("UnauthorizedError - Please check your credentials", response)
+
+
+class AsyncBadRequestError(AsyncTastytradeSdkError):
+    """Raised on 400 bad request errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("Bad request - Please check your input parameters", response)
+
+
+class AsyncServerError(AsyncTastytradeSdkError):
+    """Raised on 5XX server errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("Server error - Please try again later", response)
+
+
+class AsyncResponseParsingError(AsyncTastytradeSdkError):
+    """Raised when async response parsing fails."""
+
+    def __init__(self, response: aiohttp.ClientResponse):
+        super().__init__("Failed to parse JSON response", response)
+
+
+class AsyncUnknownError(AsyncTastytradeSdkError):
+    """Raised for unexpected errors in async context."""
+
+    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
+        super().__init__("An unexpected error occurred", response)
+
+
+async def validate_async_response(response: aiohttp.ClientResponse) -> bool:
+    """
+    Handle the error response from the Async Tastytrade API.
+
+    Args:
+        response: The aiohttp ClientResponse object from the API call
+
+    Raises
+        Various AsyncTastytradeSdkError subclasses based on the error condition
+    """
+    error_map = {
+        400: AsyncBadRequestError,
+        401: AsyncUnauthorizedError,
+        403: AsyncUnauthorizedError,
+        404: AsyncBadRequestError,
+        429: AsyncServerError,  # Rate limiting
+        500: AsyncServerError,
+        502: AsyncServerError,
+        503: AsyncServerError,
+        504: AsyncServerError,
+    }
+
+    # Handle successful responses
+    if response.status == 204:
+        return True
+
+    elif 200 <= response.status < 300:
+        try:
+            await response.json()
+            return True
+        except JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            raise AsyncResponseParsingError(response)
+
+    # Handle known error status codes
+    elif error_class := error_map.get(response.status):
+        error_text = await response.text()
+        logger.error(f"API error: {response.status} - {error_text}")
+        raise error_class(response)
+
+    # Handle unknown error status codes
+    error_text = await response.text()
+    logger.error(f"Unknown error: {response.status} - {error_text}")
+    raise AsyncUnknownError(response)

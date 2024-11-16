@@ -1,4 +1,4 @@
-"""Values imported from environment variables"""
+"""Values imported from environment variables."""
 
 import os
 
@@ -14,13 +14,12 @@ class Credentials:
         return vars(self)
 
     def __init__(self, env: str = "Test"):
-        """Tastytrade credentials are read from OS environment variables which can be
-        loaded from a `.env` file, exported in the shell, or directly set in the environment.
+        """Tastytrade credentials are read from OS environment variables which can be loaded from a `.env` file, exported in the shell, or directly set in the environment.
 
         Args:
             env (str, optional): Environment is either "Test" or "Live". Defaults to "Test".
 
-        Raises:
+        Raises
             ValueError: If environment is not "Test" or "Live"
         """
         if env not in ["Test", "Live"]:
