@@ -1,5 +1,4 @@
 import json
-from types import SimpleNamespace
 from typing import Any, Optional
 
 import requests
@@ -8,7 +7,7 @@ from requests import Session
 
 from tastytrade import Credentials
 from tastytrade.exceptions import validate_response
-from tastytrade.utilties import dict_to_class, logger
+from tastytrade.utilties import logger
 
 QueryParams = Optional[dict[str, Any]]
 
@@ -18,9 +17,7 @@ class SessionHandler:
     """Tastytrade session."""
 
     session = Session()
-    is_active: bool = False  # Track if the session is active
-
-    api_quote_info: SimpleNamespace  # TODO Check DXLink Streamer to how this is used
+    is_active: bool = False
 
     @inject
     def __init__(self, credentials: Credentials) -> None:
@@ -66,7 +63,9 @@ class SessionHandler:
             ),
         )
 
-        self.session.headers["Authorization"] = response.json()["data"]["session-token"]
+        self.session.headers.update({"Authorization": response.json()["data"]["session-token"]})
+
+        logger.info("Session created successfully")
         self.is_active = True
 
     def close_session(self) -> None:
@@ -91,4 +90,5 @@ class SessionHandler:
             url=self.base_url + "/api-quote-tokens",
         )
 
-        self.api_quote_info = dict_to_class(response.json()["data"])
+        self.session.headers.update({"dxlink-url": response.json()["data"]["dxlink-url"]})
+        self.session.headers.update({"token": response.json()["data"]["token"]})
