@@ -12,6 +12,7 @@ async def main():
 
     try:
         await session_handler.create_session()
+        await session_handler.get_dxlink_token()
     finally:
         await session_handler.close()
 
