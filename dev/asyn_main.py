@@ -1,7 +1,9 @@
 import asyncio
+import logging
 
 from tastytrade import Credentials
 from tastytrade.async_session import AsyncSessionHandler
+from tastytrade.utilties import setup_logging
 
 
 async def main():
@@ -10,10 +12,10 @@ async def main():
 
     try:
         await session_handler.create_session()
-        # Do your async operations here
     finally:
         await session_handler.close()
 
 
 if __name__ == "__main__":
+    setup_logging(logging.DEBUG)
     asyncio.run(main())
