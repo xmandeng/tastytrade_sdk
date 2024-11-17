@@ -9,9 +9,9 @@ from tastytrade.utilties import setup_logging
 async def main():
 
     try:
-        session_handler = await AsyncSessionHandler.create_session(Credentials(env="Test"))
+        session = await AsyncSessionHandler.create_session(Credentials(env="Test"))
     finally:
-        await session_handler.close()
+        await session.close()
 
 
 if __name__ == "__main__":
