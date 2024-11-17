@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import aiohttp
 import requests
-from injector import inject, singleton
+from injector import inject
 from requests import Session
 
 from tastytrade import Credentials
@@ -17,12 +17,19 @@ QueryParams = Optional[dict[str, Any]]
 logger = logging.getLogger(__name__)
 
 
-@singleton
 class SessionHandler:
     """Tastytrade session."""
 
     session = Session()
     is_active: bool = False
+
+    @classmethod
+    @inject
+    def create(cls, credentials: Credentials) -> "SessionHandler":
+        instance = cls(credentials)
+        instance.create_session(credentials)
+        instance.get_dxlink_token()
+        return instance
 
     @inject
     def __init__(self, credentials: Credentials) -> None:
@@ -36,8 +43,6 @@ class SessionHandler:
             }
         )
 
-        self.create_session(**credentials.as_dict)
-
     def request(
         self, method: str, url: str, params: QueryParams = None, **kwargs
     ) -> requests.Response:
@@ -50,7 +55,7 @@ class SessionHandler:
 
         return response
 
-    def create_session(self, **kwargs) -> None:
+    def create_session(self, credentials: Credentials) -> None:
         """Login to the Tastytrade API."""
         if self.is_session_active():
             logger.warning("Session already active")
@@ -61,9 +66,9 @@ class SessionHandler:
             url=self.base_url + "/sessions",
             data=json.dumps(
                 {
-                    "login": kwargs.get("login"),
-                    "password": kwargs.get("password"),
-                    "remember-me": kwargs.get("remember_me"),
+                    "login": credentials.login,
+                    "password": credentials.password,
+                    "remember-me": credentials.remember_me,
                 }
             ),
         )
@@ -88,7 +93,7 @@ class SessionHandler:
         """Check if the session is active."""
         return self.is_active
 
-    def get_api_quote_token(self) -> None:
+    def get_dxlink_token(self) -> None:
         """Get the quote token."""
         response = self.session.request(
             method="GET",
@@ -104,9 +109,9 @@ class AsyncSessionHandler:
     """Tastytrade session handler for API interactions."""
 
     @classmethod
-    async def create_session(cls, credentials: Credentials) -> "AsyncSessionHandler":
+    async def create(cls, credentials: Credentials) -> "AsyncSessionHandler":
         instance = cls(credentials)
-        await instance.open(credentials)
+        await instance.create_session(credentials)
         await instance.get_dxlink_token()
         return instance
 
@@ -121,7 +126,7 @@ class AsyncSessionHandler:
         )
         self.is_active: bool = False
 
-    async def open(self, credentials: Credentials) -> None:
+    async def create_session(self, credentials: Credentials) -> None:
         """Create and authenticate a session with Tastytrade API."""
         if self.is_active:
             logger.warning("Session already active")
@@ -154,7 +159,7 @@ class AsyncSessionHandler:
             self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
             self.session.headers.update({"token": response_data["data"]["token"]})
 
-    async def close(self) -> None:
+    async def close_session(self) -> None:
         """Close the session and cleanup resources."""
         if self.session:
             await self.session.close()
@@ -169,9 +174,9 @@ class AsyncSessionHandler:
 async def main():
 
     try:
-        session = await AsyncSessionHandler.create_session(Credentials(env="Test"))
+        session = await AsyncSessionHandler.create(Credentials(env="Test"))
     finally:
-        await session.close()
+        await session.close_session()
 
 
 if __name__ == "__main__":
