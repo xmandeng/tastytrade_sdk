@@ -2,6 +2,7 @@ import logging
 from typing import Any, Optional
 
 import aiohttp
+from injector import inject
 
 from tastytrade import Credentials
 from tastytrade.exceptions import validate_async_response
@@ -11,14 +12,19 @@ logger = logging.getLogger(__name__)
 QueryParams = Optional[dict[str, Any]]
 
 
+@inject
 class AsyncSessionHandler:
     """Tastytrade session handler for API interactions."""
 
+    @classmethod
+    async def create_session(cls, credentials: Credentials) -> "AsyncSessionHandler":
+        instance = cls(credentials)
+        await instance.open(credentials)
+        await instance.get_dxlink_token()
+        return instance
+
     def __init__(self, credentials: Credentials) -> None:
         self.base_url: str = credentials.base_url
-        self.login: str = credentials.login
-        self.password: str = credentials.password
-        self.remember_me: bool = credentials.remember_me
         self.session: aiohttp.ClientSession = aiohttp.ClientSession(
             headers={
                 "User-Agent": "my_tastytrader_sdk",
@@ -28,7 +34,7 @@ class AsyncSessionHandler:
         )
         self.is_active: bool = False
 
-    async def create_session(self) -> None:
+    async def open(self, credentials: Credentials) -> None:
         """Create and authenticate a session with Tastytrade API."""
         if self.is_active:
             logger.warning("Session already active")
@@ -36,15 +42,19 @@ class AsyncSessionHandler:
 
         async with self.session.post(
             url=f"{self.base_url}/sessions",
-            json={"login": self.login, "password": self.password, "remember-me": self.remember_me},
+            json={
+                "login": credentials.login,
+                "password": credentials.password,
+                "remember-me": credentials.remember_me,
+            },
         ) as response:
             response_data = await response.json()
             validate_async_response(response)
 
             self.session.headers.update({"Authorization": response_data["data"]["session-token"]})
-            self.is_active = True
 
             logger.info("Session created successfully")
+            self.is_active = True
 
     async def get_dxlink_token(self) -> None:
         """Get the dxlink token."""
