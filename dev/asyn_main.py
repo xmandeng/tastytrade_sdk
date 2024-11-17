@@ -7,12 +7,9 @@ from tastytrade.utilties import setup_logging
 
 
 async def main():
-    credentials = Credentials(env="Test")
-    session_handler = AsyncSessionHandler(credentials)
 
     try:
-        await session_handler.create_session()
-        await session_handler.get_dxlink_token()
+        session_handler = await AsyncSessionHandler.create_session(Credentials(env="Test"))
     finally:
         await session_handler.close()
 
