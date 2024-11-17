@@ -56,7 +56,7 @@ class AsyncSessionHandler:
             self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
             self.session.headers.update({"token": response_data["data"]["token"]})
 
-            logger.info("Retrieved dxlink token")
+            logger.debug("Retrieved dxlink token")
 
     async def close(self) -> None:
         """Close the session and cleanup resources."""
