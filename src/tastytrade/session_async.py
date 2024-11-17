@@ -38,11 +38,10 @@ class AsyncSessionHandler:
             url=f"{self.base_url}/sessions",
             json={"login": self.login, "password": self.password, "remember-me": self.remember_me},
         ) as response:
-            respense_data = await response.json()
+            response_data = await response.json()
+            validate_async_response(response)
 
-            await validate_async_response(response)
-
-            self.session.headers.update({"Authorization": respense_data["data"]["session-token"]})
+            self.session.headers.update({"Authorization": response_data["data"]["session-token"]})
             self.is_active = True
 
             logger.info("Session created successfully")
@@ -50,7 +49,13 @@ class AsyncSessionHandler:
     async def get_dxlink_token(self) -> None:
         """Get the dxlink token."""
         async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
-            await validate_async_response(response)
+            response_data = await response.json()
+
+            validate_async_response(response)
+
+            self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
+            self.session.headers.update({"token": response_data["data"]["token"]})
+
             logger.info("Retrieved dxlink token")
 
     async def close(self) -> None:

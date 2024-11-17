@@ -185,47 +185,11 @@ class AsyncUnknownError(AsyncTastytradeSdkError):
         super().__init__("An unexpected error occurred", response)
 
 
-async def validate_async_response(response: aiohttp.ClientResponse) -> bool:
-    """
-    Handle the error response from the Async Tastytrade API.
-
-    Args:
-        response: The aiohttp ClientResponse object from the API call
-
-    Raises
-        Various AsyncTastytradeSdkError subclasses based on the error condition
-    """
-    error_map = {
-        400: AsyncBadRequestError,
-        401: AsyncUnauthorizedError,
-        403: AsyncUnauthorizedError,
-        404: AsyncBadRequestError,
-        429: AsyncServerError,  # Rate limiting
-        500: AsyncServerError,
-        502: AsyncServerError,
-        503: AsyncServerError,
-        504: AsyncServerError,
-    }
-
-    # Handle successful responses
-    if response.status == 204:
-        return True
-
-    elif response.status in range(200, 300):
-        try:
-            await response.json()
-            return True
-        except JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            raise AsyncResponseParsingError(response)
-
-    # Handle known error status codes
-    elif error_class := error_map.get(response.status):
-        error_text = await response.text()
-        logger.error(f"API error: {response.status} - {error_text}")
-        raise error_class(response)
-
-    # Handle unknown error status codes
-    error_text = await response.text()
-    logger.error(f"Unknown error: {response.status} - {error_text}")
-    raise AsyncUnknownError(response)
+def validate_async_response(response) -> None:
+    """Validate the response from the API."""
+    if response.status not in range(200, 300):
+        error_message = "Unknown error"
+        if response.headers.get("content-type") == "application/json":
+            error_data = response.json()
+            error_message = error_data.get("error", {}).get("message", "Unknown error")
+        raise Exception(f"Request failed with status {response.status}: {error_message}")
