@@ -1,13 +1,16 @@
+import asyncio
 import json
 import logging
 from typing import Any, Optional
 
+import aiohttp
 import requests
 from injector import inject, singleton
 from requests import Session
 
 from tastytrade import Credentials
-from tastytrade.exceptions import validate_response
+from tastytrade.exceptions import validate_async_response, validate_response
+from tastytrade.utilties import setup_logging
 
 QueryParams = Optional[dict[str, Any]]
 
@@ -94,3 +97,83 @@ class SessionHandler:
 
         self.session.headers.update({"dxlink-url": response.json()["data"]["dxlink-url"]})
         self.session.headers.update({"token": response.json()["data"]["token"]})
+
+
+@inject
+class AsyncSessionHandler:
+    """Tastytrade session handler for API interactions."""
+
+    @classmethod
+    async def create_session(cls, credentials: Credentials) -> "AsyncSessionHandler":
+        instance = cls(credentials)
+        await instance.open(credentials)
+        await instance.get_dxlink_token()
+        return instance
+
+    def __init__(self, credentials: Credentials) -> None:
+        self.base_url: str = credentials.base_url
+        self.session: aiohttp.ClientSession = aiohttp.ClientSession(
+            headers={
+                "User-Agent": "my_tastytrader_sdk",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+        )
+        self.is_active: bool = False
+
+    async def open(self, credentials: Credentials) -> None:
+        """Create and authenticate a session with Tastytrade API."""
+        if self.is_active:
+            logger.warning("Session already active")
+            return
+
+        async with self.session.post(
+            url=f"{self.base_url}/sessions",
+            json={
+                "login": credentials.login,
+                "password": credentials.password,
+                "remember-me": credentials.remember_me,
+            },
+        ) as response:
+            response_data = await response.json()
+
+            if validate_async_response(response):
+                logger.info("Session created successfully")
+
+            self.session.headers.update({"Authorization": response_data["data"]["session-token"]})
+            self.is_active = True
+
+    async def get_dxlink_token(self) -> None:
+        """Get the dxlink token."""
+        async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
+            response_data = await response.json()
+
+            if validate_async_response(response):
+                logger.debug("Retrieved dxlink token")
+
+            self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
+            self.session.headers.update({"token": response_data["data"]["token"]})
+
+    async def close(self) -> None:
+        """Close the session and cleanup resources."""
+        if self.session:
+            await self.session.close()
+            self.is_active = False
+            logger.info("Session closed")
+
+    def is_session_active(self) -> bool:
+        """Check if the session is active."""
+        return self.is_active
+
+
+async def main():
+
+    try:
+        session = await AsyncSessionHandler.create_session(Credentials(env="Test"))
+    finally:
+        await session.close()
+
+
+if __name__ == "__main__":
+    setup_logging(logging.DEBUG)
+    asyncio.run(main())
