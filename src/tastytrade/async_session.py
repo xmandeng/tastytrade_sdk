@@ -51,13 +51,14 @@ class AsyncSessionHandler:
         """Get the dxlink token."""
         async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
             await validate_async_response(response)
+            logger.info("Retrieved dxlink token")
 
     async def close(self) -> None:
         """Close the session and cleanup resources."""
         if self.session:
             await self.session.close()
             self.is_active = False
-            logger.info("Session closed successfully")
+            logger.info("Session closed")
 
     def is_session_active(self) -> bool:
         """Check if the session is active."""

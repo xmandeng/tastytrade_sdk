@@ -4,17 +4,12 @@ from typing import Any
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    """Configure logging with line numbers and module names."""
-    # Clear any existing handlers to avoid duplicate logs
-    root_logger = logging.getLogger()
-    if root_logger.handlers:
-        root_logger.handlers.clear()
-
-    # Configure basic logging
+    """Configure logging with timestamps, line numbers and module names."""
     logging.basicConfig(
         level=level,
-        format="%(levelname)s:%(name)s:%(lineno)d:%(message)s",
-        force=True,  # This ensures the configuration is applied
+        format="%(asctime)s - %(levelname)s:%(name)s:%(lineno)d:%(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
     )
 
 
