@@ -135,20 +135,6 @@ class AsyncTastytradeSdkError(Exception, ABC):
             )
         return base_message
 
-    async def get_error_details(self) -> str:
-        """Asynchronously get error details from response."""
-        if self.response is not None:
-            try:
-                error_info = await self.response.json()
-                self._error_message = error_info.get("error", {}).get(
-                    "message", "No detailed error message available."
-                )
-            except aiohttp.ContentTypeError:
-                self._error_message = await self.response.text()
-
-            return f"(Status: {self.response.status}, Message: {self._error_message})"
-        return ""
-
 
 class AsyncUnauthorizedError(AsyncTastytradeSdkError):
     """Raised on 401 authentication errors in async context."""
@@ -185,11 +171,14 @@ class AsyncUnknownError(AsyncTastytradeSdkError):
         super().__init__("An unexpected error occurred", response)
 
 
-def validate_async_response(response) -> None:
-    """Validate the response from the API."""
+def validate_async_response(response: aiohttp.ClientResponse) -> bool:
+    """Validate the response from the API.
+
+    Args:
+        response: The aiohttp response object
+    """
     if response.status not in range(200, 300):
         error_message = "Unknown error"
         if response.headers.get("content-type") == "application/json":
-            error_data = response.json()
-            error_message = error_data.get("error", {}).get("message", "Unknown error")
-        raise Exception(f"Request failed with status {response.status}: {error_message}")
+            raise Exception(f"Request failed with status {response.status}: {error_message}")
+    return True

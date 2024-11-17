@@ -49,11 +49,11 @@ class AsyncSessionHandler:
             },
         ) as response:
             response_data = await response.json()
-            validate_async_response(response)
+
+            if validate_async_response(response):
+                logger.info("Session created successfully")
 
             self.session.headers.update({"Authorization": response_data["data"]["session-token"]})
-
-            logger.info("Session created successfully")
             self.is_active = True
 
     async def get_dxlink_token(self) -> None:
@@ -61,12 +61,11 @@ class AsyncSessionHandler:
         async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
             response_data = await response.json()
 
-            validate_async_response(response)
+            if validate_async_response(response):
+                logger.debug("Retrieved dxlink token")
 
             self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
             self.session.headers.update({"token": response_data["data"]["token"]})
-
-            logger.debug("Retrieved dxlink token")
 
     async def close(self) -> None:
         """Close the session and cleanup resources."""
