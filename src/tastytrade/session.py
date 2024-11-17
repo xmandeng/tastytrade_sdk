@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, Optional
 
 import requests
@@ -7,9 +8,10 @@ from requests import Session
 
 from tastytrade import Credentials
 from tastytrade.exceptions import validate_response
-from tastytrade.utilties import logger
 
 QueryParams = Optional[dict[str, Any]]
+
+logger = logging.getLogger(__name__)
 
 
 @singleton

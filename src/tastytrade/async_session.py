@@ -1,10 +1,12 @@
+import logging
 from typing import Any, Optional
 
 import aiohttp
 
 from tastytrade import Credentials
 from tastytrade.exceptions import validate_async_response
-from tastytrade.utilties import logger
+
+logger = logging.getLogger(__name__)
 
 QueryParams = Optional[dict[str, Any]]
 
