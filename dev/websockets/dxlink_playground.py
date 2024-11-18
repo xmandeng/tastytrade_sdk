@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 
-from websockets.asyncio.client import connect
+from websockets.asyncio.client import ClientConnection, connect
 
 from tastytrade import Credentials
 from tastytrade.session import AsyncSessionHandler
@@ -30,7 +30,7 @@ async def main():
         async with connect(session.session.headers["dxlink-url"]) as websocket:
             await setup_connection(websocket)
             await authorize_connection(websocket, session.session.headers["token"])
-            await send_channel_request(websocket, 1)
+            await request_channel(websocket, 1)
 
             while True:
                 try:
@@ -61,7 +61,7 @@ async def main():
         print(f"An error occurred: {e}\n")
 
 
-async def setup_connection(websocket):
+async def setup_connection(websocket: ClientConnection):
 
     setup = json.dumps(
         {
@@ -83,7 +83,7 @@ async def setup_connection(websocket):
     logger.info("%s:%s", reply_data.get("type"), "" or reply_data.get("state"))
 
 
-async def authorize_connection(websocket, token):
+async def authorize_connection(websocket: ClientConnection, token: str):
 
     authorize = json.dumps({"type": "AUTH", "channel": 0, "token": token})
 
@@ -93,7 +93,7 @@ async def authorize_connection(websocket, token):
     logger.info("%s:%s", reply_data.get("type"), "" or reply_data.get("state"))
 
 
-async def send_channel_request(websocket, channel):
+async def request_channel(websocket: ClientConnection, channel: int):
 
     channel_request = json.dumps(
         {
@@ -117,7 +117,7 @@ async def send_channel_request(websocket, channel):
         print(f"An error occurred: {e}\n")
 
 
-async def channel_listener(websocket):
+async def channel_listener(websocket: ClientConnection):
     while True:
         try:
             reply = await asyncio.wait_for(websocket.recv(), timeout=45)
@@ -130,9 +130,61 @@ async def channel_listener(websocket):
             break
 
 
-async def keepalive(websocket):
+async def keepalive(websocket: ClientConnection):
     await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
     logger.info("KEEPALIVE [local]")
+
+
+async def setup_feed(websocket: ClientConnection):
+
+    feed = json.dumps(
+        {
+            "type": "FEED_SETUP",
+            "channel": 3,
+            "acceptAggregationPeriod": 0.1,
+            "acceptDataFormat": "COMPACT",
+            "acceptEventFields": {
+                "Trade": ["eventType", "eventSymbol", "price", "dayVolume", "size"],
+                "TradeETH": ["eventType", "eventSymbol", "price", "dayVolume", "size"],
+                "Quote": ["eventType", "eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
+                "Greeks": [
+                    "eventType",
+                    "eventSymbol",
+                    "volatility",
+                    "delta",
+                    "gamma",
+                    "theta",
+                    "rho",
+                    "vega",
+                ],
+                "Profile": [
+                    "eventType",
+                    "eventSymbol",
+                    "description",
+                    "shortSaleRestriction",
+                    "tradingStatus",
+                    "statusReason",
+                    "haltStartTime",
+                    "haltEndTime",
+                    "highLimitPrice",
+                    "lowLimitPrice",
+                    "high52WeekPrice",
+                    "low52WeekPrice",
+                ],
+                "Summary": [
+                    "eventType",
+                    "eventSymbol",
+                    "openInterest",
+                    "dayOpenPrice",
+                    "dayHighPrice",
+                    "dayLowPrice",
+                    "prevDayClosePrice",
+                ],
+            },
+        }
+    )
+
+    await websocket.send(json.dumps(feed))
 
 
 if __name__ == "__main__":
