@@ -18,7 +18,6 @@ ENV = "Live"
 
 
 async def setup_connection(websocket: ClientConnection):
-
     setup = json.dumps(
         {
             "type": "SETUP",
@@ -28,29 +27,18 @@ async def setup_connection(websocket: ClientConnection):
             "acceptKeepaliveTimeout": 60,
         }
     )
-
     await asyncio.wait_for(websocket.send(setup), timeout=5)
-    reply = await asyncio.wait_for(websocket.recv(), timeout=5)
-    reply_data = json.loads(reply)
-    logger.info("%s", reply_data.get("type"))
-
-    reply = await asyncio.wait_for(websocket.recv(), timeout=5)
-    reply_data = json.loads(reply)
-    logger.info("%s:%s", reply_data.get("type"), "" or reply_data.get("state"))
+    # await parse_message(websocket)
+    # await parse_message(websocket)
 
 
 async def authorize_connection(websocket: ClientConnection, token: str):
-
     authorize = json.dumps({"type": "AUTH", "channel": 0, "token": token})
-
     await asyncio.wait_for(websocket.send(authorize), timeout=5)
-    reply = await asyncio.wait_for(websocket.recv(), timeout=5)
-    reply_data = json.loads(reply)
-    logger.info("%s:%s", reply_data.get("type"), "" or reply_data.get("state"))
+    # await parse_message(websocket)
 
 
 async def request_channel(websocket: ClientConnection, channel: int):
-
     channel_request = json.dumps(
         {
             "type": "CHANNEL_REQUEST",
@@ -59,37 +47,26 @@ async def request_channel(websocket: ClientConnection, channel: int):
             "parameters": {"contract": "AUTO"},
         }
     )
-
     await asyncio.wait_for(websocket.send(channel_request), timeout=5)
-
-    try:
-        reply = await asyncio.wait_for(websocket.recv(), timeout=45)
-        reply_data = json.loads(reply)
-        logger.info("%s", reply_data.get("type"))
-        print(f"{json.dumps(json.loads(reply), indent=2)}")
-    except asyncio.TimeoutError:
-        print("Receiving operation timed out\n")
-    except Exception as e:
-        print(f"An error occurred: {e}\n")
+    # await parse_message(websocket)
 
 
 async def channel_listener(websocket: ClientConnection):
-    # ! Needs testing
     while True:
         try:
-            reply = await asyncio.wait_for(websocket.recv(), timeout=45)
-            reply_data = json.loads(reply)
-            logger.info("%s", reply_data.get("type"))
-            print(f"{json.dumps(json.loads(reply), indent=2)}")
+            await parse_message(websocket)
 
         except asyncio.TimeoutError:
             print("Receiving operation timed out\n")
+            break
+        except Exception as e:
+            print(f"An error occurred: {e}\n")
             break
 
 
 async def keepalive(websocket: ClientConnection):
     await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
-    logger.info("KEEPALIVE [local]")
+    logger.debug("KEEPALIVE [local]")
 
 
 async def setup_feed(websocket: ClientConnection, channel: int):
@@ -145,26 +122,25 @@ async def setup_feed(websocket: ClientConnection, channel: int):
 
 
 async def subscribe_to_feed(websocket: ClientConnection, channel: int):
-
     feed_subscription = json.dumps(
         {
             "type": "FEED_SUBSCRIPTION",
             "channel": channel,
             "reset": True,
             "add": [
-                # {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
-                # {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
-                # {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
-                # {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
-                # {"type": "Trade", "symbol": "SPY"},
-                # {"type": "TradeETH", "symbol": "SPY"},  # WHY SPXY on TradeETH
-                # {"type": "Quote", "symbol": "SPX"},
-                # {"type": "Profile", "symbol": "SPY"},
-                # {"type": "Summary", "symbol": "SPY"},
-                # {"type": "Quote", "symbol": ".SPX241220P5885"},
-                # {"type": "Greeks", "symbol": ".SPX241220P5885"},
-                # {"type": "Quote", "symbol": ".SPXW241118C5885"},
-                # {"type": "Greeks", "symbol": ".SPXW241118C5885"},
+                {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
+                {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
+                {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
+                {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
+                {"type": "Trade", "symbol": "SPY"},
+                {"type": "TradeETH", "symbol": "SPY"},  # WHY SPXY on TradeETH
+                {"type": "Quote", "symbol": "SPX"},
+                {"type": "Profile", "symbol": "SPY"},
+                {"type": "Summary", "symbol": "SPY"},
+                {"type": "Quote", "symbol": ".SPX241220P5885"},
+                {"type": "Greeks", "symbol": ".SPX241220P5885"},
+                {"type": "Quote", "symbol": ".SPXW241118C5885"},
+                {"type": "Greeks", "symbol": ".SPXW241118C5885"},
                 {"type": "Quote", "symbol": ".SPXW241118P5885"},
                 {"type": "Greeks", "symbol": ".SPXW241118P5885"},
             ],
@@ -174,50 +150,69 @@ async def subscribe_to_feed(websocket: ClientConnection, channel: int):
     await websocket.send(feed_subscription)
 
 
+async def parse_message(websocket: ClientConnection):
+    try:
+        reply = await asyncio.wait_for(websocket.recv(), timeout=45)
+        reply_data = json.loads(reply)
+
+    except asyncio.TimeoutError:
+        print("Receiving operation timed out\n")
+    except Exception as e:
+        print(f"An error occurred: {e}\n")
+
+    match message_type := reply_data.get("type"):
+        case "SETUP":
+            logger.info("%s", message_type)
+
+        case "AUTH_STATE":
+            auth_state = reply_data.get("state")
+            logger.info("%s:%s", message_type, auth_state)
+
+        case "CHANNEL_REQUEST":
+            logger.info("Received CHANNEL_REQUEST message")
+            # Handle CHANNEL_REQUEST message
+
+        case "CHANNEL_OPENED":
+            logger.info("Received CHANNEL_OPENED message")
+            # Handle CHANNEL_OPENED message
+
+        case "FEED_CONFIG":
+            logger.info("Received FEED_CONFIG message")
+
+        case "FEED_DATA":
+            logger.info("Received FEED_DATA message")
+
+        case "KEEPALIVE":
+            logger.info("Received KEEPALIVE message")
+            await keepalive(websocket)
+
+        case "ERROR":
+            logger.error("%s: %s", reply_data.get("error"), reply_data.get("message"))
+
+        case _:
+            logger.info("Received unknown message type: %s", message_type)
+            # Handle unknown message type
+
+
 async def main():
-    setup_logging(logging.INFO)
     logger.info("\nLets get this started ...\n")
 
     session = await AsyncSessionHandler.create(Credentials(env=ENV))
 
-    try:
-        async with connect(session.session.headers["dxlink-url"]) as websocket:
-            await setup_connection(websocket)
-            await authorize_connection(websocket, session.session.headers["token"])
-            await request_channel(websocket, 1)
-            await setup_feed(websocket, 1)
-            await subscribe_to_feed(websocket, 1)
+    async with connect(session.session.headers["dxlink-url"]) as websocket:
+        await setup_connection(websocket)
+        await authorize_connection(websocket, session.session.headers["token"])
 
-            while True:
-                try:
-                    reply = await asyncio.wait_for(websocket.recv(), timeout=45)
-                    reply_data = json.loads(reply)
+        channel = 1
+        await request_channel(websocket, channel)
+        await setup_feed(websocket, channel)
+        await subscribe_to_feed(websocket, channel)
 
-                    if reply_data.get("type") == "KEEPALIVE":
-                        logger.info("KEEPALIVE [remote]")
-                        await keepalive(websocket)
-                    elif reply_data.get("type") == "FEED_DATA":
-                        print(f"{json.dumps(json.loads(reply), indent=2)}")
-                    else:
-                        print(f"{json.dumps(json.loads(reply), indent=2)}")
-                        logger.info("%s", reply_data.get("type"))
+        await channel_listener(websocket)
 
-                except asyncio.TimeoutError:
-                    print("Receiving operation timed out\n")
-                    break
-                except Exception as e:
-                    print(f"An error occurred: {e}\n")
-                    break
-
-            await session.close_session()
-
-    except asyncio.TimeoutError as e:
-        print(f"Operation timed: {e}\n")
-    except KeyboardInterrupt as k:
-        logger.info(f"KeyboardInterrupt: {k}\n")
-    except Exception as e:
-        print(f"An error occurred: {e}\n")
+        await session.close_session()
 
 
 if __name__ == "__main__":
+    setup_logging(logging.INFO)
     asyncio.run(main())
