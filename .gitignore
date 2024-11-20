@@ -34,6 +34,7 @@ ENV/
 .vscode/
 .ruff_cache/
 .mypy_cache/
+.pytest_cache/
 *.swp
 *.swo
 
@@ -48,3 +49,5 @@ test.py
 test.ipynb
 
 .DS_Store
+
+*.txt
