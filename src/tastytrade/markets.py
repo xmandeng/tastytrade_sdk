@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from injector import inject
 from websockets.asyncio.client import ClientConnection, connect
@@ -195,12 +196,12 @@ class DXLinkClient:
                     # {"type": "Greeks", "symbol": ".SPX241220P5885"},
                     # {"type": "Quote", "symbol": ".SPXW241118C5885"},
                     # {"type": "Greeks", "symbol": ".SPXW241118C5885"},
-                    {"type": "Quote", "symbol": ".SPXW241120P5895"},
-                    {"type": "Greeks", "symbol": ".SPXW241120P5895"},
-                    {"type": "Quote", "symbol": ".SPXW241120P5885"},
-                    {"type": "Greeks", "symbol": ".SPXW241120P5885"},
-                    {"type": "Quote", "symbol": ".SPXW241120P5905"},
-                    {"type": "Greeks", "symbol": ".SPXW241120P5905"},
+                    {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
+                    {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
+                    {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5885"},
+                    {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5885"},
+                    {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5905"},
+                    {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5905"},
                 ],
             }
         )
