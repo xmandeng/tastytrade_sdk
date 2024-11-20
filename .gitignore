@@ -46,3 +46,5 @@ poetry.lock
 
 test.py
 test.ipynb
+
+.DS_Store
