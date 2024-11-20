@@ -183,7 +183,7 @@ class DXLinkClient:
                 "reset": True,
                 "add": [
                     # {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
-                    {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
+                    # {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
                     # {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
                     # {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
                     # {"type": "Trade", "symbol": "SPY"},
@@ -195,12 +195,12 @@ class DXLinkClient:
                     # {"type": "Greeks", "symbol": ".SPX241220P5885"},
                     # {"type": "Quote", "symbol": ".SPXW241118C5885"},
                     # {"type": "Greeks", "symbol": ".SPXW241118C5885"},
-                    {"type": "Quote", "symbol": ".SPXW241119P5895"},
-                    {"type": "Greeks", "symbol": ".SPXW241119P5895"},
-                    {"type": "Quote", "symbol": ".SPXW241119P5885"},
-                    {"type": "Greeks", "symbol": ".SPXW241119P5885"},
-                    {"type": "Quote", "symbol": ".SPXW241119P5905"},
-                    {"type": "Greeks", "symbol": ".SPXW241119P5905"},
+                    {"type": "Quote", "symbol": ".SPXW241120P5895"},
+                    {"type": "Greeks", "symbol": ".SPXW241120P5895"},
+                    {"type": "Quote", "symbol": ".SPXW241120P5885"},
+                    {"type": "Greeks", "symbol": ".SPXW241120P5885"},
+                    {"type": "Quote", "symbol": ".SPXW241120P5905"},
+                    {"type": "Greeks", "symbol": ".SPXW241120P5905"},
                 ],
             }
         )
@@ -209,5 +209,5 @@ class DXLinkClient:
 
 
 if __name__ == "__main__":
-    setup_logging(logging.INFO)
+    setup_logging(logging.DEBUG)
     asyncio.run(DXLinkClient(MessageHandler()).main(Credentials("Test")))
