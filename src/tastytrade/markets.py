@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 
 from injector import inject
 from websockets.asyncio.client import ClientConnection, connect
@@ -12,9 +13,14 @@ from tastytrade.utilties import setup_logging
 
 logger = logging.getLogger(__name__)
 
-KEEPALIVE_TIMEOUT = 60
-VERSION = "0.1-DXF-JS/0.3.0"
-DEFAULT_CHANNEL = 1
+
+@dataclass
+class DXLinkConfig:
+    keepalive_timeout: int = 60
+    version: str = "0.1-DXF-JS/0.3.0"
+    default_channel: int = 1
+    reconnect_attempts: int = 3  # for later use
+    reconnect_delay: int = 5  # for later use
 
 
 class DXLinkClient:
@@ -25,7 +31,12 @@ class DXLinkClient:
         instance = cls(MessageHandler())
         asyncio.run(instance.main(credentials))
 
-    def __init__(self, message_handler: MessageHandler):
+    def __init__(
+        self,
+        message_handler: MessageHandler = MessageHandler(),
+        config: DXLinkConfig = DXLinkConfig(),
+    ):
+        self.config = config
         self.message_handler = message_handler
 
     async def main(self, credentials: Credentials):
@@ -39,9 +50,9 @@ class DXLinkClient:
 
                 await self.setup_connection(websocket)
                 await self.authorize_connection(websocket, session.session.headers["token"])
-                await self.request_channel(websocket, DEFAULT_CHANNEL)
-                await self.setup_feed(websocket, DEFAULT_CHANNEL)
-                await self.subscribe_to_feed(websocket, DEFAULT_CHANNEL)
+                await self.request_channel(websocket, self.config.default_channel)
+                await self.setup_feed(websocket, self.config.default_channel)
+                await self.subscribe_to_feed(websocket, self.config.default_channel)
 
                 await listener_task
 
@@ -57,8 +68,8 @@ class DXLinkClient:
             {
                 "type": "SETUP",
                 "channel": 0,
-                "version": VERSION,
-                "keepaliveTimeout": KEEPALIVE_TIMEOUT,
+                "version": self.config.version,
+                "keepaliveTimeout": self.config.keepalive_timeout,
                 "acceptKeepaliveTimeout": 60,
             }
         )
