@@ -1,7 +1,8 @@
 import json
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict
 
 from websockets.asyncio.client import ClientConnection
 
@@ -15,76 +16,71 @@ class Message:
     data: Dict[str, Any]
 
 
-class MessageProcessor(Protocol):
-    """Protocol defining interface for message processors."""
-
-    async def process(self, message: Message, websocket: ClientConnection) -> None: ...
-
-
-class BaseMessageHandler:
-    """Base handler with common functionality."""
-
+class BaseMessageHandler(ABC):
     async def process_message(self, message: Message, websocket: ClientConnection) -> None:
-        """Template method for processing messages."""
         logger.debug(f"Processing message type: {message.type}")
-        await self._handle_message(message, websocket)
+        await self.handle_message(message, websocket)
 
-    async def _handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        raise NotImplementedError
-
-
-class SetupMessageHandler(BaseMessageHandler):
-    async def _handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        logger.info("Setup message received: %s", message.type)
-        # Add any specific setup handling logic here
+    @abstractmethod
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        pass
 
 
-class AuthStateMessageHandler(BaseMessageHandler):
-    async def _handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        auth_state = message.data.get("state")
-        logger.info("Auth state received: %s", auth_state)
-        # Add authentication state specific logic here
+class SetupHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.info("%s", message.type)
 
 
-class FeedDataMessageHandler(BaseMessageHandler):
-    async def _handle_message(self, message: Message, websocket: ClientConnection) -> None:
+class AuthStateHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.info("%s:%s", message.type, message.data.get("state"))
+
+
+class ChannelOpenedHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.info("%s:CHANNEL.%s", message.data.get("type"), message.data.get("channel"))
+
+
+class FeedConfigHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.info(
+            "%s:CHANNEL.%s:%s",
+            message.data.get("type"),
+            message.data.get("channel"),
+            message.data.get("dataFormat"),
+        )
+
+
+class FeedDataHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
         logger.debug("Feed data received: %s", json.dumps(message.data, indent=2))
-        # Add your feed data processing logic here
+        # TODO Add feed data processing logic
 
 
-class KeepAliveMessageHandler(BaseMessageHandler):
-    async def _handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        logger.info("Keepalive message received")
+class KeepaliveHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.info("%s:RECEIVED", message.type)
         await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
 
 
-class ErrorMessageHandler(BaseMessageHandler):
-    async def _handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        logger.error("%s: %s", message.data.get("error"), message.data.get("message"))
-        # Add error handling logic here
+class ErrorHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.error("%s:%s", message.data.get("error"), message.data.get("message"))
 
 
-class MessageHandlerFactory:
-    """Factory for creating message handlers."""
-
-    def __init__(self) -> None:
-        self._handlers: Dict[str, BaseMessageHandler] = {
-            "SETUP": SetupMessageHandler(),
-            "AUTH_STATE": AuthStateMessageHandler(),
-            "FEED_DATA": FeedDataMessageHandler(),
-            "KEEPALIVE": KeepAliveMessageHandler(),
-            "ERROR": ErrorMessageHandler(),
-        }
-
-    def get_handler(self, message_type: str) -> Optional[BaseMessageHandler]:
-        return self._handlers.get(message_type)
-
-
-class MessageRouter:
+class MessageHandler:
     """Routes messages to appropriate handlers."""
 
-    def __init__(self):
-        self.handler_factory = MessageHandlerFactory()
+    def __init__(self) -> None:
+        self.handlers: Dict[str, BaseMessageHandler] = {
+            "SETUP": SetupHandler(),
+            "AUTH_STATE": AuthStateHandler(),
+            "FEED_CONFIG": FeedConfigHandler(),
+            "FEED_DATA": FeedDataHandler(),
+            "KEEPALIVE": KeepaliveHandler(),
+            "CHANNEL_OPENED": ChannelOpenedHandler(),
+            "ERROR": ErrorHandler(),
+        }
 
     async def route_message(self, raw_message: Dict[str, Any], websocket: ClientConnection) -> None:
         message = Message(
@@ -93,7 +89,7 @@ class MessageRouter:
             data=raw_message,
         )
 
-        handler = self.handler_factory.get_handler(message.type)
+        handler = self.handlers.get(message.type)
         if handler:
             await handler.process_message(message, websocket)
         else:
