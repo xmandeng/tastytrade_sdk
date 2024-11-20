@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class DXLinkConfig:
     keepalive_timeout: int = 60
     version: str = "0.1-DXF-JS/0.3.0"
-    default_channel: int = 1
+    default_channel: int = 3
     reconnect_attempts: int = 3  # for later use
     reconnect_delay: int = 5  # for later use
 
@@ -192,10 +192,7 @@ class DXLinkClient:
                     # {"type": "Quote", "symbol": "SPX"},
                     # {"type": "Profile", "symbol": "SPY"},
                     # {"type": "Summary", "symbol": "SPY"},
-                    # {"type": "Quote", "symbol": ".SPX241220P5885"},
-                    # {"type": "Greeks", "symbol": ".SPX241220P5885"},
-                    # {"type": "Quote", "symbol": ".SPXW241118C5885"},
-                    # {"type": "Greeks", "symbol": ".SPXW241118C5885"},
+                    {"type": "Quote", "symbol": "SPX"},
                     {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
                     {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
                     {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5885"},
@@ -211,4 +208,4 @@ class DXLinkClient:
 
 if __name__ == "__main__":
     setup_logging(logging.DEBUG)
-    asyncio.run(DXLinkClient(MessageHandler()).main(Credentials("Test")))
+    asyncio.run(DXLinkClient(MessageHandler()).main(Credentials("Live")))
