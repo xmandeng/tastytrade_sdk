@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import aiohttp
 import requests
-from injector import inject
+from injector import inject, singleton
 from requests import Session
 from websockets.asyncio.client import ClientConnection, connect
 
@@ -175,6 +175,133 @@ class AsyncSessionHandler:
         return self.is_active
 
 
+def connected(func):
+    async def wrapper(self, *args, **kwargs):
+        if self.websocket:
+            logger.info("WebSocket already connected")
+            return
+        return await func(self, *args, **kwargs)
+
+    return wrapper
+
+
+@singleton
+class WebSocketManager:
+
+    def __init__(
+        self,
+        session: Optional[AsyncSessionHandler] = None,
+        message_handler: MessageHandler = MessageHandler(),
+    ):
+        if session is None:
+            raise ValueError("Session is required")
+
+        self.url = session.session.headers["dxlink-url"]
+        self.token = session.session.headers["token"]
+        self.message_handler = message_handler
+        self.websocket: Optional[ClientConnection] = None
+        self.channels: dict[int, str] = {}
+        self.lock = asyncio.Lock()
+
+    async def __aenter__(self):
+        try:
+            if not self.websocket:
+                await self.connect()
+            await self.setup_connection()
+            await self.authorize_connection()
+            await self.listener_task
+
+        except asyncio.CancelledError:
+            logger.warn("Listener task was cancelled")
+        except Exception as e:
+            logger.error("An error occurred: %s", e)
+
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self.websocket:
+            await self.websocket.close()
+            self.websocket = None
+
+    @connected
+    async def connect(self):
+        self.websocket = await connect(self.url)
+        self.listener_task = asyncio.create_task(self.channel_listener())
+
+    async def get_connection(self):
+        async with self.lock:
+            if self.websocket:
+                return self.websocket
+            logger.info("WebSocket not connected")
+
+    async def setup_connection(self):
+        setup = json.dumps(
+            {
+                "type": "SETUP",
+                "channel": 0,
+                "version": "0.1-DXF-JS/0.3.0",
+                "keepaliveTimeout": 60,
+                "acceptKeepaliveTimeout": 60,
+            }
+        )
+        await asyncio.wait_for(self.websocket.send(setup), timeout=5)
+
+    async def authorize_connection(self):
+        authorize = json.dumps({"type": "AUTH", "channel": 0, "token": self.token})
+        await asyncio.wait_for(self.websocket.send(authorize), timeout=5)
+
+    async def test(self):
+        setup_logging(logging.DEBUG)
+        await self.get_connection()
+        await self.setup_connection()
+        await self.authorize_connection()
+        # await self.listener_task
+
+    async def channel_listener(self):
+        while True:
+            try:
+                await self.parse_message()
+
+            except asyncio.TimeoutError:
+                print("Receiving operation timed out\n")
+                break
+            except Exception as e:
+                print(f"An error occurred: {e}\n")
+                break
+
+    async def parse_message(self) -> None:
+        if not self.websocket:
+            logger.info("WebSocket is not connected")
+            return
+
+        try:
+            reply = await asyncio.wait_for(self.websocket.recv(), timeout=45)
+            reply_data = json.loads(reply)
+            await self.message_handler.route_message(reply_data, self.websocket)
+
+        except asyncio.TimeoutError:
+            print("Receiving operation timed out\n")
+        except Exception as e:
+            print(f"An error occurred: {e}\n")
+
+    async def request_channel(self, channel: int, service: str = "undefined") -> None:
+        if not self.websocket:
+            logger.info("WebSocket is not connected")
+            return
+
+        channel_request = json.dumps(
+            {
+                "type": "CHANNEL_REQUEST",
+                "channel": channel,
+                "service": "FEED",
+                "parameters": {"contract": "AUTO"},
+            }
+        )
+        await asyncio.wait_for(self.websocket.send(channel_request), timeout=5)
+
+        self.channels[channel] = service
+
+
 @dataclass
 class DXLinkConfig:
     keepalive_timeout: int = 60
@@ -274,9 +401,9 @@ class DXLinkClient:
         )
         await asyncio.wait_for(websocket.send(channel_request), timeout=5)
 
-    async def keepalive(self, websocket: ClientConnection):
-        await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
-        logger.debug("KEEPALIVE [local]")
+    # async def keepalive(self, websocket: ClientConnection):
+    #     await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
+    #     logger.debug("KEEPALIVE [local]")
 
     async def setup_feed(self, websocket: ClientConnection, channel: int):
 
