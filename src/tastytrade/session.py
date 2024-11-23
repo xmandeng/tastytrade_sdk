@@ -178,6 +178,8 @@ class AsyncSessionHandler:
 @singleton
 class WebSocketManager:
 
+    listener_task: asyncio.Task
+
     def __init__(
         self,
         session: AsyncSessionHandler,
@@ -192,19 +194,14 @@ class WebSocketManager:
 
     async def __aenter__(self):
         self.websocket = await connect(self.url)
-        await asyncio.sleep(0.5)
 
-        # Ensure listener_task added to the proper event loop
-        loop = asyncio.get_event_loop()
-        self.listener_task = loop.create_task(self.channel_listener())
+        self.listener_task = asyncio.create_task(self.websocket_listener())
 
         try:
 
             await self.setup_connection()
-            await asyncio.sleep(0.5)
 
             await self.authorize_connection()
-            await asyncio.sleep(0.5)
 
         except Exception as e:
             logger.error(f"Error during setup or authorization: {e}")
@@ -215,6 +212,7 @@ class WebSocketManager:
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        await asyncio.sleep(0.25)
         if self.websocket:
             if hasattr(self, "listener_task"):
                 try:
@@ -227,7 +225,7 @@ class WebSocketManager:
 
             await self.websocket.close()
             self.websocket = None
-            logger.info("Websocket was closed")
+            logger.info("WEBSOCKET - Closed")
 
     async def request_channel(self, channel: int, service: str = "undefined") -> None:
         if not self.websocket:
@@ -256,9 +254,6 @@ class WebSocketManager:
         )
         await asyncio.wait_for(self.websocket.send(setup), timeout=5)
 
-        # loop = asyncio.get_event_loop()
-        # self.listener_task = loop.create_task(self.channel_listener())
-
     async def authorize_connection(self):
         authorize = json.dumps({"type": "AUTH", "channel": 0, "token": self.token})
         await asyncio.wait_for(self.websocket.send(authorize), timeout=5)
@@ -269,15 +264,15 @@ class WebSocketManager:
         await self.setup_connection()
         await self.authorize_connection()
 
-    async def channel_listener(self):
+    async def websocket_listener(self):
         while True:
             try:
                 await self.parse_message()
             except asyncio.CancelledError:
-                logger.info("Listener task was cancelled (%s)", id(asyncio.get_event_loop()))
+                logger.info("LISTENER - Stopped")
                 break
             except Exception as e:
-                logger.error(f"Channel listener error: {e}")
+                logger.error(f"LISTENER ERROR: {e}")
                 break
 
     async def parse_message(self) -> None:
@@ -507,5 +502,5 @@ if __name__ == "__main__":
     # asyncio.run(main())
 
     # Test DXLinkClient
-    setup_logging(logging.DEBUG)
+    setup_logging(logging.INFO)
     asyncio.run(DXLinkClient(MessageHandler()).connect(Credentials("Live")))
