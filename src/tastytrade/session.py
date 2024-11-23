@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import aiohttp
 import requests
-from injector import inject, singleton
+from injector import inject
 from requests import Session
 from websockets.asyncio.client import ClientConnection, connect
 
@@ -175,10 +175,16 @@ class AsyncSessionHandler:
         return self.is_active
 
 
-@singleton
 class WebSocketManager:
 
+    sessions: dict[AsyncSessionHandler, "WebSocketManager"] = {}
     listener_task: asyncio.Task
+
+    # only one instance per session
+    def __new__(cls, session):
+        if session not in cls.sessions:
+            cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
+        return cls.sessions[session]
 
     def __init__(
         self,
