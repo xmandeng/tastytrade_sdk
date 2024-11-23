@@ -78,15 +78,15 @@ class SessionHandler:
 
         self.session.headers.update({"Authorization": response.json()["data"]["session-token"]})
 
-        logger.info("Session created successfully")
+        logger.info("Session created")
         self.is_active = True
 
-    def close_session(self) -> None:
+    def close(self) -> None:
         """Close the Tastytrade session."""
         response = self.session.request("DELETE", self.base_url + "/sessions")
 
         if validate_response(response):
-            logger.info("Session closed successfully")
+            logger.info("Session closed")
             self.is_active = False
         else:
             logger.error(f"Failed to close session [{response.status_code}]")
@@ -162,7 +162,7 @@ class AsyncSessionHandler:
             self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
             self.session.headers.update({"token": response_data["data"]["token"]})
 
-    async def close_session(self) -> None:
+    async def close(self) -> None:
         """Close the session and cleanup resources."""
         if self.session:
             await self.session.close()
@@ -236,9 +236,9 @@ class WebSocketManager:
 
             await self.websocket.close()
             self.websocket = None
-            logger.info("WEBSOCKET - Closed")
+            logger.info("Websocket closed")
         else:
-            logger.warning("WEBSOCKET - No active connection to close")
+            logger.warning("Websocket - No active connection to close")
 
     async def setup_connection(self):
         setup = json.dumps(
@@ -380,15 +380,15 @@ class DXLinkClient:
                 "channel": channel,
                 "reset": True,
                 "add": [
-                    # {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
-                    # {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
-                    # {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
-                    # {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
-                    # {"type": "Trade", "symbol": "SPY"},
-                    # {"type": "TradeETH", "symbol": "SPY"},  # WHY SPXY on TradeETH
-                    # {"type": "Quote", "symbol": "SPX"},
-                    # {"type": "Profile", "symbol": "SPY"},
-                    # {"type": "Summary", "symbol": "SPY"},
+                    {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
+                    {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
+                    {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
+                    {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
+                    {"type": "Trade", "symbol": "SPY"},
+                    {"type": "TradeETH", "symbol": "SPY"},  # WHY SPXY on TradeETH
+                    {"type": "Quote", "symbol": "SPX"},
+                    {"type": "Profile", "symbol": "SPY"},
+                    {"type": "Summary", "symbol": "SPY"},
                     {"type": "Quote", "symbol": "SPX"},
                     {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
                     {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
@@ -408,7 +408,7 @@ async def main():
     try:
         session = await AsyncSessionHandler.create(Credentials(env="Test"))
     finally:
-        await session.close_session()
+        await session.close()
 
 
 # if __name__ == "__main__":
