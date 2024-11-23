@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import aiohttp
 import requests
-from injector import inject
+from injector import inject, singleton
 from requests import Session
 from websockets.asyncio.client import ClientConnection, connect
 
@@ -175,12 +175,12 @@ class AsyncSessionHandler:
         return self.is_active
 
 
+@singleton
 class WebSocketManager:
 
     sessions: dict[AsyncSessionHandler, "WebSocketManager"] = {}
     listener_task: asyncio.Task
 
-    # allow only one instance per session
     def __new__(cls, session):
         if session not in cls.sessions:
             cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
@@ -231,7 +231,7 @@ class WebSocketManager:
                     await self.listener_task
 
                 except asyncio.CancelledError:
-                    logger.info("Listener task was cancelled (%s)", id(asyncio.get_event_loop()))
+                    logger.info("Listener task was cancelled")
 
             await self.websocket.close()
             self.websocket = None
@@ -318,84 +318,26 @@ class DXLinkConfig:
 
 class DXLinkClient:
 
-    @classmethod
-    @inject
-    def run(cls, credentials: Credentials):
-        instance = cls(MessageHandler())
-        asyncio.run(instance.connect(credentials))
+    # @classmethod
+    # @inject
+    # def run(cls, credentials: Credentials):
+    #     instance = cls(MessageHandler())
+    #     asyncio.run(instance.connect(credentials))
 
     def __init__(
         self,
+        websocket_manager: WebSocketManager,
         message_handler: MessageHandler = MessageHandler(),
         config: DXLinkConfig = DXLinkConfig(),
     ):
+        self.websocket = websocket_manager.websocket
         self.config = config
         self.message_handler = message_handler
 
-    async def connect(self, credentials: Credentials):
-        session = await AsyncSessionHandler.create(credentials)
+    async def request_channel(self, channel: int):
+        if not self.websocket:
+            raise RuntimeError("WebSocket is not connected")
 
-        async with connect(session.session.headers["dxlink-url"]) as websocket:
-
-            try:
-
-                listener_task = asyncio.create_task(self.channel_listener(websocket))
-
-                await self.setup_connection(websocket)
-                await self.authorize_connection(websocket, session.session.headers["token"])
-                await self.request_channel(websocket, self.config.channel_assignment)
-                await self.setup_feed(websocket, self.config.channel_assignment)
-                await self.subscribe_to_feed(websocket, self.config.channel_assignment)
-
-                await listener_task
-
-            except asyncio.CancelledError:
-                logger.info("Listener task was cancelled")
-            except Exception as e:
-                logger.error("An error occurred: %s", e)
-            finally:
-                await session.close_session()
-
-    async def setup_connection(self, websocket: ClientConnection):
-        setup = json.dumps(
-            {
-                "type": "SETUP",
-                "channel": 0,
-                "version": self.config.version,
-                "keepaliveTimeout": self.config.keepalive_timeout,
-                "acceptKeepaliveTimeout": 60,
-            }
-        )
-        await asyncio.wait_for(websocket.send(setup), timeout=5)
-
-    async def channel_listener(self, websocket: ClientConnection):
-        while True:
-            try:
-                await self.parse_message(websocket)
-
-            except asyncio.TimeoutError:
-                print("Receiving operation timed out\n")
-                break
-            except Exception as e:
-                print(f"An error occurred: {e}\n")
-                break
-
-    async def parse_message(self, websocket: ClientConnection):
-        try:
-            reply = await asyncio.wait_for(websocket.recv(), timeout=45)
-            reply_data = json.loads(reply)
-            await self.message_handler.route_message(reply_data, websocket)
-
-        except asyncio.TimeoutError:
-            print("Receiving operation timed out\n")
-        except Exception as e:
-            print(f"An error occurred: {e}\n")
-
-    async def authorize_connection(self, websocket: ClientConnection, token: str):
-        authorize = json.dumps({"type": "AUTH", "channel": 0, "token": token})
-        await asyncio.wait_for(websocket.send(authorize), timeout=5)
-
-    async def request_channel(self, websocket: ClientConnection, channel: int):
         channel_request = json.dumps(
             {
                 "type": "CHANNEL_REQUEST",
@@ -404,13 +346,11 @@ class DXLinkClient:
                 "parameters": {"contract": "AUTO"},
             }
         )
-        await asyncio.wait_for(websocket.send(channel_request), timeout=5)
+        await asyncio.wait_for(self.websocket.send(channel_request), timeout=5)
 
-    # async def keepalive(self, websocket: ClientConnection):
-    #     await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
-    #     logger.debug("KEEPALIVE [local]")
-
-    async def setup_feed(self, websocket: ClientConnection, channel: int):
+    async def setup_feed(self, channel: int):
+        if not self.websocket:
+            raise RuntimeError("WebSocket is not connected")
 
         feed = json.dumps(
             {
@@ -466,9 +406,12 @@ class DXLinkClient:
             }
         )
 
-        await websocket.send(feed)
+        await self.websocket.send(feed)
 
-    async def subscribe_to_feed(self, websocket: ClientConnection, channel: int):
+    async def subscribe_to_feed(self, channel: int):
+        if not self.websocket:
+            raise RuntimeError("WebSocket is not connected")
+
         feed_subscription = json.dumps(
             {
                 "type": "FEED_SUBSCRIPTION",
@@ -495,7 +438,7 @@ class DXLinkClient:
             }
         )
 
-        await websocket.send(feed_subscription)
+        await self.websocket.send(feed_subscription)
 
 
 async def main():
@@ -506,11 +449,11 @@ async def main():
         await session.close_session()
 
 
-if __name__ == "__main__":
-    # Test AsyncSession
-    # setup_logging(logging.DEBUG)
-    # asyncio.run(main())
+# if __name__ == "__main__":
+# Test AsyncSession
+# setup_logging(logging.DEBUG)
+# asyncio.run(main())
 
-    # Test DXLinkClient
-    setup_logging(logging.INFO)
-    asyncio.run(DXLinkClient(MessageHandler()).connect(Credentials("Live")))
+# Test DXLinkClient
+# setup_logging(logging.INFO)
+# asyncio.run(DXLinkClient(MessageHandler()).connect(Credentials("Live")))
