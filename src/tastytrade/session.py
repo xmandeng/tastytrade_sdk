@@ -14,7 +14,6 @@ from websockets.asyncio.client import ClientConnection, connect
 from tastytrade import Credentials
 from tastytrade.exceptions import validate_async_response, validate_response
 from tastytrade.messages import MessageHandler
-from tastytrade.utilties import setup_logging
 
 QueryParams = Optional[dict[str, Any]]
 
@@ -195,19 +194,16 @@ class WebSocketManager:
         self.url = session.session.headers["dxlink-url"]
         self.token = session.session.headers["token"]
         self.message_handler = message_handler
-        self.websocket: Optional[ClientConnection] = None
+        self.websocket: ClientConnection
         self.channels: dict[int, str] = {}
         self.lock = asyncio.Lock()
 
     async def __aenter__(self):
         self.websocket = await connect(self.url)
-
         self.listener_task = asyncio.create_task(self.websocket_listener())
 
         try:
-
             await self.setup_connection()
-
             await self.authorize_connection()
 
         except Exception as e:
@@ -237,21 +233,6 @@ class WebSocketManager:
             self.websocket = None
             logger.info("WEBSOCKET - Closed")
 
-    async def request_channel(self, channel: int, service: str = "undefined") -> None:
-        if not self.websocket:
-            raise RuntimeError("WebSocket is not connected")
-
-        channel_request = json.dumps(
-            {
-                "type": "CHANNEL_REQUEST",
-                "channel": channel,
-                "service": "FEED",
-                "parameters": {"contract": "AUTO"},
-            }
-        )
-        await asyncio.wait_for(self.websocket.send(channel_request), timeout=5)
-        self.channels[channel] = service
-
     async def setup_connection(self):
         setup = json.dumps(
             {
@@ -268,12 +249,6 @@ class WebSocketManager:
         authorize = json.dumps({"type": "AUTH", "channel": 0, "token": self.token})
         await asyncio.wait_for(self.websocket.send(authorize), timeout=5)
 
-    async def test(self):
-        setup_logging(logging.DEBUG)
-        await self.get_connection()
-        await self.setup_connection()
-        await self.authorize_connection()
-
     async def websocket_listener(self):
         while True:
             try:
@@ -286,10 +261,6 @@ class WebSocketManager:
                 break
 
     async def parse_message(self) -> None:
-        if not self.websocket:
-            logger.info("WebSocket is not connected")
-            return
-
         try:
             reply = await asyncio.wait_for(self.websocket.recv(), timeout=45)
             reply_data = json.loads(reply)
@@ -299,12 +270,6 @@ class WebSocketManager:
             print("Receiving operation timed out\n")
         except Exception as e:
             print(f"An error occurred: {e}\n")
-
-    async def get_connection(self):
-        async with self.lock:
-            if self.websocket:
-                return self.websocket
-            logger.info("WebSocket not connected")
 
 
 @dataclass
@@ -335,9 +300,6 @@ class DXLinkClient:
         self.message_handler = message_handler
 
     async def request_channel(self, channel: int):
-        if not self.websocket:
-            raise RuntimeError("WebSocket is not connected")
-
         channel_request = json.dumps(
             {
                 "type": "CHANNEL_REQUEST",
@@ -349,9 +311,6 @@ class DXLinkClient:
         await asyncio.wait_for(self.websocket.send(channel_request), timeout=5)
 
     async def setup_feed(self, channel: int):
-        if not self.websocket:
-            raise RuntimeError("WebSocket is not connected")
-
         feed = json.dumps(
             {
                 "type": "FEED_SETUP",
@@ -409,9 +368,6 @@ class DXLinkClient:
         await self.websocket.send(feed)
 
     async def subscribe_to_feed(self, channel: int):
-        if not self.websocket:
-            raise RuntimeError("WebSocket is not connected")
-
         feed_subscription = json.dumps(
             {
                 "type": "FEED_SUBSCRIPTION",
