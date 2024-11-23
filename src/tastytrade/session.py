@@ -199,6 +199,13 @@ class WebSocketManager:
         self.lock = asyncio.Lock()
 
     async def __aenter__(self):
+        await self.open()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb, *args, **kwargs):
+        await self.close()
+
+    async def open(self):
         self.websocket = await connect(self.url)
         self.listener_task = asyncio.create_task(self.websocket_listener())
 
@@ -212,14 +219,12 @@ class WebSocketManager:
             self.websocket = None
             raise e
 
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await asyncio.sleep(0.25)
-
+    async def close(self):
         if self.session in self.sessions:
             del self.sessions[self.session]
-        if self.websocket:
+
+        if hasattr(self, "websocket"):
+            await asyncio.sleep(0.25)
             if hasattr(self, "listener_task"):
                 try:
                     # Tip: Must cancel listener_task then catch CancelledError
@@ -232,6 +237,8 @@ class WebSocketManager:
             await self.websocket.close()
             self.websocket = None
             logger.info("WEBSOCKET - Closed")
+        else:
+            logger.warning("WEBSOCKET - No active connection to close")
 
     async def setup_connection(self):
         setup = json.dumps(
@@ -263,8 +270,7 @@ class WebSocketManager:
     async def parse_message(self) -> None:
         try:
             reply = await asyncio.wait_for(self.websocket.recv(), timeout=45)
-            reply_data = json.loads(reply)
-            await self.message_handler.route_message(reply_data, self.websocket)
+            await self.message_handler.route_message(json.loads(reply), self.websocket)
 
         except asyncio.TimeoutError:
             print("Receiving operation timed out\n")
@@ -398,7 +404,7 @@ class DXLinkClient:
 
 
 async def main():
-
+    # TODO Get rid of this
     try:
         session = await AsyncSessionHandler.create(Credentials(env="Test"))
     finally:
