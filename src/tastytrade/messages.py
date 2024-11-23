@@ -18,7 +18,6 @@ class Message:
 
 class BaseMessageHandler(ABC):
     async def process_message(self, message: Message, websocket: ClientConnection) -> None:
-        logger.debug(f"Processing message type: {message.type}")
         await self.handle_message(message, websocket)
 
     @abstractmethod
