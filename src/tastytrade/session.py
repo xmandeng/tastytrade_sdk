@@ -180,7 +180,7 @@ class WebSocketManager:
     sessions: dict[AsyncSessionHandler, "WebSocketManager"] = {}
     listener_task: asyncio.Task
 
-    # only one instance per session
+    # allow only one instance per session
     def __new__(cls, session):
         if session not in cls.sessions:
             cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
@@ -191,6 +191,7 @@ class WebSocketManager:
         session: AsyncSessionHandler,
         message_handler: MessageHandler = MessageHandler(),
     ):
+        self.session = session
         self.url = session.session.headers["dxlink-url"]
         self.token = session.session.headers["token"]
         self.message_handler = message_handler
@@ -219,6 +220,9 @@ class WebSocketManager:
 
     async def __aexit__(self, exc_type, exc, tb):
         await asyncio.sleep(0.25)
+
+        if self.session in self.sessions:
+            del self.sessions[self.session]
         if self.websocket:
             if hasattr(self, "listener_task"):
                 try:
