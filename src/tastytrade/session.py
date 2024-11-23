@@ -261,21 +261,22 @@ class WebSocketManager:
             try:
                 await self.parse_message()
             except asyncio.CancelledError:
-                logger.info("LISTENER - Stopped")
+                logger.info("Websocket listener stopped")
                 break
             except Exception as e:
-                logger.error(f"LISTENER ERROR: {e}")
+                logger.error("Websocket listener error: %s", e)
                 break
 
     async def parse_message(self) -> None:
         try:
             reply = await asyncio.wait_for(self.websocket.recv(), timeout=45)
             await self.message_handler.route_message(json.loads(reply), self.websocket)
-
         except asyncio.TimeoutError:
-            print("Receiving operation timed out\n")
+            logging.error("Receiving operation timed out\n")
+            raise asyncio.TimeoutError("Receiving operation timed out")
         except Exception as e:
-            print(f"An error occurred: {e}\n")
+            logging.error("An error occurred: %s", e)
+            raise Exception(f"An error occurred: {e}")
 
 
 @dataclass
