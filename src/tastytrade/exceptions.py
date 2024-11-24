@@ -106,16 +106,16 @@ def validate_response(response: requests.Response) -> bool:
             response.json()
             return True
         except JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error("Failed to parse JSON response: %s", e)
             raise ResponseParsingError(response)
 
     # Handle known error status codes
     elif error_class := error_map.get(response.status_code):
-        logger.error(f"API error: {response.status_code} - {response.text}")
+        logger.error("API error: %s - %s", response.status_code, response.text)
         raise error_class(response)
 
     # Handle unknown error status codes
-    logger.error(f"Unknown error: {response.status_code} - {response.text}")
+    logger.error("Unknown error: %s - %s", response.status_code, response.text)
     raise UnknownError(response)
 
 

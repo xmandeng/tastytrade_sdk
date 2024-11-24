@@ -134,4 +134,4 @@ class MessageHandler:
         if handler := self.handlers.get(message.type):
             await handler.process_message(message, websocket)
         else:
-            logger.warning(f"No handler found for message type: {message.type}")
+            logger.warning("No handler found for message type: %s", message.type)

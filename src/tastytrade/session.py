@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from asyncio import Semaphore
+from asyncio import Queue, Semaphore
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
@@ -166,8 +166,8 @@ class SessionHandler:
             logger.info("Session closed")
             self.is_active = False
         else:
-            logger.error(f"Failed to close session [{response.status_code}]")
-            raise Exception(f"Failed to close session [{response.status_code}]")
+            logger.error("Failed to close session [%s]", response.status_code)
+            raise Exception("Failed to close session [%s]", response.status_code)
 
     def is_session_active(self) -> bool:
         """Check if the session is active."""
@@ -274,6 +274,8 @@ class WebSocketManager:
         self.websocket: ClientConnection
         self.channels: dict[int, str] = {}
         self.lock = asyncio.Lock()
+        self.message_queue: Queue = Queue()
+        self.processor_task: Optional[asyncio.Task] = None
 
     async def __aenter__(self):
         await self.open()
@@ -285,13 +287,14 @@ class WebSocketManager:
     async def open(self):
         self.websocket = await connect(self.url)
         self.listener_task = asyncio.create_task(self.websocket_listener())
+        self.processor_task = asyncio.create_task(self.process_message_queue())
 
         try:
             await self.setup_connection()
             await self.authorize_connection()
 
         except Exception as e:
-            logger.error(f"Error during setup or authorization: {e}")
+            logger.error("Error during setup or authorization: %s", e)
             await self.websocket.close()
             self.websocket = None
             raise e
@@ -302,14 +305,14 @@ class WebSocketManager:
 
         if hasattr(self, "websocket"):
             await asyncio.sleep(0.25)
-            if hasattr(self, "listener_task"):
-                try:
-                    # Tip: Must cancel listener_task then catch CancelledError
-                    self.listener_task.cancel()
-                    await self.listener_task
 
-                except asyncio.CancelledError:
-                    logger.info("Listener task was cancelled")
+            for task in [self.listener_task, self.processor_task]:
+                if task:
+                    try:
+                        task.cancel()
+                        await task
+                    except asyncio.CancelledError:
+                        logger.info("%s task was cancelled", task.get_name())
 
             await self.websocket.close()
             self.websocket = None
@@ -336,24 +339,31 @@ class WebSocketManager:
     async def websocket_listener(self):
         while True:
             try:
-                await self.parse_message()
+                message = await self.websocket.recv()
+                parsed_message = json.loads(message)
+                await self.message_queue.put(parsed_message)
             except asyncio.CancelledError:
                 logger.info("Websocket listener stopped")
                 break
+            except json.JSONDecodeError as e:
+                logger.error("Invalid JSON received: %s", e)
             except Exception as e:
                 logger.error("Websocket listener error: %s", e)
                 break
 
-    async def parse_message(self) -> None:
-        try:
-            reply = await asyncio.wait_for(self.websocket.recv(), timeout=45)
-            await self.message_handler.route_message(json.loads(reply), self.websocket)
-        except asyncio.TimeoutError:
-            logging.error("Receiving operation timed out\n")
-            raise asyncio.TimeoutError("Receiving operation timed out")
-        except Exception as e:
-            logging.error("An error occurred: %s", e)
-            raise Exception(f"An error occurred: {e}")
+    async def process_message_queue(self):
+        while True:
+            try:
+                message = await self.message_queue.get()
+                try:
+                    await self.message_handler.route_message(message, self.websocket)
+                except Exception as e:
+                    logger.error("Error processing message: %s", e)
+                finally:
+                    self.message_queue.task_done()
+            except asyncio.CancelledError:
+                logger.info("Queue processor stopped")
+                break
 
 
 @dataclass
