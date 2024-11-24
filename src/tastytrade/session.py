@@ -352,6 +352,7 @@ class WebSocketManager:
                 break
 
     async def process_message_queue(self):
+        # TODO Too nested, clean up this flow!
         while True:
             try:
                 message = await self.message_queue.get()
