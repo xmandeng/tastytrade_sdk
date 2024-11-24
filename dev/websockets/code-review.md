@@ -80,7 +80,7 @@ class DXLinkClient:
                     await self.setup_connection(websocket)
                     return websocket
             except Exception as e:
-                logger.error(f"Connection attempt {attempt + 1} failed: {e}")
+                logger.error("Connection attempt %s failed: %s", str(attempt + 1), e)
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delay)
         raise ConnectionError("Failed to establish connection after maximum retries")
