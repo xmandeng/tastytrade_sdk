@@ -16,7 +16,6 @@ class EventParser:
     def __init__(self) -> None:
         self.parsers: Dict[str, Callable[[list], EventType]] = {
             "Trade": self.parse_trade,
-            "TradeETH": self.parse_trade,  # ? Uses same structure as Trade
             "Quote": self.parse_quote,
             "Greeks": self.parse_greeks,
             "Profile": self.parse_profile,

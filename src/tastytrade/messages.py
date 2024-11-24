@@ -37,6 +37,17 @@ class BaseMessageHandler(ABC):
         pass
 
 
+class KeepaliveHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.info("%s:Received", message.type)
+        await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
+
+
+class ErrorHandler(BaseMessageHandler):
+    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
+        logger.error("%s:%s", message.data.get("error"), message.data.get("message"))
+
+
 class SetupHandler(BaseMessageHandler):
     async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
         logger.info("%s", message.type)
@@ -74,11 +85,11 @@ class FeedDataHandler(BaseMessageHandler):
             "Summary": [],
         }
 
-    # def add_callback(
-    #     self, event_type: str, callback: CallbackType, symbols: Optional[List[str]] = None
-    # ) -> None:
-    #     """Register a callback for specific event type and optionally specific symbols."""
-    #     self.callbacks[event_type].append(EventCallback(callback, symbols))
+    def add_callback(
+        self, event_type: str, callback: CallbackType, symbols: Optional[List[str]] = None
+    ) -> None:
+        """Register a callback for specific event type and optionally specific symbols."""
+        self.callbacks[event_type].append(EventCallback(callback, symbols))
 
     async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
         try:
@@ -97,17 +108,6 @@ class FeedDataHandler(BaseMessageHandler):
 
         except Exception as e:
             logger.error("Error processing feed data: %s", e)
-
-
-class KeepaliveHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        logger.info("%s:Received", message.type)
-        await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
-
-
-class ErrorHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
-        logger.error("%s:%s", message.data.get("error"), message.data.get("message"))
 
 
 class MessageHandler:

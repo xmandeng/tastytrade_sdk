@@ -11,9 +11,11 @@ def to_decimal(value: str | float | None) -> Optional[Decimal]:
     return Decimal(str(value))
 
 
-class BaseEvent(BaseModel):
-    """Base class for all market data events."""
+def dash_to_underscore(value: str) -> str:
+    return value.replace("-", "_")
 
+
+class BaseEvent(BaseModel):
     model_config = ConfigDict(
         frozen=True,  # Make models immutable
         validate_assignment=True,  # Validate during assignment
@@ -26,8 +28,6 @@ class BaseEvent(BaseModel):
 
 
 class TradeEvent(BaseEvent):
-    """Represents a trade execution event."""
-
     price: Decimal = Field(
         default=Decimal("0"),
         description="Execution price of the trade",
@@ -51,8 +51,6 @@ class TradeEvent(BaseEvent):
 
 
 class QuoteEvent(BaseEvent):
-    """Represents a quote update event."""
-
     bid_price: Decimal = Field(description="Best bid price", ge=0)
     ask_price: Decimal = Field(description="Best ask price", ge=0)
     bid_size: Decimal = Field(description="Size available at bid price", ge=0)
@@ -72,8 +70,6 @@ class QuoteEvent(BaseEvent):
 
 
 class GreeksEvent(BaseEvent):
-    """Represents option Greeks data."""
-
     volatility: Decimal = Field(description="Implied volatility", ge=0)
     delta: Decimal = Field(description="Delta greek", ge=-1, le=1)
     gamma: Decimal = Field(description="Gamma greek", ge=0)
@@ -88,8 +84,6 @@ class GreeksEvent(BaseEvent):
 
 
 class ProfileEvent(BaseEvent):
-    """Represents instrument profile data."""
-
     description: str = Field(description="Instrument description")
     short_sale_restriction: str = Field(description="Short sale restriction status")
     trading_status: str = Field(description="Current trading status")
@@ -139,8 +133,6 @@ class ProfileEvent(BaseEvent):
 
 
 class SummaryEvent(BaseEvent):
-    """Represents daily summary data."""
-
     open_interest: Optional[Decimal] = Field(default=None, description="Open interest", ge=0)
     day_open_price: Decimal = Field(description="Opening price for the day", ge=0)
     day_high_price: Decimal = Field(description="Highest price for the day", ge=0)

@@ -386,11 +386,9 @@ class DXLinkClient:
                     {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
                     {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
                     {"type": "Trade", "symbol": "SPY"},
-                    {"type": "TradeETH", "symbol": "SPY"},  # WHY SPXY on TradeETH
                     {"type": "Quote", "symbol": "SPX"},
                     {"type": "Profile", "symbol": "SPY"},
                     {"type": "Summary", "symbol": "SPY"},
-                    {"type": "Quote", "symbol": "SPX"},
                     {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
                     {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5895"},
                     {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5885"},
@@ -410,13 +408,3 @@ async def main():
         session = await AsyncSessionHandler.create(Credentials(env="Test"))
     finally:
         await session.close()
-
-
-# if __name__ == "__main__":
-# Test AsyncSession
-# setup_logging(logging.DEBUG)
-# asyncio.run(main())
-
-# Test DXLinkClient
-# setup_logging(logging.INFO)
-# asyncio.run(DXLinkClient(MessageHandler()).connect(Credentials("Live")))
