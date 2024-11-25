@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from tastytrade import Credentials
+from tastytrade.sessions import Credentials
 from tastytrade.sessions.requests import AsyncSessionHandler
 from tastytrade.utils.logging import setup_logging
 
