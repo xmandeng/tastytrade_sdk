@@ -7,7 +7,7 @@ from typing import Any, Optional
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
-from tastytrade import Credentials
+from tastytrade.sessions import Credentials
 from tastytrade.sessions.messages import MessageHandler
 from tastytrade.sessions.requests import AsyncSessionHandler
 
