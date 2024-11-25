@@ -1,6 +1,6 @@
 from typing import Callable, Dict, Optional
 
-from tastytrade.models import (
+from tastytrade.sessions.models import (
     EventType,
     GreeksEvent,
     ProfileEvent,

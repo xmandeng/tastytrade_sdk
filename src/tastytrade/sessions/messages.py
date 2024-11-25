@@ -1,4 +1,3 @@
-import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -6,8 +5,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from websockets.asyncio.client import ClientConnection
 
-from .models import EventType
-from .parsers import EventParser
+from tastytrade.sessions.models import EventType
+from tastytrade.sessions.parsers import EventParser
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class BaseMessageHandler(ABC):
 class KeepaliveHandler(BaseMessageHandler):
     async def handle_message(self, message: Message, websocket: ClientConnection) -> None:
         logger.info("%s:Received", message.type)
-        await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
+        # await websocket.send(json.dumps({"type": "KEEPALIVE", "channel": 0}))
 
 
 class ErrorHandler(BaseMessageHandler):
