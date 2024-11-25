@@ -1,14 +1,13 @@
 import asyncio
 import json
 import logging
-from asyncio import Queue
 from typing import Any, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
 from tastytrade.sessions import Credentials
-from tastytrade.sessions.messages import MessageHandler
+from tastytrade.sessions.messages import MessageHandler, MessageQueue
 from tastytrade.sessions.requests import AsyncSessionHandler
 
 QueryParams = Optional[dict[str, Any]]
@@ -21,7 +20,6 @@ class WebSocketManager:
 
     listener_task: asyncio.Task
     websocket: ClientConnection
-    message_queue: Queue = Queue()
     sessions: dict[AsyncSessionHandler, "WebSocketManager"] = {}
     lock = asyncio.Lock()
 
@@ -40,7 +38,7 @@ class WebSocketManager:
         self.url = session.session.headers["dxlink-url"]
         self.token = session.session.headers["token"]
         self.message_handler = message_handler
-
+        self.message_queue = MessageQueue()
         self.channels: dict[int, str] = {}
         self.processor_task: Optional[asyncio.Task] = None
 
@@ -73,13 +71,30 @@ class WebSocketManager:
         if hasattr(self, "websocket"):
             await asyncio.sleep(0.25)
 
-            for task in [self.listener_task, self.processor_task]:
-                if task:
-                    try:
-                        task.cancel()
-                        await task
-                    except asyncio.CancelledError:
-                        logger.info("%s task was cancelled", task.get_name())
+            # Cancel listener to stop receiving new messages
+            if self.listener_task:
+                try:
+                    self.listener_task.cancel()
+                    await self.listener_task
+                    logger.info("Listener task cancelled")
+                except asyncio.CancelledError:
+                    logger.info("Listener task was cancelled")
+
+            # Wait to process remaining enqueued messages
+            try:
+                await asyncio.wait_for(self.message_queue.join(), timeout=5.0)
+                logger.info("All queued messages processed")
+            except asyncio.TimeoutError:
+                logger.warning("Timed out waiting for message queue to empty")
+
+            # Cancel Queue processor task
+            if self.processor_task:
+                try:
+                    self.processor_task.cancel()
+                    await self.processor_task
+                    logger.info("Processor task cancelled")
+                except asyncio.CancelledError:
+                    logger.info("Processor task was cancelled")
 
             await self.websocket.close()
             self.websocket = None

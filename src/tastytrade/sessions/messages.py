@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -131,6 +132,34 @@ class MessageHandler:
         )
 
         if handler := self.handlers.get(message.type):
+            # sample message: {"type":"FEED_DATA","channel":1,"data":["Quote",["Quote",".SPXW241125P5990",10.5,10.7,4.0,24.0,"Quote",".SPXW241125P5980",5.1,5.3,96.0,55.0,"Quote",".SPXW241125P5970",2.4,2.5,63.0,116.0]]}
             await handler.process_message(message, websocket)
         else:
             logger.warning("No handler found for message type: %s", message.type)
+
+
+class MessageQueue:
+    """MessageQueue is a singleton for processing websocket messages."""
+
+    instance = None
+
+    def __new__(cls):
+        if cls.instance is None:
+            cls.instance = object.__new__(cls)
+        return cls.instance
+
+    def __init__(self):
+        if not hasattr(self, "queue"):
+            self.queue = asyncio.Queue()
+
+    async def put(self, message: Any) -> None:
+        await self.queue.put(message)
+
+    async def get(self) -> Any:
+        return await self.queue.get()
+
+    def task_done(self) -> None:
+        self.queue.task_done()
+
+    async def join(self) -> None:
+        await self.queue.join()
