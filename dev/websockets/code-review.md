@@ -80,7 +80,7 @@ class DXLinkClient:
                     await self.setup_connection(websocket)
                     return websocket
             except Exception as e:
-                logger.error(f"Connection attempt {attempt + 1} failed: {e}")
+                logger.error("Connection attempt %s failed: %s", str(attempt + 1), e)
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delay)
         raise ConnectionError("Failed to establish connection after maximum retries")
@@ -115,7 +115,7 @@ class AuthenticationError(Exception): pass
 class SubscriptionError(Exception): pass
 ```
 
-2. **Async Context Manager**: Consider making DXLinkClient an async context manager:
+2. ~~**Async Context Manager**: Consider making DXLinkClient an async context manager:~~ **<span style="color:green">Done</span>**
 ```python
 class DXLinkClient:
     async def __aenter__(self):
@@ -166,7 +166,7 @@ class DXLinkClient:
             self.message_queue.task_done()
 ```
 
-2. Consider implementing rate limiting for subscriptions:
+2. ~~Consider implementing rate limiting for subscriptions:~~  **<span style="color:green">Done</span>**
 ```python
 from asyncio import Semaphore
 

@@ -1,6 +1,6 @@
 import requests
 
-from tastytrade.session import SessionHandler
+from tastytrade.sessions.requests import SessionHandler
 
 
 def request_options_chains(session: SessionHandler, symbol: str) -> requests.Response:
