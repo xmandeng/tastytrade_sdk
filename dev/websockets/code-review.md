@@ -1,9 +1,11 @@
 # AI Code Review: TastyTrade SDK Markets.py
 
 ## Overall Structure
+
 The `DXLinkClient` implementation shows good organization of WebSocket communication with the TastyTrade API. Here are the key observations and suggestions:
 
 ### Strengths
+
 1. Clear separation of concerns with methods handling specific tasks (setup, authorization, channel management)
 2. Good use of asyncio for handling WebSocket communications
 3. Proper error handling with try/except blocks
@@ -12,6 +14,7 @@ The `DXLinkClient` implementation shows good organization of WebSocket communica
 ### Areas for Enhancement
 
 #### 1. ~~Configuration Management~~ **<span style="color:green">Done</span>**
+
 ```python
 # Consider extracting these to a configuration class or constants
 KEEPALIVE_TIMEOUT = 60
@@ -20,6 +23,7 @@ DEFAULT_CHANNEL = 1
 ```
 
 #### 2. ~~Message Handling~~ **<span style="color:green">Done</span>**
+
 The current message handling could be restructured using a more maintainable pattern:
 
 ```python
@@ -43,6 +47,7 @@ class DXLinkClient:
 ```
 
 #### 3. Subscription Management
+
 Consider creating a dedicated class for managing subscriptions:
 
 ```python
@@ -69,6 +74,7 @@ class SubscriptionManager:
 ```
 
 #### 4. Connection Management
+
 Consider implementing reconnection logic:
 
 ```python
@@ -85,7 +91,9 @@ class DXLinkClient:
                     await asyncio.sleep(delay)
         raise ConnectionError("Failed to establish connection after maximum retries")
 ```
+
 #### 5. Data Processing **<span style="color:red">PRIORITY</span>**
+
 Consider implementing a data processing pipeline:
 
 ```python
@@ -105,10 +113,10 @@ class DXLinkClient:
         self.data_processor = DataProcessor()
 ```
 
-
 ### Specific Suggestions
 
 1. **Error Handling**: Consider implementing more specific error types:
+
 ```python
 class WebSocketConnectionError(Exception): pass
 class AuthenticationError(Exception): pass
@@ -116,6 +124,7 @@ class SubscriptionError(Exception): pass
 ```
 
 2. ~~**Async Context Manager**: Consider making DXLinkClient an async context manager:~~ **<span style="color:green">Done</span>**
+
 ```python
 class DXLinkClient:
     async def __aenter__(self):
@@ -127,6 +136,7 @@ class DXLinkClient:
 ```
 
 3. **Type Hints**: Consider adding more comprehensive type hints:
+
 ```python
 from typing import Optional, Dict, Any, List
 
@@ -139,6 +149,7 @@ class DXLinkClient:
 ```
 
 4. ~~**Configuration**: Consider moving hardcoded values to a configuration class:~~ **<span style="color:green">Done</span>**
+
 ```python
 @dataclass
 class DXLinkConfig:
@@ -152,6 +163,7 @@ class DXLinkConfig:
 ### Performance Considerations
 
 1. Consider using a message queue for handling high-volume data:
+
 ```python
 from asyncio import Queue
 
@@ -167,6 +179,7 @@ class DXLinkClient:
 ```
 
 2. ~~Consider implementing rate limiting for subscriptions:~~  **<span style="color:green">Done</span>**
+
 ```python
 from asyncio import Semaphore
 
@@ -182,6 +195,7 @@ class DXLinkClient:
 ### Testing Considerations
 
 Consider adding these test scenarios:
+
 1. Connection handling
 2. Message parsing
 3. Subscription management
@@ -190,6 +204,7 @@ Consider adding these test scenarios:
 6. Data processing pipeline
 
 Example test structure:
+
 ```python
 import pytest
 import asyncio
