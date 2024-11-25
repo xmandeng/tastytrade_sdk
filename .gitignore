@@ -34,6 +34,7 @@ ENV/
 .vscode/
 .ruff_cache/
 .mypy_cache/
+.pytest_cache/
 *.swp
 *.swo
 
