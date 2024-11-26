@@ -49,3 +49,5 @@ test.py
 test.ipynb
 
 .DS_Store
+
+*.txt
