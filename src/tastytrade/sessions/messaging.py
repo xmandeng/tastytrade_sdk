@@ -134,7 +134,7 @@ class MessageHandler:
                 )
 
                 logger.info(
-                    "** TODO - Process received message on %s channel %s: %s",
+                    "### TODO ### Process received message on %s channel %s: %s",
                     Channels(channel).name,
                     channel,
                     message.get("type"),
