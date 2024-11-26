@@ -71,17 +71,19 @@ class AuthStateHandler(BaseMessageHandler):
 
 class ChannelOpenedHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
-        logger.info("%s:%s", message.data.get("type"), message.data.get("channel"))
+        message_type = message.data.get("type")
+        channel = Channels(message.data.get("channel")).value
+        event = Channels(message.data.get("channel")).name
+        logger.info("%s:%s:%s", message_type, channel, event)
 
 
 class FeedConfigHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
-        logger.info(
-            "%s:%s:%s",
-            message.data.get("type"),
-            message.data.get("channel"),
-            message.data.get("dataFormat"),
-        )
+        message_type = message.data.get("type")
+        channel = Channels(message.data.get("channel")).value
+        event = Channels(message.data.get("channel")).name
+        data_format = message.data.get("dataFormat")
+        logger.info("%s:%s:%s:%s", message_type, channel, data_format, event)
 
 
 class FeedDataHandler(BaseMessageHandler):
@@ -93,34 +95,25 @@ class FeedDataHandler(BaseMessageHandler):
 
 
 class MessageHandler:
-    """Routes messages to appropriate handlers."""
+    queue_manager = MessageQueues()
+    tasks: List[asyncio.Task] = []
+    shutdown = asyncio.Event()
+
+    control_handlers: Dict[str, BaseMessageHandler] = {
+        "SETUP": SetupHandler(),
+        "AUTH_STATE": AuthStateHandler(),
+        "FEED_CONFIG": FeedConfigHandler(),
+        "FEED_DATA": FeedDataHandler(),
+        "KEEPALIVE": KeepaliveHandler(),
+        "CHANNEL_OPENED": ChannelOpenedHandler(),
+        "ERROR": ErrorHandler(),
+    }
+
+    event_handlers: Dict[str, BaseMessageHandler] = {}
 
     def __init__(self) -> None:
-        self.queue_manager = MessageQueues()
-        self.tasks: List[asyncio.Task] = []
-        self.shutdown = asyncio.Event()
-
-        self.control_handlers: Dict[str, BaseMessageHandler] = {
-            "SETUP": SetupHandler(),
-            "AUTH_STATE": AuthStateHandler(),
-            "FEED_CONFIG": FeedConfigHandler(),
-            "FEED_DATA": FeedDataHandler(),
-            "KEEPALIVE": KeepaliveHandler(),
-            "CHANNEL_OPENED": ChannelOpenedHandler(),
-            "ERROR": ErrorHandler(),
-        }
-
-        self.feed_handlers: Dict[str, BaseMessageHandler] = {}
-
-        # TODO Handle control signals separate from subscription feeds
-
         for channel in self.queue_manager.queues:
-
-            if channel == 0:
-                router = self.control_handler
-            else:
-                logger.info("Feed handler for channel: %s", channel)
-                continue
+            router = self.control_handler if channel == 0 else self.event_handler
 
             task = asyncio.create_task(
                 self.queue_listener(channel, router), name=f"queue_listener_ch{channel}"
@@ -128,12 +121,16 @@ class MessageHandler:
             self.tasks.append(task)
 
     async def queue_listener(
-        self, channel: int, router: Callable[[Dict[str, Any]], Awaitable[None]]
+        self, channel: int, router: Callable[[Message], Awaitable[None]]
     ) -> None:
         while not self.shutdown.is_set():
             try:
-                message = await asyncio.wait_for(
-                    self.queue_manager.queues[channel].get(), timeout=1
+                reply = await asyncio.wait_for(self.queue_manager.queues[channel].get(), timeout=1)
+
+                message = Message(
+                    type=reply.get("type", "UNKNOWN"),
+                    channel=reply.get("channel", 0),
+                    data=reply,
                 )
 
                 await asyncio.wait_for(router(message), timeout=1)
@@ -149,15 +146,32 @@ class MessageHandler:
                 logger.error("Error in queue listener for channel %s: %s", channel, e)
                 break
 
-    async def control_handler(self, raw_message: Dict[str, Any]) -> None:
-        message = Message(
-            type=raw_message.get("type", "UNKNOWN"),
-            channel=raw_message.get("channel", 0),
-            data=raw_message,
-        )
+    async def event_handler(self, message: Message) -> None:
+        """Read message payload and parse using Channels enum.
 
+        # TODO - Parse event using Channels enum
+
+        Sample message:
+
+        {
+            "type": "FEED_DATA",
+            "channel": 3,
+            "data": [
+                "Quote",
+                [
+                    "Quote",".SPXW241125P5990",10.5,10.7,4.0,24.0,
+                    "Quote",".SPXW241125P5980",5.1,5.3,96.0,55.0,
+                    "Quote",".SPXW241125P5970",2.4,2.5,63.0,116.0,
+                ],
+            ],
+        }
+
+        """
+        logger.info("Event handler for channel %s: %s", message.channel, message.data)
+
+    async def control_handler(self, message: Message) -> None:
+        """Read message headers and dispatch to the appropriate handler."""
         if handler := self.control_handlers.get(message.type):
-            # sample message: {"type":"FEED_DATA","channel":1,"data":["Quote",["Quote",".SPXW241125P5990",10.5,10.7,4.0,24.0,"Quote",".SPXW241125P5980",5.1,5.3,96.0,55.0,"Quote",".SPXW241125P5970",2.4,2.5,63.0,116.0]]}
             await handler.process_message(message)
         else:
             logger.warning("No handler found for message type: %s", message.type)
@@ -179,4 +193,4 @@ class MessageHandler:
             task.cancel()
 
         await asyncio.gather(*self.tasks, return_exceptions=True)
-        logger.info("Message handler stopped")
+        logger.info("Message handlers stopped")

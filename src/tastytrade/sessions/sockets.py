@@ -145,7 +145,7 @@ class WebSocketManager:
                 parsed_message = json.loads(message)
                 channel = (
                     parsed_message.get("channel", 0)
-                    if parsed_message.get("type") == "DATA_FEED"
+                    if parsed_message.get("type") == "FEED_DATA"
                     else 0
                 )
 
