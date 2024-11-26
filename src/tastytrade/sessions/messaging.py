@@ -99,6 +99,15 @@ class MessageHandler:
         self.queue_manager = MessageQueues()
         self.tasks: List[asyncio.Task] = []
         self.shutdown = asyncio.Event()
+        self.handlers: Dict[str, BaseMessageHandler] = {
+            "SETUP": SetupHandler(),
+            "AUTH_STATE": AuthStateHandler(),
+            "FEED_CONFIG": FeedConfigHandler(),
+            "FEED_DATA": FeedDataHandler(),
+            "KEEPALIVE": KeepaliveHandler(),
+            "CHANNEL_OPENED": ChannelOpenedHandler(),
+            "ERROR": ErrorHandler(),
+        }
 
         for channel in self.queue_manager.queues:
             task = asyncio.create_task(
@@ -123,6 +132,7 @@ class MessageHandler:
             task.cancel()
 
         await asyncio.gather(*self.tasks, return_exceptions=True)
+        logger.info("Message handler stopped")
 
     async def queue_listener(self, channel: int) -> None:
         while not self.shutdown.is_set():
@@ -131,12 +141,7 @@ class MessageHandler:
                     self.queue_manager.queues[channel].get(), timeout=1
                 )
 
-                logger.info(
-                    "### TODO ### Process received message on %s channel %s: %s",
-                    Channels(channel).name,
-                    channel,
-                    message.get("type"),
-                )
+                await asyncio.wait_for(self.route_to_handler(message), timeout=1)
 
                 self.queue_manager.queues[channel].task_done()
 
@@ -149,18 +154,7 @@ class MessageHandler:
                 logger.error("Error in queue listener for channel %s: %s", channel, e)
                 break
 
-        # ? How did this end up here
-        self.handlers: Dict[str, BaseMessageHandler] = {
-            "SETUP": SetupHandler(),
-            "AUTH_STATE": AuthStateHandler(),
-            "FEED_CONFIG": FeedConfigHandler(),
-            "FEED_DATA": FeedDataHandler(),
-            "KEEPALIVE": KeepaliveHandler(),
-            "CHANNEL_OPENED": ChannelOpenedHandler(),
-            "ERROR": ErrorHandler(),
-        }
-
-    async def route_message(self, raw_message: Dict[str, Any]) -> None:
+    async def route_to_handler(self, raw_message: Dict[str, Any]) -> None:
         message = Message(
             type=raw_message.get("type", "UNKNOWN"),
             channel=raw_message.get("channel", 0),
@@ -172,22 +166,3 @@ class MessageHandler:
             await handler.process_message(message)
         else:
             logger.warning("No handler found for message type: %s", message.type)
-
-    async def process_message_queue(self):
-        while True:
-            try:
-                message = await self.queue_manager.queues[0].get()
-                await self.process_message(message)
-            except asyncio.CancelledError:
-                logger.info("Queue processor stopped")
-                break
-            except Exception as e:
-                logger.error("Unexpected error in queue processor: %s", e)
-
-    async def process_message(self, message):
-        try:
-            await self.route_message(message)
-        except Exception as e:
-            logger.error("Error processing message: %s", e)
-        finally:
-            self.queue_manager.queues[0].task_done()
