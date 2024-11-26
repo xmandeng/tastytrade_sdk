@@ -14,13 +14,6 @@ QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
 
-CHANNEL_REQUEST = {
-    "type": "CHANNEL_REQUEST",
-    "service": "FEED",
-    "channel": 0,
-    "parameters": {"contract": "AUTO"},
-}
-
 
 @singleton
 class WebSocketManager:
