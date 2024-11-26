@@ -83,8 +83,8 @@ class WebSocketManager:
         )
 
         await self.websocket.close()
-        self.websocket = None
         logger.info("Websocket closed")
+        self.websocket = None
 
     async def cancel_task(self, name: str, task: asyncio.Task):
         try:

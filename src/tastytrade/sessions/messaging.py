@@ -98,7 +98,7 @@ class MessageHandler:
     def __init__(self) -> None:
         self.queue_manager = MessageQueues()
         self.tasks: List[asyncio.Task] = []
-        self._shutdown = asyncio.Event()
+        self.shutdown = asyncio.Event()
 
         # Create a fixed pool of worker tasks per channel
         for channel in self.queue_manager.queues:
@@ -109,7 +109,7 @@ class MessageHandler:
 
     async def cleanup(self) -> None:
         """Gracefully shutdown all queue listeners."""
-        self._shutdown.set()
+        self.shutdown.set()
 
         # Wait for queues to empty with timeout
         try:
@@ -127,7 +127,7 @@ class MessageHandler:
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
     async def queue_listener(self, channel: int) -> None:
-        while True:
+        while not self.shutdown.is_set():
             try:
                 message = await asyncio.wait_for(
                     self.queue_manager.queues[channel].get(), timeout=1
