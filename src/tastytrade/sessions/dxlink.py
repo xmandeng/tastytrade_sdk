@@ -14,9 +14,8 @@ QueryParams = Optional[dict[str, Any]]
 logger = logging.getLogger(__name__)
 
 FEED_SPECS = {
-    # "Trade": ["eventType", "eventSymbol", "price", "dayVolume", "size"],
+    # "Trade": ["eventSymbol", "price", "dayVolume", "size"],
     "Quote": [
-        # "eventType",
         "eventSymbol",
         "bidPrice",
         "askPrice",
@@ -24,7 +23,6 @@ FEED_SPECS = {
         "askSize",
     ],
     # "Greeks": [
-    #     "eventType",
     #     "eventSymbol",
     #     "volatility",
     #     "delta",
@@ -34,7 +32,6 @@ FEED_SPECS = {
     #     "vega",
     # ],
     # "Profile": [
-    #     "eventType",
     #     "eventSymbol",
     #     "description",
     #     "shortSaleRestriction",
@@ -48,7 +45,6 @@ FEED_SPECS = {
     #     "low52WeekPrice",
     # ],
     # "Summary": [
-    #     "eventType",
     #     "eventSymbol",
     #     "openInterest",
     #     "dayOpenPrice",
