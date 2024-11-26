@@ -80,26 +80,26 @@ class WebSocketManager:
             logger.warning("Websocket - No active connection to close")
             return
 
-        # First cancel the websocket tasks to stop new messages
-        for task_name, task in [
+        tasks_to_cancel = [
             ("listener", getattr(self, "listener_task", None)),
             ("keepalive", getattr(self, "keepalive_task", None)),
-        ]:
-            if task:
-                try:
-                    task.cancel()
-                    await task
-                    logger.info(f"{task_name} task cancelled")
-                except asyncio.CancelledError:
-                    logger.info(f"{task_name} task was cancelled")
+        ]
 
-        # Wait for message handler to finish processing
-        if hasattr(self, "message_handler"):
-            await self.message_handler.cleanup()
+        await asyncio.gather(
+            *[self.cancel_task(name, task) for name, task in tasks_to_cancel if task is not None]
+        )
 
         await self.websocket.close()
         self.websocket = None
         logger.info("Websocket closed")
+
+    async def cancel_task(self, name: str, task: asyncio.Task):
+        try:
+            task.cancel()
+            await task
+            logger.info(f"{name} task cancelled")
+        except asyncio.CancelledError:
+            logger.info(f"{name} task was cancelled")
 
     async def setup_connection(self):
         request = json.dumps(

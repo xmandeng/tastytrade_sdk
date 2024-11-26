@@ -98,6 +98,7 @@ class MessageHandler:
     def __init__(self) -> None:
         self.queue_manager = MessageQueues()
         self.tasks: List[asyncio.Task] = []
+        self._shutdown = asyncio.Event()
 
         # Create a fixed pool of worker tasks per channel
         for channel in self.queue_manager.queues:
@@ -108,34 +109,49 @@ class MessageHandler:
 
     async def cleanup(self) -> None:
         """Gracefully shutdown all queue listeners."""
-        # Wait for queues to be empty
-        for channel in self.queue_manager.queues:
-            await self.queue_manager.queues[channel].join()
+        self._shutdown.set()
 
-        # Then cancel the tasks
+        # Wait for queues to empty with timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*[queue.join() for queue in self.queue_manager.queues.values()]),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for queues to empty")
+
+        # Cancel all tasks
         for task in self.tasks:
             task.cancel()
+
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
     async def queue_listener(self, channel: int) -> None:
         while True:
             try:
-                message = await self.queue_manager.queues[channel].get()
+                message = await asyncio.wait_for(
+                    self.queue_manager.queues[channel].get(), timeout=1
+                )
+
                 logger.info(
-                    "Received message on %s channel %s: %s",
+                    "** TODO - Process received message on %s channel %s: %s",
                     Channels(channel).name,
                     channel,
                     message.get("type"),
                 )
+
+                self.queue_manager.queues[channel].task_done()
+
+            except asyncio.TimeoutError:
+                continue  # TODO - Check shutdown event
             except asyncio.CancelledError:
                 logger.info("Queue listener stopped for channel %s", channel)
                 break
             except Exception as e:
                 logger.error("Error in queue listener for channel %s: %s", channel, e)
                 break
-            finally:
-                self.queue_manager.queues[channel].task_done()
 
+        # ? How did this end up here
         self.handlers: Dict[str, BaseMessageHandler] = {
             "SETUP": SetupHandler(),
             "AUTH_STATE": AuthStateHandler(),
