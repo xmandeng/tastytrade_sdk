@@ -161,7 +161,7 @@ class WebSocketManager:
                 # Non-blocking put to avoid getting stuck if queue is full
                 try:
                     await asyncio.wait_for(
-                        self.queue_manager.queues[channel].put(parsed_message), timeout=0.1
+                        self.queue_manager.queues[channel].put(parsed_message), timeout=1
                     )
                 except asyncio.TimeoutError:
                     logger.warning(f"Queue {channel} is full - dropping message")

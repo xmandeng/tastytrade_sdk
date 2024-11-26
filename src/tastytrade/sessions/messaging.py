@@ -39,18 +39,6 @@ class MessageQueues:
     def __init__(self) -> None:
         self.queues: dict[int, asyncio.Queue] = {queue.value: asyncio.Queue() for queue in Channels}
 
-    async def put(self, channel: int, message: Any) -> None:
-        await self.queues[channel].put(message)
-
-    async def get(self, channel: int) -> Any:
-        return await self.queues[channel].get()
-
-    async def join(self, channel: int) -> None:
-        await self.queues[channel].join()
-
-    def task_done(self, channel: int) -> None:
-        self.queues[channel].task_done()
-
 
 class BaseMessageHandler(ABC):
     async def process_message(self, message: Message) -> None:
