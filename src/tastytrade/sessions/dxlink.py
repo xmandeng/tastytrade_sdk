@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from tastytrade.sessions.messages import MessageHandler
+from tastytrade.sessions.messaging import MessageHandler
 from tastytrade.sessions.sockets import WebSocketManager
 
 QueryParams = Optional[dict[str, Any]]
@@ -14,11 +14,6 @@ QueryParams = Optional[dict[str, Any]]
 logger = logging.getLogger(__name__)
 
 
-CHANNEL_REQUEST = {
-    "type": "CHANNEL_REQUEST",
-    "service": "FEED",
-    "parameters": {"contract": "AUTO"},
-}
 FEED_SETUP = {
     "type": "FEED_SETUP",
     "acceptAggregationPeriod": 0.1,
@@ -72,20 +67,20 @@ SUBSCRIPTION_REQUEST = {
     "type": "FEED_SUBSCRIPTION",
     "reset": True,
     "add": [
-        # {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
-        # {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
-        # {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
-        # {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
+        {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
         {"type": "Trade", "symbol": "SPY"},
-        {"type": "Quote", "symbol": "SPX"},
+        {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
         {"type": "Profile", "symbol": "SPY"},
+        {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
         {"type": "Summary", "symbol": "SPY"},
-        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5990"},
         {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5990"},
-        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5980"},
         {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5980"},
-        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5970"},
         {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5970"},
+        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5990"},
+        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5980"},
+        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5970"},
+        {"type": "Quote", "symbol": "SPX"},
+        {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
     ],
 }
 
@@ -95,18 +90,12 @@ class DXLinkConfig:
     keepalive_timeout: int = 60
     version: str = "0.1-DXF-JS/0.3.0"
     channel_assignment: int = 1
-    max_subscriptions: int = 10
+    max_subscriptions: int = 100
     reconnect_attempts: int = 3  # for later use
     reconnect_delay: int = 5  # for later use
 
 
 class DXLinkClient:
-
-    # @classmethod
-    # @inject
-    # def run(cls, credentials: Credentials):
-    #     instance = cls(MessageHandler())
-    #     asyncio.run(instance.connect(credentials))
 
     def __init__(
         self,
@@ -117,10 +106,6 @@ class DXLinkClient:
         self.websocket = websocket_manager.websocket
         self.message_handler = message_handler
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
-
-    async def request_channel(self, channel: int, request: dict[str, Any] = CHANNEL_REQUEST):
-        request = request | {"channel": channel}
-        await asyncio.wait_for(self.websocket.send(json.dumps(request)), timeout=5)
 
     async def setup_feed(self, channel: int, request: dict[str, Any] = FEED_SETUP):
         request = request | {"channel": channel}

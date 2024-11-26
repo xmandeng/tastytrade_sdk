@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from tastytrade.sessions.models import (
     EventType,
@@ -29,6 +29,10 @@ class EventParser:
         if parser := self.parsers.get(event_type):
             return await self.parse_event(parser, event_data[1])
         return None
+
+    def yield_data(self, data: list[Any]) -> Any:
+        for element in data:
+            yield element
 
     async def parse_event(self, parser: Callable[[list], EventType], data: list) -> EventType:
         return parser(data)
