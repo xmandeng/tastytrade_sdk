@@ -143,15 +143,12 @@ class WebSocketManager:
             try:
                 message = await self.websocket.recv()
                 parsed_message = json.loads(message)
-
-                # Determine channel and immediately queue the message
                 channel = (
                     parsed_message.get("channel", 0)
                     if parsed_message.get("type") == "DATA_FEED"
                     else 0
                 )
 
-                # Non-blocking put to avoid getting stuck if queue is full
                 try:
                     await asyncio.wait_for(
                         self.queue_manager.queues[channel].put(parsed_message), timeout=1
