@@ -324,6 +324,7 @@ class MessageHandler:
             QuotesHandler().queue_listener(),
             name=f"queue_listener_ch{Channels.Quotes.value}_{Channels.Quotes.name}",
         )
+
         # asyncio.create_task(
         #     TradesHandler().queue_listener(),
         #     name=f"queue_listener_ch{Channels.Trades.value}_{Channels.Quotes.name}",
@@ -340,6 +341,7 @@ class MessageHandler:
         #     SummaryHandler().queue_listener(),
         #     name=f"queue_listener_ch{Channels.Summary.value}_{Channels.Quotes.name}",
         # )
+
         asyncio.create_task(
             ControlHandler().queue_listener(),
             name=f"queue_listener_ch{Channels.Quotes.value}_{Channels.Quotes.name}",
