@@ -6,9 +6,9 @@ import logging
 
 from websockets.asyncio.client import ClientConnection, connect
 
-from tastytrade import Credentials
-from tastytrade.session import AsyncSessionHandler
-from tastytrade.utilties import setup_logging
+from tastytrade.logging import setup_logging
+from tastytrade.sessions import Credentials
+from tastytrade.sessions.requests import AsyncSessionHandler
 
 logger = logging.getLogger(__name__)
 

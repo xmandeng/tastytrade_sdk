@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from typing import Any, Optional
@@ -8,9 +7,8 @@ import requests
 from injector import inject
 from requests import Session
 
-from tastytrade import Credentials
-from tastytrade.exceptions import validate_async_response, validate_response
-from tastytrade.utilties import setup_logging
+from tastytrade.sessions import Credentials
+from tastytrade.utils.validators import validate_async_response, validate_response
 
 QueryParams = Optional[dict[str, Any]]
 
@@ -75,19 +73,19 @@ class SessionHandler:
 
         self.session.headers.update({"Authorization": response.json()["data"]["session-token"]})
 
-        logger.info("Session created successfully")
+        logger.info("Session created")
         self.is_active = True
 
-    def close_session(self) -> None:
+    def close(self) -> None:
         """Close the Tastytrade session."""
         response = self.session.request("DELETE", self.base_url + "/sessions")
 
         if validate_response(response):
-            logger.info("Session closed successfully")
+            logger.info("Session closed")
             self.is_active = False
         else:
-            logger.error(f"Failed to close session [{response.status_code}]")
-            raise Exception(f"Failed to close session [{response.status_code}]")
+            logger.error("Failed to close session [%s]", response.status_code)
+            raise Exception("Failed to close session [%s]", response.status_code)
 
     def is_session_active(self) -> bool:
         """Check if the session is active."""
@@ -159,7 +157,7 @@ class AsyncSessionHandler:
             self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
             self.session.headers.update({"token": response_data["data"]["token"]})
 
-    async def close_session(self) -> None:
+    async def close(self) -> None:
         """Close the session and cleanup resources."""
         if self.session:
             await self.session.close()
@@ -169,16 +167,3 @@ class AsyncSessionHandler:
     def is_session_active(self) -> bool:
         """Check if the session is active."""
         return self.is_active
-
-
-async def main():
-
-    try:
-        session = await AsyncSessionHandler.create(Credentials(env="Test"))
-    finally:
-        await session.close_session()
-
-
-if __name__ == "__main__":
-    setup_logging(logging.DEBUG)
-    asyncio.run(main())
