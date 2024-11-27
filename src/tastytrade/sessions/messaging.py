@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, List, Union, cast
+from typing import Any, Awaitable, Callable, Dict, List, cast
 
 from pydantic import ValidationError
 
 from tastytrade.sessions.models import (
+    EventList,
     GreeksEvent,
+    ParsedEventType,
     ProfileEvent,
     QuoteEvent,
     SummaryEvent,
@@ -18,18 +20,6 @@ from tastytrade.sessions.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent]
-EventList = List[SingleEventType]
-ParsedEventType = Union[SingleEventType, EventList]
-
-
-@dataclass
-class Message:
-    type: str
-    channel: int
-    content: dict[str, Any]
-    data: list[Any]
 
 
 class Channels(Enum):
@@ -41,8 +31,16 @@ class Channels(Enum):
     Summary = 9
 
 
+@dataclass
+class Message:
+    type: str
+    channel: int
+    headers: dict[str, Any]
+    data: list[Any]
+
+
 class MessageQueues:
-    """MessageQueues is a singleton QueueManager."""
+    """Singleton QueueManager."""
 
     instance = None
 
@@ -53,6 +51,8 @@ class MessageQueues:
 
     def __init__(self) -> None:
         self.queues: dict[int, asyncio.Queue] = {queue.value: asyncio.Queue() for queue in Channels}
+
+        self.event_handlers = ()
 
 
 class BaseMessageHandler(ABC):
@@ -71,7 +71,7 @@ class KeepaliveHandler(BaseMessageHandler):
 
 class ErrorHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
-        logger.error("%s:%s", message.content.get("error"), message.content.get("message"))
+        logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
 
 
 class SetupHandler(BaseMessageHandler):
@@ -81,14 +81,14 @@ class SetupHandler(BaseMessageHandler):
 
 class AuthStateHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
-        logger.info("%s:%s", message.type, message.content.get("state"))
+        logger.info("%s:%s", message.type, message.headers.get("state"))
 
 
 class ChannelOpenedHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
         message_type = message.type
         channel = message.channel
-        event = message.content.get("event")
+        event = message.headers.get("event")
         logger.info("%s:%s:%s", message_type, channel, event)
 
 
@@ -96,8 +96,8 @@ class FeedConfigHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
         message_type = message.type
         channel = message.channel
-        event = message.content.get("event")
-        data_format = message.content.get("dataFormat")
+        event = message.headers.get("event")
+        data_format = message.headers.get("dataFormat")
         logger.info("%s:%s:%s:%s", message_type, channel, data_format, event)
 
 
@@ -107,7 +107,44 @@ class FeedDataHandler(BaseMessageHandler):
 
 
 class BaseEventHandler(ABC):
-    async def process_message(self, message: Message) -> None:
+    channel: Channels
+    shutdown: asyncio.Event = asyncio.Event()
+
+    async def queue_listener(self) -> None:
+        self.queue: asyncio.Queue = MessageQueues().queues[self.channel.value]
+
+        while not self.shutdown.is_set():
+            try:
+                reply: dict[str, Any] = await asyncio.wait_for(self.queue.get(), timeout=1)
+
+                message = Message(
+                    type=reply.pop("type", "UNKNOWN"),
+                    channel=reply.pop("channel"),
+                    headers=reply,
+                    data=reply.pop("data", {}),
+                )
+
+            except asyncio.TimeoutError:
+                continue  # TODO - Check shutdown event / maybe break
+
+            except asyncio.CancelledError:
+                logger.info(
+                    "%s listener stopped for channel %s", self.channel.name, self.channel.value
+                )
+                break
+
+            except Exception as e:
+                logger.error(
+                    "Error in %s listener for channel %s: %s",
+                    self.channel.name,
+                    self.channel.value,
+                    e,
+                )
+                break
+
+            finally:
+                self.queue.task_done()
+
         await self.handle_message(message)
 
     @abstractmethod
@@ -116,6 +153,7 @@ class BaseEventHandler(ABC):
 
 
 class QuotesHandler(BaseEventHandler):
+    channel = Channels.Quotes
 
     async def handle_message(self, message: Message) -> ParsedEventType:
         quotes: List[QuoteEvent] = []
@@ -151,6 +189,7 @@ class QuotesHandler(BaseEventHandler):
 
 
 class TradesHandler(BaseEventHandler):
+    channel = Channels.Trades
 
     async def handle_message(self, message: Message) -> ParsedEventType:
         logger.info("Trades handler for channel %s: %s", message.channel, message.data)
@@ -174,6 +213,7 @@ class TradesHandler(BaseEventHandler):
 
 
 class GreeksHandler(BaseEventHandler):
+    channel = Channels.Greeks
 
     async def handle_message(self, message: Message) -> ParsedEventType:
         logger.info("Greeks handler for channel %s: %s", message.channel, message.data)
@@ -200,6 +240,7 @@ class GreeksHandler(BaseEventHandler):
 
 
 class ProfileHandler(BaseEventHandler):
+    channel = Channels.Profile
 
     async def handle_message(self, message: Message) -> ParsedEventType:
         logger.info("Profile handler for channel %s: %s", message.channel, message.data)
@@ -230,6 +271,7 @@ class ProfileHandler(BaseEventHandler):
 
 
 class SummaryHandler(BaseEventHandler):
+    channel = Channels.Summary
 
     async def handle_message(self, message: Message) -> ParsedEventType:
         logger.info("Summary handler for channel %s: %s", message.channel, message.data)
@@ -252,6 +294,26 @@ class SummaryHandler(BaseEventHandler):
             except StopIteration:
                 break
         return EventList(summary)
+
+
+class ControlHandler(BaseEventHandler):
+    channel = Channels.Control
+    control_handlers: Dict[str, BaseMessageHandler] = {
+        "SETUP": SetupHandler(),
+        "AUTH_STATE": AuthStateHandler(),
+        "CHANNEL_OPENED": ChannelOpenedHandler(),
+        "FEED_CONFIG": FeedConfigHandler(),
+        "FEED_DATA": FeedDataHandler(),  # Not implemented
+        "KEEPALIVE": KeepaliveHandler(),
+        "ERROR": ErrorHandler(),
+    }
+
+    async def handle_message(self, message: Message) -> None:
+        """Read message headers and dispatch to the appropriate handler."""
+        if handler := self.control_handlers.get(message.type):
+            await handler.process_message(message)
+        else:
+            logger.warning("No handler found for message type: %s", message.type)
 
 
 class MessageHandler:
@@ -278,8 +340,19 @@ class MessageHandler:
     }
 
     def __init__(self) -> None:
+
+        asyncio.create_task(TradesHandler().queue_listener())
+        asyncio.create_task(QuotesHandler().queue_listener())
+        asyncio.create_task(GreeksHandler().queue_listener())
+        asyncio.create_task(ProfileHandler().queue_listener())
+        asyncio.create_task(SummaryHandler().queue_listener())
+        asyncio.create_task(ControlHandler().queue_listener())
+
         for channel in self.queue_manager.queues:
-            handler = self.control_handler if channel == 0 else self.event_handler
+            if channel != 0:
+                continue
+
+            handler = self.control_handler
 
             task = asyncio.create_task(
                 self.queue_listener(channel, handler), name=f"queue_listener_ch{channel}"
@@ -296,15 +369,15 @@ class MessageHandler:
                 message_type = reply.get("type", "UNKNOWN")
                 queue_name = reply.get("channel") if message_type == "FEED_DATA" else 0
                 data = reply.get("data", {})
-                content: dict[str, Any] = reply.copy()
-                content.pop("data", None)
-                content.pop("type", None)
+                headers: dict[str, Any] = reply.copy()
+                headers.pop("data", None)
+                headers.pop("type", None)
 
                 message = Message(
                     type=message_type,
                     channel=queue_name,
                     data=data,
-                    content=content,
+                    headers=headers,
                 )
 
                 await asyncio.wait_for(handler(message), timeout=1)
@@ -327,14 +400,14 @@ class MessageHandler:
         else:
             logger.warning("No handler found for message type: %s", message.type)
 
-    async def event_handler(self, message: Message) -> None:
-        """Read message headers and dispatch to the appropriate handler."""
-        event_type = Channels(message.channel).name
+    # async def event_handler(self, message: Message) -> None:
+    #     """Read message headers and dispatch to the appropriate handler."""
+    #     event_type = Channels(message.channel).name
 
-        if handler := self.event_handlers.get(event_type):
-            await handler.process_message(message)
-        else:
-            logger.warning("No handler found for message type: %s", message.type)
+    #     if handler := self.event_handlers.get(event_type):
+    #         await handler.handle_message(message)
+    #     else:
+    #         logger.warning("No handler found for message type: %s", message.type)
 
     async def cleanup(self) -> None:
         """Gracefully shutdown all queue listeners."""

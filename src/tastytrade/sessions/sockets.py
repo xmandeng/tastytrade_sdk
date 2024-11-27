@@ -137,6 +137,7 @@ class WebSocketManager:
                 break
 
     async def socket_listener(self):
+        # Consider using this websockets pattern which employs and async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
         while True:
             try:
                 message = await self.websocket.recv()
