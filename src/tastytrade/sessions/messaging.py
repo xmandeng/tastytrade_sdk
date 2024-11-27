@@ -19,7 +19,6 @@ from tastytrade.sessions.models import (
 
 logger = logging.getLogger(__name__)
 
-# Define more specific type aliases
 SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent]
 EventList = List[SingleEventType]
 ParsedEventType = Union[SingleEventType, EventList]
@@ -67,7 +66,7 @@ class BaseMessageHandler(ABC):
 
 class KeepaliveHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
-        logger.info("%s:Received", message.type)
+        logger.debug("%s:Received", message.type)
 
 
 class ErrorHandler(BaseMessageHandler):
@@ -120,6 +119,7 @@ class QuotesHandler(BaseEventHandler):
 
     async def handle_message(self, message: Message) -> ParsedEventType:
         quotes: List[QuoteEvent] = []
+        channel_name = Channels(message.channel).name
 
         feed = iter(*chain(filter(lambda x: x != "Quote", message.data)))
         while True:
@@ -136,14 +136,14 @@ class QuotesHandler(BaseEventHandler):
             except StopIteration:
                 if remaining := [*feed]:
                     raise ValueError(
-                        "Unexpected data in Quotes handler: [%s]", ", ".join(remaining)
+                        "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
                 else:
                     break
             except ValidationError as e:
-                logger.error("Validation error in Quotes handler: %s", e)
+                logger.error("Validation error in %s handler: %s", channel_name, e)
             except Exception as e:
-                logger.error("Unexpected error in Quotes handler: %s", e)
+                logger.error("Unexpected error in %s handler: %s", channel_name, e)
 
             logger.info("Quotes handler for channel %s: %s", message.channel, quotes)
 
@@ -153,8 +153,8 @@ class QuotesHandler(BaseEventHandler):
 class TradesHandler(BaseEventHandler):
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Quote handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Quote", message.data)))
+        logger.info("Trades handler for channel %s: %s", message.channel, message.data)
+        feed = iter(chain(filter(lambda x: x != "Trades", message.data)))
 
         trades: List[TradeEvent] = []
 
@@ -176,8 +176,8 @@ class TradesHandler(BaseEventHandler):
 class GreeksHandler(BaseEventHandler):
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Quote handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Quote", message.data)))
+        logger.info("Greeks handler for channel %s: %s", message.channel, message.data)
+        feed = iter(chain(filter(lambda x: x != "Greeks", message.data)))
 
         greeks: List[GreeksEvent] = []
 
@@ -202,8 +202,8 @@ class GreeksHandler(BaseEventHandler):
 class ProfileHandler(BaseEventHandler):
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Quote handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Quote", message.data)))
+        logger.info("Profile handler for channel %s: %s", message.channel, message.data)
+        feed = iter(chain(filter(lambda x: x != "Profile", message.data)))
 
         profile: List[ProfileEvent] = []
 
@@ -232,8 +232,8 @@ class ProfileHandler(BaseEventHandler):
 class SummaryHandler(BaseEventHandler):
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Quote handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Quote", message.data)))
+        logger.info("Summary handler for channel %s: %s", message.channel, message.data)
+        feed = iter(chain(filter(lambda x: x != "Summary", message.data)))
 
         summary: List[SummaryEvent] = []
 
@@ -308,8 +308,6 @@ class MessageHandler:
                 )
 
                 await asyncio.wait_for(handler(message), timeout=1)
-
-                # self.queue_manager.queues[channel].task_done()
 
             except asyncio.TimeoutError:
                 continue  # TODO - Check shutdown event
