@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from tastytrade.sessions.messaging import Channels, MessageHandler
+from tastytrade.sessions.messaging import Channels
 from tastytrade.sessions.sockets import WebSocketManager
 
 QueryParams = Optional[dict[str, Any]]
@@ -97,11 +97,10 @@ class DXLinkClient:
     def __init__(
         self,
         websocket_manager: WebSocketManager,
-        message_handler: Optional[MessageHandler] = None,
         config: Optional[DXLinkConfig] = None,
     ):
         self.websocket = websocket_manager.websocket
-        self.message_handler = message_handler or MessageHandler()
+        self.queue_manager = websocket_manager.queue_manager
         config = config or DXLinkConfig()
 
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
