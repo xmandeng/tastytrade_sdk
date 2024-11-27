@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, List, cast
+from typing import Any, Dict, List, cast
 
 from pydantic import ValidationError
 
@@ -50,9 +50,8 @@ class MessageQueues:
         return cls.instance
 
     def __init__(self) -> None:
+        self.loop = asyncio.get_running_loop()
         self.queues: dict[int, asyncio.Queue] = {queue.value: asyncio.Queue() for queue in Channels}
-
-        self.event_handlers = ()
 
 
 class BaseMessageHandler(ABC):
@@ -88,17 +87,15 @@ class ChannelOpenedHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
         message_type = message.type
         channel = message.channel
-        event = message.headers.get("event")
-        logger.info("%s:%s:%s", message_type, channel, event)
+        logger.info("%s:%s", message_type, channel)
 
 
 class FeedConfigHandler(BaseMessageHandler):
     async def handle_message(self, message: Message) -> None:
         message_type = message.type
         channel = message.channel
-        event = message.headers.get("event")
         data_format = message.headers.get("dataFormat")
-        logger.info("%s:%s:%s:%s", message_type, channel, data_format, event)
+        logger.info("%s:%s:%s", message_type, channel, data_format)
 
 
 class FeedDataHandler(BaseMessageHandler):
@@ -124,6 +121,8 @@ class BaseEventHandler(ABC):
                     data=reply.pop("data", {}),
                 )
 
+                await asyncio.wait_for(self.handle_message(message), timeout=1)
+
             except asyncio.TimeoutError:
                 continue  # TODO - Check shutdown event / maybe break
 
@@ -144,8 +143,6 @@ class BaseEventHandler(ABC):
 
             finally:
                 self.queue.task_done()
-
-        await self.handle_message(message)
 
     @abstractmethod
     async def handle_message(self, message: Message) -> ParsedEventType:
@@ -321,93 +318,32 @@ class MessageHandler:
     tasks: List[asyncio.Task] = []
     shutdown = asyncio.Event()
 
-    control_handlers: Dict[str, BaseMessageHandler] = {
-        "SETUP": SetupHandler(),
-        "AUTH_STATE": AuthStateHandler(),
-        "CHANNEL_OPENED": ChannelOpenedHandler(),
-        "FEED_CONFIG": FeedConfigHandler(),
-        "FEED_DATA": FeedDataHandler(),  # Not implemented
-        "KEEPALIVE": KeepaliveHandler(),
-        "ERROR": ErrorHandler(),
-    }
-
-    event_handlers = {
-        Channels.Trades.name: TradesHandler(),
-        Channels.Quotes.name: QuotesHandler(),
-        Channels.Greeks.name: GreeksHandler(),
-        Channels.Profile.name: ProfileHandler(),
-        Channels.Summary.name: SummaryHandler(),
-    }
-
     def __init__(self) -> None:
 
-        asyncio.create_task(TradesHandler().queue_listener())
-        asyncio.create_task(QuotesHandler().queue_listener())
-        asyncio.create_task(GreeksHandler().queue_listener())
-        asyncio.create_task(ProfileHandler().queue_listener())
-        asyncio.create_task(SummaryHandler().queue_listener())
-        asyncio.create_task(ControlHandler().queue_listener())
-
-        for channel in self.queue_manager.queues:
-            if channel != 0:
-                continue
-
-            handler = self.control_handler
-
-            task = asyncio.create_task(
-                self.queue_listener(channel, handler), name=f"queue_listener_ch{channel}"
-            )
-            self.tasks.append(task)
-
-    async def queue_listener(
-        self, channel: int, handler: Callable[[Message], Awaitable[None]]
-    ) -> None:
-        while not self.shutdown.is_set():
-            try:
-                reply = await asyncio.wait_for(self.queue_manager.queues[channel].get(), timeout=1)
-
-                message_type = reply.get("type", "UNKNOWN")
-                queue_name = reply.get("channel") if message_type == "FEED_DATA" else 0
-                data = reply.get("data", {})
-                headers: dict[str, Any] = reply.copy()
-                headers.pop("data", None)
-                headers.pop("type", None)
-
-                message = Message(
-                    type=message_type,
-                    channel=queue_name,
-                    data=data,
-                    headers=headers,
-                )
-
-                await asyncio.wait_for(handler(message), timeout=1)
-
-            except asyncio.TimeoutError:
-                continue  # TODO - Check shutdown event
-            except asyncio.CancelledError:
-                logger.info("Queue listener stopped for channel %s", channel)
-                break
-            except Exception as e:
-                logger.error("Error in queue listener for channel %s: %s", channel, e)
-                break
-            finally:
-                self.queue_manager.queues[channel].task_done()
-
-    async def control_handler(self, message: Message) -> None:
-        """Read message headers and dispatch to the appropriate handler."""
-        if handler := self.control_handlers.get(message.type):
-            await handler.process_message(message)
-        else:
-            logger.warning("No handler found for message type: %s", message.type)
-
-    # async def event_handler(self, message: Message) -> None:
-    #     """Read message headers and dispatch to the appropriate handler."""
-    #     event_type = Channels(message.channel).name
-
-    #     if handler := self.event_handlers.get(event_type):
-    #         await handler.handle_message(message)
-    #     else:
-    #         logger.warning("No handler found for message type: %s", message.type)
+        asyncio.create_task(
+            QuotesHandler().queue_listener(),
+            name=f"queue_listener_ch{Channels.Quotes.value}_{Channels.Quotes.name}",
+        )
+        # asyncio.create_task(
+        #     TradesHandler().queue_listener(),
+        #     name=f"queue_listener_ch{Channels.Trades.value}_{Channels.Quotes.name}",
+        # )
+        # asyncio.create_task(
+        #     GreeksHandler().queue_listener(),
+        #     name=f"queue_listener_ch{Channels.Greeks.value}_{Channels.Quotes.name}",
+        # )
+        # asyncio.create_task(
+        #     ProfileHandler().queue_listener(),
+        #     name=f"queue_listener_ch{Channels.Profile.value}_{Channels.Quotes.name}",
+        # )
+        # asyncio.create_task(
+        #     SummaryHandler().queue_listener(),
+        #     name=f"queue_listener_ch{Channels.Summary.value}_{Channels.Quotes.name}",
+        # )
+        asyncio.create_task(
+            ControlHandler().queue_listener(),
+            name=f"queue_listener_ch{Channels.Quotes.value}_{Channels.Quotes.name}",
+        )
 
     async def cleanup(self) -> None:
         """Gracefully shutdown all queue listeners."""
