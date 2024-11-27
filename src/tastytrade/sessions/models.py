@@ -18,17 +18,16 @@ def dash_to_underscore(value: str) -> str:
 class BaseEvent(BaseModel):
     model_config = ConfigDict(
         frozen=True,  # Make models immutable
-        validate_assignment=True,  # Validate during assignment
-        extra="forbid",  # Forbid extra attributes
-        str_strip_whitespace=True,  # Strip whitespace from strings
+        validate_assignment=True,
+        extra="forbid",
+        str_strip_whitespace=True,
     )
 
-    event_type: str = Field(description="Type of market data event")
-    symbol: str = Field(description="Trading symbol for the event")
+    symbol: str = Field(description="dxlink streamer symbol")
 
 
 class TradeEvent(BaseEvent):
-    price: Decimal = Field(
+    price: Optional[Decimal] = Field(
         default=Decimal("0"),
         description="Execution price of the trade",
         ge=0,  # Greater than or equal to 0
@@ -53,8 +52,8 @@ class TradeEvent(BaseEvent):
 class QuoteEvent(BaseEvent):
     bid_price: Decimal = Field(description="Best bid price", ge=0)
     ask_price: Decimal = Field(description="Best ask price", ge=0)
-    bid_size: Decimal = Field(description="Size available at bid price", ge=0)
-    ask_size: Decimal = Field(description="Size available at ask price", ge=0)
+    bid_size: Optional[Decimal] = Field(description="Size available at bid price", ge=0)
+    ask_size: Optional[Decimal] = Field(description="Size available at ask price", ge=0)
 
     @field_validator("bid_price", "ask_price", "bid_size", "ask_size", mode="before")
     @classmethod
@@ -70,12 +69,12 @@ class QuoteEvent(BaseEvent):
 
 
 class GreeksEvent(BaseEvent):
-    volatility: Decimal = Field(description="Implied volatility", ge=0)
-    delta: Decimal = Field(description="Delta greek", ge=-1, le=1)
-    gamma: Decimal = Field(description="Gamma greek", ge=0)
-    theta: Decimal = Field(description="Theta greek")
-    rho: Decimal = Field(description="Rho greek")
-    vega: Decimal = Field(description="Vega greek", ge=0)
+    volatility: Optional[Decimal] = Field(description="Implied volatility", ge=0)
+    delta: Optional[Decimal] = Field(description="Delta greek", ge=-1, le=1)
+    gamma: Optional[Decimal] = Field(description="Gamma greek", ge=0)
+    theta: Optional[Decimal] = Field(description="Theta greek")
+    rho: Optional[Decimal] = Field(description="Rho greek")
+    vega: Optional[Decimal] = Field(description="Vega greek", ge=0)
 
     @field_validator("volatility", "delta", "gamma", "theta", "rho", "vega", mode="before")
     @classmethod

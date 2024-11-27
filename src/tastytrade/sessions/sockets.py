@@ -29,11 +29,9 @@ class WebSocketManager:
             cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
         return cls.sessions[session]
 
-    def __init__(
-        self, session: AsyncSessionHandler, queue_manager: MessageQueues = MessageQueues()
-    ):
+    def __init__(self, session: AsyncSessionHandler, queue_manager: Optional[MessageQueues] = None):
         self.session = session
-        self.queue_manager = queue_manager
+        self.queue_manager = queue_manager or MessageQueues()
 
     async def __aenter__(self):
         await self.open()
