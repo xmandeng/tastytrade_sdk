@@ -39,21 +39,6 @@ class Message:
     data: list[Any]
 
 
-class MessageQueues:
-    """Singleton QueueManager."""
-
-    instance = None
-
-    def __new__(cls):
-        if cls.instance is None:
-            cls.instance = object.__new__(cls)
-        return cls.instance
-
-    def __init__(self) -> None:
-        self.loop = asyncio.get_running_loop()
-        self.queues: dict[int, asyncio.Queue] = {queue.value: asyncio.Queue() for queue in Channels}
-
-
 class BaseMessageHandler(ABC):
     async def process_message(self, message: Message) -> None:
         await self.handle_message(message)
@@ -105,26 +90,35 @@ class FeedDataHandler(BaseMessageHandler):
 
 class BaseEventHandler(ABC):
     channel: Channels
-    shutdown: asyncio.Event = asyncio.Event()
 
-    async def queue_listener(self) -> None:
-        self.queue: asyncio.Queue = MessageQueues().queues[self.channel.value]
+    async def queue_listener(self, queue: asyncio.Queue) -> None:
 
-        while not self.shutdown.is_set():
+        logger.info(
+            "Started queue listener for channel %s (%s)", self.channel.name, self.channel.value
+        )
+
+        while True:
             try:
-                reply: dict[str, Any] = await asyncio.wait_for(self.queue.get(), timeout=1)
+                reply: dict[str, Any] = await asyncio.wait_for(queue.get(), timeout=1)
 
+                logger.debug(
+                    "Channel %s received message: %s", self.channel.value, reply.get("type")
+                )
                 message = Message(
-                    type=reply.pop("type", "UNKNOWN"),
-                    channel=reply.pop("channel"),
+                    type=reply.get("type", "UNKNOWN"),
+                    channel=reply.get("channel", 0),
                     headers=reply,
-                    data=reply.pop("data", {}),
+                    data=reply.get("data", {}),
                 )
 
-                await asyncio.wait_for(self.handle_message(message), timeout=1)
+                try:
+                    await asyncio.wait_for(self.handle_message(message), timeout=1)
+
+                finally:
+                    queue.task_done()
 
             except asyncio.TimeoutError:
-                continue  # TODO - Check shutdown event / maybe break
+                continue
 
             except asyncio.CancelledError:
                 logger.info(
@@ -140,9 +134,6 @@ class BaseEventHandler(ABC):
                     e,
                 )
                 break
-
-            finally:
-                self.queue.task_done()
 
     @abstractmethod
     async def handle_message(self, message: Message) -> ParsedEventType:
@@ -173,16 +164,17 @@ class QuotesHandler(BaseEventHandler):
                     raise ValueError(
                         "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
-                else:
-                    break
+
+                logger.info("Quotes handler for channel %s: %s", message.channel, quotes)
+
+                return cast(EventList, quotes)
+
             except ValidationError as e:
                 logger.error("Validation error in %s handler: %s", channel_name, e)
+                raise e
             except Exception as e:
                 logger.error("Unexpected error in %s handler: %s", channel_name, e)
-
-            logger.info("Quotes handler for channel %s: %s", message.channel, quotes)
-
-        return cast(EventList, quotes)
+                raise e
 
 
 class TradesHandler(BaseEventHandler):
@@ -295,6 +287,7 @@ class SummaryHandler(BaseEventHandler):
 
 class ControlHandler(BaseEventHandler):
     channel = Channels.Control
+
     control_handlers: Dict[str, BaseMessageHandler] = {
         "SETUP": SetupHandler(),
         "AUTH_STATE": AuthStateHandler(),
@@ -313,47 +306,47 @@ class ControlHandler(BaseEventHandler):
             logger.warning("No handler found for message type: %s", message.type)
 
 
-class MessageHandler:
-    queue_manager = MessageQueues()
-    tasks: List[asyncio.Task] = []
-    shutdown = asyncio.Event()
+class MessageQueues:
+    """Singleton QueueManager."""
+
+    instance = None
+
+    def __new__(cls):
+        if cls.instance is None:
+            cls.instance = object.__new__(cls)
+        return cls.instance
 
     def __init__(self) -> None:
+        # self.loop = asyncio.get_running_loop()
 
-        asyncio.create_task(
-            QuotesHandler().queue_listener(),
-            name=f"queue_listener_ch{Channels.Quotes.value}_{Channels.Quotes.name}",
-        )
+        self.queues: dict[int, asyncio.Queue] = {
+            channel.value: asyncio.Queue() for channel in Channels
+        }
 
-        # asyncio.create_task(
-        #     TradesHandler().queue_listener(),
-        #     name=f"queue_listener_ch{Channels.Trades.value}_{Channels.Quotes.name}",
-        # )
-        # asyncio.create_task(
-        #     GreeksHandler().queue_listener(),
-        #     name=f"queue_listener_ch{Channels.Greeks.value}_{Channels.Quotes.name}",
-        # )
-        # asyncio.create_task(
-        #     ProfileHandler().queue_listener(),
-        #     name=f"queue_listener_ch{Channels.Profile.value}_{Channels.Quotes.name}",
-        # )
-        # asyncio.create_task(
-        #     SummaryHandler().queue_listener(),
-        #     name=f"queue_listener_ch{Channels.Summary.value}_{Channels.Quotes.name}",
-        # )
+        self.handlers: dict[int, BaseEventHandler] = {
+            Channels.Control.value: ControlHandler(),
+            Channels.Quotes.value: QuotesHandler(),
+            Channels.Trades.value: TradesHandler(),
+            Channels.Greeks.value: GreeksHandler(),
+            Channels.Profile.value: ProfileHandler(),
+            Channels.Summary.value: SummaryHandler(),
+        }
 
-        asyncio.create_task(
-            ControlHandler().queue_listener(),
-            name=f"queue_listener_ch{Channels.Quotes.value}_{Channels.Quotes.name}",
-        )
+        self.tasks: List[asyncio.Task] = [
+            asyncio.create_task(
+                listener.queue_listener(self.queues[listener.channel.value]),
+                name=f"queue_listener_ch{listener.channel.value}_{listener.channel.name}",
+            )
+            for listener in self.handlers.values()
+        ]
 
     async def cleanup(self) -> None:
         """Gracefully shutdown all queue listeners."""
-        self.shutdown.set()
+        # self.shutdown.set()
 
         try:
             await asyncio.wait_for(
-                asyncio.gather(*[queue.join() for queue in self.queue_manager.queues.values()]),
+                asyncio.gather(*[queue.join() for queue in self.queues.values()]),
                 timeout=5.0,
             )
         except asyncio.TimeoutError:
