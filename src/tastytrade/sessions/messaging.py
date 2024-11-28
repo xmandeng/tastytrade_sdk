@@ -29,6 +29,7 @@ class Channels(Enum):
     Greeks = 5
     Profile = 7
     Summary = 9
+    Errors = 99
 
 
 @dataclass
@@ -314,7 +315,7 @@ class MessageQueues:
 
         # Create Websocket queues for each channel
         self.queues: dict[int, asyncio.Queue] = {
-            channel.value: asyncio.Queue() for channel in Channels
+            channel.value: asyncio.Queue() for channel in Channels if channel != Channels.Errors
         }
 
         # Associate handlers with channels
