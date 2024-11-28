@@ -91,12 +91,14 @@ class FeedDataHandler(BaseMessageHandler):
 
 class BaseEventHandler(ABC):
     channel: Channels
+    stop_listener = asyncio.Event()
+    diagnostic = False
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
         logger.info("Started  %s listener on channel %s", self.channel.name, self.channel.value)
 
-        while True:
+        while not self.stop_listener.is_set():
             try:
                 reply: dict[str, Any] = await asyncio.wait_for(queue.get(), timeout=1)
 
@@ -161,7 +163,8 @@ class QuotesHandler(BaseEventHandler):
                         "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
 
-                logger.info("Quotes handler for channel %s: %s", message.channel, quotes)
+                if self.diagnostic:
+                    logger.debug("Quotes handler for channel %s: %s", message.channel, quotes)
 
                 return cast(EventList, quotes)
 
@@ -177,7 +180,7 @@ class TradesHandler(BaseEventHandler):
     channel = Channels.Trades
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Trades handler for channel %s: %s", message.channel, message.data)
+        logger.debug("Trades handler for channel %s: %s", message.channel, message.data)
         feed = iter(chain(filter(lambda x: x != "Trades", message.data)))
 
         trades: List[TradeEvent] = []
@@ -201,7 +204,7 @@ class GreeksHandler(BaseEventHandler):
     channel = Channels.Greeks
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Greeks handler for channel %s: %s", message.channel, message.data)
+        logger.debug("Greeks handler for channel %s: %s", message.channel, message.data)
         feed = iter(chain(filter(lambda x: x != "Greeks", message.data)))
 
         greeks: List[GreeksEvent] = []
@@ -228,7 +231,7 @@ class ProfileHandler(BaseEventHandler):
     channel = Channels.Profile
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Profile handler for channel %s: %s", message.channel, message.data)
+        logger.debug("Profile handler for channel %s: %s", message.channel, message.data)
         feed = iter(chain(filter(lambda x: x != "Profile", message.data)))
 
         profile: List[ProfileEvent] = []
@@ -259,7 +262,7 @@ class SummaryHandler(BaseEventHandler):
     channel = Channels.Summary
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.info("Summary handler for channel %s: %s", message.channel, message.data)
+        logger.debug("Summary handler for channel %s: %s", message.channel, message.data)
         feed = iter(chain(filter(lambda x: x != "Summary", message.data)))
 
         summary: List[SummaryEvent] = []
@@ -306,13 +309,11 @@ class MessageQueues:
     instance = None
 
     def __new__(cls):
-        # Create singleton instance
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
     def __init__(self) -> None:
-
         # Create Websocket queues for each channel
         self.queues: dict[int, asyncio.Queue] = {
             channel.value: asyncio.Queue() for channel in Channels if channel != Channels.Errors
@@ -338,20 +339,60 @@ class MessageQueues:
         ]
 
     async def cleanup(self) -> None:
-        """Gracefully shutdown all queue listeners."""
-        # self.shutdown.set()
+        logger.info("Initiating cleanup...")
 
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*[queue.join() for queue in self.queues.values()]),
-                timeout=5.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Timeout waiting for queues to empty")
+        for handler in self.handlers.values():
+            handler.stop_listener.set()
 
-        # Cancel all tasks
+        drain_tasks = [
+            asyncio.create_task(self.drain_queue(Channels(channel)))
+            for channel in self.queues.keys()
+        ]
+        await asyncio.gather(*drain_tasks, return_exceptions=True)
+
         for task in self.tasks:
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.debug("Task %s cancelled", task.get_name())
 
-        await asyncio.gather(*self.tasks, return_exceptions=True)
-        logger.info("Message handlers stopped")
+        for handler in self.handlers.values():
+            handler.stop_listener.clear()
+
+        logger.info("Cleanup completed")
+
+    async def drain_queue(self, channel: Channels) -> None:
+        """
+        Drains all remaining items from a specific queue.
+
+        Args:
+            channel (Channels): The channel whose queue will be drained.
+        """
+        queue = self.queues[channel.value]
+        logger.debug("Draining %s queue on channel %s", channel.name, channel.value)
+
+        try:
+            while not queue.empty():
+                try:
+                    message = queue.get_nowait()  # Non-blocking get
+                    logger.debug(
+                        "Drained %s messages on channel %s: %s",
+                        channel.name,
+                        channel.value,
+                        message,
+                    )
+                    queue.task_done()
+                except asyncio.QueueEmpty:
+                    logger.warning(
+                        "Attempted to drain an already empty %s queue for channel %s",
+                        channel.name,
+                        channel.value,
+                    )
+                    break
+        except Exception as e:
+            logger.error(
+                "Error draining %s queue on channel %s: %s", channel.name, channel.value, e
+            )
+
+        logger.debug("%s channel %s drained", channel.name, channel.value)
