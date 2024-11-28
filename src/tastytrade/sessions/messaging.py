@@ -93,17 +93,12 @@ class BaseEventHandler(ABC):
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
-        logger.info(
-            "Started queue listener for channel %s (%s)", self.channel.name, self.channel.value
-        )
+        logger.info("Started  %s listener on channel %s", self.channel.name, self.channel.value)
 
         while True:
             try:
                 reply: dict[str, Any] = await asyncio.wait_for(queue.get(), timeout=1)
 
-                logger.debug(
-                    "Channel %s received message: %s", self.channel.value, reply.get("type")
-                )
                 message = Message(
                     type=reply.get("type", "UNKNOWN"),
                     channel=reply.get("channel", 0),
@@ -307,22 +302,22 @@ class ControlHandler(BaseEventHandler):
 
 
 class MessageQueues:
-    """Singleton QueueManager."""
-
     instance = None
 
     def __new__(cls):
+        # Create singleton instance
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
     def __init__(self) -> None:
-        # self.loop = asyncio.get_running_loop()
 
+        # Create Websocket queues for each channel
         self.queues: dict[int, asyncio.Queue] = {
             channel.value: asyncio.Queue() for channel in Channels
         }
 
+        # Associate handlers with channels
         self.handlers: dict[int, BaseEventHandler] = {
             Channels.Control.value: ControlHandler(),
             Channels.Quotes.value: QuotesHandler(),
@@ -332,6 +327,7 @@ class MessageQueues:
             Channels.Summary.value: SummaryHandler(),
         }
 
+        # Start queue listeners
         self.tasks: List[asyncio.Task] = [
             asyncio.create_task(
                 listener.queue_listener(self.queues[listener.channel.value]),
