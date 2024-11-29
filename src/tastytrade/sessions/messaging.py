@@ -1,11 +1,10 @@
 import asyncio
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass
-from decimal import Decimal
 from enum import Enum
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, List, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Type, cast
 
 from pydantic import ValidationError
 
@@ -16,6 +15,7 @@ from tastytrade.sessions.models import (
     ParsedEventType,
     ProfileEvent,
     QuoteEvent,
+    SingleEventType,
     SummaryEvent,
     TradeEvent,
 )
@@ -41,13 +41,9 @@ class Message:
     data: list[Any]
 
 
-# Define a type alias for handler functions
-HandlerFunction = Callable[[Message], Awaitable[None]]
-
-
 class GenericMessageHandler:
     def __init__(self) -> None:
-        self.handlers: Dict[str, HandlerFunction] = {
+        self.handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
             "AUTH_STATE": self.handle_auth_state,
             "CHANNEL_OPENED": self.handle_channel_opened,
@@ -85,7 +81,10 @@ class GenericMessageHandler:
 
 class BaseEventHandler(ABC):
     channel: Channels
+    event: Type[QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent | TradeEvent]
+    fields: List[str]
     stop_listener = asyncio.Event()
+
     diagnostic = True
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
@@ -132,41 +131,30 @@ class BaseEventHandler(ABC):
                 )
                 continue
 
-    @abstractmethod
     async def handle_message(self, message: Message) -> ParsedEventType:
-        pass
-
-
-class QuotesHandler(BaseEventHandler):
-    channel = Channels.Quotes
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        quotes: List[QuoteEvent] = []
+        events: List[SingleEventType] = []
         channel_name = Channels(message.channel).name
 
-        feed = iter(*chain(filter(lambda x: x != "Quote", message.data)))
+        data_filtered: Iterator[Any] = filter(lambda x: str(x) not in channel_name, message.data)
+        flat_iterator: Iterator[Any] = iter(*chain(data_filtered))
 
         while True:
             try:
-                quotes.append(
-                    QuoteEvent(
-                        symbol=next(feed),
-                        bid_price=next(feed),
-                        ask_price=next(feed),
-                        bid_size=next(feed),
-                        ask_size=next(feed),
-                    )
-                )
+                event_data = {field: next(flat_iterator) for field in self.fields}
+                event = self.event(**event_data)
+                events.append(event)
             except StopIteration:
-                if remaining := [*feed]:
+                if remaining := [*flat_iterator]:
                     raise ValueError(
                         "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
 
                 if self.diagnostic:
-                    logger.debug("Quotes handler for channel %s: %s", message.channel, quotes)
+                    logger.debug(
+                        "%s handler for channel %s: %s", self.channel.name, message.channel, events
+                    )
 
-                return cast(EventList, quotes)
+                return cast(EventList, events)
 
             except ValidationError as e:
                 logger.error("Validation error in %s handler: %s", channel_name, e)
@@ -177,119 +165,58 @@ class QuotesHandler(BaseEventHandler):
                 raise MessageProcessingError("Unexpected error occurred", e)
 
 
+class QuotesHandler(BaseEventHandler):
+    channel = Channels.Quotes
+    event = QuoteEvent
+    fields = ["symbol", "bid_price", "ask_price", "bid_size", "ask_size"]
+
+
 class TradesHandler(BaseEventHandler):
     channel = Channels.Trades
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Trades handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Trades", message.data)))
-
-        trades: List[TradeEvent] = []
-
-        while True:
-            try:
-                trades.append(
-                    TradeEvent(
-                        symbol=next(feed),
-                        price=Decimal(next(feed)),
-                        day_volume=Decimal(next(feed)),
-                        size=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(trades)
+    event = TradeEvent
+    fields = ["symbol", "price", "size", "day_volume"]
 
 
 class GreeksHandler(BaseEventHandler):
     channel = Channels.Greeks
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Greeks handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Greeks", message.data)))
-
-        greeks: List[GreeksEvent] = []
-
-        while True:
-            try:
-                greeks.append(
-                    GreeksEvent(
-                        symbol=next(feed),
-                        volatility=Decimal(next(feed)),
-                        delta=Decimal(next(feed)),
-                        gamma=Decimal(next(feed)),
-                        theta=Decimal(next(feed)),
-                        rho=Decimal(next(feed)),
-                        vega=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(greeks)
+    event = GreeksEvent
+    fields = ["symbol", "volatility", "delta", "gamma", "theta", "rho", "vega"]
 
 
 class ProfileHandler(BaseEventHandler):
     channel = Channels.Profile
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Profile handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Profile", message.data)))
-
-        profile: List[ProfileEvent] = []
-
-        while True:
-            try:
-                profile.append(
-                    ProfileEvent(
-                        symbol=next(feed),
-                        description=next(feed),
-                        short_sale_restriction=next(feed),
-                        trading_status=next(feed),
-                        status_reason=next(feed),
-                        halt_start_time=next(feed),
-                        halt_end_time=next(feed),
-                        high_limit_price=Decimal(next(feed)),
-                        low_limit_price=Decimal(next(feed)),
-                        high_52_week_price=Decimal(next(feed)),
-                        low_52_week_price=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(profile)
+    event = ProfileEvent
+    fields = [
+        "symbol",
+        "description",
+        "short_sale_restriction",
+        "trading_status",
+        "status_reason",
+        "halt_start_time",
+        "halt_end_time",
+        "high_limit_price",
+        "low_limit_price",
+        "high_52_week_price",
+        "low_52_week_price",
+    ]
 
 
 class SummaryHandler(BaseEventHandler):
     channel = Channels.Summary
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Summary handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Summary", message.data)))
-
-        summary: List[SummaryEvent] = []
-
-        while True:
-            try:
-                summary.append(
-                    SummaryEvent(
-                        symbol=next(feed),
-                        open_interest=Decimal(next(feed)),
-                        day_open_price=Decimal(next(feed)),
-                        day_high_price=Decimal(next(feed)),
-                        day_low_price=Decimal(next(feed)),
-                        prev_day_close_price=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(summary)
+    event = SummaryEvent
+    fields = [
+        "symbol",
+        "open_interest",
+        "day_open_price",
+        "day_high_price",
+        "day_low_price",
+        "prev_day_close_price",
+    ]
 
 
 class ControlHandler(BaseEventHandler):
     channel = Channels.Control
-
-    def __init__(self):
-        self.generic_handler = GenericMessageHandler()
+    generic_handler = GenericMessageHandler()
 
     async def handle_message(self, message: Message) -> None:
         await self.generic_handler.handle_message(message)
