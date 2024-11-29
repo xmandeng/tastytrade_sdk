@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -162,4 +162,7 @@ class SummaryEvent(BaseEvent):
         return self
 
 
-EventType = TradeEvent | QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent
+EventType = TradeEvent | QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent | None
+SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent, None]
+EventList = List[SingleEventType]
+ParsedEventType = Union[SingleEventType, EventList]
