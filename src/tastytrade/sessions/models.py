@@ -1,7 +1,49 @@
 from decimal import Decimal
-from typing import Any, List, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class SetupModel(BaseModel):
+    type: Literal["SETUP"] = "SETUP"
+    channel: int = 0
+    version: str = "0.1-DXF-JS/0.3.0"
+    keepaliveTimeout: int = 60
+    acceptKeepaliveTimeout: int = 60
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class AuthModel(BaseModel):
+    type: Literal["AUTH"] = "AUTH"
+    channel: int = 0
+    token: str
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class OpenChannelModel(BaseModel):
+    type: Literal["CHANNEL_REQUEST"] = "CHANNEL_REQUEST"
+    service: str = "FEED"
+    channel: int
+    parameters: dict[str, Any] = {"contract": "AUTO"}
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class KeepaliveModel(BaseModel):
+    type: Literal["KEEPALIVE"] = "KEEPALIVE"
+    channel: int = 0
+
+    class Config:
+        frozen = True
+        extra = "forbid"
 
 
 def to_decimal(value: str | float | None) -> Optional[Decimal]:
