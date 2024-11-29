@@ -9,6 +9,7 @@ from typing import Any, Dict, List, cast
 
 from pydantic import ValidationError
 
+from tastytrade.exceptions import MessageProcessingError
 from tastytrade.sessions.models import (
     EventList,
     GreeksEvent,
@@ -92,11 +93,11 @@ class FeedDataHandler(BaseMessageHandler):
 class BaseEventHandler(ABC):
     channel: Channels
     stop_listener = asyncio.Event()
-    diagnostic = False
+    diagnostic = True
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
-        logger.info("Started  %s listener on channel %s", self.channel.name, self.channel.value)
+        logger.info("Started %s listener on channel %s", self.channel.name, self.channel.value)
 
         while not self.stop_listener.is_set():
             try:
@@ -124,14 +125,19 @@ class BaseEventHandler(ABC):
                 )
                 break
 
-            except Exception as e:
-                logger.error(
-                    "Error in %s listener for channel %s: %s",
+            except MessageProcessingError as e:
+                logger.error("Message processing error in %s listener: %s", self.channel.name, e)
+                if e.original_exception:
+                    logger.debug("Original exception:", exc_info=e.original_exception)
+                continue
+
+            except Exception:
+                logger.exception(
+                    "Unhandled exception in %s listener on channel %s:",
                     self.channel.name,
                     self.channel.value,
-                    e,
                 )
-                break
+                continue
 
     @abstractmethod
     async def handle_message(self, message: Message) -> ParsedEventType:
@@ -146,6 +152,7 @@ class QuotesHandler(BaseEventHandler):
         channel_name = Channels(message.channel).name
 
         feed = iter(*chain(filter(lambda x: x != "Quote", message.data)))
+
         while True:
             try:
                 quotes.append(
@@ -170,10 +177,11 @@ class QuotesHandler(BaseEventHandler):
 
             except ValidationError as e:
                 logger.error("Validation error in %s handler: %s", channel_name, e)
-                raise e
+                raise MessageProcessingError("Validation error in handler", e)
+
             except Exception as e:
-                logger.error("Unexpected error in %s handler: %s", channel_name, e)
-                raise e
+                logger.exception("Unexpected error in %s handler:", self.channel.name)
+                raise MessageProcessingError("Unexpected error occurred", e)
 
 
 class TradesHandler(BaseEventHandler):
