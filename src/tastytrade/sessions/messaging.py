@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from itertools import chain
-from typing import Any, Dict, List, cast
+from typing import Any, Awaitable, Callable, Dict, List, cast
 
 from pydantic import ValidationError
 
@@ -41,53 +41,46 @@ class Message:
     data: list[Any]
 
 
-class BaseMessageHandler(ABC):
-    async def process_message(self, message: Message) -> None:
-        await self.handle_message(message)
+# Define a type alias for handler functions
+HandlerFunction = Callable[[Message], Awaitable[None]]
 
-    @abstractmethod
+
+class GenericMessageHandler:
+    def __init__(self) -> None:
+        self.handlers: Dict[str, HandlerFunction] = {
+            "SETUP": self.handle_setup,
+            "AUTH_STATE": self.handle_auth_state,
+            "CHANNEL_OPENED": self.handle_channel_opened,
+            "FEED_CONFIG": self.handle_feed_config,
+            "KEEPALIVE": self.handle_keepalive,
+            "ERROR": self.handle_error,
+        }
+
     async def handle_message(self, message: Message) -> None:
-        pass
+        handler = self.handlers.get(message.type)
+        if handler:
+            await handler(message)
+        else:
+            logger.warning("No handler found for message type: %s", message.type)
 
-
-class KeepaliveHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        logger.debug("%s:Received", message.type)
-
-
-class ErrorHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
-
-
-class SetupHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
+    async def handle_setup(self, message: Message) -> None:
         logger.info("%s", message.type)
 
-
-class AuthStateHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
+    async def handle_auth_state(self, message: Message) -> None:
         logger.info("%s:%s", message.type, message.headers.get("state"))
 
+    async def handle_channel_opened(self, message: Message) -> None:
+        logger.info("%s:%s", message.type, message.channel)
 
-class ChannelOpenedHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        message_type = message.type
-        channel = message.channel
-        logger.info("%s:%s", message_type, channel)
-
-
-class FeedConfigHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        message_type = message.type
-        channel = message.channel
+    async def handle_feed_config(self, message: Message) -> None:
         data_format = message.headers.get("dataFormat")
-        logger.info("%s:%s:%s", message_type, channel, data_format)
+        logger.info("%s:%s:%s", message.type, message.channel, data_format)
 
+    async def handle_keepalive(self, message: Message) -> None:
+        logger.debug("%s:Received", message.type)
 
-class FeedDataHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        raise NotImplementedError("%s should employ event_handlers", message.type)
+    async def handle_error(self, message: Message) -> None:
+        logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
 
 
 class BaseEventHandler(ABC):
@@ -295,22 +288,11 @@ class SummaryHandler(BaseEventHandler):
 class ControlHandler(BaseEventHandler):
     channel = Channels.Control
 
-    control_handlers: Dict[str, BaseMessageHandler] = {
-        "SETUP": SetupHandler(),
-        "AUTH_STATE": AuthStateHandler(),
-        "CHANNEL_OPENED": ChannelOpenedHandler(),
-        "FEED_CONFIG": FeedConfigHandler(),
-        "FEED_DATA": FeedDataHandler(),  # Not implemented
-        "KEEPALIVE": KeepaliveHandler(),
-        "ERROR": ErrorHandler(),
-    }
+    def __init__(self):
+        self.generic_handler = GenericMessageHandler()
 
     async def handle_message(self, message: Message) -> None:
-        """Read message headers and dispatch to the appropriate handler."""
-        if handler := self.control_handlers.get(message.type):
-            await handler.process_message(message)
-        else:
-            logger.warning("No handler found for message type: %s", message.type)
+        await self.generic_handler.handle_message(message)
 
 
 class MessageQueues:
@@ -371,12 +353,6 @@ class MessageQueues:
         logger.info("Cleanup completed")
 
     async def drain_queue(self, channel: Channels) -> None:
-        """
-        Drains all remaining items from a specific queue.
-
-        Args:
-            channel (Channels): The channel whose queue will be drained.
-        """
         queue = self.queues[channel.value]
         logger.debug("Draining %s queue on channel %s", channel.name, channel.value)
 
