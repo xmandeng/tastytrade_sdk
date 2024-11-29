@@ -54,7 +54,7 @@ lint.preview = true
 
 [tool.flake8]
 max-line-length = 100
-extend-ignore = ["E303", "E731", "E501"]
+extend-ignore = ["E303", "E731", "E501", "N815"]
 
 [tool.black]
 include = '\.pyi?$'
