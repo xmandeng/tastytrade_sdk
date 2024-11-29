@@ -1,20 +1,21 @@
 import asyncio
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass
-from decimal import Decimal
 from enum import Enum
 from itertools import chain
-from typing import Any, Dict, List, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Type, cast
 
 from pydantic import ValidationError
 
+from tastytrade.exceptions import MessageProcessingError
 from tastytrade.sessions.models import (
     EventList,
     GreeksEvent,
     ParsedEventType,
     ProfileEvent,
     QuoteEvent,
+    SingleEventType,
     SummaryEvent,
     TradeEvent,
 )
@@ -40,63 +41,55 @@ class Message:
     data: list[Any]
 
 
-class BaseMessageHandler(ABC):
-    async def process_message(self, message: Message) -> None:
-        await self.handle_message(message)
+class GenericMessageHandler:
+    def __init__(self) -> None:
+        self.handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
+            "SETUP": self.handle_setup,
+            "AUTH_STATE": self.handle_auth_state,
+            "CHANNEL_OPENED": self.handle_channel_opened,
+            "FEED_CONFIG": self.handle_feed_config,
+            "KEEPALIVE": self.handle_keepalive,
+            "ERROR": self.handle_error,
+        }
 
-    @abstractmethod
     async def handle_message(self, message: Message) -> None:
-        pass
+        handler = self.handlers.get(message.type)
+        if handler:
+            await handler(message)
+        else:
+            logger.warning("No handler found for message type: %s", message.type)
 
-
-class KeepaliveHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        logger.debug("%s:Received", message.type)
-
-
-class ErrorHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
-
-
-class SetupHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
+    async def handle_setup(self, message: Message) -> None:
         logger.info("%s", message.type)
 
-
-class AuthStateHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
+    async def handle_auth_state(self, message: Message) -> None:
         logger.info("%s:%s", message.type, message.headers.get("state"))
 
+    async def handle_channel_opened(self, message: Message) -> None:
+        logger.info("%s:%s", message.type, message.channel)
 
-class ChannelOpenedHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        message_type = message.type
-        channel = message.channel
-        logger.info("%s:%s", message_type, channel)
-
-
-class FeedConfigHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        message_type = message.type
-        channel = message.channel
+    async def handle_feed_config(self, message: Message) -> None:
         data_format = message.headers.get("dataFormat")
-        logger.info("%s:%s:%s", message_type, channel, data_format)
+        logger.info("%s:%s:%s", message.type, message.channel, data_format)
 
+    async def handle_keepalive(self, message: Message) -> None:
+        logger.debug("%s:Received", message.type)
 
-class FeedDataHandler(BaseMessageHandler):
-    async def handle_message(self, message: Message) -> None:
-        raise NotImplementedError("%s should employ event_handlers", message.type)
+    async def handle_error(self, message: Message) -> None:
+        logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
 
 
 class BaseEventHandler(ABC):
     channel: Channels
+    event: Type[QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent | TradeEvent]
+    fields: List[str]
     stop_listener = asyncio.Event()
-    diagnostic = False
+
+    diagnostic = True
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
-        logger.info("Started  %s listener on channel %s", self.channel.name, self.channel.value)
+        logger.info("Started %s listener on channel %s", self.channel.name, self.channel.value)
 
         while not self.stop_listener.is_set():
             try:
@@ -124,185 +117,109 @@ class BaseEventHandler(ABC):
                 )
                 break
 
-            except Exception as e:
-                logger.error(
-                    "Error in %s listener for channel %s: %s",
+            except MessageProcessingError as e:
+                logger.error("Message processing error in %s listener: %s", self.channel.name, e)
+                if e.original_exception:
+                    logger.debug("Original exception:", exc_info=e.original_exception)
+                continue
+
+            except Exception:
+                logger.exception(
+                    "Unhandled exception in %s listener on channel %s:",
                     self.channel.name,
                     self.channel.value,
-                    e,
                 )
-                break
-
-    @abstractmethod
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        pass
-
-
-class QuotesHandler(BaseEventHandler):
-    channel = Channels.Quotes
+                continue
 
     async def handle_message(self, message: Message) -> ParsedEventType:
-        quotes: List[QuoteEvent] = []
+        events: List[SingleEventType] = []
         channel_name = Channels(message.channel).name
 
-        feed = iter(*chain(filter(lambda x: x != "Quote", message.data)))
+        data_filtered: Iterator[Any] = filter(lambda x: str(x) not in channel_name, message.data)
+        flat_iterator: Iterator[Any] = iter(*chain(data_filtered))
+
         while True:
             try:
-                quotes.append(
-                    QuoteEvent(
-                        symbol=next(feed),
-                        bid_price=next(feed),
-                        ask_price=next(feed),
-                        bid_size=next(feed),
-                        ask_size=next(feed),
-                    )
-                )
+                event_data = {field: next(flat_iterator) for field in self.fields}
+                event = self.event(**event_data)
+                events.append(event)
             except StopIteration:
-                if remaining := [*feed]:
+                if remaining := [*flat_iterator]:
                     raise ValueError(
                         "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
 
                 if self.diagnostic:
-                    logger.debug("Quotes handler for channel %s: %s", message.channel, quotes)
+                    logger.debug(
+                        "%s handler for channel %s: %s", self.channel.name, message.channel, events
+                    )
 
-                return cast(EventList, quotes)
+                return cast(EventList, events)
 
             except ValidationError as e:
                 logger.error("Validation error in %s handler: %s", channel_name, e)
-                raise e
+                raise MessageProcessingError("Validation error in handler", e)
+
             except Exception as e:
-                logger.error("Unexpected error in %s handler: %s", channel_name, e)
-                raise e
+                logger.exception("Unexpected error in %s handler:", self.channel.name)
+                raise MessageProcessingError("Unexpected error occurred", e)
+
+
+class QuotesHandler(BaseEventHandler):
+    channel = Channels.Quotes
+    event = QuoteEvent
+    fields = ["symbol", "bid_price", "ask_price", "bid_size", "ask_size"]
 
 
 class TradesHandler(BaseEventHandler):
     channel = Channels.Trades
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Trades handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Trades", message.data)))
-
-        trades: List[TradeEvent] = []
-
-        while True:
-            try:
-                trades.append(
-                    TradeEvent(
-                        symbol=next(feed),
-                        price=Decimal(next(feed)),
-                        day_volume=Decimal(next(feed)),
-                        size=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(trades)
+    event = TradeEvent
+    fields = ["symbol", "price", "size", "day_volume"]
 
 
 class GreeksHandler(BaseEventHandler):
     channel = Channels.Greeks
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Greeks handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Greeks", message.data)))
-
-        greeks: List[GreeksEvent] = []
-
-        while True:
-            try:
-                greeks.append(
-                    GreeksEvent(
-                        symbol=next(feed),
-                        volatility=Decimal(next(feed)),
-                        delta=Decimal(next(feed)),
-                        gamma=Decimal(next(feed)),
-                        theta=Decimal(next(feed)),
-                        rho=Decimal(next(feed)),
-                        vega=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(greeks)
+    event = GreeksEvent
+    fields = ["symbol", "volatility", "delta", "gamma", "theta", "rho", "vega"]
 
 
 class ProfileHandler(BaseEventHandler):
     channel = Channels.Profile
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Profile handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Profile", message.data)))
-
-        profile: List[ProfileEvent] = []
-
-        while True:
-            try:
-                profile.append(
-                    ProfileEvent(
-                        symbol=next(feed),
-                        description=next(feed),
-                        short_sale_restriction=next(feed),
-                        trading_status=next(feed),
-                        status_reason=next(feed),
-                        halt_start_time=next(feed),
-                        halt_end_time=next(feed),
-                        high_limit_price=Decimal(next(feed)),
-                        low_limit_price=Decimal(next(feed)),
-                        high_52_week_price=Decimal(next(feed)),
-                        low_52_week_price=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(profile)
+    event = ProfileEvent
+    fields = [
+        "symbol",
+        "description",
+        "short_sale_restriction",
+        "trading_status",
+        "status_reason",
+        "halt_start_time",
+        "halt_end_time",
+        "high_limit_price",
+        "low_limit_price",
+        "high_52_week_price",
+        "low_52_week_price",
+    ]
 
 
 class SummaryHandler(BaseEventHandler):
     channel = Channels.Summary
-
-    async def handle_message(self, message: Message) -> ParsedEventType:
-        logger.debug("Summary handler for channel %s: %s", message.channel, message.data)
-        feed = iter(chain(filter(lambda x: x != "Summary", message.data)))
-
-        summary: List[SummaryEvent] = []
-
-        while True:
-            try:
-                summary.append(
-                    SummaryEvent(
-                        symbol=next(feed),
-                        open_interest=Decimal(next(feed)),
-                        day_open_price=Decimal(next(feed)),
-                        day_high_price=Decimal(next(feed)),
-                        day_low_price=Decimal(next(feed)),
-                        prev_day_close_price=Decimal(next(feed)),
-                    )
-                )
-            except StopIteration:
-                break
-        return EventList(summary)
+    event = SummaryEvent
+    fields = [
+        "symbol",
+        "open_interest",
+        "day_open_price",
+        "day_high_price",
+        "day_low_price",
+        "prev_day_close_price",
+    ]
 
 
 class ControlHandler(BaseEventHandler):
     channel = Channels.Control
-
-    control_handlers: Dict[str, BaseMessageHandler] = {
-        "SETUP": SetupHandler(),
-        "AUTH_STATE": AuthStateHandler(),
-        "CHANNEL_OPENED": ChannelOpenedHandler(),
-        "FEED_CONFIG": FeedConfigHandler(),
-        "FEED_DATA": FeedDataHandler(),  # Not implemented
-        "KEEPALIVE": KeepaliveHandler(),
-        "ERROR": ErrorHandler(),
-    }
+    generic_handler = GenericMessageHandler()
 
     async def handle_message(self, message: Message) -> None:
-        """Read message headers and dispatch to the appropriate handler."""
-        if handler := self.control_handlers.get(message.type):
-            await handler.process_message(message)
-        else:
-            logger.warning("No handler found for message type: %s", message.type)
+        await self.generic_handler.handle_message(message)
 
 
 class MessageQueues:
@@ -363,12 +280,6 @@ class MessageQueues:
         logger.info("Cleanup completed")
 
     async def drain_queue(self, channel: Channels) -> None:
-        """
-        Drains all remaining items from a specific queue.
-
-        Args:
-            channel (Channels): The channel whose queue will be drained.
-        """
         queue = self.queues[channel.value]
         logger.debug("Draining %s queue on channel %s", channel.name, channel.value)
 
