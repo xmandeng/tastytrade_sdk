@@ -126,6 +126,14 @@ class AsyncUnknownError(AsyncTastytradeSdkError):
         super().__init__("An unexpected error occurred", response)
 
 
+class MessageProcessingError(Exception):
+    """Custom exception for errors during message processing."""
+
+    def __init__(self, message: str, original_exception: Optional[Exception] = None):
+        super().__init__(message)
+        self.original_exception = original_exception
+
+
 __all__ = [
     "TastytradeSdkError",
     "InvalidArgumentError",
