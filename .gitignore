@@ -52,3 +52,5 @@ test.ipynb
 .DS_Store
 
 *.txt
+*.log
+*.bak
