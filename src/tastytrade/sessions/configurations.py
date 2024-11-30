@@ -49,7 +49,7 @@ class ConnectionConfig:
 class ChannelSpecification:
     """Defines the specification for a market data channel."""
 
-    name: str
+    type: str
     channel: Channels
     event_type: Type[TradeEvent | QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent]
     fields: List[str]
@@ -68,7 +68,7 @@ class ChannelSpecs:
         )
 
     TRADES = ChannelSpecification(
-        name="Trade",
+        type="Trade",
         channel=Channels.Trades,
         event_type=TradeEvent,
         fields=["eventSymbol", "price", "dayVolume", "size"],
@@ -76,7 +76,7 @@ class ChannelSpecs:
     )
 
     QUOTES = ChannelSpecification(
-        name="Quote",
+        type="Quote",
         channel=Channels.Quotes,
         event_type=QuoteEvent,
         fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
@@ -84,7 +84,7 @@ class ChannelSpecs:
     )
 
     GREEKS = ChannelSpecification(
-        name="Greeks",
+        type="Greeks",
         channel=Channels.Greeks,
         event_type=GreeksEvent,
         fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
@@ -92,7 +92,7 @@ class ChannelSpecs:
     )
 
     PROFILE = ChannelSpecification(
-        name="Profile",
+        type="Profile",
         channel=Channels.Profile,
         event_type=ProfileEvent,
         fields=[
@@ -112,7 +112,7 @@ class ChannelSpecs:
     )
 
     SUMMARY = ChannelSpecification(
-        name="Summary",
+        type="Summary",
         channel=Channels.Summary,
         event_type=SummaryEvent,
         fields=[

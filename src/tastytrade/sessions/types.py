@@ -13,7 +13,7 @@ class Message(BaseModel):
     type: str
     channel: int
     headers: dict[str, Any]
-    data: list[Any]
+    data: list[Any] | dict[str, Any]
 
 
 class SetupModel(BaseModel):
