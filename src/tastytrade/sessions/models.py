@@ -1,7 +1,10 @@
+import logging
 from decimal import Decimal
 from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class SetupModel(BaseModel):
@@ -54,18 +57,17 @@ class SessionReceivedModel(BaseModel):
     fields: dict[str, Any] = Field(default_factory=dict)
 
     def __init__(self, **data):
-        # Extract type and channel
         msg_type = data.get("type")
         msg_channel = data.get("channel", 0)
 
-        # Pass remaining data to fields
         super().__init__(type=msg_type, channel=msg_channel, fields=data)
 
     def __getattr__(self, name: str) -> Any:
         """Allow access to fields as attributes"""
         if name in self.fields:
             return self.fields[name]
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        logger.error(f"'{type(self).__name__}' object has no attribute '{name}'")
+        # raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def get(self, key: str, default: Any = None) -> Any:
         """Safely get any field"""
