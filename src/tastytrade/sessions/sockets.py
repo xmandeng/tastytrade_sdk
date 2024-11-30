@@ -6,15 +6,9 @@ from typing import Any, Optional
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
+import tastytrade.sessions.types as types
 from tastytrade.sessions import Credentials
 from tastytrade.sessions.messaging import MessageQueues
-from tastytrade.sessions.models import (
-    AuthModel,
-    KeepaliveModel,
-    OpenChannelModel,
-    SessionReceivedModel,
-    SetupModel,
-)
 from tastytrade.sessions.requests import AsyncSessionHandler
 
 QueryParams = Optional[dict[str, Any]]
@@ -98,11 +92,11 @@ class WebSocketManager:
             logger.info(f"{name} task was cancelled")
 
     async def setup_connection(self):
-        request = SetupModel()
+        request = types.SetupModel()
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def authorize_connection(self):
-        request = AuthModel(token=self.session.session.headers["token"])
+        request = types.AuthModel(token=self.session.session.headers["token"])
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def open_channels(self):
@@ -110,14 +104,14 @@ class WebSocketManager:
             if channel == 0:
                 continue
 
-            request = OpenChannelModel(channel=channel)
+            request = types.OpenChannelModel(channel=channel)
             await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def send_keepalives(self):
         while True:
             try:
                 await asyncio.sleep(30)
-                await self.websocket.send(KeepaliveModel().model_dump_json())
+                await self.websocket.send(types.KeepaliveModel().model_dump_json())
                 logger.debug("Keepalive sent from client")
             except asyncio.CancelledError:
                 logger.info("Keepalive stopped")
@@ -130,7 +124,7 @@ class WebSocketManager:
         # TODO Consider using this websockets pattern which employs and async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
         while True:
             try:
-                message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
+                message = types.SessionReceivedModel(**json.loads(await self.websocket.recv()))
                 channel = message.channel if message.type == "FEED_DATA" else 0
 
                 try:

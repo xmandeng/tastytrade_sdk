@@ -20,6 +20,7 @@ wheels/
 .installed.cfg
 *.egg
 _delete_/
+.tmp.driveupload/
 
 # Virtual Environment
 .env
@@ -51,3 +52,5 @@ test.ipynb
 .DS_Store
 
 *.txt
+*.log
+*.bak

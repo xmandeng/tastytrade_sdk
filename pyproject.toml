@@ -25,6 +25,7 @@ websockets = "^14.1"
 aiohttp = "^3.11.2"
 websocket = "^0.2.1"
 pydantic = "^2.10.1"
+polars = {extras = ["numpy", "pandas", "pyarrow"], version = "^1.16.0"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
@@ -54,7 +55,7 @@ lint.preview = true
 
 [tool.flake8]
 max-line-length = 100
-extend-ignore = ["E303", "E731", "E501", "N815"]
+extend-ignore = ["E303", "E731", "E501", "N815", "E203"]
 
 [tool.black]
 include = '\.pyi?$'

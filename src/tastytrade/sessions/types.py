@@ -1,10 +1,23 @@
+# central location for your data structures, models, and schemas
+
 import logging
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional, Union
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
+
+MARKET_TZ = ZoneInfo("America/New_York")
+
+
+class Message(BaseModel):
+    type: str
+    channel: int
+    headers: dict[str, Any]
+    data: list[Any] | dict[str, Any]
 
 
 class SetupModel(BaseModel):
@@ -123,6 +136,19 @@ class BaseEvent(BaseModel):
     )
 
     symbol: str = Field(description="dxlink streamer symbol")
+    timestamp: Annotated[
+        datetime,
+        Field(
+            default_factory=lambda: datetime.now(MARKET_TZ),
+            description="US Eastern Time timestamp when the event was validated",
+        ),
+    ]
+
+    @model_validator(mode="after")
+    def set_timestamp(self) -> "BaseEvent":
+        """Set the timestamp after all other validations pass."""
+        object.__setattr__(self, "timestamp", datetime.now(MARKET_TZ))
+        return self
 
 
 class TradeEvent(BaseEvent):
