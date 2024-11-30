@@ -8,7 +8,13 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from tastytrade.sessions import Credentials
 from tastytrade.sessions.messaging import MessageQueues
-from tastytrade.sessions.models import AuthModel, KeepaliveModel, OpenChannelModel, SetupModel
+from tastytrade.sessions.models import (
+    AuthModel,
+    KeepaliveModel,
+    OpenChannelModel,
+    SessionReceivedModel,
+    SetupModel,
+)
 from tastytrade.sessions.requests import AsyncSessionHandler
 
 QueryParams = Optional[dict[str, Any]]
@@ -124,17 +130,12 @@ class WebSocketManager:
         # TODO Consider using this websockets pattern which employs and async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
         while True:
             try:
-                message = await self.websocket.recv()
-                parsed_message = json.loads(message)
-                channel = (
-                    parsed_message.get("channel", 0)
-                    if parsed_message.get("type") == "FEED_DATA"
-                    else 0
-                )
+                message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
+                channel = message.channel if message.type == "FEED_DATA" else 0
 
                 try:
                     await asyncio.wait_for(
-                        self.queue_manager.queues[channel].put(parsed_message), timeout=1
+                        self.queue_manager.queues[channel].put(message.fields), timeout=1
                     )
                 except asyncio.TimeoutError:
                     logger.warning(f"Queue {channel} is full - dropping message")

@@ -46,6 +46,41 @@ class KeepaliveModel(BaseModel):
         extra = "forbid"
 
 
+class SessionReceivedModel(BaseModel):
+    """Model that requires type and channel, but can handle any other fields dynamically"""
+
+    type: str
+    channel: int = 0
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(self, **data):
+        # Extract type and channel
+        msg_type = data.get("type")
+        msg_channel = data.get("channel", 0)
+
+        # Pass remaining data to fields
+        super().__init__(type=msg_type, channel=msg_channel, fields=data)
+
+    def __getattr__(self, name: str) -> Any:
+        """Allow access to fields as attributes"""
+        if name in self.fields:
+            return self.fields[name]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Safely get any field"""
+        if key == "type":
+            return self.type
+        if key == "channel":
+            return self.channel
+        return self.fields.get(key, default)
+
+    @property
+    def raw(self) -> dict[str, Any]:
+        """Access the raw dictionary data"""
+        return {"type": self.type, "channel": self.channel, **self.fields}
+
+
 def to_decimal(value: str | float | None) -> Optional[Decimal]:
     """Convert value to Decimal, handling NaN and None cases."""
     if value is None or value == "NaN" or value == float("inf"):
