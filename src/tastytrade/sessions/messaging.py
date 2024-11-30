@@ -61,8 +61,9 @@ class GenericMessageHandler:
         logger.info("%s:%s", message.type, message.channel)
 
     async def handle_feed_config(self, message: Message) -> None:
-        data_format = message.headers.get("dataFormat")
-        logger.info("%s:%s:%s", message.type, message.channel, data_format)
+        data_format = message.headers.get("dataFormat", "")
+        subscribed = ":SUBSCRIBED" if message.headers.get("eventFields") else ""
+        logger.info("%s:%s:%s", message.type, message.channel, data_format + subscribed)
 
     async def handle_keepalive(self, message: Message) -> None:
         logger.debug("%s:Received", message.type)
