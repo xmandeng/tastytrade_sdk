@@ -1,3 +1,5 @@
+# central location for your data structures, models, and schemas
+
 import logging
 from decimal import Decimal
 from typing import Any, List, Literal, Optional, Union
@@ -5,6 +7,13 @@ from typing import Any, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
+
+
+class Message(BaseModel):
+    type: str
+    channel: int
+    headers: dict[str, Any]
+    data: list[Any]
 
 
 class SetupModel(BaseModel):

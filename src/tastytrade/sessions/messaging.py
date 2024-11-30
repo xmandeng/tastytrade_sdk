@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from abc import ABC
-from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
 from typing import Any, Awaitable, Callable, Dict, Iterator, List, Type, cast
@@ -9,9 +8,10 @@ from typing import Any, Awaitable, Callable, Dict, Iterator, List, Type, cast
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
-from tastytrade.sessions.models import (
+from tastytrade.sessions.types import (
     EventList,
     GreeksEvent,
+    Message,
     ParsedEventType,
     ProfileEvent,
     QuoteEvent,
@@ -31,14 +31,6 @@ class Channels(Enum):
     Profile = 7
     Summary = 9
     Errors = 99
-
-
-@dataclass
-class Message:
-    type: str
-    channel: int
-    headers: dict[str, Any]
-    data: list[Any]
 
 
 class GenericMessageHandler:

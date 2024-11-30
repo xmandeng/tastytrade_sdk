@@ -4,8 +4,10 @@ from asyncio import Semaphore
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-import tastytrade.sessions.models as models
-from tastytrade.sessions.messaging import Channels
+import tastytrade.sessions.types as types
+from tastytrade.sessions.configurations import Channels, ChannelSpecs
+
+# from tastytrade.sessions.messaging import Channels
 from tastytrade.sessions.sockets import WebSocketManager
 
 QueryParams = Optional[dict[str, Any]]
@@ -87,16 +89,16 @@ class DXLinkClient:
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
 
     async def setup_feeds(self) -> None:
-        for channel in CHANNEL_SPECS:
-            request = generate_feed_setup_request(channel)
+        for feed in ChannelSpecs():
+            request = generate_feed_setup_request(feed.channel)
             await asyncio.wait_for(
                 self.websocket.send(request),
                 timeout=5,
             )
 
     async def subscribe_to_feeds(self, symbols: List[str]):
-        for channel in CHANNEL_SPECS:
-            request = generate_subscription_request(channel, symbols)
+        for feed in ChannelSpecs():
+            request = generate_subscription_request(feed.channel, symbols)
             async with self.subscription_semaphore:
                 await asyncio.wait_for(
                     self.websocket.send(request),
@@ -105,7 +107,7 @@ class DXLinkClient:
 
 
 def generate_feed_setup_request(channel: Channels) -> str:
-    request = models.FeedSetupModel(
+    request = types.FeedSetupModel(
         acceptEventFields=CHANNEL_SPECS[channel],
         channel=channel.value,
     )
@@ -113,7 +115,7 @@ def generate_feed_setup_request(channel: Channels) -> str:
 
 
 def generate_subscription_request(channel: Channels, symbols: List[str]) -> str:
-    channel_type = list(CHANNEL_SPECS[channel].keys())[0]
-    add_items = [models.AddItem(type=channel_type, symbol=symbol) for symbol in symbols]
-    request = models.SubscriptionRequest(channel=channel.value, add=add_items)
+    channel_type = ChannelSpecs.get_spec(channel).name
+    add_items = [types.AddItem(type=channel_type, symbol=symbol) for symbol in symbols]
+    request = types.SubscriptionRequest(channel=channel.value, add=add_items)
     return request.model_dump_json()
