@@ -1,84 +1,65 @@
 import asyncio
-import json
 import logging
 from asyncio import Semaphore
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from tastytrade.sessions.messaging import Channels
+from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
 from tastytrade.sessions.sockets import WebSocketManager
 
 QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
 
-FEED_SPECS = {
-    # "Trade": ["eventSymbol", "price", "dayVolume", "size"],
-    "Quote": [
-        "eventSymbol",
-        "bidPrice",
-        "askPrice",
-        "bidSize",
-        "askSize",
-    ],
-    # "Greeks": [
-    #     "eventSymbol",
-    #     "volatility",
-    #     "delta",
-    #     "gamma",
-    #     "theta",
-    #     "rho",
-    #     "vega",
-    # ],
-    # "Profile": [
-    #     "eventSymbol",
-    #     "description",
-    #     "shortSaleRestriction",
-    #     "tradingStatus",
-    #     "statusReason",
-    #     "haltStartTime",
-    #     "haltEndTime",
-    #     "highLimitPrice",
-    #     "lowLimitPrice",
-    #     "high52WeekPrice",
-    #     "low52WeekPrice",
-    # ],
-    # "Summary": [
-    #     "eventSymbol",
-    #     "openInterest",
-    #     "dayOpenPrice",
-    #     "dayHighPrice",
-    #     "dayLowPrice",
-    #     "prevDayClosePrice",
-    # ],
-}
 
-FEED_SETUP = {
-    "type": "FEED_SETUP",
-    "acceptAggregationPeriod": 0.1,
-    "acceptDataFormat": "COMPACT",
-    "acceptEventFields": FEED_SPECS,
-}
-SUBSCRIPTION_REQUEST = {
-    "type": "FEED_SUBSCRIPTION",
-    "reset": True,
-    "add": [
-        # {"type": "Trade", "symbol": "BTC/USD:CXTALP"},
-        # {"type": "Trade", "symbol": "SPY"},
-        # {"type": "Profile", "symbol": "BTC/USD:CXTALP"},
-        # {"type": "Profile", "symbol": "SPY"},
-        # {"type": "Summary", "symbol": "BTC/USD:CXTALP"},
-        # {"type": "Summary", "symbol": "SPY"},
-        # {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5990"},
-        # {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5980"},
-        # {"type": "Greeks", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5970"},
-        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5990"},
-        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5980"},
-        {"type": "Quote", "symbol": f".SPXW{datetime.now().strftime('%y%m%d')}P5970"},
-        {"type": "Quote", "symbol": "SPX"},
-        {"type": "Quote", "symbol": "BTC/USD:CXTALP"},
-    ],
+CHANNEL_SPECS: dict[Channels, dict[str, list[str]]] = {
+    Channels.Trades: {"Trade": ["eventSymbol", "price", "dayVolume", "size"]},
+    Channels.Quotes: {
+        "Quote": [
+            "eventSymbol",
+            "bidPrice",
+            "askPrice",
+            "bidSize",
+            "askSize",
+        ],
+    },
+    Channels.Greeks: {
+        "Greeks": [
+            "eventSymbol",
+            "volatility",
+            "delta",
+            "gamma",
+            "theta",
+            "rho",
+            "vega",
+        ]
+    },
+    Channels.Profile: {
+        "Profile": [
+            "eventSymbol",
+            "description",
+            "shortSaleRestriction",
+            "tradingStatus",
+            "statusReason",
+            "haltStartTime",
+            "haltEndTime",
+            "highLimitPrice",
+            "lowLimitPrice",
+            "high52WeekPrice",
+            "low52WeekPrice",
+        ],
+    },
+    Channels.Summary: {
+        "Summary": [
+            "eventSymbol",
+            "openInterest",
+            "dayOpenPrice",
+            "dayHighPrice",
+            "dayLowPrice",
+            "prevDayClosePrice",
+        ],
+    },
 }
 
 
@@ -105,16 +86,34 @@ class DXLinkClient:
 
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
 
-    async def setup_feed(self, channel: Channels, request: dict[str, Any] = FEED_SETUP):
-        request = request | {"channel": channel.value}
-        await asyncio.wait_for(self.websocket.send(json.dumps(request)), timeout=5)
-
-    async def subscribe_to_feed(
-        self, channel: Channels, request: dict[str, Any] = SUBSCRIPTION_REQUEST
-    ):
-        request = request | {"channel": channel.value}
-        async with self.subscription_semaphore:
+    async def setup_feeds(self) -> None:
+        for channel in CHANNEL_SPECS:
+            request = generate_feed_setup_request(channel)
             await asyncio.wait_for(
-                self.websocket.send(json.dumps(request)),
+                self.websocket.send(request),
                 timeout=5,
             )
+
+    async def subscribe_to_feeds(self, symbols: List[str]):
+        for channel in CHANNEL_SPECS:
+            request = generate_subscription_request(channel, symbols)
+            async with self.subscription_semaphore:
+                await asyncio.wait_for(
+                    self.websocket.send(request),
+                    timeout=5,
+                )
+
+
+def generate_feed_setup_request(channel: Channels) -> str:
+    request = FeedSetupModel(
+        acceptEventFields=CHANNEL_SPECS[channel],
+        channel=channel.value,
+    )
+    return request.model_dump_json()
+
+
+def generate_subscription_request(channel: Channels, symbols: List[str]) -> str:
+    channel_type = list(CHANNEL_SPECS[channel].keys())[0]
+    add_items = [AddItem(type=channel_type, symbol=symbol) for symbol in symbols]
+    request = SubscriptionRequest(channel=channel.value, add=add_items)
+    return request.model_dump_json()

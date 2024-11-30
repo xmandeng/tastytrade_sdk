@@ -83,6 +83,26 @@ class SessionReceivedModel(BaseModel):
         return {"type": self.type, "channel": self.channel, **self.fields}
 
 
+class FeedSetupModel(BaseModel):
+    type: str = "FEED_SETUP"
+    acceptAggregationPeriod: float = 0.1
+    acceptDataFormat: str = "COMPACT"
+    acceptEventFields: dict[str, List[str]]
+    channel: int
+
+
+class AddItem(BaseModel):
+    type: str
+    symbol: str
+
+
+class SubscriptionRequest(BaseModel):
+    type: str = "FEED_SUBSCRIPTION"
+    channel: int
+    reset: bool = True
+    add: List[AddItem]
+
+
 def to_decimal(value: str | float | None) -> Optional[Decimal]:
     """Convert value to Decimal, handling NaN and None cases."""
     if value is None or value == "NaN" or value == float("inf"):
