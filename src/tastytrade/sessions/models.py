@@ -1,7 +1,106 @@
+import logging
 from decimal import Decimal
-from typing import Any, List, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
+
+
+class SetupModel(BaseModel):
+    type: Literal["SETUP"] = "SETUP"
+    channel: int = 0
+    version: str = "0.1-DXF-JS/0.3.0"
+    keepaliveTimeout: int = 60
+    acceptKeepaliveTimeout: int = 60
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class AuthModel(BaseModel):
+    type: Literal["AUTH"] = "AUTH"
+    channel: int = 0
+    token: str
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class OpenChannelModel(BaseModel):
+    type: Literal["CHANNEL_REQUEST"] = "CHANNEL_REQUEST"
+    service: str = "FEED"
+    channel: int
+    parameters: dict[str, Any] = {"contract": "AUTO"}
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class KeepaliveModel(BaseModel):
+    type: Literal["KEEPALIVE"] = "KEEPALIVE"
+    channel: int = 0
+
+    class Config:
+        frozen = True
+        extra = "forbid"
+
+
+class SessionReceivedModel(BaseModel):
+    """Model that requires type and channel, but can handle any other fields dynamically"""
+
+    type: str
+    channel: int = 0
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(self, **data):
+        msg_type = data.get("type")
+        msg_channel = data.get("channel", 0)
+
+        super().__init__(type=msg_type, channel=msg_channel, fields=data)
+
+    def __getattr__(self, name: str) -> Any:
+        """Allow access to fields as attributes"""
+        if name in self.fields:
+            return self.fields[name]
+        logger.error(f"'{type(self).__name__}' object has no attribute '{name}'")
+        # raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Safely get any field"""
+        if key == "type":
+            return self.type
+        if key == "channel":
+            return self.channel
+        return self.fields.get(key, default)
+
+    @property
+    def raw(self) -> dict[str, Any]:
+        """Access the raw dictionary data"""
+        return {"type": self.type, "channel": self.channel, **self.fields}
+
+
+class FeedSetupModel(BaseModel):
+    type: str = "FEED_SETUP"
+    acceptAggregationPeriod: float = 0.1
+    acceptDataFormat: str = "COMPACT"
+    acceptEventFields: dict[str, List[str]]
+    channel: int
+
+
+class AddItem(BaseModel):
+    type: str
+    symbol: str
+
+
+class SubscriptionRequest(BaseModel):
+    type: str = "FEED_SUBSCRIPTION"
+    channel: int
+    reset: bool = True
+    add: List[AddItem]
 
 
 def to_decimal(value: str | float | None) -> Optional[Decimal]:
