@@ -57,10 +57,14 @@ class ChannelSpecification:
 
 
 class ChannelSpecs:
-    """Central registry of channel specifications."""
+    """Central registry of channel specifications.
+
+    TODO: Pytest - check `channel_spec.fields` matches `eventModel.fields`
+    """
 
     @classmethod
     def __iter__(cls):
+        """Iterate over all channel types: TRADES -> QUOTES -> GREEKS -> PROFILE -> SUMMARY -> etc."""
         return (
             value
             for name, value in vars(cls).items()
@@ -79,6 +83,7 @@ class ChannelSpecs:
         type="Quote",
         channel=Channels.Quotes,
         event_type=QuoteEvent,
+        # fields=["eventSymbol", "eventTime", "bidPrice", "askPrice", "bidSize", "askSize"],
         fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
         description="Real-time quote updates",
     )
@@ -88,7 +93,7 @@ class ChannelSpecs:
         channel=Channels.Greeks,
         event_type=GreeksEvent,
         fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
-        description="Option greek calculations",
+        description="Option greeks values",
     )
 
     PROFILE = ChannelSpecification(

@@ -135,7 +135,7 @@ class BaseEvent(BaseModel):
         str_strip_whitespace=True,
     )
 
-    symbol: str = Field(description="dxlink streamer symbol")
+    eventSymbol: str = Field(description="dxlink streamer symbol")
     timestamp: Annotated[
         datetime,
         Field(
@@ -157,7 +157,7 @@ class TradeEvent(BaseEvent):
         description="Execution price of the trade",
         ge=0,  # Greater than or equal to 0
     )
-    day_volume: Optional[Decimal] = Field(
+    dayVolume: Optional[Decimal] = Field(
         default=None,
         description="Cumulative volume for the trading day",
         ge=0,
@@ -168,29 +168,31 @@ class TradeEvent(BaseEvent):
         ge=0,
     )
 
-    @field_validator("price", "day_volume", "size", mode="before")
+    @field_validator("price", "dayVolume", "size", mode="before")
     @classmethod
     def convert_decimal(cls, value: Any) -> Any:
         return to_decimal(value)
 
 
 class QuoteEvent(BaseEvent):
-    bid_price: Decimal = Field(description="Best bid price", ge=0)
-    ask_price: Decimal = Field(description="Best ask price", ge=0)
-    bid_size: Optional[Decimal] = Field(description="Size available at bid price", ge=0)
-    ask_size: Optional[Decimal] = Field(description="Size available at ask price", ge=0)
+    # eventTime: Decimal = Field(description="Unix timestamp when the event occurred")
+    bidPrice: Decimal = Field(description="Best bid price", ge=0)
+    askPrice: Decimal = Field(description="Best ask price", ge=0)
+    bidSize: Optional[Decimal] = Field(description="Size available at bid price", ge=0)
+    askSize: Optional[Decimal] = Field(description="Size available at ask price", ge=0)
 
-    @field_validator("bid_price", "ask_price", "bid_size", "ask_size", mode="before")
+    # @field_validator("eventTime", "bidPrice", "askPrice", "bidSize", "askSize", mode="before")
+    @field_validator("bidPrice", "askPrice", "bidSize", "askSize", mode="before")
     @classmethod
     def convert_decimal(cls, value: Any) -> Any:
         return to_decimal(value)
 
-    @model_validator(mode="after")
-    def validate_spread(self) -> "QuoteEvent":
-        """Validate that ask price is greater than bid price."""
-        if self.ask_price < self.bid_price:
-            raise ValueError("Ask price must be greater than bid price")
-        return self
+    # @model_validator(mode="after")
+    # def validate_spread(self) -> "QuoteEvent":
+    #     """Validate that ask price is greater than bid price."""
+    #     if self.askSize < self.bidSize:
+    #         raise ValueError("Ask price must be greater than bid price")
+    #     return self
 
 
 class GreeksEvent(BaseEvent):
@@ -209,27 +211,23 @@ class GreeksEvent(BaseEvent):
 
 class ProfileEvent(BaseEvent):
     description: str = Field(description="Instrument description")
-    short_sale_restriction: str = Field(description="Short sale restriction status")
-    trading_status: str = Field(description="Current trading status")
-    status_reason: Optional[str] = Field(
+    shortSaleRestriction: str = Field(description="Short sale restriction status")
+    tradingStatus: str = Field(description="Current trading status")
+    statusReason: Optional[str] = Field(
         default=None, description="Reason for current trading status"
     )
-    halt_start_time: Optional[int] = Field(default=None, description="Trading halt start timestamp")
-    halt_end_time: Optional[int] = Field(default=None, description="Trading halt end timestamp")
-    high_limit_price: Optional[Decimal] = Field(default=None, description="Upper price limit", ge=0)
-    low_limit_price: Optional[Decimal] = Field(default=None, description="Lower price limit", ge=0)
-    high_52_week_price: Optional[Decimal] = Field(
-        default=None, description="52-week high price", ge=0
-    )
-    low_52_week_price: Optional[Decimal] = Field(
-        default=None, description="52-week low price", ge=0
-    )
+    haltStartTime: Optional[int] = Field(default=None, description="Trading halt start timestamp")
+    haltEndTime: Optional[int] = Field(default=None, description="Trading halt end timestamp")
+    highLimitPrice: Optional[Decimal] = Field(default=None, description="Upper price limit", ge=0)
+    lowLimitPrice: Optional[Decimal] = Field(default=None, description="Lower price limit", ge=0)
+    high52WeekPrice: Optional[Decimal] = Field(default=None, description="52-week high price", ge=0)
+    low52WeekPrice: Optional[Decimal] = Field(default=None, description="52-week low price", ge=0)
 
     @field_validator(
-        "high_limit_price",
-        "low_limit_price",
-        "high_52_week_price",
-        "low_52_week_price",
+        "highLimitPrice",
+        "lowLimitPrice",
+        "high52WeekPrice",
+        "low52WeekPrice",
         mode="before",
     )
     @classmethod
@@ -240,16 +238,16 @@ class ProfileEvent(BaseEvent):
     def validate_price_ranges(self) -> "ProfileEvent":
         """Validate price range relationships."""
         if (
-            self.high_limit_price is not None
-            and self.low_limit_price is not None
-            and self.high_limit_price < self.low_limit_price
+            self.highLimitPrice is not None
+            and self.lowLimitPrice is not None
+            and self.highLimitPrice < self.lowLimitPrice
         ):
             raise ValueError("High limit price must be greater than low limit price")
 
         if (
-            self.high_52_week_price is not None
-            and self.low_52_week_price is not None
-            and self.high_52_week_price < self.low_52_week_price
+            self.high52WeekPrice is not None
+            and self.low52WeekPrice is not None
+            and self.high52WeekPrice < self.low52WeekPrice
         ):
             raise ValueError("52-week high must be greater than 52-week low")
 
@@ -257,18 +255,18 @@ class ProfileEvent(BaseEvent):
 
 
 class SummaryEvent(BaseEvent):
-    open_interest: Optional[Decimal] = Field(default=None, description="Open interest", ge=0)
-    day_open_price: Decimal = Field(description="Opening price for the day", ge=0)
-    day_high_price: Decimal = Field(description="Highest price for the day", ge=0)
-    day_low_price: Decimal = Field(description="Lowest price for the day", ge=0)
-    prev_day_close_price: Decimal = Field(description="Previous day's closing price", ge=0)
+    openInterest: Optional[Decimal] = Field(default=None, description="Open interest", ge=0)
+    dayOpenPrice: Decimal = Field(description="Opening price for the day", ge=0)
+    dayHighPrice: Decimal = Field(description="Highest price for the day", ge=0)
+    dayLowPrice: Decimal = Field(description="Lowest price for the day", ge=0)
+    prevDayClosePrice: Decimal = Field(description="Previous day's closing price", ge=0)
 
     @field_validator(
-        "open_interest",
-        "day_open_price",
-        "day_high_price",
-        "day_low_price",
-        "prev_day_close_price",
+        "openInterest",
+        "dayOpenPrice",
+        "dayHighPrice",
+        "dayLowPrice",
+        "prevDayClosePrice",
         mode="before",
     )
     @classmethod
@@ -278,10 +276,10 @@ class SummaryEvent(BaseEvent):
     @model_validator(mode="after")
     def validate_price_ranges(self) -> "SummaryEvent":
         """Validate daily price range relationships."""
-        if self.day_high_price < self.day_low_price:
+        if self.dayHighPrice < self.dayLowPrice:
             raise ValueError("Day high price must be greater than day low price")
 
-        if not (self.day_low_price <= self.day_high_price):
+        if not (self.dayLowPrice <= self.dayHighPrice):
             raise ValueError("Day prices must maintain low <= high relationship")
 
         return self
