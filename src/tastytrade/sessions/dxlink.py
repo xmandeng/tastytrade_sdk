@@ -4,11 +4,9 @@ from asyncio import Semaphore
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-import tastytrade.sessions.types as types
 from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs
-
-# from tastytrade.sessions.messaging import Channels
 from tastytrade.sessions.sockets import WebSocketManager
+from tastytrade.sessions.types import AddItem, FeedSetupModel, SubscriptionRequest
 
 QueryParams = Optional[dict[str, Any]]
 
@@ -57,7 +55,7 @@ class DXLinkClient:
 
 
 def generate_feed_setup_request(feed: ChannelSpecification) -> str:
-    request = types.FeedSetupModel(
+    request = FeedSetupModel(
         acceptEventFields={feed.type: feed.fields},
         channel=feed.channel.value,
     )
@@ -65,6 +63,6 @@ def generate_feed_setup_request(feed: ChannelSpecification) -> str:
 
 
 def generate_subscription_request(feed: ChannelSpecification, symbols: List[str]) -> str:
-    add_items = [types.AddItem(type=feed.type, symbol=symbol) for symbol in symbols]
-    request = types.SubscriptionRequest(channel=feed.channel.value, add=add_items)
+    add_items = [AddItem(type=feed.type, symbol=symbol) for symbol in symbols]
+    request = SubscriptionRequest(channel=feed.channel.value, add=add_items)
     return request.model_dump_json()
