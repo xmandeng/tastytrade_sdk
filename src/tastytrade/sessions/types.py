@@ -1,5 +1,3 @@
-# central location for your data structures, models, and schemas
-
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -80,7 +78,7 @@ class SessionReceivedModel(BaseModel):
         if name in self.fields:
             return self.fields[name]
         logger.error(f"'{type(self).__name__}' object has no attribute '{name}'")
-        # raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def get(self, key: str, default: Any = None) -> Any:
         """Safely get any field"""
@@ -175,24 +173,15 @@ class TradeEvent(BaseEvent):
 
 
 class QuoteEvent(BaseEvent):
-    # eventTime: Decimal = Field(description="Unix timestamp when the event occurred")
     bidPrice: Decimal = Field(description="Best bid price", ge=0)
     askPrice: Decimal = Field(description="Best ask price", ge=0)
     bidSize: Optional[Decimal] = Field(description="Size available at bid price", ge=0)
     askSize: Optional[Decimal] = Field(description="Size available at ask price", ge=0)
 
-    # @field_validator("eventTime", "bidPrice", "askPrice", "bidSize", "askSize", mode="before")
     @field_validator("bidPrice", "askPrice", "bidSize", "askSize", mode="before")
     @classmethod
     def convert_decimal(cls, value: Any) -> Any:
         return to_decimal(value)
-
-    # @model_validator(mode="after")
-    # def validate_spread(self) -> "QuoteEvent":
-    #     """Validate that ask price is greater than bid price."""
-    #     if self.askSize < self.bidSize:
-    #         raise ValueError("Ask price must be greater than bid price")
-    #     return self
 
 
 class GreeksEvent(BaseEvent):
