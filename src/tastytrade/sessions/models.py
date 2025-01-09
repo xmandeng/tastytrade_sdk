@@ -245,10 +245,10 @@ class ProfileEvent(BaseEvent):
 
 class SummaryEvent(BaseEvent):
     openInterest: Optional[Decimal] = Field(default=None, description="Open interest", ge=0)
-    dayOpenPrice: Decimal = Field(description="Opening price for the day", ge=0)
-    dayHighPrice: Decimal = Field(description="Highest price for the day", ge=0)
-    dayLowPrice: Decimal = Field(description="Lowest price for the day", ge=0)
-    prevDayClosePrice: Decimal = Field(description="Previous day's closing price", ge=0)
+    dayOpenPrice: Optional[Decimal] = Field(description="Opening price for the day", ge=0)
+    dayHighPrice: Optional[Decimal] = Field(description="Highest price for the day", ge=0)
+    dayLowPrice: Optional[Decimal] = Field(description="Lowest price for the day", ge=0)
+    prevDayClosePrice: Optional[Decimal] = Field(description="Previous day's closing price", ge=0)
 
     @field_validator(
         "openInterest",
@@ -265,6 +265,9 @@ class SummaryEvent(BaseEvent):
     @model_validator(mode="after")
     def validate_price_ranges(self) -> "SummaryEvent":
         """Validate daily price range relationships."""
+        if self.dayHighPrice is None or self.dayLowPrice is None:
+            return self
+
         if self.dayHighPrice < self.dayLowPrice:
             raise ValueError("Day high price must be greater than day low price")
 
@@ -274,7 +277,6 @@ class SummaryEvent(BaseEvent):
         return self
 
 
-EventType = TradeEvent | QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent | None
 SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent, None]
 EventList = List[SingleEventType]
 ParsedEventType = Union[SingleEventType, EventList]
