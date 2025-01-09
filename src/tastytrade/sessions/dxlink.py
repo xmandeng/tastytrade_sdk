@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Any, List, Optional
 
 from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs
+from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
 from tastytrade.sessions.sockets import WebSocketManager
-from tastytrade.sessions.types import AddItem, FeedSetupModel, SubscriptionRequest
 
 QueryParams = Optional[dict[str, Any]]
 

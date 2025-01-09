@@ -1,42 +1,22 @@
 import asyncio
 import logging
 from abc import ABC
-from enum import Enum
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Type, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, cast
 
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
 from tastytrade.sessions.configurations import ChannelSpecs
-from tastytrade.sessions.types import (
-    EventList,
-    GreeksEvent,
-    Message,
-    ParsedEventType,
-    ProfileEvent,
-    QuoteEvent,
-    SingleEventType,
-    SummaryEvent,
-    TradeEvent,
-)
+from tastytrade.sessions.enumerations import Channels, EventTypes
+from tastytrade.sessions.models import EventList, Message, ParsedEventType, SingleEventType
 
 logger = logging.getLogger(__name__)
 
 
-class Channels(Enum):
-    Control = 0
-    Trades = 1
-    Quotes = 3
-    Greeks = 5
-    Profile = 7
-    Summary = 9
-    Errors = 99
-
-
 class EventHandler(ABC):
     channel: Channels
-    event: Type[QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent | TradeEvent]
+    event: EventTypes
     fields: List[str]
 
     stop_listener = asyncio.Event()
@@ -99,7 +79,7 @@ class EventHandler(ABC):
                 event_data = {field: next(flat_iterator) for field in self.fields}
                 if channel_name == "Quotes":
                     pass
-                event = self.event(**event_data)
+                event = self.event.value(**event_data)
                 events.append(event)
             except StopIteration:
                 if remaining := [*flat_iterator]:
@@ -124,32 +104,32 @@ class EventHandler(ABC):
 
 
 class QuotesHandler(EventHandler):
-    channel = Channels.Quotes
-    event = QuoteEvent
+    channel = ChannelSpecs.QUOTES.channel
+    event = ChannelSpecs.QUOTES.event_type
     fields = ChannelSpecs.QUOTES.fields
 
 
 class TradesHandler(EventHandler):
-    channel = Channels.Trades
-    event = TradeEvent
+    channel = ChannelSpecs.TRADES.channel
+    event = ChannelSpecs.TRADES.event_type
     fields = ChannelSpecs.TRADES.fields
 
 
 class GreeksHandler(EventHandler):
-    channel = Channels.Greeks
-    event = GreeksEvent
+    channel = ChannelSpecs.GREEKS.channel
+    event = ChannelSpecs.GREEKS.event_type
     fields = ChannelSpecs.GREEKS.fields
 
 
 class ProfileHandler(EventHandler):
-    channel = Channels.Profile
-    event = ProfileEvent
+    channel = ChannelSpecs.PROFILE.channel
+    event = ChannelSpecs.PROFILE.event_type
     fields = ChannelSpecs.PROFILE.fields
 
 
 class SummaryHandler(EventHandler):
-    channel = Channels.Summary
-    event = SummaryEvent
+    channel = ChannelSpecs.SUMMARY.channel
+    event = ChannelSpecs.SUMMARY.event_type
     fields = ChannelSpecs.SUMMARY.fields
 
 

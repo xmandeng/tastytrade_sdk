@@ -1,37 +1,9 @@
 # central local for session configurations
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Type
+from typing import List
 
-from tastytrade.sessions.types import (
-    GreeksEvent,
-    ProfileEvent,
-    QuoteEvent,
-    SummaryEvent,
-    TradeEvent,
-)
-
-
-class Channels(Enum):
-    Control = 0
-    Trades = 1
-    Quotes = 3
-    Greeks = 5
-    Profile = 7
-    Summary = 9
-    Errors = 99
-
-
-class SessionState(Enum):
-    """Defines possible states for a trading session."""
-
-    INITIALIZING = "initializing"
-    CONNECTED = "connected"
-    AUTHENTICATING = "authenticating"
-    AUTHENTICATED = "authenticated"
-    DISCONNECTED = "disconnected"
-    ERROR = "error"
+from tastytrade.sessions.enumerations import Channels, EventTypes
 
 
 # Connection configurations
@@ -51,7 +23,7 @@ class ChannelSpecification:
 
     type: str
     channel: Channels
-    event_type: Type[TradeEvent | QuoteEvent | GreeksEvent | ProfileEvent | SummaryEvent]
+    event_type: EventTypes
     fields: List[str]
     description: str
 
@@ -74,7 +46,7 @@ class ChannelSpecs:
     TRADES = ChannelSpecification(
         type="Trade",
         channel=Channels.Trades,
-        event_type=TradeEvent,
+        event_type=EventTypes.Trades,
         fields=["eventSymbol", "price", "dayVolume", "size"],
         description="Real-time trade execution data",
     )
@@ -82,8 +54,7 @@ class ChannelSpecs:
     QUOTES = ChannelSpecification(
         type="Quote",
         channel=Channels.Quotes,
-        event_type=QuoteEvent,
-        # fields=["eventSymbol", "eventTime", "bidPrice", "askPrice", "bidSize", "askSize"],
+        event_type=EventTypes.Quotes,
         fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
         description="Real-time quote updates",
     )
@@ -91,7 +62,7 @@ class ChannelSpecs:
     GREEKS = ChannelSpecification(
         type="Greeks",
         channel=Channels.Greeks,
-        event_type=GreeksEvent,
+        event_type=EventTypes.Greeks,
         fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
         description="Option greeks values",
     )
@@ -99,7 +70,7 @@ class ChannelSpecs:
     PROFILE = ChannelSpecification(
         type="Profile",
         channel=Channels.Profile,
-        event_type=ProfileEvent,
+        event_type=EventTypes.Profile,
         fields=[
             "eventSymbol",
             "description",
@@ -119,7 +90,7 @@ class ChannelSpecs:
     SUMMARY = ChannelSpecification(
         type="Summary",
         channel=Channels.Summary,
-        event_type=SummaryEvent,
+        event_type=EventTypes.Summary,
         fields=[
             "eventSymbol",
             "openInterest",
