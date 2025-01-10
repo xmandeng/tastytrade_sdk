@@ -37,7 +37,7 @@ class MessageInterceptor(ABC):
         pass
 
 
-class QuoteManagerInterceptor(MessageInterceptor):
+class QuotesInterceptor(MessageInterceptor):
     """Interceptor that manages price history tracking."""
 
     def __init__(self, handler: MessageHandler):
@@ -70,7 +70,7 @@ class QuoteManagerInterceptor(MessageInterceptor):
 
         # With interceptor
 
-        QuotesHandler -> QuoteManagerInterceptor -> Other Components
+        QuotesHandler -> QuotesInterceptor -> Other Components
                               |
                               v
                         Store Price History
@@ -131,7 +131,7 @@ class QuoteManager:
 
     def __init__(self, quotes_handler: QuotesHandler):
         self.quotes_handler = cast(MessageHandler, quotes_handler)
-        self.interceptor = QuoteManagerInterceptor(self.quotes_handler)
+        self.interceptor = QuotesInterceptor(self.quotes_handler)
 
         # Store original method reference
         self.original_handle_message = quotes_handler.handle_message

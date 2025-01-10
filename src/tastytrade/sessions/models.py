@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional, Protocol, Union
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -280,3 +280,7 @@ class SummaryEvent(BaseEvent):
 SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent, None]
 EventList = List[SingleEventType]
 ParsedEventType = Union[SingleEventType, EventList]
+
+
+class MarketDataEvent(Protocol):
+    eventSymbol: str
