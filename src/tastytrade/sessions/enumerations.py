@@ -2,6 +2,7 @@ import logging
 from enum import Enum
 
 from tastytrade.sessions.models import (
+    ControlEvent,
     GreeksEvent,
     ProfileEvent,
     QuoteEvent,
@@ -23,6 +24,7 @@ class Channels(Enum):
 
 
 class EventTypes(Enum):
+    Control = ControlEvent
     Trades = TradeEvent
     Quotes = QuoteEvent
     Greeks = GreeksEvent

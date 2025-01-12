@@ -2,30 +2,66 @@ import asyncio
 import logging
 from abc import ABC
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Protocol, cast
 
+import polars as pl
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
 from tastytrade.sessions.configurations import ChannelSpecs
-from tastytrade.sessions.enumerations import Channels, EventTypes
+from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.models import EventList, Message, ParsedEventType, SingleEventType
 
 logger = logging.getLogger(__name__)
 
 
+class EventProcessor(Protocol):
+    """Protocol for event processors"""
+
+    name: str
+
+    def process_event(self, event: SingleEventType) -> None: ...
+
+
+class BaseEventProcessor:
+    """Base processor that handles DataFrame storage"""
+
+    name = "feed"
+
+    def __init__(self):
+        self.df = pl.DataFrame()
+
+    def process_event(self, event: SingleEventType) -> None:
+        self.df = pl.concat([self.df, pl.DataFrame([event])])
+
+
 class EventHandler(ABC):
     channel: Channels
-    event: EventTypes
-    fields: List[str]
 
     stop_listener = asyncio.Event()
-
     diagnostic = True
+
+    def __init__(self) -> None:
+        channel_specs = ChannelSpecs.get_spec(self.channel) or ChannelSpecs.control
+        self.channel = channel_specs.channel
+        self.event = channel_specs.event_type
+        self.fields = channel_specs.fields
+
+        base_feed = BaseEventProcessor()
+        self.processors: dict[str, EventProcessor] = {base_feed.name: base_feed}
+
+    def add_processor(self, processor: EventProcessor) -> None:
+        """Add a new event processor"""
+        self.processors.update({processor.name: processor})
+
+    def remove_processor(self, processor: EventProcessor) -> None:
+        """Remove an event processor"""
+        if processor.name in self.processors:
+            self.processors.pop(processor.name)
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
-        logger.info("Started %s listener on channel %s", self.channel.name, self.channel.value)
+        logger.info("Started %s listener on channel %s", self.channel, self.channel.value)
 
         while not self.stop_listener.is_set():
             try:
@@ -76,21 +112,26 @@ class EventHandler(ABC):
 
         while True:
             try:
-                event_data = {field: next(flat_iterator) for field in self.fields}
+                data = {field: next(flat_iterator) for field in self.fields}
+                event = self.event.value(**data)
+                events.append(event)
                 if channel_name == "Quotes":
                     pass
-                event = self.event.value(**event_data)
-                events.append(event)
+
             except StopIteration:
+                if self.diagnostic:
+                    logger.debug(
+                        "%s handler for channel %s: %s", self.channel.name, message.channel, events
+                    )
+
                 if remaining := [*flat_iterator]:
                     raise ValueError(
                         "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
 
-                if self.diagnostic:
-                    logger.debug(
-                        "%s handler for channel %s: %s", self.channel.name, message.channel, events
-                    )
+                for event in events:
+                    for _, processor in self.processors.items():
+                        processor.process_event(event)
 
                 return cast(EventList, events)
 
@@ -103,39 +144,34 @@ class EventHandler(ABC):
                 raise MessageProcessingError("Unexpected error occurred", e)
 
 
+# class SampleProcessor(BaseEventProcessor):
+#     name = "Sample"
+#     event_type = TradeEvent
+
+
 class QuotesHandler(EventHandler):
-    channel = ChannelSpecs.QUOTES.channel
-    event = ChannelSpecs.QUOTES.event_type
-    fields = ChannelSpecs.QUOTES.fields
-
-
-class TradesHandler(EventHandler):
-    channel = ChannelSpecs.TRADES.channel
-    event = ChannelSpecs.TRADES.event_type
-    fields = ChannelSpecs.TRADES.fields
+    channel = Channels.Quotes
 
 
 class GreeksHandler(EventHandler):
-    channel = ChannelSpecs.GREEKS.channel
-    event = ChannelSpecs.GREEKS.event_type
-    fields = ChannelSpecs.GREEKS.fields
+    channel = Channels.Greeks
+
+
+class TradesHandler(EventHandler):
+    channel = Channels.Trades
 
 
 class ProfileHandler(EventHandler):
-    channel = ChannelSpecs.PROFILE.channel
-    event = ChannelSpecs.PROFILE.event_type
-    fields = ChannelSpecs.PROFILE.fields
+    channel = Channels.Profile
 
 
 class SummaryHandler(EventHandler):
-    channel = ChannelSpecs.SUMMARY.channel
-    event = ChannelSpecs.SUMMARY.event_type
-    fields = ChannelSpecs.SUMMARY.fields
+    channel = Channels.Summary
 
 
 class ControlMessageHandler:
     def __init__(self) -> None:
-        self.handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
+        self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
             "AUTH_STATE": self.handle_auth_state,
             "CHANNEL_OPENED": self.handle_channel_opened,
@@ -145,8 +181,8 @@ class ControlMessageHandler:
         }
 
     async def handle_message(self, message: Message) -> None:
-        if control_handler := self.handlers.get(message.type):
-            await control_handler(message)
+        if self.control_handlers.get(message.type):
+            await self.control_handlers[message.type](message)
         else:
             logger.warning("No handler found for message type: %s", message.type)
 
@@ -182,14 +218,14 @@ class ControlHandler(EventHandler):
 class MessageQueues:
     instance = None
 
-    handlers: list[EventHandler] = [
-        ControlHandler(),
-        QuotesHandler(),
-        TradesHandler(),
-        GreeksHandler(),
-        ProfileHandler(),
-        SummaryHandler(),
-    ]
+    handlers: dict[str, EventHandler] = {
+        "Control": ControlHandler(),
+        "Quotes": QuotesHandler(),
+        "Trades": TradesHandler(),
+        "Greeks": GreeksHandler(),
+        "Profile": ProfileHandler(),
+        "Summary": SummaryHandler(),
+    }
 
     def __new__(cls):
         if cls.instance is None:
@@ -208,13 +244,13 @@ class MessageQueues:
                 listener.queue_listener(self.queues[listener.channel.value]),
                 name=f"queue_listener_ch{listener.channel.value}_{listener.channel.name}",
             )
-            for listener in self.handlers
+            for _, listener in self.handlers.items()
         ]
 
     async def cleanup(self) -> None:
         logger.info("Initiating cleanup...")
 
-        for handler in self.handlers:
+        for _, handler in self.handlers.items():
             handler.stop_listener.set()
 
         drain_tasks = [
@@ -230,7 +266,7 @@ class MessageQueues:
             except asyncio.CancelledError:
                 logger.debug("Task %s cancelled", task.get_name())
 
-        for handler in self.handlers:
+        for _, handler in self.handlers.items():
             handler.stop_listener.clear()
 
         logger.info("Cleanup completed")

@@ -1,7 +1,7 @@
 # central local for session configurations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from tastytrade.sessions.enumerations import Channels, EventTypes
 
@@ -43,7 +43,7 @@ class ChannelSpecs:
             if isinstance(value, ChannelSpecification) and not name.startswith("_")
         )
 
-    TRADES = ChannelSpecification(
+    trades = ChannelSpecification(
         type="Trade",
         channel=Channels.Trades,
         event_type=EventTypes.Trades,
@@ -51,7 +51,7 @@ class ChannelSpecs:
         description="Real-time trade execution data",
     )
 
-    QUOTES = ChannelSpecification(
+    quotes = ChannelSpecification(
         type="Quote",
         channel=Channels.Quotes,
         event_type=EventTypes.Quotes,
@@ -59,7 +59,7 @@ class ChannelSpecs:
         description="Real-time quote updates",
     )
 
-    GREEKS = ChannelSpecification(
+    greeks = ChannelSpecification(
         type="Greeks",
         channel=Channels.Greeks,
         event_type=EventTypes.Greeks,
@@ -67,7 +67,7 @@ class ChannelSpecs:
         description="Option greeks values",
     )
 
-    PROFILE = ChannelSpecification(
+    profile = ChannelSpecification(
         type="Profile",
         channel=Channels.Profile,
         event_type=EventTypes.Profile,
@@ -87,7 +87,7 @@ class ChannelSpecs:
         description="Profile",  # TODO Update
     )
 
-    SUMMARY = ChannelSpecification(
+    summary = ChannelSpecification(
         type="Summary",
         channel=Channels.Summary,
         event_type=EventTypes.Summary,
@@ -102,7 +102,15 @@ class ChannelSpecs:
         description="Summary",  # TODO Update
     )
 
+    control = ChannelSpecification(
+        type="Control",
+        channel=Channels.Control,
+        event_type=EventTypes.Control,
+        fields=[],
+        description="Not Used -- Control plane events",
+    )
+
     @classmethod
-    def get_spec(cls, channel: Channels) -> ChannelSpecification:
+    def get_spec(cls, channel: Channels) -> Optional[ChannelSpecification]:
         """Get the specification for a given channel."""
-        return getattr(cls, channel.name.upper())
+        return getattr(cls, channel.name.lower())
