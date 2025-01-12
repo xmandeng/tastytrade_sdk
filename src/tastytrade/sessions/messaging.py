@@ -2,32 +2,66 @@ import asyncio
 import logging
 from abc import ABC
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Protocol, cast
 
 import polars as pl
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
 from tastytrade.sessions.configurations import ChannelSpecs
-from tastytrade.sessions.enumerations import Channels, EventTypes
+from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.models import EventList, Message, ParsedEventType, SingleEventType
 
 logger = logging.getLogger(__name__)
 
 
+class EventProcessor(Protocol):
+    """Protocol for event processors"""
+
+    name: str
+
+    def process_event(self, event: SingleEventType) -> None: ...
+
+
+class BaseEventProcessor:
+    """Base processor that handles DataFrame storage"""
+
+    name = "feed"
+
+    def __init__(self):
+        self.df = pl.DataFrame()
+
+    def process_event(self, event: SingleEventType) -> None:
+        self.df = pl.concat([self.df, pl.DataFrame([event])])
+
+
 class EventHandler(ABC):
     channel: Channels
-    event: EventTypes
-    fields: List[str]
-    df: pl.DataFrame
 
     stop_listener = asyncio.Event()
-
     diagnostic = True
+
+    def __init__(self) -> None:
+        channel_specs = ChannelSpecs.get_spec(self.channel) or ChannelSpecs.control
+        self.channel = channel_specs.channel
+        self.event = channel_specs.event_type
+        self.fields = channel_specs.fields
+
+        base_feed = BaseEventProcessor()
+        self.processors: dict[str, EventProcessor] = {base_feed.name: base_feed}
+
+    def add_processor(self, processor: EventProcessor) -> None:
+        """Add a new event processor"""
+        self.processors.update({processor.name: processor})
+
+    def remove_processor(self, processor: EventProcessor) -> None:
+        """Remove an event processor"""
+        if processor.name in self.processors:
+            self.processors.pop(processor.name)
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
-        logger.info("Started %s listener on channel %s", self.channel.name, self.channel.value)
+        logger.info("Started %s listener on channel %s", self.channel, self.channel.value)
 
         while not self.stop_listener.is_set():
             try:
@@ -95,7 +129,9 @@ class EventHandler(ABC):
                         "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
                     )
 
-                self.df = pl.concat([self.df, pl.DataFrame(events)])
+                for event in events:
+                    for _, processor in self.processors.items():
+                        processor.process_event(event)
 
                 return cast(EventList, events)
 
@@ -108,39 +144,29 @@ class EventHandler(ABC):
                 raise MessageProcessingError("Unexpected error occurred", e)
 
 
+# class SampleProcessor(BaseEventProcessor):
+#     name = "Sample"
+#     event_type = TradeEvent
+
+
 class QuotesHandler(EventHandler):
-    channel = ChannelSpecs.QUOTES.channel
-    event = ChannelSpecs.QUOTES.event_type
-    fields = ChannelSpecs.QUOTES.fields
-    df = pl.DataFrame()
-
-
-class TradesHandler(EventHandler):
-    channel = ChannelSpecs.TRADES.channel
-    event = ChannelSpecs.TRADES.event_type
-    fields = ChannelSpecs.TRADES.fields
-    df = pl.DataFrame()
+    channel = Channels.Quotes
 
 
 class GreeksHandler(EventHandler):
-    channel = ChannelSpecs.GREEKS.channel
-    event = ChannelSpecs.GREEKS.event_type
-    fields = ChannelSpecs.GREEKS.fields
-    df = pl.DataFrame()
+    channel = Channels.Greeks
+
+
+class TradesHandler(EventHandler):
+    channel = Channels.Trades
 
 
 class ProfileHandler(EventHandler):
-    channel = ChannelSpecs.PROFILE.channel
-    event = ChannelSpecs.PROFILE.event_type
-    fields = ChannelSpecs.PROFILE.fields
-    df = pl.DataFrame()
+    channel = Channels.Profile
 
 
 class SummaryHandler(EventHandler):
-    channel = ChannelSpecs.SUMMARY.channel
-    event = ChannelSpecs.SUMMARY.event_type
-    fields = ChannelSpecs.SUMMARY.fields
-    df = pl.DataFrame()
+    channel = Channels.Summary
 
 
 class ControlMessageHandler:

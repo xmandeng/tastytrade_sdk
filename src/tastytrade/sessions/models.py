@@ -151,7 +151,7 @@ class BaseEvent(BaseModel):
 
 class TradeEvent(BaseEvent):
     price: Optional[Decimal] = Field(
-        default=Decimal("0"),
+        default=None,  # Allow None as a default value
         description="Execution price of the trade",
         ge=0,  # Greater than or equal to 0
     )
@@ -275,6 +275,15 @@ class SummaryEvent(BaseEvent):
             raise ValueError("Day prices must maintain low <= high relationship")
 
         return self
+
+
+class ControlEvent(BaseModel):
+    model_config = ConfigDict(
+        frozen=False,
+        validate_assignment=False,
+        extra="allow",
+        str_strip_whitespace=True,
+    )
 
 
 SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent, None]
