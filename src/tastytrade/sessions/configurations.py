@@ -36,11 +36,14 @@ class ChannelSpecs:
 
     @classmethod
     def __iter__(cls):
-        """Iterate over all channel types: TRADES -> QUOTES -> GREEKS -> PROFILE -> SUMMARY -> etc."""
+        """Iterate over non-control channels: TRADES -> QUOTES -> GREEKS -> PROFILE -> SUMMARY -> etc.
+
+        TODO: Cleanup channel specs
+        """
         return (
             value
             for name, value in vars(cls).items()
-            if isinstance(value, ChannelSpecification) and not name.startswith("_")
+            if isinstance(value, ChannelSpecification) and name != "control"
         )
 
     trades = ChannelSpecification(
