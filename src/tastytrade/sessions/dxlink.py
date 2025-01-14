@@ -4,6 +4,8 @@ from asyncio import Semaphore
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from websockets.asyncio.client import ClientConnection
+
 from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs
 from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
 from tastytrade.sessions.sockets import WebSocketManager
@@ -30,7 +32,7 @@ class DXLinkClient:
         websocket_manager: WebSocketManager,
         config: Optional[DXLinkConfig] = None,
     ):
-        self.websocket = websocket_manager.websocket
+        self.websocket: ClientConnection = websocket_manager.websocket
         self.queue_manager = websocket_manager.queue_manager
         config = config or DXLinkConfig()
 
@@ -52,6 +54,11 @@ class DXLinkClient:
                     self.websocket.send(request),
                     timeout=5,
                 )
+
+    async def close(self):
+        await self.websocket.close()
+        logger.info("Websocket closed")
+        self.websocket = None
 
 
 def generate_feed_setup_request(feed: ChannelSpecification) -> str:
