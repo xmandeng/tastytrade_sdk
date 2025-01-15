@@ -2,7 +2,7 @@ import asyncio
 import logging
 from abc import ABC
 from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Protocol, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, cast
 
 import polars as pl
 from pydantic import ValidationError
@@ -13,6 +13,8 @@ from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.models import EventList, Message, ParsedEventType, SingleEventType
 
 logger = logging.getLogger(__name__)
+
+ROW_LIMIT = 100_000
 
 
 class EventProcessor(Protocol):
@@ -32,11 +34,25 @@ class BaseEventProcessor:
         self.df = pl.DataFrame()
 
     def process_event(self, event: SingleEventType) -> None:
-        self.df = pl.concat([self.df, pl.DataFrame([event])])
+        self.df = self.df.vstack(pl.DataFrame([event]))
+
+        if len(self.df) > 2 * ROW_LIMIT:
+            self.df = self.df.tail(ROW_LIMIT)
+
+
+class GreeksProcessor(BaseEventProcessor):
+    name = "feed"
+
+    def process_event(self, event: SingleEventType) -> None:
+        self.df = self.df.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
+
+        if len(self.df) > 2 * ROW_LIMIT:
+            self.df = self.df.tail(ROW_LIMIT)
 
 
 class EventHandler(ABC):
     channel: Channels
+    processor: Optional[BaseEventProcessor] = None
 
     stop_listener = asyncio.Event()
     diagnostic = True
@@ -47,17 +63,17 @@ class EventHandler(ABC):
         self.event = channel_specs.event_type
         self.fields = channel_specs.fields
 
-        base_feed = BaseEventProcessor()
-        self.processors: dict[str, EventProcessor] = {base_feed.name: base_feed}
+        self.feed_processor = self.processor or BaseEventProcessor()
+        self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
 
     def add_processor(self, processor: EventProcessor) -> None:
-        """Add a new event processor"""
+        """Add new event processor"""
         self.processors.update({processor.name: processor})
 
     def remove_processor(self, processor: EventProcessor) -> None:
-        """Remove an event processor"""
+        """Remove event processor"""
         if processor.name in self.processors:
-            self.processors.pop(processor.name)
+            del self.processors[processor.name]
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
 
@@ -144,17 +160,13 @@ class EventHandler(ABC):
                 raise MessageProcessingError("Unexpected error occurred", e)
 
 
-# class SampleProcessor(BaseEventProcessor):
-#     name = "Sample"
-#     event_type = TradeEvent
-
-
 class QuotesHandler(EventHandler):
     channel = Channels.Quotes
 
 
 class GreeksHandler(EventHandler):
     channel = Channels.Greeks
+    processor = GreeksProcessor()
 
 
 class TradesHandler(EventHandler):
