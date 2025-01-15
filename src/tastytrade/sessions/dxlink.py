@@ -20,7 +20,7 @@ class DXLinkConfig:
     keepalive_timeout: int = 60
     version: str = "0.1-DXF-JS/0.3.0"
     channel_assignment: int = 1
-    max_subscriptions: int = 100
+    max_subscriptions: int = 20
     reconnect_attempts: int = 3  # for later use
     reconnect_delay: int = 5  # for later use
 
