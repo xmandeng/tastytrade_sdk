@@ -55,11 +55,6 @@ class DXLinkClient:
                     timeout=5,
                 )
 
-    async def close(self):
-        await self.websocket.close()
-        logger.info("Websocket closed")
-        self.websocket = None
-
 
 def generate_feed_setup_request(feed: ChannelSpecification) -> str:
     request = FeedSetupModel(

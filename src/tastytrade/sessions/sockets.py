@@ -51,6 +51,8 @@ class WebSocketManager:
             self.listener_task = asyncio.create_task(
                 self.socket_listener(), name="websocket_listener"
             )
+
+            # Keepalive for websocket connection
             self.keepalive_task = asyncio.create_task(
                 self.send_keepalives(), name="websocket_keepalive"
             )
