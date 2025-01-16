@@ -1,18 +1,32 @@
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from asyncio import Semaphore
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
 import tastytrade.sessions.models as models
+from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs
 from tastytrade.sessions.messaging import MessageQueues
+from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
 from tastytrade.sessions.requests import AsyncSessionHandler
 
 QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DXLinkConfig:
+    keepalive_timeout: int = 60
+    version: str = "0.1-DXF-JS/0.3.0"
+    channel_assignment: int = 1
+    max_subscriptions: int = 20
+    reconnect_attempts: int = 3  # for later use
+    reconnect_delay: int = 5  # for later use
 
 
 @singleton
@@ -27,9 +41,16 @@ class WebSocketManager:
             cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
         return cls.sessions[session]
 
-    def __init__(self, session: AsyncSessionHandler, queue_manager: Optional[MessageQueues] = None):
+    def __init__(
+        self,
+        session: AsyncSessionHandler,
+        queue_manager: Optional[MessageQueues] = None,
+    ):
         self.session = session
         self.queue_manager = queue_manager or MessageQueues()
+        config = DXLinkConfig()
+
+        self.subscription_semaphore = Semaphore(config.max_subscriptions)
 
     async def __aenter__(self):
         await self.open()
@@ -46,6 +67,7 @@ class WebSocketManager:
             await self.setup_connection()
             await self.authorize_connection()
             await self.open_channels()
+            await self.setup_feeds()
 
             # Create websocket I/O tasks
             self.listener_task = asyncio.create_task(
@@ -108,6 +130,23 @@ class WebSocketManager:
             request = models.OpenChannelModel(channel=channel)
             await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
+    async def setup_feeds(self) -> None:
+        for feed in ChannelSpecs():
+            request = generate_feed_setup_request(feed)
+            await asyncio.wait_for(
+                self.websocket.send(request),
+                timeout=5,
+            )
+
+    async def subscribe_to_feeds(self, symbols: List[str]):
+        for feed in ChannelSpecs():
+            request = generate_subscription_request(feed, symbols)
+            async with self.subscription_semaphore:
+                await asyncio.wait_for(
+                    self.websocket.send(request),
+                    timeout=5,
+                )
+
     async def send_keepalives(self):
         while True:
             try:
@@ -141,3 +180,17 @@ class WebSocketManager:
             except Exception as e:
                 logger.error("Websocket listener error: %s", e)
                 break
+
+
+def generate_feed_setup_request(feed: ChannelSpecification) -> str:
+    request = FeedSetupModel(
+        acceptEventFields={feed.type: feed.fields},
+        channel=feed.channel.value,
+    )
+    return request.model_dump_json()
+
+
+def generate_subscription_request(feed: ChannelSpecification, symbols: List[str]) -> str:
+    add_items = [AddItem(type=feed.type, symbol=symbol) for symbol in symbols]
+    request = SubscriptionRequest(channel=feed.channel.value, add=add_items)
+    return request.model_dump_json()
