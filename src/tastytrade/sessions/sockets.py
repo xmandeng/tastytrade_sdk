@@ -2,14 +2,13 @@ import asyncio
 import json
 import logging
 from asyncio import Semaphore
-from dataclasses import dataclass
 from typing import Any, List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
 import tastytrade.sessions.models as models
-from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs
+from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs, DXLinkConfig
 from tastytrade.sessions.messaging import MessageQueues
 from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
 from tastytrade.sessions.requests import AsyncSessionHandler
@@ -17,16 +16,6 @@ from tastytrade.sessions.requests import AsyncSessionHandler
 QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class DXLinkConfig:
-    keepalive_timeout: int = 60
-    version: str = "0.1-DXF-JS/0.3.0"
-    channel_assignment: int = 1
-    max_subscriptions: int = 20
-    reconnect_attempts: int = 3  # for later use
-    reconnect_delay: int = 5  # for later use
 
 
 @singleton
