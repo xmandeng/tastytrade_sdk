@@ -2,19 +2,25 @@ import asyncio
 import json
 import logging
 from asyncio import Semaphore
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
-import tastytrade.sessions.models as models
-from tastytrade.sessions.configurations import CHANNEL_SPECS, ChannelSpecification, DXLinkConfig
+from tastytrade.sessions.configurations import CHANNEL_SPECS, DXLinkConfig
 from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.messaging import MessageQueues
-from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
+from tastytrade.sessions.models import (
+    AddItem,
+    AuthModel,
+    FeedSetupModel,
+    KeepaliveModel,
+    OpenChannelModel,
+    SessionReceivedModel,
+    SetupModel,
+    SubscriptionRequest,
+)
 from tastytrade.sessions.requests import AsyncSessionHandler
-
-QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +111,11 @@ class WebSocketManager:
             logger.info(f"{name} task was cancelled")
 
     async def setup_connection(self):
-        request = models.SetupModel()
+        request = SetupModel()
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def authorize_connection(self):
-        request = models.AuthModel(token=self.session.session.headers["token"])
+        request = AuthModel(token=self.session.session.headers["token"])
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def open_channels(self):
@@ -117,26 +123,34 @@ class WebSocketManager:
             if channel == 0:
                 continue
 
-            request = models.OpenChannelModel(channel=channel)
-            await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
+            request = OpenChannelModel(channel=channel).model_dump_json()
+            await asyncio.wait_for(self.websocket.send(request), timeout=5)
 
     async def setup_feeds(self) -> None:
-        for feed in CHANNEL_SPECS.values():
-            if feed.channel == Channels.Control:
+        for specification in CHANNEL_SPECS.values():
+            if specification.channel == Channels.Control:
                 continue
 
-            request = generate_feed_setup_request(feed)
+            request = FeedSetupModel(
+                acceptEventFields={specification.type: specification.fields},
+                channel=specification.channel.value,
+            ).model_dump_json()
+
             await asyncio.wait_for(
                 self.websocket.send(request),
                 timeout=5,
             )
 
-    async def subscribe_to_feeds(self, symbols: List[str]):
-        for feed in CHANNEL_SPECS.values():
-            if feed.channel == Channels.Control:
+    async def subscribe(self, symbols: List[str]):
+        for specification in CHANNEL_SPECS.values():
+            if specification.channel == Channels.Control:
                 continue
 
-            request = generate_subscription_request(feed, symbols)
+            request = SubscriptionRequest(
+                channel=specification.channel.value,
+                add=[AddItem(type=specification.type, symbol=symbol) for symbol in symbols],
+            ).model_dump_json()
+
             async with self.subscription_semaphore:
                 await asyncio.wait_for(
                     self.websocket.send(request),
@@ -147,7 +161,7 @@ class WebSocketManager:
         while True:
             try:
                 await asyncio.sleep(30)
-                await self.websocket.send(models.KeepaliveModel().model_dump_json())
+                await self.websocket.send(KeepaliveModel().model_dump_json())
                 logger.debug("Keepalive sent from client")
             except asyncio.CancelledError:
                 logger.info("Keepalive stopped")
@@ -160,7 +174,7 @@ class WebSocketManager:
         # TODO Consider using this websockets pattern which employs an async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
         while True:
             try:
-                message = models.SessionReceivedModel(**json.loads(await self.websocket.recv()))
+                message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
                 channel = message.channel if message.type == "FEED_DATA" else 0
 
                 try:
@@ -176,17 +190,3 @@ class WebSocketManager:
             except Exception as e:
                 logger.error("Websocket listener error: %s", e)
                 break
-
-
-def generate_feed_setup_request(feed: ChannelSpecification) -> str:
-    request = FeedSetupModel(
-        acceptEventFields={feed.type: feed.fields},
-        channel=feed.channel.value,
-    )
-    return request.model_dump_json()
-
-
-def generate_subscription_request(feed: ChannelSpecification, symbols: List[str]) -> str:
-    add_items = [AddItem(type=feed.type, symbol=symbol) for symbol in symbols]
-    request = SubscriptionRequest(channel=feed.channel.value, add=add_items)
-    return request.model_dump_json()
