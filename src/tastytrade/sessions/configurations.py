@@ -38,79 +38,66 @@ class ChannelSpecification:
     description: str
 
 
-trade_specs = ChannelSpecification(
-    type="Trade",
-    channel=Channels.Trades,
-    event_type=EventTypes.Trades,
-    fields=["eventSymbol", "price", "dayVolume", "size"],
-    description="Real-time trade execution data",
-)
-
-quote_specs = ChannelSpecification(
-    type="Quote",
-    channel=Channels.Quotes,
-    event_type=EventTypes.Quotes,
-    fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
-    description="Real-time quote updates",
-)
-
-greeks_specs = ChannelSpecification(
-    type="Greeks",
-    channel=Channels.Greeks,
-    event_type=EventTypes.Greeks,
-    fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
-    description="Option greeks values",
-)
-
-profile_specs = ChannelSpecification(
-    type="Profile",
-    channel=Channels.Profile,
-    event_type=EventTypes.Profile,
-    fields=[
-        "eventSymbol",
-        "description",
-        "shortSaleRestriction",
-        "tradingStatus",
-        "statusReason",
-        "haltStartTime",
-        "haltEndTime",
-        "highLimitPrice",
-        "lowLimitPrice",
-        "high52WeekPrice",
-        "low52WeekPrice",
-    ],
-    description="Profile",  # TODO Update
-)
-
-summary_specs = ChannelSpecification(
-    type="Summary",
-    channel=Channels.Summary,
-    event_type=EventTypes.Summary,
-    fields=[
-        "eventSymbol",
-        "openInterest",
-        "dayOpenPrice",
-        "dayHighPrice",
-        "dayLowPrice",
-        "prevDayClosePrice",
-    ],
-    description="Summary",  # TODO Update
-)
-
-control_specs = ChannelSpecification(
-    type="Control",
-    channel=Channels.Control,
-    event_type=EventTypes.Control,
-    fields=[],
-    description="Not Used -- Control plane events",
-)
-
-
 CHANNEL_SPECS = {
-    Channels.Trades: trade_specs,
-    Channels.Quotes: quote_specs,
-    Channels.Greeks: greeks_specs,
-    Channels.Profile: profile_specs,
-    Channels.Summary: summary_specs,
-    Channels.Control: control_specs,
+    Channels.Trades: ChannelSpecification(
+        type="Trade",
+        channel=Channels.Trades,
+        event_type=EventTypes.Trades,
+        fields=["eventSymbol", "price", "dayVolume", "size"],
+        description="Real-time trade execution data",
+    ),
+    Channels.Quotes: ChannelSpecification(
+        type="Quote",
+        channel=Channels.Quotes,
+        event_type=EventTypes.Quotes,
+        fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
+        description="Real-time quote updates",
+    ),
+    Channels.Greeks: ChannelSpecification(
+        type="Greeks",
+        channel=Channels.Greeks,
+        event_type=EventTypes.Greeks,
+        fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
+        description="Option greeks values",
+    ),
+    Channels.Profile: ChannelSpecification(
+        type="Profile",
+        channel=Channels.Profile,
+        event_type=EventTypes.Profile,
+        fields=[
+            "eventSymbol",
+            "description",
+            "shortSaleRestriction",
+            "tradingStatus",
+            "statusReason",
+            "haltStartTime",
+            "haltEndTime",
+            "highLimitPrice",
+            "lowLimitPrice",
+            "high52WeekPrice",
+            "low52WeekPrice",
+        ],
+        description="Profile",  # TODO Update
+    ),
+    Channels.Summary: ChannelSpecification(
+        type="Summary",
+        channel=Channels.Summary,
+        event_type=EventTypes.Summary,
+        fields=[
+            "eventSymbol",
+            "openInterest",
+            "dayOpenPrice",
+            "dayHighPrice",
+            "dayLowPrice",
+            "prevDayClosePrice",
+        ],
+        description="Summary",  # TODO Update
+    ),
+    Channels.Control: ChannelSpecification(
+        type="Control",
+        channel=Channels.Control,
+        event_type=EventTypes.Control,
+        fields=[],
+        description="Not Used -- Control plane events",
+    ),
 }

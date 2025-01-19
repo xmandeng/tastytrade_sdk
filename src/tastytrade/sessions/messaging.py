@@ -241,7 +241,10 @@ class MessageQueues:
             handler.stop_listener.set()
 
         drain_tasks = [
-            asyncio.create_task(self.drain_queue(Channels(channel)))
+            asyncio.create_task(
+                self.drain_queue(Channels(channel)),
+                name=f"drain_queue__ch{channel}",
+            )
             for channel in self.queues.keys()
         ]
         await asyncio.gather(*drain_tasks, return_exceptions=True)
