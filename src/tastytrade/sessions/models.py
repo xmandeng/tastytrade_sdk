@@ -12,13 +12,6 @@ MARKET_TZ = ZoneInfo("America/New_York")
 MAX_PRECISION = 4
 
 
-def to_float(value: str | float | None) -> Optional[float]:
-    """Convert value to float, handling NaN and None cases."""
-    if value is None or value == "NaN" or value == float("inf"):
-        return None
-    return round(float(value), MAX_PRECISION)
-
-
 class Message(BaseModel):
     type: str
     channel: int
@@ -138,7 +131,21 @@ class BaseEvent(BaseModel):
         return self
 
 
-class TradeEvent(BaseEvent):
+class FloatFieldMixin:
+
+    @classmethod
+    def validate_float_fields(cls, *field_names):
+        @field_validator(*field_names, mode="before")
+        @classmethod
+        def convert_float(cls, value: Any) -> Any:
+            if value is None or value == "NaN" or value == float("inf"):
+                return None
+            return round(float(value), MAX_PRECISION)
+
+        return convert_float
+
+
+class TradeEvent(BaseEvent, FloatFieldMixin):
     price: Optional[float] = Field(
         default=None,
         description="Execution price of the trade",
@@ -155,29 +162,21 @@ class TradeEvent(BaseEvent):
         ge=0,
     )
 
-    @field_validator("price", "dayVolume", "size", mode="before")
-    @classmethod
-    def convert_float(cls, value: Any) -> Any:
-        if value is None or value == "NaN" or value == float("inf"):
-            return None
-        return to_float(value)
+    convert_float = FloatFieldMixin.validate_float_fields("price", "dayVolume", "size")
 
 
-class QuoteEvent(BaseEvent):
+class QuoteEvent(BaseEvent, FloatFieldMixin):
     bidPrice: float = Field(description="Best bid price", ge=0)
     askPrice: float = Field(description="Best ask price", ge=0)
     bidSize: Optional[float] = Field(description="Size available at bid price", ge=0)
     askSize: Optional[float] = Field(description="Size available at ask price", ge=0)
 
-    @field_validator("bidPrice", "askPrice", "bidSize", "askSize", mode="before")
-    @classmethod
-    def convert_float(cls, value: Any) -> Any:
-        if value is None or value == "NaN" or value == float("inf"):
-            return None
-        return to_float(value)
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "bidPrice", "askPrice", "bidSize", "askSize"
+    )
 
 
-class GreeksEvent(BaseEvent):
+class GreeksEvent(BaseEvent, FloatFieldMixin):
     volatility: Optional[float] = Field(description="Implied volatility", ge=0)
     delta: Optional[float] = Field(description="Delta greek", ge=-1, le=1)
     gamma: Optional[float] = Field(description="Gamma greek", ge=0)
@@ -185,15 +184,12 @@ class GreeksEvent(BaseEvent):
     rho: Optional[float] = Field(description="Rho greek")
     vega: Optional[float] = Field(description="Vega greek", ge=0)
 
-    @field_validator("volatility", "delta", "gamma", "theta", "rho", "vega", mode="before")
-    @classmethod
-    def convert_float(cls, value: Any) -> Any:
-        if value is None or value == "NaN" or value == float("inf"):
-            return None
-        return to_float(value)
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "volatility", "delta", "gamma", "theta", "rho", "vega"
+    )
 
 
-class ProfileEvent(BaseEvent):
+class ProfileEvent(BaseEvent, FloatFieldMixin):
     description: str = Field(description="Instrument description")
     shortSaleRestriction: str = Field(description="Short sale restriction status")
     tradingStatus: str = Field(description="Current trading status")
@@ -207,40 +203,21 @@ class ProfileEvent(BaseEvent):
     high52WeekPrice: Optional[float] = Field(default=None, description="52-week high price", ge=0)
     low52WeekPrice: Optional[float] = Field(default=None, description="52-week low price", ge=0)
 
-    @field_validator(
-        "highLimitPrice",
-        "lowLimitPrice",
-        "high52WeekPrice",
-        "low52WeekPrice",
-        mode="before",
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "highLimitPrice", "lowLimitPrice", "high52WeekPrice", "low52WeekPrice"
     )
-    @classmethod
-    def convert_float(cls, value: Any) -> Any:
-        if value is None or value == "NaN" or value == float("inf"):
-            return None
-        return to_float(value)
 
 
-class SummaryEvent(BaseEvent):
+class SummaryEvent(BaseEvent, FloatFieldMixin):
     openInterest: Optional[float] = Field(default=None, description="Open interest", ge=0)
     dayOpenPrice: Optional[float] = Field(description="Opening price for the day", ge=0)
     dayHighPrice: Optional[float] = Field(description="Highest price for the day", ge=0)
     dayLowPrice: Optional[float] = Field(description="Lowest price for the day", ge=0)
     prevDayClosePrice: Optional[float] = Field(description="Previous day's closing price", ge=0)
 
-    @field_validator(
-        "openInterest",
-        "dayOpenPrice",
-        "dayHighPrice",
-        "dayLowPrice",
-        "prevDayClosePrice",
-        mode="before",
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "openInterest", "dayOpenPrice", "dayHighPrice", "dayLowPrice", "prevDayClosePrice"
     )
-    @classmethod
-    def convert_float(cls, value: Any) -> Any:
-        if value is None or value == "NaN" or value == float("inf"):
-            return None
-        return to_float(value)
 
 
 class ControlEvent(BaseModel):
