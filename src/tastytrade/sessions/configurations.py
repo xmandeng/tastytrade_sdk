@@ -106,7 +106,7 @@ control_specs = ChannelSpecification(
 )
 
 
-channel_specs = {
+CHANNEL_SPECS = {
     Channels.Trades: trade_specs,
     Channels.Quotes: quote_specs,
     Channels.Greeks: greeks_specs,
