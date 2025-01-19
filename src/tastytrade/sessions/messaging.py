@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from abc import ABC
 from itertools import chain
 from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, cast
 
@@ -40,26 +39,25 @@ class BaseEventProcessor:
             self.df = self.df.tail(ROW_LIMIT)
 
 
-class GreeksProcessor(BaseEventProcessor):
+class LatestEventProcessor(BaseEventProcessor):
     name = "feed"
 
     def process_event(self, event: SingleEventType) -> None:
         self.df = self.df.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
 
-        if len(self.df) > 2 * ROW_LIMIT:
-            self.df = self.df.tail(ROW_LIMIT)
 
-
-class EventHandler(ABC):
-    channel: Channels
-    processor: Optional[BaseEventProcessor] = None
+class EventHandler:
 
     stop_listener = asyncio.Event()
     diagnostic = True
 
-    def __init__(self) -> None:
+    def __init__(
+        self, channel: Channels = Channels.Control, processor: Optional[BaseEventProcessor] = None
+    ) -> None:
+        self.channel = channel
+        self.processor = processor
+
         channel_specs = ChannelSpecs.get_spec(self.channel) or ChannelSpecs.control
-        self.channel = channel_specs.channel
         self.event = channel_specs.event_type
         self.fields = channel_specs.fields
 
@@ -131,8 +129,8 @@ class EventHandler(ABC):
                 data = {field: next(flat_iterator) for field in self.fields}
                 event = self.event.value(**data)
                 events.append(event)
-                if channel_name == "Quotes":
-                    pass
+                # if channel_name == "Quotes":
+                #     pass
 
             except StopIteration:
                 if self.diagnostic:
@@ -160,29 +158,10 @@ class EventHandler(ABC):
                 raise MessageProcessingError("Unexpected error occurred", e)
 
 
-class QuotesHandler(EventHandler):
-    channel = Channels.Quotes
+class ControlHandler(EventHandler):
 
-
-class GreeksHandler(EventHandler):
-    channel = Channels.Greeks
-    processor = GreeksProcessor()
-
-
-class TradesHandler(EventHandler):
-    channel = Channels.Trades
-
-
-class ProfileHandler(EventHandler):
-    channel = Channels.Profile
-
-
-class SummaryHandler(EventHandler):
-    channel = Channels.Summary
-
-
-class ControlMessageHandler:
     def __init__(self) -> None:
+        super().__init__(channel=Channels.Control)
         self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
             "AUTH_STATE": self.handle_auth_state,
@@ -219,24 +198,16 @@ class ControlMessageHandler:
         logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
 
 
-class ControlHandler(EventHandler):
-    channel = Channels.Control
-    handler = ControlMessageHandler()
-
-    async def handle_message(self, message: Message) -> None:
-        await self.handler.handle_message(message)
-
-
 class MessageQueues:
     instance = None
 
     handlers: dict[str, EventHandler] = {
         "Control": ControlHandler(),
-        "Quotes": QuotesHandler(),
-        "Trades": TradesHandler(),
-        "Greeks": GreeksHandler(),
-        "Profile": ProfileHandler(),
-        "Summary": SummaryHandler(),
+        "Quotes": EventHandler(Channels.Quotes),
+        "Trades": EventHandler(Channels.Trades),
+        "Greeks": EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
+        "Profile": EventHandler(Channels.Profile, processor=LatestEventProcessor()),
+        "Summary": EventHandler(Channels.Summary, processor=LatestEventProcessor()),
     }
 
     def __new__(cls):
