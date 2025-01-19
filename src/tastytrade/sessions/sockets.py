@@ -8,7 +8,8 @@ from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
 import tastytrade.sessions.models as models
-from tastytrade.sessions.configurations import ChannelSpecification, ChannelSpecs, DXLinkConfig
+from tastytrade.sessions.configurations import ChannelSpecification, DXLinkConfig, channel_specs
+from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.messaging import MessageQueues
 from tastytrade.sessions.models import AddItem, FeedSetupModel, SubscriptionRequest
 from tastytrade.sessions.requests import AsyncSessionHandler
@@ -120,7 +121,10 @@ class WebSocketManager:
             await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def setup_feeds(self) -> None:
-        for feed in ChannelSpecs():
+        for feed in channel_specs.values():
+            if feed.channel == Channels.Control:
+                continue
+
             request = generate_feed_setup_request(feed)
             await asyncio.wait_for(
                 self.websocket.send(request),
@@ -128,7 +132,10 @@ class WebSocketManager:
             )
 
     async def subscribe_to_feeds(self, symbols: List[str]):
-        for feed in ChannelSpecs():
+        for feed in channel_specs.values():
+            if feed.channel == Channels.Control:
+                continue
+
             request = generate_subscription_request(feed, symbols)
             async with self.subscription_semaphore:
                 await asyncio.wait_for(

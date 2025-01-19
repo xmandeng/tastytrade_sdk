@@ -7,7 +7,7 @@ import polars as pl
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
-from tastytrade.sessions.configurations import ChannelSpecs
+from tastytrade.sessions.configurations import channel_specs
 from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.models import EventList, Message, ParsedEventType, SingleEventType
 
@@ -54,12 +54,16 @@ class EventHandler:
     def __init__(
         self, channel: Channels = Channels.Control, processor: Optional[BaseEventProcessor] = None
     ) -> None:
+
+        if channel not in channel_specs:
+            channel = Channels.Control
+            logger.error("Channel %s not found in channel_specs", channel)
+
         self.channel = channel
         self.processor = processor
 
-        channel_specs = ChannelSpecs.get_spec(self.channel) or ChannelSpecs.control
-        self.event = channel_specs.event_type
-        self.fields = channel_specs.fields
+        self.event = channel_specs[self.channel].event_type
+        self.fields = channel_specs[self.channel].fields
 
         self.feed_processor = self.processor or BaseEventProcessor()
         self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
