@@ -133,8 +133,6 @@ class EventHandler:
                 data = {field: next(flat_iterator) for field in self.fields}
                 event = self.event.value(**data)
                 events.append(event)
-                # if channel_name == "Quotes":
-                #     pass
 
             except StopIteration:
                 if self.diagnostic:
@@ -207,8 +205,8 @@ class MessageQueues:
 
     handlers: dict[str, EventHandler] = {
         "Control": ControlHandler(),
-        "Quotes": EventHandler(Channels.Quotes),
-        "Trades": EventHandler(Channels.Trades),
+        "Quote": EventHandler(Channels.Quote),
+        "Trade": EventHandler(Channels.Trade),
         "Greeks": EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
         "Profile": EventHandler(Channels.Profile, processor=LatestEventProcessor()),
         "Summary": EventHandler(Channels.Summary, processor=LatestEventProcessor()),

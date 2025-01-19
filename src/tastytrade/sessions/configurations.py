@@ -6,6 +6,12 @@ from typing import List
 from tastytrade.sessions.enumerations import Channels, EventTypes
 
 
+# TODO - Get rid of this
+# ? Why do I need to exclude timestamp?
+def get_fields(event_type: EventTypes) -> List[str]:
+    return [field for field in event_type.value.model_fields if field != "timestamp"]
+
+
 # Connection configurations
 @dataclass
 class ConnectionConfig:
@@ -39,62 +45,43 @@ class ChannelSpecification:
 
 
 CHANNEL_SPECS = {
-    Channels.Trades: ChannelSpecification(
-        type="Trade",
-        channel=Channels.Trades,
-        event_type=EventTypes.Trades,
-        fields=["eventSymbol", "price", "dayVolume", "size"],
+    Channels.Trade: ChannelSpecification(
+        type=Channels.Trade.name,
+        channel=Channels.Trade,
+        event_type=EventTypes.Trade,
+        fields=get_fields(EventTypes.Trade),
         description="Real-time trade execution data",
     ),
-    Channels.Quotes: ChannelSpecification(
-        type="Quote",
-        channel=Channels.Quotes,
-        event_type=EventTypes.Quotes,
-        fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
+    Channels.Quote: ChannelSpecification(
+        type=Channels.Quote.name,
+        channel=Channels.Quote,
+        event_type=EventTypes.Quote,
+        fields=get_fields(EventTypes.Quote),
         description="Real-time quote updates",
     ),
     Channels.Greeks: ChannelSpecification(
-        type="Greeks",
+        type=Channels.Greeks.name,
         channel=Channels.Greeks,
         event_type=EventTypes.Greeks,
-        fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
+        fields=get_fields(EventTypes.Greeks),
         description="Option greeks values",
     ),
     Channels.Profile: ChannelSpecification(
-        type="Profile",
+        type=Channels.Profile.name,
         channel=Channels.Profile,
         event_type=EventTypes.Profile,
-        fields=[
-            "eventSymbol",
-            "description",
-            "shortSaleRestriction",
-            "tradingStatus",
-            "statusReason",
-            "haltStartTime",
-            "haltEndTime",
-            "highLimitPrice",
-            "lowLimitPrice",
-            "high52WeekPrice",
-            "low52WeekPrice",
-        ],
+        fields=get_fields(EventTypes.Profile),
         description="Profile",  # TODO Update
     ),
     Channels.Summary: ChannelSpecification(
-        type="Summary",
+        type=Channels.Summary.name,
         channel=Channels.Summary,
         event_type=EventTypes.Summary,
-        fields=[
-            "eventSymbol",
-            "openInterest",
-            "dayOpenPrice",
-            "dayHighPrice",
-            "dayLowPrice",
-            "prevDayClosePrice",
-        ],
+        fields=get_fields(EventTypes.Summary),
         description="Summary",  # TODO Update
     ),
     Channels.Control: ChannelSpecification(
-        type="Control",
+        type=Channels.Control.name,
         channel=Channels.Control,
         event_type=EventTypes.Control,
         fields=[],
