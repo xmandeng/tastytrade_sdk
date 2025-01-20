@@ -2,14 +2,15 @@ import asyncio
 import json
 import logging
 from asyncio import Semaphore
-from typing import List, Optional
+from collections import defaultdict
+from typing import List
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
+from tastytrade.sessions import Credentials
 from tastytrade.sessions.configurations import CHANNEL_SPECS, DXLinkConfig
 from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.messaging import MessageQueues
 from tastytrade.sessions.models import (
     AddItem,
     AuthModel,
@@ -27,59 +28,54 @@ logger = logging.getLogger(__name__)
 
 @singleton
 class WebSocketManager:
+    instance = None
     listener_task: asyncio.Task
     websocket: ClientConnection
     sessions: dict[AsyncSessionHandler, "WebSocketManager"] = {}
+    queues: defaultdict[int, asyncio.Queue] = defaultdict(asyncio.Queue)
     lock = asyncio.Lock()
+    session: AsyncSessionHandler
 
-    def __new__(cls, session):
-        if session not in cls.sessions:
-            cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
-        return cls.sessions[session]
+    def __new__(cls):
+        if cls.instance is None:
+            cls.instance = object.__new__(cls)
+        return cls.instance
 
     def __init__(
         self,
-        session: AsyncSessionHandler,
-        queue_manager: Optional[MessageQueues] = None,
     ):
-        self.session = session
-        self.queue_manager = queue_manager or MessageQueues()
         config = DXLinkConfig()
-
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
 
-    async def __aenter__(self):
-        await self.open()
+    async def __aenter__(self, credentials: Credentials):
+        await self.connect(credentials)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.close()
 
-    async def open(self):
+    async def connect(self, credentials: Credentials):
+        self.session = await AsyncSessionHandler.create(credentials)
         self.websocket = await connect(self.session.session.headers["dxlink-url"])
 
         try:
-            # Setup sequence must happen before starting the listener
             await self.setup_connection()
             await self.authorize_connection()
             await self.open_channels()
             await self.setup_feeds()
-
-            # Create websocket I/O tasks
-            self.listener_task = asyncio.create_task(
-                self.socket_listener(), name="websocket_listener"
-            )
-
-            # Keepalive for websocket connection
-            self.keepalive_task = asyncio.create_task(
-                self.send_keepalives(), name="websocket_keepalive"
-            )
+            await self.start_listener()
 
         except Exception as e:
             logger.error("Error while opening connection: %s", e)
             await self.websocket.close()
-            self.websocket = None
             raise e
+
+    async def start_listener(self):
+        self.listener_task = asyncio.create_task(self.socket_listener(), name="websocket_listener")
+
+        self.keepalive_task = asyncio.create_task(
+            self.send_keepalives(), name="websocket_keepalive"
+        )
 
     async def close(self):
         if self.session in self.sessions:
@@ -119,11 +115,11 @@ class WebSocketManager:
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def open_channels(self):
-        for channel in self.queue_manager.queues:
-            if channel == 0:
+        for channel in Channels:
+            if channel == Channels.Control:
                 continue
 
-            request = OpenChannelModel(channel=channel).model_dump_json()
+            request = OpenChannelModel(channel=channel.value).model_dump_json()
             await asyncio.wait_for(self.websocket.send(request), timeout=5)
 
     async def setup_feeds(self) -> None:
@@ -171,16 +167,15 @@ class WebSocketManager:
                 break
 
     async def socket_listener(self):
-        # TODO Consider using this websockets pattern which employs an async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
+        # TODO Consider using this websockets pattern which employs
+        # TODOan async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
         while True:
             try:
                 message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
                 channel = message.channel if message.type == "FEED_DATA" else 0
 
                 try:
-                    await asyncio.wait_for(
-                        self.queue_manager.queues[channel].put(message.fields), timeout=1
-                    )
+                    await asyncio.wait_for(self.queues[channel].put(message.fields), timeout=1)
                 except asyncio.TimeoutError:
                     logger.warning(f"Queue {channel} is full - dropping message")
 
