@@ -1,9 +1,15 @@
 # central local for session configurations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 from tastytrade.sessions.enumerations import Channels, EventTypes
+
+
+# TODO - Get rid of this
+# ? Why do I need to exclude timestamp?
+def get_fields(event_type: EventTypes) -> List[str]:
+    return [field for field in event_type.value.model_fields if field != "timestamp"]
 
 
 # Connection configurations
@@ -18,6 +24,16 @@ class ConnectionConfig:
 
 
 @dataclass
+class DXLinkConfig:
+    keepalive_timeout: int = 60
+    version: str = "0.1-DXF-JS/0.3.0"
+    channel_assignment: int = 1
+    max_subscriptions: int = 20
+    reconnect_attempts: int = 3  # for later use
+    reconnect_delay: int = 5  # for later use
+
+
+@dataclass
 class ChannelSpecification:
     """Defines the specification for a market data channel."""
 
@@ -28,89 +44,47 @@ class ChannelSpecification:
     description: str
 
 
-class ChannelSpecs:
-    """Central registry of channel specifications.
-
-    TODO: Pytest - check `channel_spec.fields` matches `eventModel.fields`
-    """
-
-    @classmethod
-    def __iter__(cls):
-        """Iterate over all channel types: TRADES -> QUOTES -> GREEKS -> PROFILE -> SUMMARY -> etc."""
-        return (
-            value
-            for name, value in vars(cls).items()
-            if isinstance(value, ChannelSpecification) and not name.startswith("_")
-        )
-
-    trades = ChannelSpecification(
-        type="Trade",
-        channel=Channels.Trades,
-        event_type=EventTypes.Trades,
-        fields=["eventSymbol", "price", "dayVolume", "size"],
+CHANNEL_SPECS = {
+    Channels.Trade: ChannelSpecification(
+        type=Channels.Trade.name,
+        channel=Channels.Trade,
+        event_type=EventTypes.Trade,
+        fields=get_fields(EventTypes.Trade),
         description="Real-time trade execution data",
-    )
-
-    quotes = ChannelSpecification(
-        type="Quote",
-        channel=Channels.Quotes,
-        event_type=EventTypes.Quotes,
-        fields=["eventSymbol", "bidPrice", "askPrice", "bidSize", "askSize"],
+    ),
+    Channels.Quote: ChannelSpecification(
+        type=Channels.Quote.name,
+        channel=Channels.Quote,
+        event_type=EventTypes.Quote,
+        fields=get_fields(EventTypes.Quote),
         description="Real-time quote updates",
-    )
-
-    greeks = ChannelSpecification(
-        type="Greeks",
+    ),
+    Channels.Greeks: ChannelSpecification(
+        type=Channels.Greeks.name,
         channel=Channels.Greeks,
         event_type=EventTypes.Greeks,
-        fields=["eventSymbol", "volatility", "delta", "gamma", "theta", "rho", "vega"],
+        fields=get_fields(EventTypes.Greeks),
         description="Option greeks values",
-    )
-
-    profile = ChannelSpecification(
-        type="Profile",
+    ),
+    Channels.Profile: ChannelSpecification(
+        type=Channels.Profile.name,
         channel=Channels.Profile,
         event_type=EventTypes.Profile,
-        fields=[
-            "eventSymbol",
-            "description",
-            "shortSaleRestriction",
-            "tradingStatus",
-            "statusReason",
-            "haltStartTime",
-            "haltEndTime",
-            "highLimitPrice",
-            "lowLimitPrice",
-            "high52WeekPrice",
-            "low52WeekPrice",
-        ],
+        fields=get_fields(EventTypes.Profile),
         description="Profile",  # TODO Update
-    )
-
-    summary = ChannelSpecification(
-        type="Summary",
+    ),
+    Channels.Summary: ChannelSpecification(
+        type=Channels.Summary.name,
         channel=Channels.Summary,
         event_type=EventTypes.Summary,
-        fields=[
-            "eventSymbol",
-            "openInterest",
-            "dayOpenPrice",
-            "dayHighPrice",
-            "dayLowPrice",
-            "prevDayClosePrice",
-        ],
+        fields=get_fields(EventTypes.Summary),
         description="Summary",  # TODO Update
-    )
-
-    control = ChannelSpecification(
-        type="Control",
+    ),
+    Channels.Control: ChannelSpecification(
+        type=Channels.Control.name,
         channel=Channels.Control,
         event_type=EventTypes.Control,
         fields=[],
         description="Not Used -- Control plane events",
-    )
-
-    @classmethod
-    def get_spec(cls, channel: Channels) -> Optional[ChannelSpecification]:
-        """Get the specification for a given channel."""
-        return getattr(cls, channel.name.lower())
+    ),
+}

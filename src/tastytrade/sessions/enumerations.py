@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class Channels(Enum):
     Control = 0
-    Trades = 1
-    Quotes = 3
+    Trade = 1
+    Quote = 3
     Greeks = 5
     Profile = 7
     Summary = 9
@@ -25,8 +25,8 @@ class Channels(Enum):
 
 class EventTypes(Enum):
     Control = ControlEvent
-    Trades = TradeEvent
-    Quotes = QuoteEvent
+    Trade = TradeEvent
+    Quote = QuoteEvent
     Greeks = GreeksEvent
     Profile = ProfileEvent
     Summary = SummaryEvent

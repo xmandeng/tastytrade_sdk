@@ -1,16 +1,26 @@
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from asyncio import Semaphore
+from typing import List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
-import tastytrade.sessions.models as models
+from tastytrade.sessions.configurations import CHANNEL_SPECS, DXLinkConfig
+from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.messaging import MessageQueues
+from tastytrade.sessions.models import (
+    AddItem,
+    AuthModel,
+    FeedSetupModel,
+    KeepaliveModel,
+    OpenChannelModel,
+    SessionReceivedModel,
+    SetupModel,
+    SubscriptionRequest,
+)
 from tastytrade.sessions.requests import AsyncSessionHandler
-
-QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +37,16 @@ class WebSocketManager:
             cls.sessions[session] = super(WebSocketManager, cls).__new__(cls)
         return cls.sessions[session]
 
-    def __init__(self, session: AsyncSessionHandler, queue_manager: Optional[MessageQueues] = None):
+    def __init__(
+        self,
+        session: AsyncSessionHandler,
+        queue_manager: Optional[MessageQueues] = None,
+    ):
         self.session = session
         self.queue_manager = queue_manager or MessageQueues()
+        config = DXLinkConfig()
+
+        self.subscription_semaphore = Semaphore(config.max_subscriptions)
 
     async def __aenter__(self):
         await self.open()
@@ -46,11 +63,14 @@ class WebSocketManager:
             await self.setup_connection()
             await self.authorize_connection()
             await self.open_channels()
+            await self.setup_feeds()
 
             # Create websocket I/O tasks
             self.listener_task = asyncio.create_task(
                 self.socket_listener(), name="websocket_listener"
             )
+
+            # Keepalive for websocket connection
             self.keepalive_task = asyncio.create_task(
                 self.send_keepalives(), name="websocket_keepalive"
             )
@@ -91,11 +111,11 @@ class WebSocketManager:
             logger.info(f"{name} task was cancelled")
 
     async def setup_connection(self):
-        request = models.SetupModel()
+        request = SetupModel()
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def authorize_connection(self):
-        request = models.AuthModel(token=self.session.session.headers["token"])
+        request = AuthModel(token=self.session.session.headers["token"])
         await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
 
     async def open_channels(self):
@@ -103,14 +123,45 @@ class WebSocketManager:
             if channel == 0:
                 continue
 
-            request = models.OpenChannelModel(channel=channel)
-            await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
+            request = OpenChannelModel(channel=channel).model_dump_json()
+            await asyncio.wait_for(self.websocket.send(request), timeout=5)
+
+    async def setup_feeds(self) -> None:
+        for specification in CHANNEL_SPECS.values():
+            if specification.channel == Channels.Control:
+                continue
+
+            request = FeedSetupModel(
+                acceptEventFields={specification.type: specification.fields},
+                channel=specification.channel.value,
+            ).model_dump_json()
+
+            await asyncio.wait_for(
+                self.websocket.send(request),
+                timeout=5,
+            )
+
+    async def subscribe(self, symbols: List[str]):
+        for specification in CHANNEL_SPECS.values():
+            if specification.channel == Channels.Control:
+                continue
+
+            request = SubscriptionRequest(
+                channel=specification.channel.value,
+                add=[AddItem(type=specification.type, symbol=symbol) for symbol in symbols],
+            ).model_dump_json()
+
+            async with self.subscription_semaphore:
+                await asyncio.wait_for(
+                    self.websocket.send(request),
+                    timeout=5,
+                )
 
     async def send_keepalives(self):
         while True:
             try:
                 await asyncio.sleep(30)
-                await self.websocket.send(models.KeepaliveModel().model_dump_json())
+                await self.websocket.send(KeepaliveModel().model_dump_json())
                 logger.debug("Keepalive sent from client")
             except asyncio.CancelledError:
                 logger.info("Keepalive stopped")
@@ -123,7 +174,7 @@ class WebSocketManager:
         # TODO Consider using this websockets pattern which employs an async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
         while True:
             try:
-                message = models.SessionReceivedModel(**json.loads(await self.websocket.recv()))
+                message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
                 channel = message.channel if message.type == "FEED_DATA" else 0
 
                 try:

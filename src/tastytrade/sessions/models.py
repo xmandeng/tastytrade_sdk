@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Any, List, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
@@ -9,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 logger = logging.getLogger(__name__)
 
 MARKET_TZ = ZoneInfo("America/New_York")
+
+MAX_PRECISION = 4
 
 
 class Message(BaseModel):
@@ -24,20 +25,14 @@ class SetupModel(BaseModel):
     version: str = "0.1-DXF-JS/0.3.0"
     keepaliveTimeout: int = 60
     acceptKeepaliveTimeout: int = 60
-
-    class Config:
-        frozen = True
-        extra = "forbid"
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class AuthModel(BaseModel):
     type: Literal["AUTH"] = "AUTH"
     channel: int = 0
     token: str
-
-    class Config:
-        frozen = True
-        extra = "forbid"
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class OpenChannelModel(BaseModel):
@@ -45,19 +40,13 @@ class OpenChannelModel(BaseModel):
     service: str = "FEED"
     channel: int
     parameters: dict[str, Any] = {"contract": "AUTO"}
-
-    class Config:
-        frozen = True
-        extra = "forbid"
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class KeepaliveModel(BaseModel):
     type: Literal["KEEPALIVE"] = "KEEPALIVE"
     channel: int = 0
-
-    class Config:
-        frozen = True
-        extra = "forbid"
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class SessionReceivedModel(BaseModel):
@@ -114,13 +103,6 @@ class SubscriptionRequest(BaseModel):
     add: List[AddItem]
 
 
-def to_decimal(value: str | float | None) -> Optional[Decimal]:
-    """Convert value to Decimal, handling NaN and None cases."""
-    if value is None or value == "NaN" or value == float("inf"):
-        return None
-    return Decimal(str(value))
-
-
 def dash_to_underscore(value: str) -> str:
     return value.replace("-", "_")
 
@@ -149,56 +131,65 @@ class BaseEvent(BaseModel):
         return self
 
 
-class TradeEvent(BaseEvent):
-    price: Optional[Decimal] = Field(
-        default=None,  # Allow None as a default value
+class FloatFieldMixin:
+
+    @classmethod
+    def validate_float_fields(cls, *field_names):
+        @field_validator(*field_names, mode="before")
+        @classmethod
+        def convert_float(cls, value: Any) -> Any:
+            if value is None or value == "NaN" or value == float("inf"):
+                return None
+            return round(float(value), MAX_PRECISION)
+
+        return convert_float
+
+
+class TradeEvent(BaseEvent, FloatFieldMixin):
+    price: Optional[float] = Field(
+        default=None,
         description="Execution price of the trade",
-        ge=0,  # Greater than or equal to 0
+        ge=0,
     )
-    dayVolume: Optional[Decimal] = Field(
+    dayVolume: Optional[float] = Field(
         default=None,
         description="Cumulative volume for the trading day",
         ge=0,
     )
-    size: Optional[Decimal] = Field(
+    size: Optional[float] = Field(
         default=None,
         description="Size of the trade execution",
         ge=0,
     )
 
-    @field_validator("price", "dayVolume", "size", mode="before")
-    @classmethod
-    def convert_decimal(cls, value: Any) -> Any:
-        return to_decimal(value)
+    convert_float = FloatFieldMixin.validate_float_fields("price", "dayVolume", "size")
 
 
-class QuoteEvent(BaseEvent):
-    bidPrice: Decimal = Field(description="Best bid price", ge=0)
-    askPrice: Decimal = Field(description="Best ask price", ge=0)
-    bidSize: Optional[Decimal] = Field(description="Size available at bid price", ge=0)
-    askSize: Optional[Decimal] = Field(description="Size available at ask price", ge=0)
+class QuoteEvent(BaseEvent, FloatFieldMixin):
+    bidPrice: float = Field(description="Best bid price", ge=0)
+    askPrice: float = Field(description="Best ask price", ge=0)
+    bidSize: Optional[float] = Field(description="Size available at bid price", ge=0)
+    askSize: Optional[float] = Field(description="Size available at ask price", ge=0)
 
-    @field_validator("bidPrice", "askPrice", "bidSize", "askSize", mode="before")
-    @classmethod
-    def convert_decimal(cls, value: Any) -> Any:
-        return to_decimal(value)
-
-
-class GreeksEvent(BaseEvent):
-    volatility: Optional[Decimal] = Field(description="Implied volatility", ge=0)
-    delta: Optional[Decimal] = Field(description="Delta greek", ge=-1, le=1)
-    gamma: Optional[Decimal] = Field(description="Gamma greek", ge=0)
-    theta: Optional[Decimal] = Field(description="Theta greek")
-    rho: Optional[Decimal] = Field(description="Rho greek")
-    vega: Optional[Decimal] = Field(description="Vega greek", ge=0)
-
-    @field_validator("volatility", "delta", "gamma", "theta", "rho", "vega", mode="before")
-    @classmethod
-    def convert_decimal(cls, value: Any) -> Any:
-        return to_decimal(value)
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "bidPrice", "askPrice", "bidSize", "askSize"
+    )
 
 
-class ProfileEvent(BaseEvent):
+class GreeksEvent(BaseEvent, FloatFieldMixin):
+    volatility: Optional[float] = Field(description="Implied volatility", ge=0)
+    delta: Optional[float] = Field(description="Delta greek", ge=-1, le=1)
+    gamma: Optional[float] = Field(description="Gamma greek", ge=0)
+    theta: Optional[float] = Field(description="Theta greek")
+    rho: Optional[float] = Field(description="Rho greek")
+    vega: Optional[float] = Field(description="Vega greek", ge=0)
+
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "volatility", "delta", "gamma", "theta", "rho", "vega"
+    )
+
+
+class ProfileEvent(BaseEvent, FloatFieldMixin):
     description: str = Field(description="Instrument description")
     shortSaleRestriction: str = Field(description="Short sale restriction status")
     tradingStatus: str = Field(description="Current trading status")
@@ -207,74 +198,26 @@ class ProfileEvent(BaseEvent):
     )
     haltStartTime: Optional[int] = Field(default=None, description="Trading halt start timestamp")
     haltEndTime: Optional[int] = Field(default=None, description="Trading halt end timestamp")
-    highLimitPrice: Optional[Decimal] = Field(default=None, description="Upper price limit", ge=0)
-    lowLimitPrice: Optional[Decimal] = Field(default=None, description="Lower price limit", ge=0)
-    high52WeekPrice: Optional[Decimal] = Field(default=None, description="52-week high price", ge=0)
-    low52WeekPrice: Optional[Decimal] = Field(default=None, description="52-week low price", ge=0)
+    highLimitPrice: Optional[float] = Field(default=None, description="Upper price limit", ge=0)
+    lowLimitPrice: Optional[float] = Field(default=None, description="Lower price limit", ge=0)
+    high52WeekPrice: Optional[float] = Field(default=None, description="52-week high price", ge=0)
+    low52WeekPrice: Optional[float] = Field(default=None, description="52-week low price", ge=0)
 
-    @field_validator(
-        "highLimitPrice",
-        "lowLimitPrice",
-        "high52WeekPrice",
-        "low52WeekPrice",
-        mode="before",
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "highLimitPrice", "lowLimitPrice", "high52WeekPrice", "low52WeekPrice"
     )
-    @classmethod
-    def convert_decimal(cls, value: Any) -> Any:
-        return to_decimal(value)
-
-    @model_validator(mode="after")
-    def validate_price_ranges(self) -> "ProfileEvent":
-        """Validate price range relationships."""
-        if (
-            self.highLimitPrice is not None
-            and self.lowLimitPrice is not None
-            and self.highLimitPrice < self.lowLimitPrice
-        ):
-            raise ValueError("High limit price must be greater than low limit price")
-
-        if (
-            self.high52WeekPrice is not None
-            and self.low52WeekPrice is not None
-            and self.high52WeekPrice < self.low52WeekPrice
-        ):
-            raise ValueError("52-week high must be greater than 52-week low")
-
-        return self
 
 
-class SummaryEvent(BaseEvent):
-    openInterest: Optional[Decimal] = Field(default=None, description="Open interest", ge=0)
-    dayOpenPrice: Optional[Decimal] = Field(description="Opening price for the day", ge=0)
-    dayHighPrice: Optional[Decimal] = Field(description="Highest price for the day", ge=0)
-    dayLowPrice: Optional[Decimal] = Field(description="Lowest price for the day", ge=0)
-    prevDayClosePrice: Optional[Decimal] = Field(description="Previous day's closing price", ge=0)
+class SummaryEvent(BaseEvent, FloatFieldMixin):
+    openInterest: Optional[float] = Field(default=None, description="Open interest", ge=0)
+    dayOpenPrice: Optional[float] = Field(description="Opening price for the day", ge=0)
+    dayHighPrice: Optional[float] = Field(description="Highest price for the day", ge=0)
+    dayLowPrice: Optional[float] = Field(description="Lowest price for the day", ge=0)
+    prevDayClosePrice: Optional[float] = Field(description="Previous day's closing price", ge=0)
 
-    @field_validator(
-        "openInterest",
-        "dayOpenPrice",
-        "dayHighPrice",
-        "dayLowPrice",
-        "prevDayClosePrice",
-        mode="before",
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "openInterest", "dayOpenPrice", "dayHighPrice", "dayLowPrice", "prevDayClosePrice"
     )
-    @classmethod
-    def convert_decimal(cls, value: Any) -> Any:
-        return to_decimal(value)
-
-    @model_validator(mode="after")
-    def validate_price_ranges(self) -> "SummaryEvent":
-        """Validate daily price range relationships."""
-        if self.dayHighPrice is None or self.dayLowPrice is None:
-            return self
-
-        if self.dayHighPrice < self.dayLowPrice:
-            raise ValueError("Day high price must be greater than day low price")
-
-        if not (self.dayLowPrice <= self.dayHighPrice):
-            raise ValueError("Day prices must maintain low <= high relationship")
-
-        return self
 
 
 class ControlEvent(BaseModel):
