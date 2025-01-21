@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 from asyncio import Semaphore
-from collections import defaultdict
 from typing import List
 
 from injector import singleton
@@ -11,6 +10,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from tastytrade.sessions import Credentials
 from tastytrade.sessions.configurations import CHANNEL_SPECS, DXLinkConfig
 from tastytrade.sessions.enumerations import Channels
+from tastytrade.sessions.messaging import MessageDispatcher
 from tastytrade.sessions.models import (
     AddItem,
     AuthModel,
@@ -27,14 +27,17 @@ logger = logging.getLogger(__name__)
 
 
 @singleton
-class WebSocketManager:
+class DXLinkManager:
     instance = None
     listener_task: asyncio.Task
     websocket: ClientConnection
-    sessions: dict[AsyncSessionHandler, "WebSocketManager"] = {}
-    queues: defaultdict[int, asyncio.Queue] = defaultdict(asyncio.Queue)
+    queues: dict[int, asyncio.Queue] = {channel.value: asyncio.Queue() for channel in Channels}
     lock = asyncio.Lock()
     session: AsyncSessionHandler
+
+    @classmethod
+    def get_instance(cls):
+        return cls.instance
 
     def __new__(cls):
         if cls.instance is None:
@@ -48,13 +51,16 @@ class WebSocketManager:
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
 
     async def __aenter__(self, credentials: Credentials):
-        await self.connect(credentials)
+        await self.open(credentials)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.close()
 
-    async def connect(self, credentials: Credentials):
+    def connect(self, credentials: Credentials):
+        asyncio.create_task(self.open(credentials))
+
+    async def open(self, credentials: Credentials):
         self.session = await AsyncSessionHandler.create(credentials)
         self.websocket = await connect(self.session.session.headers["dxlink-url"])
 
@@ -64,11 +70,15 @@ class WebSocketManager:
             await self.open_channels()
             await self.setup_feeds()
             await self.start_listener()
+            await self.start_router()
 
         except Exception as e:
             logger.error("Error while opening connection: %s", e)
             await self.websocket.close()
             raise e
+
+    async def start_router(self):
+        self.router = MessageDispatcher(self)
 
     async def start_listener(self):
         self.listener_task = asyncio.create_task(self.socket_listener(), name="websocket_listener")
@@ -78,9 +88,6 @@ class WebSocketManager:
         )
 
     async def close(self):
-        if self.session in self.sessions:
-            del self.sessions[self.session]
-
         if not hasattr(self, "websocket"):
             logger.warning("Websocket - No active connection to close")
             return
@@ -95,7 +102,9 @@ class WebSocketManager:
         )
 
         await self.websocket.close()
+        await self.router.cleanup()
         logger.info("Websocket closed")
+
         self.websocket = None
 
     async def cancel_task(self, name: str, task: asyncio.Task):
