@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Annotated, Any, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -227,8 +227,3 @@ class ControlEvent(BaseModel):
         extra="allow",
         str_strip_whitespace=True,
     )
-
-
-SingleEventType = Union[TradeEvent, QuoteEvent, GreeksEvent, ProfileEvent, SummaryEvent, None]
-EventList = List[SingleEventType]
-ParsedEventType = Union[SingleEventType, EventList]
