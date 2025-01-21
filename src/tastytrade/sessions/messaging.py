@@ -14,40 +14,37 @@ class Websocket(Protocol):
 
 class MessageDispatcher:
     instance = None
+    queues: dict[int, asyncio.Queue] = {}
 
-    handlers: dict[str, EventHandler] = {
-        "Control": ControlHandler(),
-        "Quote": EventHandler(Channels.Quote),
-        "Trade": EventHandler(Channels.Trade),
-        "Greeks": EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
-        "Profile": EventHandler(Channels.Profile, processor=LatestEventProcessor()),
-        "Summary": EventHandler(Channels.Summary, processor=LatestEventProcessor()),
+    handler: dict[Channels, EventHandler] = {
+        Channels.Control: ControlHandler(),
+        Channels.Quote: EventHandler(Channels.Quote),
+        Channels.Trade: EventHandler(Channels.Trade),
+        Channels.Greeks: EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
+        Channels.Profile: EventHandler(Channels.Profile, processor=LatestEventProcessor()),
+        Channels.Summary: EventHandler(Channels.Summary, processor=LatestEventProcessor()),
     }
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
-    def __init__(self) -> None:
-        # Create Websocket queues for each channel
-        self.queues: dict[int, asyncio.Queue] = {
-            channel.value: asyncio.Queue() for channel in Channels if channel != Channels.Errors
-        }
+    def __init__(self, websocket: Websocket) -> None:
 
         # Start queue listeners
         self.tasks: List[asyncio.Task] = [
             asyncio.create_task(
-                listener.queue_listener(self.queues[listener.channel.value]),
-                name=f"queue_listener_ch{listener.channel.value}_{listener.channel.name}",
+                handler.queue_listener(websocket.queues[handler.channel.value]),
+                name=f"queue_listener_ch{handler.channel.value}_{handler.channel.name}",
             )
-            for _, listener in self.handlers.items()
+            for _, handler in self.handler.items()
         ]
 
     async def cleanup(self) -> None:
         logger.info("Initiating cleanup...")
 
-        for _, handler in self.handlers.items():
+        for _, handler in self.handler.items():
             handler.stop_listener.set()
 
         drain_tasks = [
@@ -66,7 +63,7 @@ class MessageDispatcher:
             except asyncio.CancelledError:
                 logger.debug("Task %s cancelled", task.get_name())
 
-        for _, handler in self.handlers.items():
+        for _, handler in self.handler.items():
             handler.stop_listener.clear()
 
         logger.info("Cleanup completed")
