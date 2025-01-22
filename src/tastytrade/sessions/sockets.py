@@ -176,21 +176,24 @@ class DXLinkManager:
                 break
 
     async def socket_listener(self):
-        # TODO Consider using this websockets pattern which employs
-        # TODOan async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
-        while True:
-            try:
-                message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
-                channel = message.channel if message.type == "FEED_DATA" else 0
-
+        """Listen for websocket messages using async for pattern."""
+        try:
+            async for message in self.websocket:
                 try:
-                    await asyncio.wait_for(self.queues[channel].put(message.fields), timeout=1)
-                except asyncio.TimeoutError:
-                    logger.warning(f"Queue {channel} is full - dropping message")
+                    parsed_message = SessionReceivedModel(**json.loads(message))
+                    channel = parsed_message.channel if parsed_message.type == "FEED_DATA" else 0
 
-            except asyncio.CancelledError:
-                logger.info("Websocket listener stopped")
-                break
-            except Exception as e:
-                logger.error("Websocket listener error: %s", e)
-                break
+                    try:
+                        await self.queues[channel].put(parsed_message.fields)
+                    except asyncio.QueueFull:
+                        logger.warning(f"Queue {channel} is full - dropping message")
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse message: {e}")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
+
+        except asyncio.CancelledError:
+            logger.info("Websocket listener stopped")
+        except Exception as e:
+            logger.error(f"Websocket listener error: {e}")
