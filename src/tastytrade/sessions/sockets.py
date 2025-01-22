@@ -29,11 +29,13 @@ logger = logging.getLogger(__name__)
 @singleton
 class DXLinkManager:
     instance = None
-    listener_task: asyncio.Task
-    websocket: ClientConnection
-    queues: dict[int, asyncio.Queue] = {channel.value: asyncio.Queue() for channel in Channels}
-    lock = asyncio.Lock()
+    queues: dict[int, asyncio.Queue]
+
     session: AsyncSessionHandler
+    websocket: ClientConnection
+    subscription_semaphore: Semaphore
+
+    listener_task: asyncio.Task
 
     @classmethod
     def get_instance(cls):
@@ -48,7 +50,9 @@ class DXLinkManager:
         self,
     ):
         config = DXLinkConfig()
+        self.queues = {channel.value: asyncio.Queue() for channel in Channels}
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
+        self.keepalive_stop = asyncio.Event()
 
     async def __aenter__(self, credentials: Credentials):
         await self.open(credentials)
@@ -93,8 +97,8 @@ class DXLinkManager:
             return
 
         tasks_to_cancel = [
-            ("listener", getattr(self, "listener_task", None)),
-            ("keepalive", getattr(self, "keepalive_task", None)),
+            ("Listener", getattr(self, "listener_task", None)),
+            ("Keepalive", getattr(self, "keepalive_task", None)),
         ]
 
         await asyncio.gather(
@@ -102,7 +106,7 @@ class DXLinkManager:
         )
 
         await self.websocket.close()
-        await self.router.cleanup()
+        await self.router.close()
         logger.info("Websocket closed")
 
         self.websocket = None
@@ -163,17 +167,16 @@ class DXLinkManager:
                 )
 
     async def send_keepalives(self):
-        while True:
-            try:
-                await asyncio.sleep(30)
+        """Send keepalive messages every 30 seconds."""
+        try:
+            while True:
+                await asyncio.sleep(30)  # This properly yields to event loop
                 await self.websocket.send(KeepaliveModel().model_dump_json())
                 logger.debug("Keepalive sent from client")
-            except asyncio.CancelledError:
-                logger.info("Keepalive stopped")
-                break
-            except Exception as e:
-                logger.error("Error sending keepalive: %s", e)
-                break
+        except asyncio.CancelledError:
+            logger.info("Keepalive stopped")
+        except Exception as e:
+            logger.error("Error sending keepalive: %s", e)
 
     async def socket_listener(self):
         """Listen for websocket messages using async for pattern."""
