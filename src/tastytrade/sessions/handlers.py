@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from itertools import chain, islice
 from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, Union
 
+import pandas as pd
 import polars as pl
 from pydantic import ValidationError
 
@@ -49,20 +50,27 @@ class BaseEventProcessor:
     name = "feed"
 
     def __init__(self):
-        self.df = pl.DataFrame()
+        self.pl = pl.DataFrame()
 
     def process_event(self, event: BaseEvent) -> None:
-        self.df = self.df.vstack(pl.DataFrame([event]))
+        self.pl = self.pl.vstack(pl.DataFrame([event]))
 
-        if len(self.df) > 2 * ROW_LIMIT:
-            self.df = self.df.tail(ROW_LIMIT)
+        if len(self.pl) > 2 * ROW_LIMIT:
+            self.pl = self.pl.tail(ROW_LIMIT)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        return self.pl.to_pandas()
+
+    def last(self, symbol: str) -> pd.DataFrame:
+        return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
 
 
 class LatestEventProcessor(BaseEventProcessor):
     name = "feed"
 
     def process_event(self, event: BaseEvent) -> None:
-        self.df = self.df.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
+        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
 
 
 class EventHandler:

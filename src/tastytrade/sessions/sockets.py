@@ -81,9 +81,6 @@ class DXLinkManager:
             await self.websocket.close()
             raise e
 
-    async def start_router(self):
-        self.router = MessageDispatcher(self)
-
     async def start_listener(self):
         self.listener_task = asyncio.create_task(self.socket_listener(), name="websocket_listener")
 
@@ -91,33 +88,43 @@ class DXLinkManager:
             self.send_keepalives(), name="websocket_keepalive"
         )
 
-    async def close(self):
-        if not hasattr(self, "websocket"):
-            logger.warning("Websocket - No active connection to close")
-            return
+    async def start_router(self):
+        self.router = MessageDispatcher(self)
 
-        tasks_to_cancel = [
-            ("Listener", getattr(self, "listener_task", None)),
-            ("Keepalive", getattr(self, "keepalive_task", None)),
-        ]
-
-        await asyncio.gather(
-            *[self.cancel_task(name, task) for name, task in tasks_to_cancel if task is not None]
-        )
-
-        await self.websocket.close()
-        await self.router.close()
-        logger.info("Websocket closed")
-
-        self.websocket = None
-
-    async def cancel_task(self, name: str, task: asyncio.Task):
+    async def socket_listener(self):
+        """Listen for websocket messages using async for pattern."""
         try:
-            task.cancel()
-            await task
-            logger.info(f"{name} task cancelled")
+            async for message in self.websocket:
+                try:
+                    parsed_message = SessionReceivedModel(**json.loads(message))
+                    channel = parsed_message.channel if parsed_message.type == "FEED_DATA" else 0
+
+                    try:
+                        await self.queues[channel].put(parsed_message.fields)
+                    except asyncio.QueueFull:
+                        logger.warning(f"Queue {channel} is full - dropping message")
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse message: {e}")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
+
         except asyncio.CancelledError:
-            logger.info(f"{name} task was cancelled")
+            logger.info("Websocket listener stopped")
+        except Exception as e:
+            logger.error(f"Websocket listener error: {e}")
+
+    async def send_keepalives(self):
+        """Send keepalive messages every 30 seconds."""
+        try:
+            while True:
+                await asyncio.sleep(30)  # This properly yields to event loop
+                await self.websocket.send(KeepaliveModel().model_dump_json())
+                logger.debug("Keepalive sent from client")
+        except asyncio.CancelledError:
+            logger.info("Keepalive stopped")
+        except Exception as e:
+            logger.error("Error sending keepalive: %s", e)
 
     async def setup_connection(self):
         request = SetupModel()
@@ -166,37 +173,30 @@ class DXLinkManager:
                     timeout=5,
                 )
 
-    async def send_keepalives(self):
-        """Send keepalive messages every 30 seconds."""
+    async def close(self):
+        if not hasattr(self, "websocket"):
+            logger.warning("Websocket - No active connection to close")
+            return
+
+        tasks_to_cancel = [
+            ("Listener", getattr(self, "listener_task", None)),
+            ("Keepalive", getattr(self, "keepalive_task", None)),
+        ]
+
+        await asyncio.gather(
+            *[self.cancel_tasks(name, task) for name, task in tasks_to_cancel if task is not None]
+        )
+
+        await self.websocket.close()
+        await self.router.close()
+        logger.info("Websocket closed")
+
+        self.websocket = None
+
+    async def cancel_tasks(self, name: str, task: asyncio.Task):
         try:
-            while True:
-                await asyncio.sleep(30)  # This properly yields to event loop
-                await self.websocket.send(KeepaliveModel().model_dump_json())
-                logger.debug("Keepalive sent from client")
+            task.cancel()
+            await task
+            logger.info(f"{name} task cancelled")
         except asyncio.CancelledError:
-            logger.info("Keepalive stopped")
-        except Exception as e:
-            logger.error("Error sending keepalive: %s", e)
-
-    async def socket_listener(self):
-        """Listen for websocket messages using async for pattern."""
-        try:
-            async for message in self.websocket:
-                try:
-                    parsed_message = SessionReceivedModel(**json.loads(message))
-                    channel = parsed_message.channel if parsed_message.type == "FEED_DATA" else 0
-
-                    try:
-                        await self.queues[channel].put(parsed_message.fields)
-                    except asyncio.QueueFull:
-                        logger.warning(f"Queue {channel} is full - dropping message")
-
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse message: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
-
-        except asyncio.CancelledError:
-            logger.info("Websocket listener stopped")
-        except Exception as e:
-            logger.error(f"Websocket listener error: {e}")
+            logger.info(f"{name} task was cancelled")
