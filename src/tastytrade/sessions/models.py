@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 MARKET_TZ = ZoneInfo("America/New_York")
 
-MAX_PRECISION = 4
+MAX_PRECISION = 2
 
 
 class Message(BaseModel):
@@ -49,7 +49,7 @@ class KeepaliveModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class SessionReceivedModel(BaseModel):
+class EventReceivedModel(BaseModel):
     """Model that requires type and channel, but can handle any other fields dynamically"""
 
     type: str

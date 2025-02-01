@@ -14,10 +14,10 @@ from tastytrade.sessions.messaging import MessageDispatcher
 from tastytrade.sessions.models import (
     AddItem,
     AuthModel,
+    EventReceivedModel,
     FeedSetupModel,
     KeepaliveModel,
     OpenChannelModel,
-    SessionReceivedModel,
     SetupModel,
     SubscriptionRequest,
 )
@@ -95,19 +95,20 @@ class DXLinkManager:
         """Listen for websocket messages using async for pattern."""
         try:
             async for message in self.websocket:
+                logger.debug("%s", message)
+
                 try:
-                    parsed_message = SessionReceivedModel(**json.loads(message))
-                    channel = parsed_message.channel if parsed_message.type == "FEED_DATA" else 0
-
-                    try:
-                        await self.queues[channel].put(parsed_message.fields)
-                    except asyncio.QueueFull:
-                        logger.warning(f"Queue {channel} is full - dropping message")
-
+                    event = EventReceivedModel(**json.loads(message))
+                    channel = event.channel if event.type == "FEED_DATA" else 0
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse message: {e}")
+                    logger.error(f"Failed to parse message: {e}\n{message}")
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                    logger.error(f"Error processing message: {e}\n{message}")
+
+                try:
+                    await self.queues[channel].put(event.fields)
+                except asyncio.QueueFull:
+                    logger.warning(f"Queue {channel} is full - dropping message")
 
         except asyncio.CancelledError:
             logger.info("Websocket listener stopped")
