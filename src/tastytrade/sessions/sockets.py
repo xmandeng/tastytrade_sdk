@@ -14,10 +14,10 @@ from tastytrade.sessions.messaging import MessageDispatcher
 from tastytrade.sessions.models import (
     AddItem,
     AuthModel,
+    EventReceivedModel,
     FeedSetupModel,
     KeepaliveModel,
     OpenChannelModel,
-    SessionReceivedModel,
     SetupModel,
     SubscriptionRequest,
 )
@@ -29,11 +29,13 @@ logger = logging.getLogger(__name__)
 @singleton
 class DXLinkManager:
     instance = None
-    listener_task: asyncio.Task
-    websocket: ClientConnection
-    queues: dict[int, asyncio.Queue] = {channel.value: asyncio.Queue() for channel in Channels}
-    lock = asyncio.Lock()
+    queues: dict[int, asyncio.Queue]
+
     session: AsyncSessionHandler
+    websocket: ClientConnection
+    subscription_semaphore: Semaphore
+
+    listener_task: asyncio.Task
 
     @classmethod
     def get_instance(cls):
@@ -48,7 +50,9 @@ class DXLinkManager:
         self,
     ):
         config = DXLinkConfig()
+        self.queues = {channel.value: asyncio.Queue() for channel in Channels}
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
+        self.keepalive_stop = asyncio.Event()
 
     async def __aenter__(self, credentials: Credentials):
         await self.open(credentials)
@@ -77,9 +81,6 @@ class DXLinkManager:
             await self.websocket.close()
             raise e
 
-    async def start_router(self):
-        self.router = MessageDispatcher(self)
-
     async def start_listener(self):
         self.listener_task = asyncio.create_task(self.socket_listener(), name="websocket_listener")
 
@@ -87,33 +88,44 @@ class DXLinkManager:
             self.send_keepalives(), name="websocket_keepalive"
         )
 
-    async def close(self):
-        if not hasattr(self, "websocket"):
-            logger.warning("Websocket - No active connection to close")
-            return
+    async def start_router(self):
+        self.router = MessageDispatcher(self)
 
-        tasks_to_cancel = [
-            ("listener", getattr(self, "listener_task", None)),
-            ("keepalive", getattr(self, "keepalive_task", None)),
-        ]
-
-        await asyncio.gather(
-            *[self.cancel_task(name, task) for name, task in tasks_to_cancel if task is not None]
-        )
-
-        await self.websocket.close()
-        await self.router.cleanup()
-        logger.info("Websocket closed")
-
-        self.websocket = None
-
-    async def cancel_task(self, name: str, task: asyncio.Task):
+    async def socket_listener(self):
+        """Listen for websocket messages using async for pattern."""
         try:
-            task.cancel()
-            await task
-            logger.info(f"{name} task cancelled")
+            async for message in self.websocket:
+                logger.debug("%s", message)
+
+                try:
+                    event = EventReceivedModel(**json.loads(message))
+                    channel = event.channel if event.type == "FEED_DATA" else 0
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse message: {e}\n{message}")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}\n{message}")
+
+                try:
+                    await self.queues[channel].put(event.fields)
+                except asyncio.QueueFull:
+                    logger.warning(f"Queue {channel} is full - dropping message")
+
         except asyncio.CancelledError:
-            logger.info(f"{name} task was cancelled")
+            logger.info("Websocket listener stopped")
+        except Exception as e:
+            logger.error(f"Websocket listener error: {e}")
+
+    async def send_keepalives(self):
+        """Send keepalive messages every 30 seconds."""
+        try:
+            while True:
+                await asyncio.sleep(30)  # This properly yields to event loop
+                await self.websocket.send(KeepaliveModel().model_dump_json())
+                logger.debug("Keepalive sent from client")
+        except asyncio.CancelledError:
+            logger.info("Keepalive stopped")
+        except Exception as e:
+            logger.error("Error sending keepalive: %s", e)
 
     async def setup_connection(self):
         request = SetupModel()
@@ -162,35 +174,30 @@ class DXLinkManager:
                     timeout=5,
                 )
 
-    async def send_keepalives(self):
-        while True:
-            try:
-                await asyncio.sleep(30)
-                await self.websocket.send(KeepaliveModel().model_dump_json())
-                logger.debug("Keepalive sent from client")
-            except asyncio.CancelledError:
-                logger.info("Keepalive stopped")
-                break
-            except Exception as e:
-                logger.error("Error sending keepalive: %s", e)
-                break
+    async def close(self):
+        if not hasattr(self, "websocket"):
+            logger.warning("Websocket - No active connection to close")
+            return
 
-    async def socket_listener(self):
-        # TODO Consider using this websockets pattern which employs
-        # TODOan async for loop: https://websockets.readthedocs.io/en/stable/howto/patterns.html
-        while True:
-            try:
-                message = SessionReceivedModel(**json.loads(await self.websocket.recv()))
-                channel = message.channel if message.type == "FEED_DATA" else 0
+        tasks_to_cancel = [
+            ("Listener", getattr(self, "listener_task", None)),
+            ("Keepalive", getattr(self, "keepalive_task", None)),
+        ]
 
-                try:
-                    await asyncio.wait_for(self.queues[channel].put(message.fields), timeout=1)
-                except asyncio.TimeoutError:
-                    logger.warning(f"Queue {channel} is full - dropping message")
+        await asyncio.gather(
+            *[self.cancel_tasks(name, task) for name, task in tasks_to_cancel if task is not None]
+        )
 
-            except asyncio.CancelledError:
-                logger.info("Websocket listener stopped")
-                break
-            except Exception as e:
-                logger.error("Websocket listener error: %s", e)
-                break
+        await self.websocket.close()
+        await self.router.close()
+        logger.info("Websocket closed")
+
+        self.websocket = None
+
+    async def cancel_tasks(self, name: str, task: asyncio.Task):
+        try:
+            task.cancel()
+            await task
+            logger.info(f"{name} task cancelled")
+        except asyncio.CancelledError:
+            logger.info(f"{name} task was cancelled")

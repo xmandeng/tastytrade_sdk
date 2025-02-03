@@ -1,8 +1,11 @@
 import asyncio
 import logging
-from itertools import chain
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, Union, cast
+import time
+from dataclasses import dataclass
+from itertools import chain, islice
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, Union
 
+import pandas as pd
 import polars as pl
 from pydantic import ValidationError
 
@@ -14,6 +17,23 @@ from tastytrade.sessions.models import BaseEvent, Message
 logger = logging.getLogger(__name__)
 
 ROW_LIMIT = 100_000
+
+
+@dataclass
+class QueueMetrics:
+    channel: int
+    total_messages: int = 0
+    error_count: int = 0
+    last_message_time: float = 0
+    max_queue_size: int = 0
+
+    def update(self, queue_size: int) -> None:
+        self.total_messages += 1
+        self.last_message_time = time.time()
+        self.max_queue_size = max(self.max_queue_size, queue_size)
+
+    def record_error(self) -> None:
+        self.error_count += 1
 
 
 class EventProcessor(Protocol):
@@ -30,20 +50,27 @@ class BaseEventProcessor:
     name = "feed"
 
     def __init__(self):
-        self.df = pl.DataFrame()
+        self.pl = pl.DataFrame()
 
     def process_event(self, event: BaseEvent) -> None:
-        self.df = self.df.vstack(pl.DataFrame([event]))
+        self.pl = self.pl.vstack(pl.DataFrame([event]))
 
-        if len(self.df) > 2 * ROW_LIMIT:
-            self.df = self.df.tail(ROW_LIMIT)
+        if len(self.pl) > 2 * ROW_LIMIT:
+            self.pl = self.pl.tail(ROW_LIMIT)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        return self.pl.to_pandas()
+
+    def last(self, symbol: str) -> pd.DataFrame:
+        return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
 
 
 class LatestEventProcessor(BaseEventProcessor):
     name = "feed"
 
     def process_event(self, event: BaseEvent) -> None:
-        self.df = self.df.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
+        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
 
 
 class EventHandler:
@@ -65,6 +92,8 @@ class EventHandler:
         self.event = CHANNEL_SPECS[self.channel].event_type
         self.fields = CHANNEL_SPECS[self.channel].fields
 
+        self.metrics = QueueMetrics(channel=self.channel.value)
+
         self.feed_processor = self.processor or BaseEventProcessor()
         self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
 
@@ -78,86 +107,129 @@ class EventHandler:
             del self.processors[processor.name]
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
-
         logger.info("Started %s listener on channel %s", self.channel, self.channel.value)
 
-        while not self.stop_listener.is_set():
-            try:
-                reply: dict[str, Any] = await asyncio.wait_for(queue.get(), timeout=1)
-
-                message = Message(
-                    type=reply.get("type", "UNKNOWN"),
-                    channel=reply.get("channel", 0),
-                    headers=reply,
-                    data=reply.get("data", {}),
-                )
-
+        try:
+            while not self.stop_listener.is_set():
                 try:
-                    await asyncio.wait_for(self.handle_message(message), timeout=1)
+                    reply = await queue.get()
+                    self.metrics.update(queue.qsize())
 
-                finally:
-                    queue.task_done()
+                    message = Message(
+                        type=reply.get("type", "UNKNOWN"),
+                        channel=reply.get("channel", 0),
+                        headers=reply,
+                        data=reply.get("data", {}),
+                    )
 
-            except asyncio.TimeoutError:
-                continue
+                    try:
+                        await self.handle_message(message)
+                    finally:
+                        queue.task_done()
 
-            except asyncio.CancelledError:
-                logger.info(
-                    "%s listener stopped for channel %s", self.channel.name, self.channel.value
-                )
-                break
+                except MessageProcessingError as e:
+                    self.metrics.record_error()
+                    logger.error(
+                        "Message processing error in %s listener: %s", self.channel.name, e
+                    )
+                    if e.original_exception:
+                        logger.debug("Original exception:", exc_info=e.original_exception)
+                    continue
 
-            except MessageProcessingError as e:
-                logger.error("Message processing error in %s listener: %s", self.channel.name, e)
-                if e.original_exception:
-                    logger.debug("Original exception:", exc_info=e.original_exception)
-                continue
+                except Exception:
+                    self.metrics.record_error()
+                    logger.exception(
+                        "Unhandled exception in %s listener on channel %s:",
+                        self.channel.name,
+                        self.channel.value,
+                    )
+                    continue
 
-            except Exception:
-                logger.exception(
-                    "Unhandled exception in %s listener on channel %s:",
-                    self.channel.name,
-                    self.channel.value,
-                )
-                continue
+        except asyncio.CancelledError:
+            logger.info("%s listener stopped for channel %s", self.channel.name, self.channel.value)
+
+            # Log final metrics
+            logger.info(
+                "Channel %s metrics - Total messages: %d, Errors: %d, Max queue size: %d",
+                self.channel.value,
+                self.metrics.total_messages,
+                self.metrics.error_count,
+                self.metrics.max_queue_size,
+            )
 
     async def handle_message(self, message: Message) -> Optional[Union[BaseEvent, List[BaseEvent]]]:
+        """Process incoming market data messages and create corresponding events.
+
+        Args:
+            message: The incoming message to process
+
+        Returns
+            List of processed events or None if processing fails
+
+        Raises
+            MessageProcessingError: If message processing fails
+        """
         events: List[BaseEvent] = []
         channel_name = Channels(message.channel).name
 
-        data_filtered: Iterator[Any] = filter(lambda x: str(x) not in channel_name, message.data)
-        flat_iterator: Iterator[Any] = iter(*chain(data_filtered))
+        try:
+            # Filter and flatten the data once
+            data_filtered: Iterator[Any] = filter(
+                lambda x: str(x) not in channel_name, message.data
+            )
+            flat_data: Iterator[Any] = iter(*chain(data_filtered))
 
-        while True:
-            try:
-                data = {field: next(flat_iterator) for field in self.fields}
-                event = self.event.value(**data)
-                events.append(event)
-
-            except StopIteration:
-                if self.diagnostic:
-                    logger.debug(
-                        "%s handler for channel %s: %s", self.channel.name, message.channel, events
+            # Process data in chunks based on # of fields
+            field_tally = len(self.fields)
+            while chunk := list(islice(flat_data, field_tally)):  # islice is memory friendly
+                if len(chunk) != field_tally:
+                    logger.error(
+                        "Incomplete data received on %s channel. Expected %d fields, got %d",
+                        channel_name,
+                        field_tally,
+                        len(chunk),
                     )
+                    break
 
-                if remaining := [*flat_iterator]:
-                    raise ValueError(
-                        "Unexpected data in %s handler: [%s]", channel_name, ", ".join(remaining)
-                    )
+                try:
+                    data = dict(zip(self.fields, chunk))
+                    event = self.event.value(**data)
+                    events.append(event)
+                except ValidationError as e:
+                    logger.error("Validation error in %s handler: %s", channel_name, e)
+                    raise MessageProcessingError("Validation error in handler", e)
+                except Exception as e:
+                    logger.exception("Unexpected error in %s handler:", self.channel.name)
+                    raise MessageProcessingError("Unexpected error occurred", e)
 
+            # Check for any remaining data, indicating a problem
+            remaining = list(flat_data)
+            if remaining:
+                logger.warning(
+                    "Unexpected remaining data in %s handler: [%s]",
+                    channel_name,
+                    ", ".join(map(str, remaining)),
+                )
+
+            # Process events through registered processors
+            if events:
                 for event in events:
-                    for _, processor in self.processors.items():
+                    for processor in self.processors.values():
                         processor.process_event(event)
 
-                return cast(List[BaseEvent], events)
+                if self.diagnostic:
+                    logger.debug(
+                        "%s handler for channel %s processed %d events",
+                        self.channel.name,
+                        message.channel,
+                        len(events),
+                    )
 
-            except ValidationError as e:
-                logger.error("Validation error in %s handler: %s", channel_name, e)
-                raise MessageProcessingError("Validation error in handler", e)
+            return events if events else None
 
-            except Exception as e:
-                logger.exception("Unexpected error in %s handler:", self.channel.name)
-                raise MessageProcessingError("Unexpected error occurred", e)
+        except Exception as e:
+            logger.exception("Fatal error in message handler for channel %s:", channel_name)
+            raise MessageProcessingError("Fatal error in message handler", e)
 
 
 class ControlHandler(EventHandler):

@@ -41,7 +41,7 @@ class MessageDispatcher:
             for _, handler in self.handler.items()
         ]
 
-    async def cleanup(self) -> None:
+    async def close(self) -> None:
         logger.info("Initiating cleanup...")
 
         for _, handler in self.handler.items():
