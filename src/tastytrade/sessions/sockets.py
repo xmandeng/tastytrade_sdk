@@ -12,8 +12,10 @@ from tastytrade.sessions.configurations import CHANNEL_SPECS, DXLinkConfig
 from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.messaging import MessageDispatcher
 from tastytrade.sessions.models import (
+    AddCandleItem,
     AddItem,
     AuthModel,
+    CandleSubscriptionRequest,
     EventReceivedModel,
     FeedSetupModel,
     KeepaliveModel,
@@ -174,6 +176,40 @@ class DXLinkManager:
                     timeout=5,
                 )
 
+    async def subscribe_to_candles(self, request: CandleSubscriptionRequest):
+        """Subscribe to candle data for a symbol.
+
+        Args:
+            request: CandleSubscriptionRequest containing symbol and interval
+        """
+        subscription = SubscriptionRequest(
+            channel=Channels.Candle.value,
+            add=[
+                AddCandleItem(
+                    type=Channels.Candle.name,
+                    symbol=f"{request.symbol}{{={request.interval}}}",
+                    fromTime=request.from_time,
+                )
+            ],
+        ).model_dump_json()
+
+        async with self.subscription_semaphore:
+            await asyncio.wait_for(
+                self.websocket.send(subscription),
+                timeout=5,
+            )
+
+        # Send configuration for the candle feed
+        feed_setup = FeedSetupModel(
+            acceptEventFields={Channels.Candle.name: CHANNEL_SPECS[Channels.Candle].fields},
+            channel=Channels.Candle.value,
+        ).model_dump_json()
+
+        await asyncio.wait_for(
+            self.websocket.send(feed_setup),
+            timeout=5,
+        )
+
     async def close(self):
         if not hasattr(self, "websocket"):
             logger.warning("Websocket - No active connection to close")
@@ -200,4 +236,5 @@ class DXLinkManager:
             await task
             logger.info(f"{name} task cancelled")
         except asyncio.CancelledError:
+            logger.info(f"{name} task was cancelled")
             logger.info(f"{name} task was cancelled")

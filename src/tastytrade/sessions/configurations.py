@@ -87,4 +87,11 @@ CHANNEL_SPECS = {
         fields=[],
         description="Not Used -- Control plane events",
     ),
+    Channels.Candle: ChannelSpecification(
+        type=Channels.Candle.name,
+        channel=Channels.Candle,
+        event_type=EventTypes.Candle,
+        fields=get_fields(EventTypes.Candle),
+        description="Historical and real-time candle data",
+    ),
 }

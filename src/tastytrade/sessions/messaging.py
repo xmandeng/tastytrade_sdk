@@ -23,6 +23,7 @@ class MessageDispatcher:
         Channels.Greeks: EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
         Channels.Profile: EventHandler(Channels.Profile, processor=LatestEventProcessor()),
         Channels.Summary: EventHandler(Channels.Summary, processor=LatestEventProcessor()),
+        Channels.Candle: EventHandler(Channels.Candle),
     }
 
     def __new__(cls, *args, **kwargs):

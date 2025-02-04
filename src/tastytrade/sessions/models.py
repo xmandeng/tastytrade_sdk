@@ -96,15 +96,41 @@ class AddItem(BaseModel):
     symbol: str
 
 
+class AddCandleItem(BaseModel):
+    type: str
+    symbol: str
+    fromTime: int
+    toTime: Optional[int] = None
+
+
 class SubscriptionRequest(BaseModel):
     type: str = "FEED_SUBSCRIPTION"
     channel: int
-    reset: bool = True
-    add: List[AddItem]
+    # reset: bool = True
+    add: List[AddItem | AddCandleItem]
 
 
-def dash_to_underscore(value: str) -> str:
-    return value.replace("-", "_")
+class CandleSubscriptionRequest(BaseModel):
+    symbol: str
+    interval: str  # e.g., "1m", "5m", "1h", "1d"
+    from_time: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1000))
+    end_time: Optional[int] = None
+
+    @field_validator("from_time", mode="before")
+    @classmethod
+    def convert_datetime_to_epoch(cls, value):
+        if isinstance(value, datetime):
+            return int(value.timestamp() * 1000)
+        return value
+
+
+class ControlEvent(BaseModel):
+    model_config = ConfigDict(
+        frozen=False,
+        validate_assignment=False,
+        extra="allow",
+        str_strip_whitespace=True,
+    )
 
 
 class BaseEvent(BaseModel):
@@ -220,10 +246,12 @@ class SummaryEvent(BaseEvent, FloatFieldMixin):
     )
 
 
-class ControlEvent(BaseModel):
-    model_config = ConfigDict(
-        frozen=False,
-        validate_assignment=False,
-        extra="allow",
-        str_strip_whitespace=True,
+class CandleEvent(BaseEvent, FloatFieldMixin):
+    open: Optional[float] = Field(default=None, description="Opening price for the interval", ge=0)
+    high: Optional[float] = Field(
+        default=None, description="Highest price during the interval", ge=0
     )
+    low: Optional[float] = Field(default=None, description="Lowest price during the interval", ge=0)
+    close: Optional[float] = Field(default=None, description="Closing price for the interval", ge=0)
+
+    convert_float = FloatFieldMixin.validate_float_fields("open", "high", "low", "close")
