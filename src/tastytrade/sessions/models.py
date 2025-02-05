@@ -96,18 +96,29 @@ class AddItem(BaseModel):
     symbol: str
 
 
+class CancelItem(AddItem):
+    type: str
+    symbol: str
+
+
 class AddCandleItem(BaseModel):
     type: str
     symbol: str
-    fromTime: int
+    fromTime: Optional[int] = None
     toTime: Optional[int] = None
+
+
+class CancelCandleItem(BaseModel):
+    type: str
+    symbol: str
 
 
 class SubscriptionRequest(BaseModel):
     type: str = "FEED_SUBSCRIPTION"
     channel: int
-    # reset: bool = True
-    add: List[AddItem | AddCandleItem]
+    reset: bool = True
+    add: Optional[List[AddItem | AddCandleItem]] = Field(default_factory=lambda: list())
+    remove: Optional[List[CancelItem | CancelCandleItem]] = Field(default_factory=lambda: list())
 
 
 class CandleSubscriptionRequest(BaseModel):
@@ -122,6 +133,11 @@ class CandleSubscriptionRequest(BaseModel):
         if isinstance(value, datetime):
             return int(value.timestamp() * 1000)
         return value
+
+
+class CancelCandleSubscriptionRequest(BaseModel):
+    symbol: str
+    interval: str  # e.g., "1m", "5m", "1h", "1d"
 
 
 class ControlEvent(BaseModel):

@@ -15,6 +15,9 @@ from tastytrade.sessions.models import (
     AddCandleItem,
     AddItem,
     AuthModel,
+    CancelCandleItem,
+    CancelCandleSubscriptionRequest,
+    CancelItem,
     CandleSubscriptionRequest,
     EventReceivedModel,
     FeedSetupModel,
@@ -161,27 +164,93 @@ class DXLinkManager:
             )
 
     async def subscribe(self, symbols: List[str]):
+        """Subscribe to data for a list of symbols.
+
+        request format:
+        {
+            "type": "FEED_SUBSCRIPTION",
+            "channel": 3,
+            "reset": true,
+            "add": [
+                {"type": "Trade","symbol": "BTC/USD:CXTALP"},
+                {"type": "Trade","symbol": "SPY"},
+            ]
+        }
+
+        response format: {
+            "type": "FEED_DATA",
+            "channel": 3,
+            "data": [
+                "Trade",
+                [
+                    "Trade","SPY",559.36,1.3743299E7,100.0,
+                    "Trade","BTC/USD:CXTALP",58356.71,"NaN","NaN"
+                ]
+            ]
+        }
+        """
         for specification in CHANNEL_SPECS.values():
-            if specification.channel == Channels.Control:
+            if specification.channel in [Channels.Control, Channels.Candle]:
                 continue
 
-            request = SubscriptionRequest(
+            subscription = SubscriptionRequest(
                 channel=specification.channel.value,
                 add=[AddItem(type=specification.type, symbol=symbol) for symbol in symbols],
+                # remove=[],
             ).model_dump_json()
 
             async with self.subscription_semaphore:
                 await asyncio.wait_for(
-                    self.websocket.send(request),
+                    self.websocket.send(subscription),
                     timeout=5,
                 )
 
-    async def subscribe_to_candles(self, request: CandleSubscriptionRequest):
+    async def unsubscribe(self, symbols: List[str]):
+        """Subscribe to data for a list of symbols.
+
+        request format:
+        {
+            "type": "FEED_SUBSCRIPTION",
+            "channel": 3,
+            "remove": [
+                {"type": "Trade","symbol": "BTC/USD:CXTALP"},
+                {"type": "Trade","symbol": "SPY"},
+            ]
+        }
+        """
+        for specification in CHANNEL_SPECS.values():
+            if specification.channel in [Channels.Control, Channels.Candle]:
+                continue
+
+            cancellation = SubscriptionRequest(
+                channel=specification.channel.value,
+                remove=[CancelItem(type=specification.type, symbol=symbol) for symbol in symbols],
+            ).model_dump_json()
+
+            async with self.subscription_semaphore:
+                await asyncio.wait_for(
+                    self.websocket.send(cancellation),
+                    timeout=5,
+                )
+
+        for symbol in symbols:
+            logger.info("Unsubscribed: %s", symbol)
+
+    async def subscribe_to_candles(self, *, symbol: str, interval: str, from_time: int):
         """Subscribe to candle data for a symbol.
 
         Args:
-            request: CandleSubscriptionRequest containing symbol and interval
+            symbol: The symbol to subscribe to
+            interval: The interval of the candles to subscribe to
+            from_time: The start time of the candles to subscribe to
+
         """
+        request: CandleSubscriptionRequest = CandleSubscriptionRequest(
+            symbol=symbol,
+            interval=interval,
+            from_time=from_time,
+        )
+
         subscription = SubscriptionRequest(
             channel=Channels.Candle.value,
             add=[
@@ -199,16 +268,34 @@ class DXLinkManager:
                 timeout=5,
             )
 
-        # Send configuration for the candle feed
-        feed_setup = FeedSetupModel(
-            acceptEventFields={Channels.Candle.name: CHANNEL_SPECS[Channels.Candle].fields},
+    async def unsubscribe_to_candles(self, *, symbol: str, interval: str):
+        """Subscribe to candle data for a symbol.
+
+        Args:
+            request: CandleSubscriptionRequest containing symbol and interval
+        """
+        request: CancelCandleSubscriptionRequest = CancelCandleSubscriptionRequest(
+            symbol=symbol,
+            interval=interval,
+        )
+
+        cancellation = SubscriptionRequest(
             channel=Channels.Candle.value,
+            remove=[
+                CancelCandleItem(
+                    type=Channels.Candle.name,
+                    symbol=f"{request.symbol}{{={request.interval}}}",
+                )
+            ],
         ).model_dump_json()
 
-        await asyncio.wait_for(
-            self.websocket.send(feed_setup),
-            timeout=5,
-        )
+        async with self.subscription_semaphore:
+            await asyncio.wait_for(
+                self.websocket.send(cancellation),
+                timeout=5,
+            )
+
+        logger.info("Unsubscribed Candlesticks: %s{=%s}", symbol, interval)
 
     async def close(self):
         if not hasattr(self, "websocket"):
