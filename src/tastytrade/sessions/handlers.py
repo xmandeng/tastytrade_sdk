@@ -67,7 +67,6 @@ class BaseEventProcessor:
 
 
 class CandleEventProcessor(BaseEventProcessor):
-    name = "feed"
 
     def process_event(self, event: BaseEvent) -> None:
         self.pl = (
@@ -173,17 +172,6 @@ class EventHandler:
             )
 
     async def handle_message(self, message: Message) -> Optional[Union[BaseEvent, List[BaseEvent]]]:
-        """Process incoming market data messages and create corresponding events.
-
-        Args:
-            message: The incoming message to process
-
-        Returns
-            List of processed events or None if processing fails
-
-        Raises
-            MessageProcessingError: If message processing fails
-        """
         events: List[BaseEvent] = []
         channel_name = Channels(message.channel).name
 
@@ -210,16 +198,17 @@ class EventHandler:
                     data = dict(zip(self.fields, chunk))
                     event = self.event.value(**data)
                     events.append(event)
+
                 except ValidationError as e:
                     logger.error("Validation error in %s handler: %s", channel_name, e)
                     raise MessageProcessingError("Validation error in handler", e)
+
                 except Exception as e:
                     logger.exception("Unexpected error in %s handler:", self.channel.name)
                     raise MessageProcessingError("Unexpected error occurred", e)
 
             # Check for any remaining data, indicating a problem
-            remaining = list(flat_data)
-            if remaining:
+            if remaining := list(flat_data):
                 logger.warning(
                     "Unexpected remaining data in %s handler: [%s]",
                     channel_name,
@@ -227,18 +216,17 @@ class EventHandler:
                 )
 
             # Process events through registered processors
-            if events:
-                for event in events:
-                    for processor in self.processors.values():
-                        processor.process_event(event)
+            for event in events:
+                for processor in self.processors.values():
+                    processor.process_event(event)
 
-                if self.diagnostic:
-                    logger.debug(
-                        "%s handler for channel %s processed %d events",
-                        self.channel.name,
-                        message.channel,
-                        len(events),
-                    )
+            if self.diagnostic:
+                logger.debug(
+                    "%s handler for channel %s processed %d events",
+                    self.channel.name,
+                    message.channel,
+                    len(events),
+                )
 
             return events if events else None
 

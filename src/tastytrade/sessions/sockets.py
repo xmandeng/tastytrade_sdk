@@ -202,7 +202,6 @@ class DXLinkManager:
             subscription = SubscriptionRequest(
                 channel=specification.channel.value,
                 add=[AddItem(type=specification.type, symbol=symbol) for symbol in symbols],
-                # remove=[],
             ).model_dump_json()
 
             async with self.subscription_semaphore:

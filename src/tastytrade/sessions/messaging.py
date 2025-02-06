@@ -23,7 +23,7 @@ class MessageDispatcher:
 
     handler: dict[Channels, EventHandler] = {
         Channels.Control: ControlHandler(),
-        Channels.Quote: EventHandler(Channels.Quote),
+        Channels.Quote: EventHandler(Channels.Quote, processor=LatestEventProcessor()),
         Channels.Trade: EventHandler(Channels.Trade),
         Channels.Greeks: EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
         Channels.Profile: EventHandler(Channels.Profile, processor=LatestEventProcessor()),
