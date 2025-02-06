@@ -66,6 +66,13 @@ class BaseEventProcessor:
         return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
 
 
+class CandleEventProcessor(BaseEventProcessor):
+    name = "feed"
+
+    def process_event(self, event: BaseEvent) -> None:
+        pass
+
+
 class LatestEventProcessor(BaseEventProcessor):
     name = "feed"
 
