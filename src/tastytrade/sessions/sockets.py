@@ -2,7 +2,8 @@ import asyncio
 import json
 import logging
 from asyncio import Semaphore
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
@@ -33,6 +34,11 @@ logger = logging.getLogger(__name__)
 
 @singleton
 class DXLinkManager:
+    """Responsible for managing the DXLink connection and the channels. It also handles the subscription and unsubscription to the channels.
+
+    dxLink Websocket Docs: https://demo.dxfeed.com/dxlink-ws/debug/#/protocol
+    """
+
     instance = None
     queues: dict[int, asyncio.Queue]
 
@@ -236,7 +242,13 @@ class DXLinkManager:
         for symbol in symbols:
             logger.info("Unsubscribed: %s", symbol)
 
-    async def subscribe_to_candles(self, *, symbol: str, interval: str, from_time: int):
+    async def subscribe_to_candles(
+        self,
+        symbol: str,
+        interval: str,
+        from_time: int = int(datetime.now().timestamp() * 1000),
+        to_time: Optional[int] = None,
+    ):
         """Subscribe to candle data for a symbol.
 
         Args:
@@ -249,6 +261,7 @@ class DXLinkManager:
             symbol=symbol,
             interval=interval,
             from_time=from_time,
+            to_time=to_time,
         )
 
         subscription = SubscriptionRequest(
@@ -258,6 +271,7 @@ class DXLinkManager:
                     type=Channels.Candle.name,
                     symbol=f"{request.symbol}{{={request.interval}}}",
                     fromTime=request.from_time,
+                    toTime=request.to_time,
                 )
             ],
         ).model_dump_json()
@@ -323,5 +337,4 @@ class DXLinkManager:
             await task
             logger.info(f"{name} task cancelled")
         except asyncio.CancelledError:
-            logger.info(f"{name} task was cancelled")
             logger.info(f"{name} task was cancelled")
