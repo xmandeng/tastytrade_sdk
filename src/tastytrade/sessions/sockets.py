@@ -325,11 +325,21 @@ class DXLinkManager:
             *[self.cancel_tasks(name, task) for name, task in tasks_to_cancel if task is not None]
         )
 
-        await self.websocket.close()
-        await self.router.close()
-        logger.info("Websocket closed")
+        # Close websocket connection
+        if hasattr(self, "websocket"):
+            await self.websocket.close()
+            self.websocket = None
 
-        self.websocket = None
+        # Close message router
+        if hasattr(self, "router"):
+            await self.router.close()
+
+        # Close session
+        if hasattr(self, "session"):
+            await self.session.close()
+            self.session = None
+
+        logger.info("Connection closed and cleaned up")
 
     async def cancel_tasks(self, name: str, task: asyncio.Task):
         try:
