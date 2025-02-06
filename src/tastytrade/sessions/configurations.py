@@ -6,12 +6,6 @@ from typing import List
 from tastytrade.sessions.enumerations import Channels, EventTypes
 
 
-# TODO - Get rid of this
-# ? Why do I need to exclude timestamp?
-def get_fields(event_type: EventTypes) -> List[str]:
-    return [field for field in event_type.value.model_fields if field != "timestamp"]
-
-
 # Connection configurations
 @dataclass
 class ConnectionConfig:
@@ -40,8 +34,13 @@ class ChannelSpecification:
     type: str
     channel: Channels
     event_type: EventTypes
-    fields: List[str]
     description: str
+
+    @property
+    def fields(self) -> List[str]:
+        if self.event_type == EventTypes.Control:
+            return []
+        return list(self.event_type.value.model_fields.keys())
 
 
 CHANNEL_SPECS = {
@@ -49,42 +48,42 @@ CHANNEL_SPECS = {
         type=Channels.Trade.name,
         channel=Channels.Trade,
         event_type=EventTypes.Trade,
-        fields=get_fields(EventTypes.Trade),
         description="Real-time trade execution data",
     ),
     Channels.Quote: ChannelSpecification(
         type=Channels.Quote.name,
         channel=Channels.Quote,
         event_type=EventTypes.Quote,
-        fields=get_fields(EventTypes.Quote),
         description="Real-time quote updates",
     ),
     Channels.Greeks: ChannelSpecification(
         type=Channels.Greeks.name,
         channel=Channels.Greeks,
         event_type=EventTypes.Greeks,
-        fields=get_fields(EventTypes.Greeks),
         description="Option greeks values",
     ),
     Channels.Profile: ChannelSpecification(
         type=Channels.Profile.name,
         channel=Channels.Profile,
         event_type=EventTypes.Profile,
-        fields=get_fields(EventTypes.Profile),
-        description="Profile",  # TODO Update
+        description="Most recent information that is available about the traded security",
     ),
     Channels.Summary: ChannelSpecification(
         type=Channels.Summary.name,
         channel=Channels.Summary,
         event_type=EventTypes.Summary,
-        fields=get_fields(EventTypes.Summary),
-        description="Summary",  # TODO Update
+        description="Snapshot about the trading session including session highs, lows, etc",
     ),
     Channels.Control: ChannelSpecification(
         type=Channels.Control.name,
         channel=Channels.Control,
         event_type=EventTypes.Control,
-        fields=[],
         description="Not Used -- Control plane events",
+    ),
+    Channels.Candle: ChannelSpecification(
+        type=Channels.Candle.name,
+        channel=Channels.Candle,
+        event_type=EventTypes.Candle,
+        description="Historical and real-time candle data",
     ),
 }

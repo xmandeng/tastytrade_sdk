@@ -3,7 +3,12 @@ import logging
 from typing import List, Protocol
 
 from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.handlers import ControlHandler, EventHandler, LatestEventProcessor
+from tastytrade.sessions.handlers import (
+    CandleEventProcessor,
+    ControlHandler,
+    EventHandler,
+    LatestEventProcessor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,7 @@ class MessageDispatcher:
         Channels.Greeks: EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
         Channels.Profile: EventHandler(Channels.Profile, processor=LatestEventProcessor()),
         Channels.Summary: EventHandler(Channels.Summary, processor=LatestEventProcessor()),
+        Channels.Candle: EventHandler(Channels.Candle, processor=CandleEventProcessor()),
     }
 
     def __new__(cls, *args, **kwargs):

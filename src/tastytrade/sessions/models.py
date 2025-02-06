@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Annotated, Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -96,15 +96,120 @@ class AddItem(BaseModel):
     symbol: str
 
 
+class CancelItem(AddItem):
+    type: str
+    symbol: str
+
+
+class AddCandleItem(BaseModel):
+    type: str
+    symbol: str
+    fromTime: Optional[int] = None
+    toTime: Optional[int] = None
+
+
+class CancelCandleItem(BaseModel):
+    type: str
+    symbol: str
+
+
 class SubscriptionRequest(BaseModel):
     type: str = "FEED_SUBSCRIPTION"
     channel: int
     reset: bool = True
-    add: List[AddItem]
+    add: Optional[List[AddItem | AddCandleItem]] = Field(default_factory=lambda: list())
+    remove: Optional[List[CancelItem | CancelCandleItem]] = Field(default_factory=lambda: list())
 
 
-def dash_to_underscore(value: str) -> str:
-    return value.replace("-", "_")
+class CandleSubscriptionRequest(BaseModel):
+    symbol: str
+    interval: str
+    from_time: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1000))
+    to_time: Optional[int] = None
+
+    @staticmethod
+    def parse_interval(interval: str) -> int:
+        """Parse interval string into milliseconds.
+
+        Args:
+            interval: String like "1m", "6s", "3h", etc.
+
+        Returns
+            Interval in milliseconds
+
+        Examples
+            CandleSubscriptionRequest.parse_interval("1m")
+            60000
+            CandleSubscriptionRequest.parse_interval("6s")
+            6000
+            CandleSubscriptionRequest.parse_interval("3h")
+            10800000
+        """
+        if not interval:
+            raise ValueError("Interval cannot be empty")
+
+        # Extract number and unit
+        import re
+
+        match = re.match(r"(\d*)([smhdw])", interval.lower())
+        if not match:
+            raise ValueError(f"Invalid interval format: {interval}")
+
+        number = int(match.group(1))
+        unit = match.group(2)
+
+        # Convert to milliseconds
+
+        second = 1000
+        minute = 60 * second
+        hour = 60 * minute
+        day = 24 * hour
+        week = 7 * day
+
+        multipliers = {
+            "s": second,
+            "m": minute,
+            "h": hour,
+            "d": day,
+            "w": week,
+        }
+
+        return number * multipliers[unit]
+
+    @field_validator("from_time", "to_time", mode="before")
+    @classmethod
+    def convert_datetime_to_epoch(cls, value):
+        if isinstance(value, datetime):
+            return int(value.timestamp() * 1000)
+        return value
+
+    @model_validator(mode="after")
+    def round_from_time(self):
+        """Round from_time down to the nearest interval boundary."""
+        try:
+            interval_ms = self.parse_interval(self.interval)
+            self.from_time = (self.from_time // interval_ms) * interval_ms
+        except ValueError as e:
+            logger.warning(f"Could not parse interval '{self.interval}': {e}")
+            # We could either raise the error or just pass through the timestamp unmodified
+            # For now, we'll just log and continue
+            pass
+
+        return self
+
+
+class CancelCandleSubscriptionRequest(BaseModel):
+    symbol: str
+    interval: str  # e.g., "1m", "5m", "1h", "1d"
+
+
+class ControlEvent(BaseModel):
+    model_config = ConfigDict(
+        frozen=False,
+        validate_assignment=False,
+        extra="allow",
+        str_strip_whitespace=True,
+    )
 
 
 class BaseEvent(BaseModel):
@@ -116,13 +221,13 @@ class BaseEvent(BaseModel):
     )
 
     eventSymbol: str = Field(description="dxlink streamer symbol")
-    timestamp: Annotated[
-        datetime,
-        Field(
-            default_factory=lambda: datetime.now(MARKET_TZ),
-            description="US Eastern Time timestamp when the event was validated",
-        ),
-    ]
+    # timestamp: Annotated[
+    #     datetime,
+    #     Field(
+    #         default_factory=lambda: datetime.now(MARKET_TZ),
+    #         description="US Eastern Time timestamp when the event was validated",
+    #     ),
+    # ]
 
     @model_validator(mode="after")
     def set_timestamp(self) -> "BaseEvent":
@@ -146,6 +251,7 @@ class FloatFieldMixin:
 
 
 class TradeEvent(BaseEvent, FloatFieldMixin):
+    time: Optional[datetime] = Field(default=None, description="Event timestamp")
     price: Optional[float] = Field(
         default=None,
         description="Execution price of the trade",
@@ -177,6 +283,7 @@ class QuoteEvent(BaseEvent, FloatFieldMixin):
 
 
 class GreeksEvent(BaseEvent, FloatFieldMixin):
+    time: Optional[datetime] = Field(default=None, description="Event timestamp")
     volatility: Optional[float] = Field(description="Implied volatility", ge=0)
     delta: Optional[float] = Field(description="Delta greek", ge=-1, le=1)
     gamma: Optional[float] = Field(description="Gamma greek", ge=0)
@@ -220,10 +327,42 @@ class SummaryEvent(BaseEvent, FloatFieldMixin):
     )
 
 
-class ControlEvent(BaseModel):
-    model_config = ConfigDict(
-        frozen=False,
-        validate_assignment=False,
-        extra="allow",
-        str_strip_whitespace=True,
+class CandleEvent(BaseEvent, FloatFieldMixin):
+    time: Optional[datetime] = Field(default=None, description="Event timestamp")
+    eventFlags: Optional[int] = Field(default=None, description="Event flags")
+    index: Optional[int] = Field(
+        default=None, description="Unique per-symbol index of this candle event"
+    )
+    sequence: Optional[int] = Field(default=None, description="Sequence number of this event")
+    count: Optional[int] = Field(default=None, description="Total number of events in the candle")
+    open: Optional[float] = Field(default=None, description="Opening price for the interval", ge=0)
+    high: Optional[float] = Field(
+        default=None, description="Highest price during the interval", ge=0
+    )
+    low: Optional[float] = Field(default=None, description="Lowest price during the interval", ge=0)
+    close: Optional[float] = Field(default=None, description="Closing price for the interval", ge=0)
+    volume: Optional[float] = Field(
+        default=None, description="Volume of trades during the interval", ge=0
+    )
+    bidVolume: Optional[float] = Field(
+        default=None, description="Bid volume of trades during the interval", ge=0
+    )
+    askVolume: Optional[float] = Field(
+        default=None, description="Ask volume of trades during the interval", ge=0
+    )
+    openInterest: Optional[float] = Field(default=None, description="Open interest", ge=0)
+    vwap: Optional[float] = Field(default=None, description="Volume Weighted Average Price", ge=0)
+    impVolatility: Optional[float] = Field(default=None, description="Implied volatility", ge=0)
+
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "bidVolume",
+        "askVolume",
+        "openInterest",
+        "vwap",
+        "impVolatility",
     )
