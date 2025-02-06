@@ -70,7 +70,15 @@ class CandleEventProcessor(BaseEventProcessor):
     name = "feed"
 
     def process_event(self, event: BaseEvent) -> None:
-        pass
+        self.pl = (
+            self.pl.vstack(pl.DataFrame([event]))
+            .unique(subset=["eventSymbol", "time"], keep="last")
+            .sort("time", descending=False)
+        )
+
+    @property
+    def df(self) -> pd.DataFrame:
+        return self.pl.to_pandas().sort_values("index", ascending=True).reset_index(drop=True)
 
 
 class LatestEventProcessor(BaseEventProcessor):
