@@ -27,6 +27,8 @@ websocket = "^0.2.1"
 pydantic = "^2.10.1"
 polars = {extras = ["numpy", "pandas", "pyarrow"], version = "^1.16.0"}
 plotly = "^6.0.0"
+dash = "^2.18.2"
+dash-bootstrap-components = "^1.7.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
