@@ -63,18 +63,21 @@ def hull(
         pd.DataFrame: DataFrame with added columns:
             - HMA: Hull Moving Average values
             - HMA_color: "Up" when current HMA > previous HMA, "Down" otherwise
-
-    Notes
-        - Uses padded weighted moving averages (WMA) for calculations
-        - Padding behavior:
-            - If pad_value provided: Uses that constant value
-            - If pad_value None: Uses previous day's closing price per session
     """
     df = (
         dxlink.router.handler[Channels.Candle]
         .processors["feed"]
         .df.loc[lambda x: x["eventSymbol"] == symbol]
     )
+
+    # Convert timestamps to EDT and then remove timezone info
+    df["time"] = (
+        df["time"]
+        .dt.tz_localize("UTC")
+        .dt.tz_convert("America/New_York")
+        .dt.tz_localize(None)  # Remove timezone info
+    )
+
     summary_df = dxlink.router.handler[Channels.Summary].processors["feed"].df
     summary_entry = summary_df["eventSymbol"] == re.sub(r"\{=\d*\w\}", "", symbol)
     pad_value = summary_df.loc[summary_entry, "prevDayClosePrice"].iloc[0]
@@ -121,15 +124,4 @@ def hull(
     # Color assignment: "Up" if current HMA > previous HMA, else "Down"
     df["HMA_color"] = np.where(df["HMA"] > df["HMA"].shift(1), "Up", "Down")
 
-    return df.set_index("time")
-
-
-# Example usage:
-# 1. To use a constant pad value (say, 100) for the entire DataFrame:
-#    df = hull_moving_average(df, price_col='close', length=20, displace=0, pad_value=100)
-#
-# 2. To use session-by-session padding (using the previous day's close), simply leave pad_value as None:
-#    df = hull_moving_average(df, price_col='close', length=20, displace=0)
-#
-# In both cases, the DataFrame 'df' will receive new columns 'HMA' and 'HMA_color'.
-# In both cases, the DataFrame 'df' will receive new columns 'HMA' and 'HMA_color'.
+    return df[["time", "HMA", "HMA_color"]]
