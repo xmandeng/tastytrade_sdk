@@ -26,6 +26,7 @@ aiohttp = "^3.11.2"
 websocket = "^0.2.1"
 pydantic = "^2.10.1"
 polars = {extras = ["numpy", "pandas", "pyarrow"], version = "^1.16.0"}
+plotly = "^6.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
