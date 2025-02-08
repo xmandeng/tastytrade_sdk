@@ -379,17 +379,3 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
         "vwap",
         "impVolatility",
     )
-
-
-# class CandleSymbol(BaseModel):
-#     symbol: str = Field(description="Base symbol")
-#     interval: str = Field(description="Interval")
-
-#     @field_validator("interval", mode="before")
-#     @classmethod
-#     def validate_interval(cls, interval: str) -> str:
-#         return "m" if interval == "1m" else interval
-
-#     @property
-#     def formatted(self) -> str:
-#         return f"{self.symbol}{{={self.interval}}}"
