@@ -29,6 +29,7 @@ polars = {extras = ["numpy", "pandas", "pyarrow"], version = "^1.16.0"}
 plotly = "^6.0.0"
 dash = "^2.18.2"
 dash-bootstrap-components = "^1.7.1"
+influxdb-client = "^1.48.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
