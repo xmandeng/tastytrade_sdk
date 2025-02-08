@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Any, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -56,7 +56,7 @@ class EventReceivedModel(BaseModel):
     channel: int = 0
     fields: dict[str, Any] = Field(default_factory=dict)
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any) -> None:
         msg_type = data.get("type")
         msg_channel = data.get("channel", 0)
 
@@ -178,13 +178,13 @@ class CandleSubscriptionRequest(BaseModel):
 
     @field_validator("from_time", "to_time", mode="before")
     @classmethod
-    def convert_datetime_to_epoch(cls, value):
+    def convert_datetime_to_epoch(cls, value: Any) -> Any:
         if isinstance(value, datetime):
             return int(value.timestamp() * 1000)
         return value
 
     @model_validator(mode="after")
-    def round_from_time(self):
+    def round_from_time(self) -> "CandleSubscriptionRequest":
         """Round from_time down to the nearest interval boundary."""
         try:
             interval_ms = self.parse_interval(self.interval)
@@ -239,10 +239,9 @@ class BaseEvent(BaseModel):
 class FloatFieldMixin:
 
     @classmethod
-    def validate_float_fields(cls, *field_names):
+    def validate_float_fields(cls, *field_names: str) -> Callable[[Any], Optional[float]]:
         @field_validator(*field_names, mode="before")
-        @classmethod
-        def convert_float(cls, value: Any) -> Any:
+        def convert_float(value: Any) -> Optional[float]:
             if value is None or value == "NaN" or value == float("inf"):
                 return None
             return round(float(value), MAX_PRECISION)

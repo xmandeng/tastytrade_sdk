@@ -3,7 +3,8 @@ import json
 import logging
 from asyncio import Semaphore
 from datetime import datetime
-from typing import List, Optional
+from types import TracebackType
+from typing import List, Optional, Type
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
@@ -39,43 +40,48 @@ class DXLinkManager:
     dxLink Websocket Docs: https://demo.dxfeed.com/dxlink-ws/debug/#/protocol
     """
 
-    instance = None
+    instance: Optional["DXLinkManager"] = None
     queues: dict[int, asyncio.Queue]
 
-    session: AsyncSessionHandler
-    websocket: ClientConnection
+    session: Optional[AsyncSessionHandler] = None
+    websocket: Optional[ClientConnection] = None
     subscription_semaphore: Semaphore
 
-    listener_task: asyncio.Task
+    listener_task: Optional[asyncio.Task] = None
+    keepalive_task: Optional[asyncio.Task] = None
+    router: Optional[MessageDispatcher] = None
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls) -> Optional["DXLinkManager"]:
         return cls.instance
 
-    def __new__(cls):
+    def __new__(cls: Type["DXLinkManager"]) -> "DXLinkManager":
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
-    def __init__(
-        self,
-    ):
+    def __init__(self) -> None:
         config = DXLinkConfig()
         self.queues = {channel.value: asyncio.Queue() for channel in Channels}
         self.subscription_semaphore = Semaphore(config.max_subscriptions)
         self.keepalive_stop = asyncio.Event()
 
-    async def __aenter__(self, credentials: Credentials):
+    async def __aenter__(self, credentials: Credentials) -> "DXLinkManager":
         await self.open(credentials)
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[BaseException],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
         await self.close()
 
-    def connect(self, credentials: Credentials):
+    def connect(self, credentials: Credentials) -> None:
         asyncio.create_task(self.open(credentials))
 
-    async def open(self, credentials: Credentials):
+    async def open(self, credentials: Credentials) -> None:
         self.session = await AsyncSessionHandler.create(credentials)
         self.websocket = await connect(self.session.session.headers["dxlink-url"])
 
@@ -92,18 +98,19 @@ class DXLinkManager:
             await self.websocket.close()
             raise e
 
-    async def start_listener(self):
+    async def start_listener(self) -> None:
         self.listener_task = asyncio.create_task(self.socket_listener(), name="websocket_listener")
 
         self.keepalive_task = asyncio.create_task(
             self.send_keepalives(), name="websocket_keepalive"
         )
 
-    async def start_router(self):
+    async def start_router(self) -> None:
         self.router = MessageDispatcher(self)
 
-    async def socket_listener(self):
+    async def socket_listener(self) -> None:
         """Listen for websocket messages using async for pattern."""
+        assert self.websocket is not None, "websocket should be initialized"
         try:
             async for message in self.websocket:
                 logger.debug("%s", message)
@@ -112,9 +119,9 @@ class DXLinkManager:
                     event = EventReceivedModel(**json.loads(message))
                     channel = event.channel if event.type == "FEED_DATA" else 0
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse message: {e}\n{message}")
+                    logger.error("Failed to parse message: %s\n%s", e, message)
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}\n{message}")
+                    logger.error("Error processing message: %s\n%s", e, message)
 
                 try:
                     await self.queues[channel].put(event.fields)
@@ -126,35 +133,46 @@ class DXLinkManager:
         except Exception as e:
             logger.error(f"Websocket listener error: {e}")
 
-    async def send_keepalives(self):
+    async def send_keepalives(self) -> None:
         """Send keepalive messages every 30 seconds."""
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         try:
             while True:
                 await asyncio.sleep(30)  # This properly yields to event loop
-                await self.websocket.send(KeepaliveModel().model_dump_json())
+                await ws.send(KeepaliveModel().model_dump_json())
                 logger.debug("Keepalive sent from client")
         except asyncio.CancelledError:
             logger.info("Keepalive stopped")
         except Exception as e:
             logger.error("Error sending keepalive: %s", e)
 
-    async def setup_connection(self):
+    async def setup_connection(self) -> None:
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         request = SetupModel()
-        await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
+        await asyncio.wait_for(ws.send(request.model_dump_json()), timeout=5)
 
-    async def authorize_connection(self):
+    async def authorize_connection(self) -> None:
+        assert self.session is not None, "session should be initialized"
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         request = AuthModel(token=self.session.session.headers["token"])
-        await asyncio.wait_for(self.websocket.send(request.model_dump_json()), timeout=5)
+        await asyncio.wait_for(ws.send(request.model_dump_json()), timeout=5)
 
-    async def open_channels(self):
+    async def open_channels(self) -> None:
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         for channel in Channels:
             if channel == Channels.Control:
                 continue
 
             request = OpenChannelModel(channel=channel.value).model_dump_json()
-            await asyncio.wait_for(self.websocket.send(request), timeout=5)
+            await asyncio.wait_for(ws.send(request), timeout=5)
 
     async def setup_feeds(self) -> None:
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         for specification in CHANNEL_SPECS.values():
             if specification.channel == Channels.Control:
                 continue
@@ -164,12 +182,9 @@ class DXLinkManager:
                 channel=specification.channel.value,
             ).model_dump_json()
 
-            await asyncio.wait_for(
-                self.websocket.send(request),
-                timeout=5,
-            )
+            await asyncio.wait_for(ws.send(request), timeout=5)
 
-    async def subscribe(self, symbols: List[str]):
+    async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.
 
         request format:
@@ -195,6 +210,8 @@ class DXLinkManager:
             ]
         }
         """
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         for specification in CHANNEL_SPECS.values():
             if specification.channel in [Channels.Control, Channels.Candle]:
                 continue
@@ -205,12 +222,9 @@ class DXLinkManager:
             ).model_dump_json()
 
             async with self.subscription_semaphore:
-                await asyncio.wait_for(
-                    self.websocket.send(subscription),
-                    timeout=5,
-                )
+                await asyncio.wait_for(ws.send(subscription), timeout=5)
 
-    async def unsubscribe(self, symbols: List[str]):
+    async def unsubscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.
 
         request format:
@@ -223,6 +237,8 @@ class DXLinkManager:
             ]
         }
         """
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         for specification in CHANNEL_SPECS.values():
             if specification.channel in [Channels.Control, Channels.Candle]:
                 continue
@@ -233,10 +249,7 @@ class DXLinkManager:
             ).model_dump_json()
 
             async with self.subscription_semaphore:
-                await asyncio.wait_for(
-                    self.websocket.send(cancellation),
-                    timeout=5,
-                )
+                await asyncio.wait_for(ws.send(cancellation), timeout=5)
 
         for symbol in symbols:
             logger.info("Unsubscribed: %s", symbol)
@@ -247,7 +260,7 @@ class DXLinkManager:
         interval: str,
         from_time: int = int(datetime.now().timestamp() * 1000),
         to_time: Optional[int] = None,
-    ):
+    ) -> None:
         """Subscribe to candle data for a symbol.
 
         Args:
@@ -256,6 +269,8 @@ class DXLinkManager:
             from_time: The start time of the candles to subscribe to
 
         """
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         request: CandleSubscriptionRequest = CandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
@@ -276,17 +291,16 @@ class DXLinkManager:
         ).model_dump_json()
 
         async with self.subscription_semaphore:
-            await asyncio.wait_for(
-                self.websocket.send(subscription),
-                timeout=5,
-            )
+            await asyncio.wait_for(ws.send(subscription), timeout=5)
 
-    async def unsubscribe_to_candles(self, *, symbol: str, interval: str):
+    async def unsubscribe_to_candles(self, *, symbol: str, interval: str) -> None:
         """Subscribe to candle data for a symbol.
 
         Args:
             request: CandleSubscriptionRequest containing symbol and interval
         """
+        assert self.websocket is not None, "websocket should be initialized"
+        ws = self.websocket
         request: CancelCandleSubscriptionRequest = CancelCandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
@@ -303,21 +317,18 @@ class DXLinkManager:
         ).model_dump_json()
 
         async with self.subscription_semaphore:
-            await asyncio.wait_for(
-                self.websocket.send(cancellation),
-                timeout=5,
-            )
+            await asyncio.wait_for(ws.send(cancellation), timeout=5)
 
         logger.info("Unsubscribed Candlesticks: %s{=%s}", symbol, interval)
 
-    async def close(self):
-        if not hasattr(self, "websocket"):
+    async def close(self) -> None:
+        if self.websocket is None:
             logger.warning("Websocket - No active connection to close")
             return
 
         tasks_to_cancel = [
-            ("Listener", getattr(self, "listener_task", None)),
-            ("Keepalive", getattr(self, "keepalive_task", None)),
+            ("Listener", self.listener_task),
+            ("Keepalive", self.keepalive_task),
         ]
 
         await asyncio.gather(
@@ -325,22 +336,26 @@ class DXLinkManager:
         )
 
         # Close websocket connection
-        if hasattr(self, "websocket"):
-            await self.websocket.close()
+        if self.websocket is not None:
+            ws = self.websocket
+            await ws.close()
             self.websocket = None
 
         # Close message router
-        if hasattr(self, "router"):
-            await self.router.close()
+        if self.router is not None:
+            r = self.router
+            await r.close()
+            self.router = None
 
         # Close session
-        if hasattr(self, "session"):
-            await self.session.close()
+        if self.session is not None:
+            s = self.session
+            await s.close()
             self.session = None
 
         logger.info("Connection closed and cleaned up")
 
-    async def cancel_tasks(self, name: str, task: asyncio.Task):
+    async def cancel_tasks(self, name: str, task: asyncio.Task) -> None:
         try:
             task.cancel()
             await task
