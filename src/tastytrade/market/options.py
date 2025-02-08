@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, Optional
 
-from tastytrade.sessions.requests import AsyncSessionHandler
+from tastytrade.connections.requests import AsyncSessionHandler
 
 
 @dataclass

@@ -7,7 +7,7 @@ import requests
 from injector import inject
 from requests import Session
 
-from tastytrade.sessions import Credentials
+from tastytrade.connections import Credentials
 from tastytrade.utils.validators import validate_async_response, validate_response
 
 QueryParams = Optional[dict[str, Any]]

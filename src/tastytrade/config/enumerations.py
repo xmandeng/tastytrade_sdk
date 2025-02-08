@@ -1,7 +1,7 @@
 import logging
 from enum import Enum
 
-from tastytrade.sessions.models import (
+from tastytrade.messaging.models.events import (
     CandleEvent,
     ControlEvent,
     GreeksEvent,

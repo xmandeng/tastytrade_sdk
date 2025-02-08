@@ -55,6 +55,6 @@ test.ipynb
 *.log
 *.bak
 
-*.helloworld/
+*helloworld*/
 
 .cursorrules

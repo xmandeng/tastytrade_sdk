@@ -12,10 +12,10 @@ import plotly.graph_objects as go
 from dash import Dash, ctx, dcc, html
 from dash.dependencies import ALL, Input, Output, State
 
-from tastytrade.analytics.studies.averages import hull
-from tastytrade.sessions import Credentials
-from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.sockets import DXLinkManager
+from tastytrade.analytics.indicators.momentum import hull
+from tastytrade.connections import Credentials
+from tastytrade.config.enumerations import Channels
+from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.utils.helpers import last_weekday  # corrected import path for trade day helper
 
 from .types import Component, Figure
