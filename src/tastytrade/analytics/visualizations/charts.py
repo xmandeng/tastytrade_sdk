@@ -121,8 +121,10 @@ class DynamicChart:
 
         try:
             while True:
+                assert self.dxlink.router is not None
+                router = self.dxlink.router
                 raw_df = (
-                    self.dxlink.router.handler[Channels.Candle]
+                    router.handler[Channels.Candle]
                     .processors["feed"]
                     .df.loc[lambda x: x["eventSymbol"] == self.symbol]
                 )
