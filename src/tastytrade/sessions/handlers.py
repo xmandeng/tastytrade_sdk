@@ -7,7 +7,6 @@ from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Pro
 
 import pandas as pd
 import polars as pl
-from pandas import DataFrame as PandasDataFrame
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
@@ -61,8 +60,8 @@ class BaseEventProcessor:
             self.pl = self.pl.tail(ROW_LIMIT)
 
     @property
-    def df(self) -> PandasDataFrame:
-        return cast(PandasDataFrame, self.pl.to_pandas())
+    def df(self) -> pd.DataFrame:
+        return self.pl.to_pandas()
 
     def last(self, symbol: str) -> pd.DataFrame:
         return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
@@ -78,11 +77,8 @@ class CandleEventProcessor(BaseEventProcessor):
         )
 
     @property
-    def df(self) -> PandasDataFrame:
-        return cast(
-            PandasDataFrame,
-            self.pl.to_pandas().sort_values("index", ascending=True).reset_index(drop=True),
-        )
+    def df(self) -> pd.DataFrame:
+        return self.pl.to_pandas().sort_values("index", ascending=True).reset_index(drop=True)
 
 
 class LatestEventProcessor(BaseEventProcessor):
