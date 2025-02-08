@@ -31,9 +31,9 @@ class MessageDispatcher:
         Channels.Candle: EventHandler(Channels.Candle, processor=CandleEventProcessor()),
     }
 
-    def __new__(cls, *args, **kwargs):
-        if cls.instance is None:
-            cls.instance = object.__new__(cls)
+    def __new__(cls, *args: object, **kwargs: object) -> "MessageDispatcher":
+        if not hasattr(cls, "instance") or cls.instance is None:
+            cls.instance = super().__new__(cls)
         return cls.instance
 
     def __init__(self, websocket: Websocket) -> None:

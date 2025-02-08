@@ -3,10 +3,11 @@ import logging
 import time
 from dataclasses import dataclass
 from itertools import chain, islice
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, Union
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Protocol, Union, cast
 
 import pandas as pd
 import polars as pl
+from pandas import DataFrame as PandasDataFrame
 from pydantic import ValidationError
 
 from tastytrade.exceptions import MessageProcessingError
@@ -40,6 +41,7 @@ class EventProcessor(Protocol):
     """Protocol for event processors"""
 
     name: str
+    df: pd.DataFrame
 
     def process_event(self, event: BaseEvent) -> None: ...
 
@@ -49,7 +51,7 @@ class BaseEventProcessor:
 
     name = "feed"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.pl = pl.DataFrame()
 
     def process_event(self, event: BaseEvent) -> None:
@@ -59,8 +61,8 @@ class BaseEventProcessor:
             self.pl = self.pl.tail(ROW_LIMIT)
 
     @property
-    def df(self) -> pd.DataFrame:
-        return self.pl.to_pandas()
+    def df(self) -> PandasDataFrame:
+        return cast(PandasDataFrame, self.pl.to_pandas())
 
     def last(self, symbol: str) -> pd.DataFrame:
         return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
@@ -76,8 +78,11 @@ class CandleEventProcessor(BaseEventProcessor):
         )
 
     @property
-    def df(self) -> pd.DataFrame:
-        return self.pl.to_pandas().sort_values("index", ascending=True).reset_index(drop=True)
+    def df(self) -> PandasDataFrame:
+        return cast(
+            PandasDataFrame,
+            self.pl.to_pandas().sort_values("index", ascending=True).reset_index(drop=True),
+        )
 
 
 class LatestEventProcessor(BaseEventProcessor):
@@ -108,7 +113,8 @@ class EventHandler:
 
         self.metrics = QueueMetrics(channel=self.channel.value)
 
-        self.feed_processor = self.processor or BaseEventProcessor()
+        self.feed_processor = cast(EventProcessor, self.processor or BaseEventProcessor())
+        # self.feed_processor = self.processor or BaseEventProcessor()
         self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
 
     def add_processor(self, processor: EventProcessor) -> None:
