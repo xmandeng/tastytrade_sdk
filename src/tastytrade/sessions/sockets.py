@@ -271,6 +271,7 @@ class DXLinkManager:
         """
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
+
         request: CandleSubscriptionRequest = CandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
@@ -283,7 +284,7 @@ class DXLinkManager:
             add=[
                 AddCandleItem(
                     type=Channels.Candle.name,
-                    symbol=f"{request.symbol}{{={request.interval}}}",
+                    symbol=request.formatted,
                     fromTime=request.from_time,
                     toTime=request.to_time,
                 )
