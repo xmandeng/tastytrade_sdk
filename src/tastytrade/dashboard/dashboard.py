@@ -28,7 +28,7 @@ class DashApp:
         self.app: Dash = Dash(
             __name__,
             external_stylesheets=[dbc.themes.DARKLY],
-            title="TastyTrade Live Charts",
+            title="Live Charts",
             update_title=None,
         )
         self.dxlink: Optional[DXLinkManager] = None
@@ -51,7 +51,7 @@ class DashApp:
                     [
                         dbc.Col(
                             [
-                                html.H1("TastyTrade Live Charts", className="text-center mb-4"),
+                                html.H1("Live Charts", className="text-center mb-4"),
                                 dbc.Row(
                                     [
                                         dbc.Col(

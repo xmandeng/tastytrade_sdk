@@ -7,7 +7,8 @@ if __name__ == "__main__":
 
     # Setup logging
     setup_logging(
-        level=logging.DEBUG,
+        # level=logging.DEBUG,
+        level=logging.INFO,
         log_dir="../logs",
         filename_prefix="dashboard",
         console=True,
