@@ -187,7 +187,7 @@ class CandleSubscriptionRequest(BaseModel):
     def round_from_time(self) -> "CandleSubscriptionRequest":
         """Round from_time down to the nearest interval boundary."""
         try:
-            interval_ms = self.parse_interval(self.interval)
+            interval_ms = self.parse_interval("1m" if self.interval == "m" else self.interval)
             self.from_time = (self.from_time // interval_ms) * interval_ms
         except ValueError as e:
             logger.warning(f"Could not parse interval '{self.interval}': {e}")
