@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
 from queue import Queue
 from threading import Lock, Thread
 from typing import List, Optional
@@ -17,6 +16,7 @@ from tastytrade.analytics.studies.averages import hull
 from tastytrade.sessions import Credentials
 from tastytrade.sessions.enumerations import Channels
 from tastytrade.sessions.sockets import DXLinkManager
+from tastytrade.utils.helpers import last_weekday  # corrected import path for trade day helper
 
 from .types import Component, Figure
 
@@ -129,12 +129,16 @@ class DashApp:
             candle_symbol = f"{symbol}{{={interval}}}"
             logger.debug(f"Starting subscription process for symbol: {symbol}")
 
+            # Hardcode the start time to be 9:30AM on the trade day (today or most recent business day)
+            start_time = last_weekday()
+            logger.debug(f"Using start time for subscription: {start_time}")
+
             # Subscribe to candles with base symbol and converted interval
             logger.debug(f"Subscribing to candles for {symbol} with interval {dxlink_interval}")
             await self.dxlink.subscribe_to_candles(
                 symbol=symbol,
                 interval=dxlink_interval,
-                from_time=datetime.now() - timedelta(hours=8),
+                from_time=start_time,
             )
             logger.debug("Successfully subscribed to candles")
 

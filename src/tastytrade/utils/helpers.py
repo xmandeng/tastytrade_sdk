@@ -18,3 +18,12 @@ def get_trade_day() -> str:
         trade_day += timedelta(days=1)
 
     return trade_day.strftime("%y%m%d")
+
+
+def last_weekday() -> datetime:
+    if datetime.now().weekday() >= 5:
+        d = datetime.now() + timedelta(days=(4 - datetime.now().weekday()))
+    else:
+        d = datetime.now()
+
+    return d.replace(hour=9, minute=30, second=0, microsecond=0)
