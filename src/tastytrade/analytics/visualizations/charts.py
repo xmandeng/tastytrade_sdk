@@ -135,9 +135,9 @@ class DynamicChart:
                     continue
 
                 plot_df = raw_df.copy()
-                plot_df["time"] = (
-                    plot_df["time"].dt.tz_localize("UTC").dt.tz_convert("America/New_York")
-                )
+                # plot_df["time"] = (
+                #     plot_df["time"].dt.tz_localize("UTC").dt.tz_convert("America/New_York")
+                # )
 
                 try:
                     with fig.batch_update():

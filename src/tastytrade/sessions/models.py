@@ -235,19 +235,6 @@ class BaseEvent(BaseModel):
     )
 
     eventSymbol: str = Field(description="dxlink streamer symbol")
-    # timestamp: Annotated[
-    #     datetime,
-    #     Field(
-    #         default_factory=lambda: datetime.now(MARKET_TZ),
-    #         description="US Eastern Time timestamp when the event was validated",
-    #     ),
-    # ]
-
-    @model_validator(mode="after")
-    def set_timestamp(self) -> "BaseEvent":
-        """Set the timestamp after all other validations pass."""
-        object.__setattr__(self, "timestamp", datetime.now(MARKET_TZ))
-        return self
 
 
 class FloatFieldMixin:

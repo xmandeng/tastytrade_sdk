@@ -92,13 +92,13 @@ def hull(
     df = df.sort_values("time").reset_index(drop=True)
 
     # Convert timestamps to EDT and then remove timezone info if not already done
-    if not pd.api.types.is_datetime64_any_dtype(df["time"]):
-        df["time"] = (
-            pd.to_datetime(df["time"])
-            .dt.tz_localize("UTC")
-            .dt.tz_convert("America/New_York")
-            .dt.tz_localize(None)  # Remove timezone info
-        )
+    # if not pd.api.types.is_datetime64_any_dtype(df["time"]):
+    #     df["time"] = (
+    #         pd.to_datetime(df["time"])
+    #         .dt.tz_localize("UTC")
+    #         .dt.tz_convert("America/New_York")
+    #         .dt.tz_localize(None)  # Remove timezone info
+    #     )
 
     # Get the base symbol for summary lookup
     base_symbol = re.sub(r"\{=\d*\w\}", "", symbol)
