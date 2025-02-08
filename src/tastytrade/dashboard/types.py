@@ -1,4 +1,3 @@
-# src/tastytrade/dashboard/types.py
 from typing import Any, List, TypedDict, Union
 
 from typing_extensions import TypeAlias

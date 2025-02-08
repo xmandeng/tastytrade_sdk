@@ -78,7 +78,7 @@ class CandleEventProcessor(BaseEventProcessor):
 
     @property
     def df(self) -> pd.DataFrame:
-        return self.pl.to_pandas().sort_values("index", ascending=True).reset_index(drop=True)
+        return self.pl.to_pandas().sort_values("time", ascending=True).reset_index(drop=True)
 
 
 class LatestEventProcessor(BaseEventProcessor):

@@ -258,8 +258,8 @@ class DXLinkManager:
         self,
         symbol: str,
         interval: str,
-        from_time: int = int(datetime.now().timestamp() * 1000),
-        to_time: Optional[int] = None,
+        from_time: datetime,
+        to_time: Optional[datetime] = None,
     ) -> None:
         """Subscribe to candle data for a symbol.
 
@@ -275,8 +275,8 @@ class DXLinkManager:
         request: CandleSubscriptionRequest = CandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
-            from_time=from_time,
-            to_time=to_time,
+            from_time=from_time,  # type: ignore[arg-type]
+            to_time=to_time,  # type: ignore[arg-type]
         )
 
         subscription = SubscriptionRequest(
