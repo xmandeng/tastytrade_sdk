@@ -2,11 +2,11 @@ import asyncio
 import logging
 from typing import List, Protocol
 
-from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.handlers import (
+from tastytrade.config.enumerations import Channels
+from tastytrade.messaging.handlers import ControlHandler, EventHandler
+from tastytrade.messaging.processors.default import (
     CandleEventProcessor,
-    ControlHandler,
-    EventHandler,
+    EventProcessor,
     LatestEventProcessor,
 )
 
@@ -17,7 +17,7 @@ class Websocket(Protocol):
     queues: dict[int, asyncio.Queue]
 
 
-class MessageDispatcher:
+class MessageRouter:
     instance = None
     queues: dict[int, asyncio.Queue] = {}
 
@@ -31,7 +31,7 @@ class MessageDispatcher:
         Channels.Candle: EventHandler(Channels.Candle, processor=CandleEventProcessor()),
     }
 
-    def __new__(cls, *args: object, **kwargs: object) -> "MessageDispatcher":
+    def __new__(cls, *args: object, **kwargs: object) -> "MessageRouter":
         if not hasattr(cls, "instance") or cls.instance is None:
             cls.instance = super().__new__(cls)
         return cls.instance
@@ -46,6 +46,14 @@ class MessageDispatcher:
             )
             for _, handler in self.handler.items()
         ]
+
+    def add_processor(self, processor: EventProcessor) -> None:
+        for handler in self.handler.values():
+            handler.add_processor(processor)
+
+    def remove_processor(self, processor: EventProcessor) -> None:
+        for handler in self.handler.values():
+            handler.remove_processor(processor)
 
     async def close(self) -> None:
         logger.info("Initiating cleanup...")

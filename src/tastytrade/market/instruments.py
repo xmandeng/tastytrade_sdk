@@ -4,7 +4,7 @@ from typing import Union
 import polars as pl
 from requests import Response
 
-from tastytrade.sessions.requests import AsyncSessionHandler, SessionHandler
+from tastytrade.connections.requests import AsyncSessionHandler, SessionHandler
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ import aiohttp
 import requests
 from requests import JSONDecodeError
 
-from tastytrade.exceptions import (
+from tastytrade.common.exceptions import (
     BadRequestError,
     ResponseParsingError,
     ServerError,

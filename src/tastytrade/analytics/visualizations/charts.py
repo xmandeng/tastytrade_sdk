@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from IPython.display import clear_output, display
 
-from tastytrade.sessions.sockets import Channels, DXLinkManager
+from tastytrade.connections.sockets import Channels, DXLinkManager
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +135,6 @@ class DynamicChart:
                     continue
 
                 plot_df = raw_df.copy()
-                # plot_df["time"] = (
-                #     plot_df["time"].dt.tz_localize("UTC").dt.tz_convert("America/New_York")
-                # )
 
                 try:
                     with fig.batch_update():

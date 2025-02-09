@@ -5,8 +5,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.sockets import DXLinkManager
+from tastytrade.config.enumerations import Channels
+from tastytrade.connections.sockets import DXLinkManager
 
 
 def padded_wma_session(series, period, pad_value):
@@ -90,15 +90,6 @@ def hull(
 
     # Reset index and sort by time to ensure proper calculation
     df = df.sort_values("time").reset_index(drop=True)
-
-    # Convert timestamps to EDT and then remove timezone info if not already done
-    # if not pd.api.types.is_datetime64_any_dtype(df["time"]):
-    #     df["time"] = (
-    #         pd.to_datetime(df["time"])
-    #         .dt.tz_localize("UTC")
-    #         .dt.tz_convert("America/New_York")
-    #         .dt.tz_localize(None)  # Remove timezone info
-    #     )
 
     # Get the base symbol for summary lookup
     base_symbol = re.sub(r"\{=\d*\w\}", "", symbol)

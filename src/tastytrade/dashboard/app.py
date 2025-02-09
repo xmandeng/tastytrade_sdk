@@ -2,8 +2,8 @@ import logging
 import sys
 
 if __name__ == "__main__":
+    from tastytrade.common.logging import setup_logging
     from tastytrade.dashboard.dashboard import DashApp
-    from tastytrade.logging import setup_logging
 
     # Setup logging
     setup_logging(

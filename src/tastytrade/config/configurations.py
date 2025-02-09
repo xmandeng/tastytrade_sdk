@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import List
 
-from tastytrade.sessions.enumerations import Channels, EventTypes
+from tastytrade.config.enumerations import Channels, EventTypes
 
 
 # Connection configurations

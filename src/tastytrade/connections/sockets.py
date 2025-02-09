@@ -9,11 +9,12 @@ from typing import List, Optional, Type
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
 
-from tastytrade.sessions import Credentials
-from tastytrade.sessions.configurations import CHANNEL_SPECS, DXLinkConfig
-from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.messaging import MessageDispatcher
-from tastytrade.sessions.models import (
+from tastytrade.config.configurations import CHANNEL_SPECS, DXLinkConfig
+from tastytrade.config.enumerations import Channels
+from tastytrade.connections import Credentials
+from tastytrade.connections.requests import AsyncSessionHandler
+from tastytrade.connections.routing import MessageRouter
+from tastytrade.messaging.models.messages import (
     AddCandleItem,
     AddItem,
     AuthModel,
@@ -28,7 +29,6 @@ from tastytrade.sessions.models import (
     SetupModel,
     SubscriptionRequest,
 )
-from tastytrade.sessions.requests import AsyncSessionHandler
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class DXLinkManager:
 
     listener_task: Optional[asyncio.Task] = None
     keepalive_task: Optional[asyncio.Task] = None
-    router: Optional[MessageDispatcher] = None
+    router: Optional[MessageRouter] = None
 
     @classmethod
     def get_instance(cls) -> Optional["DXLinkManager"]:
@@ -106,7 +106,7 @@ class DXLinkManager:
         )
 
     async def start_router(self) -> None:
-        self.router = MessageDispatcher(self)
+        self.router = MessageRouter(self)
 
     async def socket_listener(self) -> None:
         """Listen for websocket messages using async for pattern."""

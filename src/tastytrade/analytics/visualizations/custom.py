@@ -4,8 +4,8 @@ import logging
 import plotly.graph_objects as go
 from IPython.display import clear_output, display
 
-from tastytrade.sessions.enumerations import Channels
-from tastytrade.sessions.sockets import DXLinkManager
+from tastytrade.config.enumerations import Channels
+from tastytrade.connections.sockets import DXLinkManager
 
 logger = logging.getLogger(__name__)
 
