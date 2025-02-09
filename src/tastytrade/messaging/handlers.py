@@ -58,7 +58,6 @@ class EventHandler:
         self.metrics = QueueMetrics(channel=self.channel.value)
 
         self.feed_processor = cast(EventProcessor, self.processor or BaseEventProcessor())
-        # self.feed_processor = self.processor or BaseEventProcessor()
         self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
 
     def add_processor(self, processor: EventProcessor) -> None:
@@ -102,7 +101,7 @@ class EventHandler:
 
                 except Exception:
                     self.metrics.record_error()
-                    logger.exception(
+                    logger.error(
                         "Unhandled exception in %s listener on channel %s:",
                         self.channel.name,
                         self.channel.value,
@@ -154,7 +153,7 @@ class EventHandler:
                     raise MessageProcessingError("Validation error in handler", e)
 
                 except Exception as e:
-                    logger.exception("Unexpected error in %s handler:", self.channel.name)
+                    logger.error("Unexpected error in %s handler:", self.channel.name)
                     raise MessageProcessingError("Unexpected error occurred", e)
 
             # Check for any remaining data, indicating a problem
@@ -181,7 +180,7 @@ class EventHandler:
             return events if events else None
 
         except Exception as e:
-            logger.exception("Fatal error in message handler for channel %s:", channel_name)
+            logger.error("Fatal error in message handler for channel %s:", channel_name)
             raise MessageProcessingError("Fatal error in message handler", e)
 
 

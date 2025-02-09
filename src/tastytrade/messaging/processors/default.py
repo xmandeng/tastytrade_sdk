@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 ROW_LIMIT = 100_000
 
 
+# ! EVENT PROCESSORS SHOULD LOG AN ERROR WHEN THEY FAIL TO PROCESS AN EVENT
 class EventProcessor(Protocol):
     """Protocol for event processors"""
 

@@ -13,8 +13,8 @@ from dash import Dash, ctx, dcc, html
 from dash.dependencies import ALL, Input, Output, State
 
 from tastytrade.analytics.indicators.momentum import hull
-from tastytrade.connections import Credentials
 from tastytrade.config.enumerations import Channels
+from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.utils.helpers import last_weekday  # corrected import path for trade day helper
 
@@ -183,7 +183,7 @@ class DashApp:
                 logger.warning(f"No data received for {candle_symbol} after {max_retries} attempts")
 
         except Exception:
-            logger.exception(f"Error subscribing to feeds for {symbol}")
+            logger.error(f"Error subscribing to feeds for {symbol}")
             raise
 
     def process_subscription_queue(self) -> None:
@@ -343,14 +343,14 @@ class DashApp:
                         figures.append(figure)
 
                     except Exception as e:
-                        logger.exception(f"Error updating figure for {candle_symbol}: {e}")
+                        logger.error(f"Error updating figure for {candle_symbol}: {e}")
                         figures.append(self.create_initial_figure(symbol))
 
                 logger.debug(f"Generated {len(figures)} figures")
                 return figures
 
             except Exception as e:
-                logger.exception(f"Error in update_charts callback: {e}")
+                logger.error(f"Error in update_charts callback: {e}")
                 return [self.create_initial_figure("Error") for _ in ctx.inputs_list[0]]
 
         @self.app.callback(
@@ -488,7 +488,7 @@ class DashApp:
                         logger.warning("HMA calculation returned empty DataFrame")
                 except Exception as e:
                     logger.warning(f"Error calculating HMA: {e}")
-                    logger.exception("Full HMA calculation error:")
+                    logger.error("Full HMA calculation error:")
 
             if not hma_df.empty:
                 hma_df["time"] = pd.to_datetime(hma_df["time"])
@@ -544,7 +544,7 @@ class DashApp:
             return fig
 
         except Exception as e:
-            logger.exception(f"Error creating figure for {symbol}: {e}")
+            logger.error(f"Error creating figure for {symbol}: {e}")
             return self.create_initial_figure(symbol)
 
     async def connect_dxlink(self) -> None:
