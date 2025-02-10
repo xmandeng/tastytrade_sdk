@@ -77,19 +77,88 @@
         "yzhang.markdown-all-in-one"
       ],
       "settings": {
-        "python.formatting.provider": "black",
-        "python.linting.enabled": true,
-        "python.linting.pylintEnabled": true,
-        "python.linting.mypyEnabled": true
+        "files.autoSave": "afterDelay",
+        "files.autoSaveDelay": 1000,
+        "terminal.integrated.env.osx": {
+          "ENVIRONMENT": "LIVE"
+        },
+        "terminal.integrated.env.linux": {
+          "ENVIRONMENT": "LIVE",
+          "POETRY_VIRTUALENVS_IN_PROJECT": "true",
+          "VIRTUAL_ENV": "/workspace/.venv",
+          "PATH": "/workspace/.venv/bin:${PATH}"
+        },
+        "terminal.integrated.profiles.osx": {
+          "zsh": {
+            "path": "/bin/zsh",
+            "env": {
+              "workspaceFolder": "${workspaceFolder}"
+            },
+            "args": [
+              "-l",
+              "-c",
+              "if [ -f \"${workspaceFolder}/.env\" ]; then while IFS='=' read -r key value; do if [[ $key != '#'* && -n $key ]]; then export \"$key\"=\"$value\"; fi; done < \"${workspaceFolder}/.env\"; fi; exec zsh"
+            ]
+          }
+        },
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash",
+            "env": {
+              "workspaceFolder": "${workspaceFolder}"
+            },
+            "args": [
+              "-l",
+              "-c",
+              "if [ -f \"${workspaceFolder}/.env\" ]; then while IFS='=' read -r key value; do if [[ $key != '#'* && -n $key ]]; then export \"$key\"=\"$value\"; fi; done < \"${workspaceFolder}/.env\"; fi; exec bash"
+            ]
+          }
+        },
+        "terminal.integrated.defaultProfile.osx": "zsh",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "[python]": {
+          "editor.formatOnType": true,
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          }
+        },
+        "markdownlint.config": {
+          "MD013": false,
+          "MD029": false,
+          "MD033": false
+        },
+        "postman.settings.dotenv-detection-notification-visibility": false,
+        "python.createEnvironment.contentButton": "show",
+        "python.experiments.enabled": false,
+        "python.languageServer": "Pylance",
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.testing.pytestEnabled": true,
+        "autoDocstring.docstringFormat": "numpy",
+        "autoDocstring.includeName": true,
+        "autoDocstring.logLevel": "Debug"
+      },
+      "launch": {
+        "configurations": [
+          {
+            "name": "Python: Live",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "cwd": "${workspaceFolder}",
+            "args": []
+          }
+        ]
       }
     }
   },
-  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry install",
+  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc",
   "remoteUser": "vscode",
-  "mounts": [
-    "source=${localWorkspaceFolder}/.env,target=/workspace/.env,type=bind",
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"
-  ],
+  "mounts": ["source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"],
   "forwardPorts": [],
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace"
