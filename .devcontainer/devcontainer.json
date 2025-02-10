@@ -86,35 +86,21 @@
           "ENVIRONMENT": "LIVE",
           "POETRY_VIRTUALENVS_IN_PROJECT": "true",
           "VIRTUAL_ENV": "/workspace/.venv",
-          "PATH": "/workspace/.venv/bin:${PATH}"
-        },
-        "terminal.integrated.profiles.osx": {
-          "zsh": {
-            "path": "/bin/zsh",
-            "env": {
-              "workspaceFolder": "${workspaceFolder}"
-            },
-            "args": [
-              "-l",
-              "-c",
-              "if [ -f \"${workspaceFolder}/.env\" ]; then while IFS='=' read -r key value; do if [[ $key != '#'* && -n $key ]]; then export \"$key\"=\"$value\"; fi; done < \"${workspaceFolder}/.env\"; fi; exec zsh"
-            ]
-          }
+          "PATH": "/workspace/.venv/bin:${env:PATH}"
         },
         "terminal.integrated.profiles.linux": {
           "bash": {
             "path": "/bin/bash",
             "env": {
               "workspaceFolder": "${workspaceFolder}"
-            },
-            "args": [
-              "-l",
-              "-c",
-              "if [ -f \"${workspaceFolder}/.env\" ]; then while IFS='=' read -r key value; do if [[ $key != '#'* && -n $key ]]; then export \"$key\"=\"$value\"; fi; done < \"${workspaceFolder}/.env\"; fi; exec bash"
-            ]
+            }
+            // "args": [
+            //   "-l",
+            //   "-c",
+            //   "if [ -f \"${workspaceFolder}/.env\" ]; then while IFS='=' read -r key value; do if [[ $key != '#'* && -n $key ]]; then export \"$key\"=\"$value\"; fi; done < \"${workspaceFolder}/.env\"; fi; exec bash"
+            // ]
           }
         },
-        "terminal.integrated.defaultProfile.osx": "zsh",
         "terminal.integrated.defaultProfile.linux": "bash",
         "[python]": {
           "editor.formatOnType": true,
