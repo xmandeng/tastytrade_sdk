@@ -138,7 +138,7 @@
       }
     }
   },
-  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc",
+  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install",
   "remoteUser": "vscode",
   "mounts": ["source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"],
   "forwardPorts": [],
