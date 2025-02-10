@@ -79,11 +79,7 @@
       "settings": {
         "files.autoSave": "afterDelay",
         "files.autoSaveDelay": 1000,
-        "terminal.integrated.env.osx": {
-          "ENVIRONMENT": "LIVE"
-        },
         "terminal.integrated.env.linux": {
-          "ENVIRONMENT": "LIVE",
           "POETRY_VIRTUALENVS_IN_PROJECT": "true",
           "VIRTUAL_ENV": "/workspace/.venv",
           "PATH": "/workspace/.venv/bin:${env:PATH}"
