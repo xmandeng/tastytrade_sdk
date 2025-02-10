@@ -94,11 +94,6 @@
             "env": {
               "workspaceFolder": "${workspaceFolder}"
             }
-            // "args": [
-            //   "-l",
-            //   "-c",
-            //   "if [ -f \"${workspaceFolder}/.env\" ]; then while IFS='=' read -r key value; do if [[ $key != '#'* && -n $key ]]; then export \"$key\"=\"$value\"; fi; done < \"${workspaceFolder}/.env\"; fi; exec bash"
-            // ]
           }
         },
         "terminal.integrated.defaultProfile.linux": "bash",
@@ -117,6 +112,7 @@
           "MD033": false
         },
         "postman.settings.dotenv-detection-notification-visibility": false,
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
         "python.createEnvironment.contentButton": "show",
         "python.experiments.enabled": false,
         "python.languageServer": "Pylance",
