@@ -14,7 +14,7 @@ services:
       - /mnt/Plex/devstorage/telegraf:/etc/telegraf
     user: "1000:1000"
     ports:
-      - "0.0.0.0:8086:8086" # Bind to all interfaces
+      - "0.0.0.0:8086:8086"
     networks:
       - internal_net
 
@@ -24,8 +24,9 @@ services:
     depends_on:
       - influxdb
     volumes:
-      - /mnt/Plex/devstorage/telegraf:/etc/telegraf:rw
-      - ./telegraf.conf:/etc/telegraf/telegraf.conf:rw
+      - ./deploy:/etc/telegraf:rw
+      # - /mnt/Plex/devstorage/telegraf:/etc/telegraf:rw
+      # - ./deploy/telegraf.conf:/etc/telegraf/telegraf.conf:rw
     environment:
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_DB_TOKEN=${INFLUX_DB_TOKEN}
@@ -34,6 +35,24 @@ services:
     user: "1000:1000"
     ports:
       - "8186:8186"
+    networks:
+      - internal_net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=adminpassword
+      - GF_INSTALL_PLUGINS=volkovlabs-echarts-panel
+    volumes:
+      - /mnt/Plex/devstorage/grafana:/var/lib/grafana
+      - ./deploy/influxdb.yml:/var/lib/grafana/influxdb.yml:ro
+      - ./deploy/grafana.ini:/etc/grafana/grafana.ini:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - influxdb
     networks:
       - internal_net
 
