@@ -112,6 +112,10 @@
         "python.createEnvironment.contentButton": "show",
         "python.experiments.enabled": false,
         "python.languageServer": "Pylance",
+        "python.analysis.extraPaths": [
+          "/workspace/src",
+          "/workspace/.venv/lib/python3.11/site-packages"
+        ],
         "python.terminal.activateEnvInCurrentTerminal": true,
         "python.testing.pytestEnabled": true,
         "autoDocstring.docstringFormat": "numpy",
