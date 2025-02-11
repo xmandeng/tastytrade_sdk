@@ -13,7 +13,7 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
 
     def __init__(self):
         self.client = InfluxDBClient(
-            url=os.environ["INFLUX_DB_URL"],
+            url="http://influxdb:8086",
             token=os.environ["INFLUX_DB_TOKEN"],
             org=os.environ["INFLUX_DB_ORG"],
         )

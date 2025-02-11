@@ -1,0 +1,42 @@
+services:
+  influxdb:
+    image: influxdb:2.7.1
+    container_name: influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: "${INFLUX_DB_ORG}"
+      DOCKER_INFLUXDB_INIT_BUCKET: "${INFLUX_DB_BUCKET}"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_DB_TOKEN}"
+    volumes:
+      - /mnt/Plex/devstorage/influxdb:/var/lib/influxdb2
+      - /mnt/Plex/devstorage/telegraf:/etc/telegraf
+    user: "1000:1000"
+    ports:
+      - "0.0.0.0:8086:8086" # Bind to all interfaces
+    networks:
+      - internal_net
+
+  telegraf:
+    image: telegraf:1.25.0
+    container_name: telegraf
+    depends_on:
+      - influxdb
+    volumes:
+      - /mnt/Plex/devstorage/telegraf:/etc/telegraf:rw
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:rw
+    environment:
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_DB_TOKEN=${INFLUX_DB_TOKEN}
+      - INFLUX_DB_ORG=${INFLUX_DB_ORG}
+      - INFLUX_DB_BUCKET=${INFLUX_DB_BUCKET}
+    user: "1000:1000"
+    ports:
+      - "8186:8186"
+    networks:
+      - internal_net
+
+networks:
+  internal_net:
+    driver: bridge
