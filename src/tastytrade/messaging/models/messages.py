@@ -111,7 +111,7 @@ class CancelCandleItem(BaseModel):
 class SubscriptionRequest(BaseModel):
     type: str = "FEED_SUBSCRIPTION"
     channel: int
-    reset: bool = True
+    reset: bool = False
     add: Optional[List[AddItem | AddCandleItem]] = Field(default_factory=lambda: list())
     remove: Optional[List[CancelItem | CancelCandleItem]] = Field(default_factory=lambda: list())
 
