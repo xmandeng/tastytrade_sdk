@@ -30,7 +30,6 @@ class BaseEvent(BaseModel):
 
 
 class FloatFieldMixin:
-
     @classmethod
     def validate_float_fields(cls, *field_names: str) -> Callable[[Any], Optional[float]]:
         @field_validator(*field_names, mode="before")
@@ -157,4 +156,15 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
         "openInterest",
         "vwap",
         "impVolatility",
+    )
+
+
+class StudyEvent(BaseEvent):
+    time: Optional[datetime] = Field(default=None, description="Event timestamp")
+    name: str = Field(description="Study name")
+    model_config = ConfigDict(
+        frozen=True,
+        validate_assignment=True,
+        extra="allow",
+        str_strip_whitespace=True,
     )
