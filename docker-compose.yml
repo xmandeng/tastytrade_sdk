@@ -17,6 +17,11 @@ services:
       - "0.0.0.0:8086:8086"
     networks:
       - internal_net
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-external-labels: "container={{.Name}}"
 
   telegraf:
     image: telegraf:1.25.0
@@ -35,6 +40,11 @@ services:
       - "0.0.0.0:8186:8186"
     networks:
       - internal_net
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-external-labels: "container={{.Name}}"
 
   grafana:
     image: grafana/grafana:latest
@@ -42,10 +52,9 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=adminpassword
-      - GF_INSTALL_PLUGINS=volkovlabs-echarts-panel
     volumes:
       - /mnt/Plex/devstorage/grafana:/var/lib/grafana
-      - ./deploy/influxdb.yml:/var/lib/grafana/influxdb.yml:ro
+      - ./deploy/influxdb.yml:/etc/grafana/provisioning/datasources/influxdb.yml:ro
       - ./deploy/grafana.ini:/etc/grafana/grafana.ini:ro
     ports:
       - "0.0.0.0:3000:3000"
@@ -69,6 +78,11 @@ services:
       - grafana
     networks:
       - internal_net
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-external-labels: "container={{.Name}}"
 
 networks:
   internal_net:
