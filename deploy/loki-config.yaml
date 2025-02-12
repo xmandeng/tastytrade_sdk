@@ -1,0 +1,57 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  http_listen_address: 0.0.0.0  # Listen on all interfaces
+  grpc_listen_port: 9095
+  grpc_listen_address: 0.0.0.0  # Listen on all interfaces
+
+common:
+  instance_addr: 0.0.0.0  # Changed from 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v12
+      index:
+        prefix: index_
+        period: 24h
+
+ruler:
+  alertmanager_url: http://localhost:9093
+
+limits_config:
+  retention_period: 744h # 31 days
+
+analytics:
+  reporting_enabled: false
+
+# Readiness and Metrics
+
+# curl http://192.168.1.237:3100/ready
+
+# curl http://192.168.1.237:3100/metrics
+
+# curl -XPOST -H "Content-Type: application/json" -d '{
+#     "streams": [
+#         {
+#             "stream": {
+#                 "test": "test"
+#             },
+#             "values": [
+#                 [ "1708038000000000000", "test message" ]
+#             ]
+#         }
+#     ]
+# }' "http://192.168.1.237:3100/loki/api/v1/push"

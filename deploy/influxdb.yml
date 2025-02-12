@@ -11,3 +11,12 @@ datasources:
       tlsSkipVerify: true
     secureJsonData:
       token: "${INFLUX_DB_TOKEN}"
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 1000
+      timeout: 60
