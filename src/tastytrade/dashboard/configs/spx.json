@@ -1,0 +1,501 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "becpny17ugz5sd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "POI"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "prevLow"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "prevHigh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "prevClose"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#959595",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 18,
+        "x": 0,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "candleStyle": "candles",
+        "colorStrategy": "open-close",
+        "colors": {
+          "down": "red",
+          "up": "green"
+        },
+        "includeAllFields": true,
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "mode": "candles",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.5.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "becpny17ugz5sd"
+          },
+          "query": "from(bucket: \"tastytrade\")\n  |> range(start: -10d)  // Adjust time range as needed\n  |> filter(fn: (r) => r._measurement == \"CandleEvent\")\n  |> filter(fn: (r) => r.eventSymbol == \"SPX{=5m}\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"_time\", \"open\", \"high\", \"low\", \"close\", \"volume\"])\n  |> sort(columns: [\"_time\"], desc: false)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "becpny17ugz5sd"
+          },
+          "hide": false,
+          "query": "import \"date\"\n\nstartTime = 2025-02-12T09:00:00-05:00\nstopTime = 2025-02-12T16:00:00-05:00\n\nfrom(bucket: \"tastytrade\")\n  |> range(start: startTime, stop: stopTime)\n  |> filter(fn: (r) => true)\n  |> aggregateWindow(\n    every: 30m,\n    createEmpty: true,\n    fn: first\n  )\n  |> map(fn: (r) => ({\n    _time: r._time,\n    _field: \"POI\",\n    _value: 6020.0\n  }))\n  |> yield(name: \"level1\")\n  ",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "becpny17ugz5sd"
+          },
+          "hide": false,
+          "query": "import \"date\"\nimport \"experimental\"\n\n// Define time range (last 14 days)\nstartTime = experimental.addDuration(\n    d: -14d,\n    to: date.truncate(t: now(), unit: 1d)\n)\nstopTime = now()\n\n// Fetch data with the new fields\nbase_data = from(bucket: \"tastytrade\")\n    |> range(start: startTime, stop: stopTime)\n    |> filter(fn: (r) =>\n        r._measurement == \"CandleEvent\" and\n        r.eventSymbol == \"SPX{=d}\" and\n        (r._field == \"prevClose\" or r._field == \"prevHigh\" or r._field == \"prevLow\")\n    )\n    |> aggregateWindow(every: 1d, fn: last)\n    |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n\n// Generate Market Open Data (9:30 AM EDT)\nopen_data = base_data\n    |> map(fn: (r) => ({\n        r with \n        _time: experimental.addDuration(d: 14h30m, to: date.truncate(t: r._time, unit: 1d))\n    }))\n\n// Generate Market Close Data (4:00 PM EDT)\nclose_data = base_data\n    |> map(fn: (r) => ({\n        r with \n        _time: experimental.addDuration(d: 21h, to: date.truncate(t: r._time, unit: 1d))\n    }))\n\n// Generate Gap Data\ngap_data = base_data\n    |> map(fn: (r) => ({\n        r with\n        _time: experimental.addDuration(d: 21h30m, to: date.truncate(t: r._time, unit: 1d))\n    }))\n    |> drop(columns: [\"_value\"])\n\n// Combine all data\nunion(tables: [open_data, close_data, gap_data])\n    |> group(columns: [\"_field\"])\n    |> sort(columns: [\"_time\"])",
+          "refId": "C"
+        }
+      ],
+      "title": "SPX 5min. Candle",
+      "type": "candlestick"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "becpny17ugz5sd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "POI"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "prevLow"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "prevHigh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "prevClose"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#959595",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 18,
+        "x": 0,
+        "y": 10
+      },
+      "id": 4,
+      "options": {
+        "candleStyle": "candles",
+        "colorStrategy": "open-close",
+        "colors": {
+          "down": "red",
+          "up": "green"
+        },
+        "includeAllFields": true,
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "mode": "candles",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.5.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "becpny17ugz5sd"
+          },
+          "query": "from(bucket: \"tastytrade\")\n  |> range(start: -10d)  // Adjust time range as needed\n  |> filter(fn: (r) => r._measurement == \"CandleEvent\")\n  |> filter(fn: (r) => r.eventSymbol == \"SPX{=m}\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"_time\", \"open\", \"high\", \"low\", \"close\", \"volume\"])\n  |> sort(columns: [\"_time\"], desc: false)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "becpny17ugz5sd"
+          },
+          "hide": false,
+          "query": "import \"date\"\n\nstartTime = 2025-02-12T09:00:00-05:00\nstopTime = 2025-02-12T16:00:00-05:00\n\nfrom(bucket: \"tastytrade\")\n  |> range(start: startTime, stop: stopTime)\n  |> filter(fn: (r) => true)\n  |> aggregateWindow(\n    every: 30m,\n    createEmpty: true,\n    fn: first\n  )\n  |> map(fn: (r) => ({\n    _time: r._time,\n    _field: \"POI\",\n    _value: 6020.0\n  }))\n  |> yield(name: \"level1\")\n  ",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "becpny17ugz5sd"
+          },
+          "hide": false,
+          "query": "import \"date\"\nimport \"experimental\"\n\n// Define time range (last 14 days)\nstartTime = experimental.addDuration(\n    d: -14d,\n    to: date.truncate(t: now(), unit: 1d)\n)\nstopTime = now()\n\n// Fetch data with the new fields\nbase_data = from(bucket: \"tastytrade\")\n    |> range(start: startTime, stop: stopTime)\n    |> filter(fn: (r) =>\n        r._measurement == \"CandleEvent\" and\n        r.eventSymbol == \"SPX{=d}\" and\n        (r._field == \"prevClose\" or r._field == \"prevHigh\" or r._field == \"prevLow\")\n    )\n    |> aggregateWindow(every: 1d, fn: last)\n    |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n\n// Generate Market Open Data (9:30 AM EDT)\nopen_data = base_data\n    |> map(fn: (r) => ({\n        r with \n        _time: experimental.addDuration(d: 14h30m, to: date.truncate(t: r._time, unit: 1d))\n    }))\n\n// Generate Market Close Data (4:00 PM EDT)\nclose_data = base_data\n    |> map(fn: (r) => ({\n        r with \n        _time: experimental.addDuration(d: 21h, to: date.truncate(t: r._time, unit: 1d))\n    }))\n\n// Generate Gap Data\ngap_data = base_data\n    |> map(fn: (r) => ({\n        r with\n        _time: experimental.addDuration(d: 21h30m, to: date.truncate(t: r._time, unit: 1d))\n    }))\n    |> drop(columns: [\"_value\"])\n\n// Combine all data\nunion(tables: [open_data, close_data, gap_data])\n    |> group(columns: [\"_field\"])\n    |> sort(columns: [\"_time\"])",
+          "refId": "C"
+        }
+      ],
+      "title": "SPX 5min. Candle",
+      "type": "candlestick"
+    }
+  ],
+  "preload": false,
+  "refresh": "1s",
+  "schemaVersion": 40,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "2025-02-13T14:20:00.000Z",
+    "to": "2025-02-13T21:05:00.000Z"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "1s",
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "SPX Daily",
+  "uid": "cecr4cjx8fncwe",
+  "version": 33,
+  "weekStart": ""
+}
