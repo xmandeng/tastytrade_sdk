@@ -169,8 +169,8 @@ class EventHandler:
                 events.sort(key=lambda event: event.time)
 
             for event in events:
-                for processor in self.processors.values():
-                    processor.process_event(event)
+                for _, processor in self.processors.items():
+                    event = processor.process_event(event)
 
             if self.diagnostic:
                 logger.debug(

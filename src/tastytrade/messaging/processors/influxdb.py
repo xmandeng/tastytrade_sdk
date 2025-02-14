@@ -19,7 +19,7 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
         )
         self.write_api = self.client.write_api()
 
-    def process_event(self, event: BaseEvent) -> None:
+    def process_event(self, event: BaseEvent) -> BaseEvent:
         point = Point(event.__class__.__name__)
         point.tag("eventSymbol", event.eventSymbol)
 
@@ -32,3 +32,5 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
             point.time(event.time)
 
         self.write_api.write(bucket=os.environ["INFLUX_DB_BUCKET"], record=point)
+
+        return event
