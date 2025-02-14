@@ -165,6 +165,9 @@ class EventHandler:
                 )
 
             # Process events through registered processors
+            if "time" in self.fields:
+                events.sort(key=lambda event: event.time)
+
             for event in events:
                 for processor in self.processors.values():
                     processor.process_event(event)
