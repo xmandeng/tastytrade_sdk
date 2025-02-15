@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import polars as pl
 
-from tastytrade.messaging.models.events import BaseEvent, CandleEvent, RawCandleEvent
+from tastytrade.messaging.models.events import BaseEvent, BasicCandleEvent, CandleEvent
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,12 @@ class BaseEventProcessor:
 
 class CandleEventProcessor(BaseEventProcessor):
 
-    def get_previous_candle(self, event: RawCandleEvent) -> dict[str, Any]:
-        candle_df = self.pl.clone()
-        if "time" not in candle_df:
+    def get_previous_candle(self, event: BasicCandleEvent) -> dict[str, Any]:
+        if "time" not in self.pl:
             return {}
 
         candle = (
-            candle_df.sort("time", descending=False)
+            self.pl.sort("time", descending=False)
             .filter(pl.col("eventSymbol") == event.eventSymbol)
             .filter(pl.col("time").lt(event.time.replace(tzinfo=None)))
             .tail(1)
@@ -62,19 +61,19 @@ class CandleEventProcessor(BaseEventProcessor):
 
         return {} if candle.is_empty() else candle.to_dicts().pop()
 
-    def process_event(self, orig_event: RawCandleEvent) -> CandleEvent:
+    def process_event(self, orig_event: BasicCandleEvent) -> CandleEvent:
 
         previous_candle: dict[str, Any] = self.get_previous_candle(orig_event)
 
         event: CandleEvent = CandleEvent(
-            tradeDate=orig_event.time.astimezone(ZoneInfo("America/New_York")).strftime("%Y-%m-%d"),
-            tradeTime=orig_event.time.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M"),
+            prevDate=previous_candle.get("tradeDate"),
+            prevTime=previous_candle.get("tradeTime"),
             prevOpen=previous_candle.get("open"),
             prevHigh=previous_candle.get("high"),
             prevLow=previous_candle.get("low"),
             prevClose=previous_candle.get("close"),
-            prevDate=previous_candle.get("tradeDate"),
-            prevTime=previous_candle.get("tradeTime"),
+            tradeDate=orig_event.time.astimezone(ZoneInfo("America/New_York")).strftime("%Y-%m-%d"),
+            tradeTime=orig_event.time.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M"),
             **orig_event.model_dump(),
         )
 
