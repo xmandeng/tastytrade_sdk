@@ -13,8 +13,8 @@ This procedure outlines the critical steps for cleaning up the InfluxDB database
    influx config create \
      --config-name main-config \
      --host-url http://localhost:8086 \
-     --org ${INFLUX_DB_ORG} \
-     --token ${INFLUX_DB_TOKEN} \
+     --org ${DOCKER_INFLUXDB_INIT_ORG} \
+     --token ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN} \
      --active
    ```
 
