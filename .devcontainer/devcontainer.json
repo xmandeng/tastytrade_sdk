@@ -109,6 +109,7 @@
         },
         "postman.settings.dotenv-detection-notification-visibility": false,
         "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.envFile": "/workspace/.env",
         "python.createEnvironment.contentButton": "show",
         "python.experiments.enabled": false,
         "python.languageServer": "Pylance",
