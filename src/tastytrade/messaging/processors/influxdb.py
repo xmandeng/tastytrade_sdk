@@ -27,9 +27,17 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
             assert isinstance(event, CandleEvent)
             point.tag("tradeDate", event.tradeDate)
 
-        if hasattr(event, "tradeTime"):
+        if hasattr(event, "tradeDateUTC"):
             assert isinstance(event, CandleEvent)
+            point.tag("tradeDateUTC", event.tradeDateUTC)
+
+            if hasattr(event, "tradeTime"):
+                assert isinstance(event, CandleEvent)
             point.tag("tradeTime", event.tradeTime)
+
+            if hasattr(event, "tradeTimeUTC"):
+                assert isinstance(event, CandleEvent)
+                point.tag("tradeTimeUTC", event.tradeTimeUTC)
 
         if hasattr(event, "prevDate"):
             assert isinstance(event, CandleEvent)
@@ -45,6 +53,8 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
                 "time",
                 "tradeDate",
                 "tradeTime",
+                "tradeDateUTC",
+                "tradeTimeUTC",
                 "prevDate",
                 "prevTime",
             ]:

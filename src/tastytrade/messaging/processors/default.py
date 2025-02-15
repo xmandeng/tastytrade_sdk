@@ -74,6 +74,8 @@ class CandleEventProcessor(BaseEventProcessor):
             prevClose=previous_candle.get("close"),
             tradeDate=orig_event.time.astimezone(ZoneInfo("America/New_York")).strftime("%Y-%m-%d"),
             tradeTime=orig_event.time.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M"),
+            tradeDateUTC=orig_event.time.strftime("%Y-%m-%d"),
+            tradeTimeUTC=orig_event.time.strftime("%H:%M"),
             **orig_event.model_dump(),
         )
 

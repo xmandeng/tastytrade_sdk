@@ -167,8 +167,11 @@ class BasicCandleEvent(BaseEvent, FloatFieldMixin):
 
 
 class CandleEvent(BasicCandleEvent):
+
     tradeDate: Optional[str] = Field(default=None, description="Trade date for the candle")
+    tradeDateUTC: Optional[str] = Field(default=None, description="UTC Trade date for the candle")
     tradeTime: Optional[str] = Field(default=None, description="Trade time for the candle")
+    tradeTimeUTC: Optional[str] = Field(default=None, description="UTC Trade time for the candle")
 
     prevOpen: Optional[float] = Field(
         default=None, description="Opening price for the interval", ge=0
