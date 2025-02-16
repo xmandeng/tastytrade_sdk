@@ -43,6 +43,14 @@ class BaseEventProcessor:
         return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
 
 
+class LatestEventProcessor(BaseEventProcessor):
+    name = "feed"
+
+    def process_event(self, event: BaseEvent) -> None:
+
+        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
+
+
 class CandleEventProcessor(BaseEventProcessor):
 
     def process_event(self, event: CandleEvent) -> None:
@@ -56,11 +64,3 @@ class CandleEventProcessor(BaseEventProcessor):
     @property
     def df(self) -> pd.DataFrame:
         return self.pl.to_pandas().sort_values("time", ascending=True).reset_index(drop=True)
-
-
-class LatestEventProcessor(BaseEventProcessor):
-    name = "feed"
-
-    def process_event(self, event: BaseEvent) -> None:
-
-        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
