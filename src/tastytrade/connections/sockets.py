@@ -4,7 +4,7 @@ import logging
 from asyncio import Semaphore
 from datetime import datetime
 from types import TracebackType
-from typing import List, Optional, Type
+from typing import List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
@@ -51,23 +51,23 @@ class DXLinkManager:
     keepalive_task: Optional[asyncio.Task] = None
     router: Optional[MessageRouter] = None
 
-    @classmethod
-    def get_instance(cls) -> Optional["DXLinkManager"]:
-        return cls.instance
-
-    def __new__(cls: Type["DXLinkManager"]) -> "DXLinkManager":
+    def __new__(cls, credentials: Optional[Credentials] = None) -> "DXLinkManager":
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
-    def __init__(self) -> None:
-        config = DXLinkConfig()
-        self.queues = {channel.value: asyncio.Queue() for channel in Channels}
-        self.subscription_semaphore = Semaphore(config.max_subscriptions)
-        self.keepalive_stop = asyncio.Event()
+    def __init__(self, credentials: Optional[Credentials] = None) -> None:
+        if not hasattr(self, "_initialized"):
+            config = DXLinkConfig()
+            self.queues = {channel.value: asyncio.Queue() for channel in Channels}
+            self.subscription_semaphore = Semaphore(config.max_subscriptions)
+            self.keepalive_stop = asyncio.Event()
+            self._credentials = credentials
+            self._initialized = True
 
-    async def __aenter__(self, credentials: Credentials) -> "DXLinkManager":
-        await self.open(credentials)
+    async def __aenter__(self) -> "DXLinkManager":
+        if self._credentials:
+            await self.open(self._credentials)
         return self
 
     async def __aexit__(

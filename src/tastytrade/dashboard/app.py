@@ -9,10 +9,10 @@ if __name__ == "__main__":
     setup_logging(
         # level=logging.DEBUG,
         level=logging.INFO,
-        log_dir="../logs",
-        filename_prefix="dashboard",
+        # log_dir="../logs",
+        # filename_prefix="dashboard",
         console=True,
-        file=True,
+        # file=True,
     )
 
     # Create and run the dashboard

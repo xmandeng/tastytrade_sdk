@@ -4,7 +4,7 @@ from typing import Protocol
 import pandas as pd
 import polars as pl
 
-from tastytrade.messaging.models.events import BaseEvent
+from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class EventProcessor(Protocol):
     name: str
     df: pd.DataFrame
 
-    def process_event(self, event: BaseEvent) -> None: ...
+    def process_event(self, event: BaseEvent) -> BaseEvent: ...
 
 
 class BaseEventProcessor:
@@ -43,9 +43,18 @@ class BaseEventProcessor:
         return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
 
 
-class CandleEventProcessor(BaseEventProcessor):
+class LatestEventProcessor(BaseEventProcessor):
+    name = "feed"
 
     def process_event(self, event: BaseEvent) -> None:
+
+        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
+
+
+class CandleEventProcessor(BaseEventProcessor):
+
+    def process_event(self, event: CandleEvent) -> None:
+
         self.pl = (
             self.pl.vstack(pl.DataFrame([event]))
             .unique(subset=["eventSymbol", "time"], keep="last")
@@ -55,10 +64,3 @@ class CandleEventProcessor(BaseEventProcessor):
     @property
     def df(self) -> pd.DataFrame:
         return self.pl.to_pandas().sort_values("time", ascending=True).reset_index(drop=True)
-
-
-class LatestEventProcessor(BaseEventProcessor):
-    name = "feed"
-
-    def process_event(self, event: BaseEvent) -> None:
-        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
