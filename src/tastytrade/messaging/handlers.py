@@ -4,13 +4,14 @@ import time
 from dataclasses import dataclass
 from itertools import chain, islice
 from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union, cast
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from tastytrade.common.exceptions import MessageProcessingError
 from tastytrade.config.configurations import CHANNEL_SPECS
 from tastytrade.config.enumerations import Channels
-from tastytrade.messaging.models.events import BaseEvent
+from tastytrade.messaging.models.events import BaseEvent, BasicCandleEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
 from tastytrade.messaging.processors.default import BaseEventProcessor, EventProcessor
 
@@ -59,6 +60,9 @@ class EventHandler:
 
         self.feed_processor = cast(EventProcessor, self.processor or BaseEventProcessor())
         self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
+
+        if self.channel == Channels.Candle:
+            self.previous_candle: dict[str, CandleEvent] = {}
 
     def add_processor(self, processor: EventProcessor) -> None:
         """Add new event processor"""
@@ -164,13 +168,17 @@ class EventHandler:
                     ", ".join(map(str, remaining)),
                 )
 
-            # Process events through registered processors
             if "time" in self.fields:
                 events.sort(key=lambda event: event.time)
 
+            # Process events through registered processors
             for event in events:
+
+                if self.channel == Channels.Candle:
+                    event = self.enrich_candle(event)
+
                 for _, processor in self.processors.items():
-                    event = processor.process_event(event)
+                    processor.process_event(event)
 
             if self.diagnostic:
                 logger.debug(
@@ -185,6 +193,27 @@ class EventHandler:
         except Exception as e:
             logger.error("Fatal error in message handler for channel %s:", channel_name)
             raise MessageProcessingError("Fatal error in message handler", e)
+
+    def enrich_candle(self, event: BasicCandleEvent) -> CandleEvent:
+        prev_event: CandleEvent | None = self.previous_candle.get(event.eventSymbol)
+
+        event = CandleEvent(
+            prevDate=None if not prev_event else prev_event.tradeDate,
+            prevTime=None if not prev_event else prev_event.tradeTime,
+            prevOpen=None if not prev_event else prev_event.open,
+            prevHigh=None if not prev_event else prev_event.high,
+            prevLow=None if not prev_event else prev_event.low,
+            prevClose=None if not prev_event else prev_event.close,
+            tradeDate=event.time.astimezone(ZoneInfo("America/New_York")).strftime("%Y-%m-%d"),
+            tradeTime=event.time.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M"),
+            tradeDateUTC=event.time.strftime("%Y-%m-%d"),
+            tradeTimeUTC=event.time.strftime("%H:%M"),
+            **event.model_dump(),
+        )
+
+        self.previous_candle[event.eventSymbol] = event
+
+        return event
 
 
 class ControlHandler(EventHandler):
