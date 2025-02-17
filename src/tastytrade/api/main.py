@@ -12,6 +12,24 @@ from tastytrade.common.logging import setup_logging
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
 
+"""Example curl requests:
+
+# Subscribe to feed
+curl -X POST "http://localhost:8000/subscribe/feed" \
+     -H "Content-Type: application/json" \
+     -d '{"symbols": ["SPY", "AAPL"]}'
+
+# Unsubscribe to feed
+curl -X POST "http://localhost:8000/unsubscribe/feed" \
+     -H "Content-Type: application/json" \
+     -d '{"symbols": ["SPY", "AAPL"]}'
+
+# Subscribe to candles
+curl -X POST "http://localhost:8000/subscribe/candles" \
+     -H "Content-Type: application/json" \
+     -d '{"symbol": "SPY", "interval": "5m"}'
+"""
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -72,28 +90,30 @@ class SubscriptionStatus(BaseModel):
     metadata: Dict = {}
 
 
-@app.get("/health")
-async def health_check():
-    """Check the health of the API and DXLink connection."""
-    if not dxlink_manager:
-        raise HTTPException(status_code=503, detail="DXLink manager not initialized")
+# @app.get("/health")
+# async def health_check():
+#     """Check the health of the API and DXLink connection."""
+#     if not dxlink_manager:
+#         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
 
-    try:
-        # Get websocket status
-        ws_connected = dxlink_manager.websocket is not None and dxlink_manager.websocket.open
+#     try:
+#         # Get websocket status based on authorization state
+#         ws_connected = (
+#             dxlink_manager.websocket is not None and dxlink_manager.auth_state == "AUTHORIZED"
+#         )  # Use the auth state we track
 
-        # Get router status
-        router_active = dxlink_manager.router is not None
+#         # Get router status
+#         router_active = dxlink_manager.router is not None
 
-        return {
-            "status": "healthy" if ws_connected and router_active else "degraded",
-            "websocket_connected": ws_connected,
-            "router_active": router_active,
-            "timestamp": datetime.now().isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+#         return {
+#             "status": "healthy" if ws_connected and router_active else "degraded",
+#             "websocket_connected": ws_connected,
+#             "router_active": router_active,
+#             "timestamp": datetime.now().isoformat(),
+#         }
+#     except Exception as e:
+#         logger.error(f"Health check failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/subscriptions")
@@ -121,7 +141,7 @@ async def get_subscriptions() -> Dict[str, SubscriptionStatus]:
 
 
 @app.post("/subscribe/feed")
-async def subscribe_to_feed(subscription: SymbolSubscription, background_tasks: BackgroundTasks):
+async def subscribe(subscription: SymbolSubscription, background_tasks: BackgroundTasks):
     """Subscribe to market data feed for specified symbols."""
     if not dxlink_manager:
         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
@@ -138,9 +158,7 @@ async def subscribe_to_feed(subscription: SymbolSubscription, background_tasks: 
 
 
 @app.post("/unsubscribe/feed")
-async def unsubscribe_from_feed(
-    subscription: SymbolSubscription, background_tasks: BackgroundTasks
-):
+async def unsubscribe(subscription: SymbolSubscription, background_tasks: BackgroundTasks):
     """Unsubscribe from market data feed for specified symbols."""
     if not dxlink_manager:
         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
