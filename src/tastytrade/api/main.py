@@ -15,10 +15,8 @@ from tastytrade.connections.sockets import DXLinkManager
 # Configure logging
 logger = logging.getLogger(__name__)
 
-DEBUG = os.getenv("TASTYTRADE_API_DEBUG")
-
 setup_logging(
-    level=logging.INFO if not DEBUG else logging.DEBUG,
+    level=logging.INFO if not os.getenv("TASTYTRADE_API_DEBUG") else logging.DEBUG,
     console=True,
 )
 
