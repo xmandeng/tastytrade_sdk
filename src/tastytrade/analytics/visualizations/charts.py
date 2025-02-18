@@ -27,10 +27,17 @@ class Study:
 
 class DynamicChart:
     def __init__(
-        self, dxlink: DXLinkManager, symbol: str, chart_style: Optional[Dict[str, Any]] = None
+        self,
+        dxlink: DXLinkManager,
+        symbol: str,
+        start_time: Optional[pd.Timestamp] = None,
+        end_time: Optional[pd.Timestamp] = None,
+        chart_style: Optional[Dict[str, Any]] = None,
     ):
         self.dxlink = dxlink
         self.symbol = symbol
+        self.start_time = start_time
+        self.end_time = end_time
         self.studies: List[Study] = []
         self.task: Optional[asyncio.Task] = None
 
@@ -49,6 +56,7 @@ class DynamicChart:
                 color="white",
             ),
             "showlegend": True,
+            "height": 800,
         }
 
         if chart_style:
@@ -136,6 +144,12 @@ class DynamicChart:
 
                 plot_df = raw_df.copy()
 
+                # Filter by time range if specified
+                if self.start_time:
+                    plot_df = plot_df[plot_df["time"] >= self.start_time]
+                if self.end_time:
+                    plot_df = plot_df[plot_df["time"] <= self.end_time]
+
                 try:
                     with fig.batch_update():
                         fig.data = []
@@ -156,7 +170,9 @@ class DynamicChart:
 
                         # Add each study
                         for study in self.studies:
-                            study_df = study.compute_fn(self.dxlink, self.symbol, **study.params)
+                            study_df = study.compute_fn(
+                                self.dxlink, self.symbol, input_df=plot_df, **study.params
+                            )
 
                             if study.color_column:
                                 # Add color-changing segments
