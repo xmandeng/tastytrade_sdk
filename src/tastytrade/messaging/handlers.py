@@ -195,6 +195,7 @@ class EventHandler:
             raise MessageProcessingError("Fatal error in message handler", e)
 
     def enrich_candle(self, event: BasicCandleEvent) -> CandleEvent:
+        # ! Minor fix: Only works in inter-day use case, intraday candles are not properly handled
         prev_event: CandleEvent | None = self.previous_candle.get(event.eventSymbol)
 
         event = CandleEvent(
