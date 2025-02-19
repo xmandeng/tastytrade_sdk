@@ -57,6 +57,7 @@ class DynamicChart:
             ),
             "showlegend": True,
             "height": 800,
+            "uirevision": True,
         }
 
         if chart_style:
@@ -139,8 +140,8 @@ class DynamicChart:
 
                 if len(raw_df) == 0:
                     logger.warning("No data available for symbol %s", self.symbol)
-                    await asyncio.sleep(1)
-                    continue
+                    # await asyncio.sleep(1)
+                    break
 
                 plot_df = raw_df.copy()
 
@@ -157,7 +158,9 @@ class DynamicChart:
                         # Add candlesticks
                         fig.add_trace(
                             go.Candlestick(
-                                x=plot_df["time"],
+                                x=plot_df["time"]
+                                .dt.tz_localize("UTC")
+                                .dt.tz_convert("America/New_York"),
                                 open=plot_df["open"],
                                 high=plot_df["high"],
                                 low=plot_df["low"],
