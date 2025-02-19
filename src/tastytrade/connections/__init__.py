@@ -38,3 +38,14 @@ class Credentials:
         self.remember_me: bool = True
 
         self.is_sandbox: bool = True if env == "Test" else False
+
+
+class InfluxCredentials:
+    url: str
+    token: str
+    org: str
+
+    def __init__(self):
+        self.url = os.environ["INFLUX_DB_URL"]
+        self.org = os.environ["INFLUX_DB_ORG"]
+        self.token = os.environ["INFLUX_DB_TOKEN"]
