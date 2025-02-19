@@ -76,11 +76,7 @@ def hull(
         df = input_df.copy()
     else:
         df = (
-            (
-                dxlink.router.handler[Channels.Candle]
-                .processors["feed"]
-                .df.loc[lambda x: x["eventSymbol"] == symbol]
-            )
+            (dxlink.router.handler[Channels.Candle].processors["feed"].symbol[symbol].to_pandas())
             if dxlink.router
             else pd.DataFrame()
         )

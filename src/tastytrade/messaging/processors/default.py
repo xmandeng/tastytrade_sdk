@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from typing import Protocol
 
 import pandas as pd
@@ -17,6 +18,7 @@ class EventProcessor(Protocol):
 
     name: str
     df: pd.DataFrame
+    symbol: dict[str, pl.DataFrame]
 
     def process_event(self, event: BaseEvent) -> BaseEvent: ...
 
@@ -24,16 +26,25 @@ class EventProcessor(Protocol):
 class BaseEventProcessor:
     """Base processor that handles DataFrame storage"""
 
-    name = "feed"
+    name: str = "feed"
 
     def __init__(self) -> None:
         self.pl = pl.DataFrame()
+        self.symbol: dict[str, pl.DataFrame] = defaultdict(lambda: pl.DataFrame())
 
     def process_event(self, event: BaseEvent) -> None:
         self.pl = self.pl.vstack(pl.DataFrame([event]))
 
         if len(self.pl) > 2 * ROW_LIMIT:
             self.pl = self.pl.tail(ROW_LIMIT)
+
+        # ? Idea: Split into symbol dfs to improve large scale performance
+        self.symbol[event.eventSymbol] = self.symbol[event.eventSymbol].vstack(
+            pl.DataFrame([event])
+        )
+
+        if len(self.symbol[event.eventSymbol]) > 2 * ROW_LIMIT:
+            self.symbol[event.eventSymbol] = self.symbol[event.eventSymbol].tail(ROW_LIMIT)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -52,15 +63,22 @@ class LatestEventProcessor(BaseEventProcessor):
 
 
 class CandleEventProcessor(BaseEventProcessor):
+    """Processor maintains separate dataframes for each symbol, e.g., SPX{=d}, SPX{=5m}, SPX{=15m}, etc.
+
+    Time is always the leading time for each candlestick. This allows for continuous update of unclosed candlesticks
+    """
+
+    def __init__(self) -> None:
+        self.symbol: dict[str, pl.DataFrame] = defaultdict(lambda: pl.DataFrame())
 
     def process_event(self, event: CandleEvent) -> None:
 
-        self.pl = (
-            self.pl.vstack(pl.DataFrame([event]))
+        self.symbol[event.eventSymbol] = (
+            self.symbol[event.eventSymbol]
+            .vstack(pl.DataFrame([event]))
             .unique(subset=["eventSymbol", "time"], keep="last")
             .sort("time", descending=False)
         )
 
-    @property
-    def df(self) -> pd.DataFrame:
-        return self.pl.to_pandas().sort_values("time", ascending=True).reset_index(drop=True)
+        if len(self.symbol[event.eventSymbol]) > 2 * ROW_LIMIT:
+            self.symbol[event.eventSymbol] = self.symbol[event.eventSymbol].tail(ROW_LIMIT)

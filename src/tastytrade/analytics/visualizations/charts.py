@@ -135,12 +135,12 @@ class DynamicChart:
                 raw_df = (
                     router.handler[Channels.Candle]
                     .processors["feed"]
-                    .df.loc[lambda x: x["eventSymbol"] == self.symbol]
+                    .symbol[self.symbol]
+                    .to_pandas()
                 )
 
                 if len(raw_df) == 0:
                     logger.warning("No data available for symbol %s", self.symbol)
-                    # await asyncio.sleep(1)
                     break
 
                 plot_df = raw_df.copy()
