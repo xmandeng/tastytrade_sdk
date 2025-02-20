@@ -76,7 +76,7 @@ def hull(
         df = input_df.copy()
     else:
         df = (
-            (dxlink.router.handler[Channels.Candle].processors["feed"].symbol[symbol].to_pandas())
+            (dxlink.router.handler[Channels.Candle].processors["feed"].frames[symbol].to_pandas())
             if dxlink.router
             else pd.DataFrame()
         )
@@ -121,7 +121,5 @@ def hull(
 
     # Color assignment: "Up" if current HMA > previous HMA, else "Down"
     df["HMA_color"] = np.where(df["HMA"] > df["HMA"].shift(1), "Up", "Down")
-
-    df["time"] = df["time"].dt.tz_localize("UTC").dt.tz_convert("America/New_York")
 
     return df[["time", "HMA", "HMA_color"]]

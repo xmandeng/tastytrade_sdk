@@ -41,6 +41,7 @@ class DynamicChart:
         self.studies: List[Study] = []
         self.task: Optional[asyncio.Task] = None
 
+        # Default chart style with full timeframe display
         self.chart_style = {
             "plot_bgcolor": "rgb(25,25,25)",
             "paper_bgcolor": "rgb(25,25,25)",
@@ -54,20 +55,18 @@ class DynamicChart:
                 gridcolor="rgba(128,128,128,0.1)",
                 zerolinecolor="rgba(128,128,128,0.1)",
                 color="white",
+                # Ensure x-axis range covers the full timeframe
+                range=[start_time, end_time] if start_time and end_time else None,
+                rangeslider=dict(visible=False),
             ),
             "showlegend": True,
             "height": 800,
             "uirevision": True,
+            "margin": dict(l=50, r=50, t=30, b=50),
         }
 
         if chart_style:
             self.chart_style.update(chart_style)
-
-    def add_study(self, study: Study) -> None:
-        self.studies.append(study)
-
-    def remove_study(self, study_name: str) -> None:
-        self.studies = [s for s in self.studies if s.name != study_name]
 
     def create_color_segments(self, df: pd.DataFrame, study: Study) -> List[go.Scatter]:
         """Create separate traces for each color segment with overlapping points for continuity."""
@@ -124,6 +123,12 @@ class DynamicChart:
 
         return traces
 
+    def add_study(self, study: Study) -> None:
+        self.studies.append(study)
+
+    def remove_study(self, study_name: str) -> None:
+        self.studies = [s for s in self.studies if s.name != study_name]
+
     async def update_chart(self) -> None:
         fig = go.Figure()
         fig.update_layout(**self.chart_style)
@@ -141,7 +146,8 @@ class DynamicChart:
 
                 if len(raw_df) == 0:
                     logger.warning("No data available for symbol %s", self.symbol)
-                    break
+                    await asyncio.sleep(1)
+                    continue
 
                 plot_df = raw_df.copy()
 
@@ -158,9 +164,7 @@ class DynamicChart:
                         # Add candlesticks
                         fig.add_trace(
                             go.Candlestick(
-                                x=plot_df["time"]
-                                .dt.tz_localize("UTC")
-                                .dt.tz_convert("America/New_York"),
+                                x=plot_df["time"],
                                 open=plot_df["open"],
                                 high=plot_df["high"],
                                 low=plot_df["low"],
@@ -194,6 +198,10 @@ class DynamicChart:
                                         showlegend=True,
                                     )
                                 )
+
+                        # Ensure x-axis covers full timeframe
+                        if self.start_time and self.end_time:
+                            fig.update_xaxes(range=[self.start_time, self.end_time])
 
                     clear_output(wait=True)
                     display(fig)
