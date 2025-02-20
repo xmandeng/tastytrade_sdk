@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 class Channels(Enum):
     Control = 0
-    Trade = 1
-    Quote = 3
-    Greeks = 5
-    Profile = 7
-    Summary = 9
-    Candle = 11
+    Profile = 1
+    Summary = 3
+    Trade = 5
+    Quote = 7
+    Candle = 9
+    Greeks = 11
     Errors = 99
 
 

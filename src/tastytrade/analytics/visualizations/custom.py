@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from datetime import datetime
+from typing import Optional
 
 import plotly.graph_objects as go
 from IPython.display import clear_output, display
@@ -10,12 +12,16 @@ from tastytrade.connections.sockets import DXLinkManager
 logger = logging.getLogger(__name__)
 
 
-def plot_live_candlesticks(dxlink: DXLinkManager, symbol: str):
+def plot_live_candlesticks(
+    dxlink: DXLinkManager, symbol: str, start_time: datetime, end_time: Optional[datetime] = None
+):
     """Live candlestick chart that updates based on the most recent data.
 
     Args:
         dxlink: DXLink manager instance
         symbol: Symbol to plot (e.g. "BTC/USD:CXTALP{=5m}")
+        start_time: Start time for the data to be plotted
+        end_time: Optional end time for the data to be plotted
     """
     fig = go.Figure()
 
@@ -42,6 +48,11 @@ def plot_live_candlesticks(dxlink: DXLinkManager, symbol: str):
                     .processors["feed"]
                     .df.loc[lambda x: x["eventSymbol"] == symbol]
                 )
+
+                # Filter data based on start and end time
+                raw_df = raw_df.loc[lambda x: x["time"] >= start_time]
+                if end_time:
+                    raw_df = raw_df.loc[lambda x: x["time"] <= end_time]
 
                 logger.debug(f"Got dataframe with {len(raw_df)} rows")
 

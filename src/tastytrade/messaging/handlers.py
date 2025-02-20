@@ -3,7 +3,7 @@ import logging
 import time
 from dataclasses import dataclass
 from itertools import chain, islice
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -13,7 +13,7 @@ from tastytrade.config.configurations import CHANNEL_SPECS
 from tastytrade.config.enumerations import Channels
 from tastytrade.messaging.models.events import BaseEvent, BasicCandleEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
-from tastytrade.messaging.processors.default import BaseEventProcessor, EventProcessor
+from tastytrade.messaging.processors.default import BaseEventProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +58,19 @@ class EventHandler:
 
         self.metrics = QueueMetrics(channel=self.channel.value)
 
-        self.feed_processor = cast(EventProcessor, self.processor or BaseEventProcessor())
-        self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
+        self.feed_processor = self.processor or BaseEventProcessor()
+        self.processors: dict[str, BaseEventProcessor] = {
+            self.feed_processor.name: self.feed_processor
+        }
 
         if self.channel == Channels.Candle:
             self.previous_candle: dict[str, CandleEvent] = {}
 
-    def add_processor(self, processor: EventProcessor) -> None:
+    def add_processor(self, processor: BaseEventProcessor) -> None:
         """Add new event processor"""
         self.processors.update({processor.name: processor})
 
-    def remove_processor(self, processor: EventProcessor) -> None:
+    def remove_processor(self, processor: BaseEventProcessor) -> None:
         """Remove event processor"""
         if processor.name in self.processors:
             del self.processors[processor.name]
@@ -195,6 +197,7 @@ class EventHandler:
             raise MessageProcessingError("Fatal error in message handler", e)
 
     def enrich_candle(self, event: BasicCandleEvent) -> CandleEvent:
+        # ! Minor fix: Only works in inter-day use case, intraday candles are not properly handled
         prev_event: CandleEvent | None = self.previous_candle.get(event.eventSymbol)
 
         event = CandleEvent(

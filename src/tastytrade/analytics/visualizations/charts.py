@@ -27,10 +27,17 @@ class Study:
 
 class DynamicChart:
     def __init__(
-        self, dxlink: DXLinkManager, symbol: str, chart_style: Optional[Dict[str, Any]] = None
+        self,
+        dxlink: DXLinkManager,
+        symbol: str,
+        start_time: Optional[pd.Timestamp] = None,
+        end_time: Optional[pd.Timestamp] = None,
+        chart_style: Optional[Dict[str, Any]] = None,
     ):
         self.dxlink = dxlink
         self.symbol = symbol
+        self.start_time = start_time
+        self.end_time = end_time
         self.studies: List[Study] = []
         self.task: Optional[asyncio.Task] = None
 
@@ -49,6 +56,8 @@ class DynamicChart:
                 color="white",
             ),
             "showlegend": True,
+            "height": 800,
+            "uirevision": True,
         }
 
         if chart_style:
@@ -126,15 +135,21 @@ class DynamicChart:
                 raw_df = (
                     router.handler[Channels.Candle]
                     .processors["feed"]
-                    .df.loc[lambda x: x["eventSymbol"] == self.symbol]
+                    .frames[self.symbol]
+                    .to_pandas()
                 )
 
                 if len(raw_df) == 0:
                     logger.warning("No data available for symbol %s", self.symbol)
-                    await asyncio.sleep(1)
-                    continue
+                    break
 
                 plot_df = raw_df.copy()
+
+                # Filter by time range if specified
+                if self.start_time:
+                    plot_df = plot_df[plot_df["time"] >= self.start_time]
+                if self.end_time:
+                    plot_df = plot_df[plot_df["time"] <= self.end_time]
 
                 try:
                     with fig.batch_update():
@@ -143,7 +158,9 @@ class DynamicChart:
                         # Add candlesticks
                         fig.add_trace(
                             go.Candlestick(
-                                x=plot_df["time"],
+                                x=plot_df["time"]
+                                .dt.tz_localize("UTC")
+                                .dt.tz_convert("America/New_York"),
                                 open=plot_df["open"],
                                 high=plot_df["high"],
                                 low=plot_df["low"],
@@ -156,7 +173,9 @@ class DynamicChart:
 
                         # Add each study
                         for study in self.studies:
-                            study_df = study.compute_fn(self.dxlink, self.symbol, **study.params)
+                            study_df = study.compute_fn(
+                                self.dxlink, self.symbol, input_df=plot_df, **study.params
+                            )
 
                             if study.color_column:
                                 # Add color-changing segments
