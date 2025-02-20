@@ -4,9 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
-packages = [
-    { include = "tastytrade", from = "src" }
-]
+packages = [{ include = "tastytrade", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -25,12 +23,16 @@ websockets = "^14.1"
 aiohttp = "^3.11.2"
 websocket = "^0.2.1"
 pydantic = "^2.10.1"
-polars = {extras = ["numpy", "pandas", "pyarrow"], version = "^1.16.0"}
+polars = { extras = ["numpy", "pandas", "pyarrow"], version = "^1.16.0" }
 plotly = "^6.0.0"
 dash = "^2.18.2"
 dash-bootstrap-components = "^1.7.1"
 influxdb-client = "^1.48.0"
 mypy = "^1.15.0"
+uvicorn = "^0.34.0"
+fastapi = "^0.115.8"
+pydantic-settings = "^2.7.1"
+loguru = "^0.7.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
@@ -50,6 +52,9 @@ types-requests = "^2.32.0.20241016"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+api = "tastytrade.api.main:start"
 
 [tool.ruff]
 lint.ignore = ["D104"]

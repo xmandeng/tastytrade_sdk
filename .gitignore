@@ -46,7 +46,7 @@ htmlcov/
 # Poetry
 poetry.lock
 
-test.py
+devtools/test*.py
 test.ipynb
 
 .DS_Store

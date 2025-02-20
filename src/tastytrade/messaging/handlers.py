@@ -3,16 +3,17 @@ import logging
 import time
 from dataclasses import dataclass
 from itertools import chain, islice
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union, cast
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from tastytrade.common.exceptions import MessageProcessingError
 from tastytrade.config.configurations import CHANNEL_SPECS
 from tastytrade.config.enumerations import Channels
-from tastytrade.messaging.models.events import BaseEvent
+from tastytrade.messaging.models.events import BaseEvent, BasicCandleEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
-from tastytrade.messaging.processors.default import BaseEventProcessor, EventProcessor
+from tastytrade.messaging.processors.default import BaseEventProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +58,19 @@ class EventHandler:
 
         self.metrics = QueueMetrics(channel=self.channel.value)
 
-        self.feed_processor = cast(EventProcessor, self.processor or BaseEventProcessor())
-        self.processors: dict[str, EventProcessor] = {self.feed_processor.name: self.feed_processor}
+        self.feed_processor = self.processor or BaseEventProcessor()
+        self.processors: dict[str, BaseEventProcessor] = {
+            self.feed_processor.name: self.feed_processor
+        }
 
-    def add_processor(self, processor: EventProcessor) -> None:
+        if self.channel == Channels.Candle:
+            self.previous_candle: dict[str, CandleEvent] = {}
+
+    def add_processor(self, processor: BaseEventProcessor) -> None:
         """Add new event processor"""
         self.processors.update({processor.name: processor})
 
-    def remove_processor(self, processor: EventProcessor) -> None:
+    def remove_processor(self, processor: BaseEventProcessor) -> None:
         """Remove event processor"""
         if processor.name in self.processors:
             del self.processors[processor.name]
@@ -164,9 +170,16 @@ class EventHandler:
                     ", ".join(map(str, remaining)),
                 )
 
+            if "time" in self.fields:
+                events.sort(key=lambda event: event.time)
+
             # Process events through registered processors
             for event in events:
-                for processor in self.processors.values():
+
+                if self.channel == Channels.Candle:
+                    event = self.enrich_candle(event)
+
+                for _, processor in self.processors.items():
                     processor.process_event(event)
 
             if self.diagnostic:
@@ -182,6 +195,28 @@ class EventHandler:
         except Exception as e:
             logger.error("Fatal error in message handler for channel %s:", channel_name)
             raise MessageProcessingError("Fatal error in message handler", e)
+
+    def enrich_candle(self, event: BasicCandleEvent) -> CandleEvent:
+        # ! Minor fix: Only works in inter-day use case, intraday candles are not properly handled
+        prev_event: CandleEvent | None = self.previous_candle.get(event.eventSymbol)
+
+        event = CandleEvent(
+            prevDate=None if not prev_event else prev_event.tradeDate,
+            prevTime=None if not prev_event else prev_event.tradeTime,
+            prevOpen=None if not prev_event else prev_event.open,
+            prevHigh=None if not prev_event else prev_event.high,
+            prevLow=None if not prev_event else prev_event.low,
+            prevClose=None if not prev_event else prev_event.close,
+            tradeDate=event.time.astimezone(ZoneInfo("America/New_York")).strftime("%Y-%m-%d"),
+            tradeTime=event.time.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M"),
+            tradeDateUTC=event.time.strftime("%Y-%m-%d"),
+            tradeTimeUTC=event.time.strftime("%H:%M"),
+            **event.model_dump(),
+        )
+
+        self.previous_candle[event.eventSymbol] = event
+
+        return event
 
 
 class ControlHandler(EventHandler):

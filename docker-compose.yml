@@ -47,8 +47,8 @@ services:
       - GF_INSTALL_PLUGINS=volkovlabs-echarts-panel
     volumes:
       - /mnt/Plex/devstorage/grafana:/var/lib/grafana
-      - ./deploy/influxdb.yml:/var/lib/grafana/influxdb.yml:ro
-      - ./deploy/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./deploy/influxdb.yml:/var/lib/grafana/influxdb.yml:rw
+      - ./deploy/grafana.ini:/etc/grafana/grafana.ini:rw
     ports:
       - "3000:3000"
     depends_on:

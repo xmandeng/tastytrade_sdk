@@ -17,8 +17,6 @@
         "csstools.postcss",
         "davidanson.vscode-markdownlint",
         "donjayamanne.githistory",
-        "donjayamanne.python-environment-manager",
-        "donjayamanne.python-extension-pack",
         "doublebot.doublebot",
         "eamodio.gitlens",
         "ecmel.vscode-html-css",
@@ -56,7 +54,6 @@
         "ms-vscode-remote.remote-containers",
         "ms-vscode-remote.remote-ssh",
         "ms-vscode-remote.remote-ssh-edit",
-        "ms-vscode-remote.vscode-remote-extensionpack",
         "ms-vscode.live-server",
         "ms-vscode.remote-explorer",
         "ms-vscode.remote-server",
@@ -109,6 +106,7 @@
         },
         "postman.settings.dotenv-detection-notification-visibility": false,
         "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.envFile": "${workspaceFolder}/.env",
         "python.createEnvironment.contentButton": "show",
         "python.experiments.enabled": false,
         "python.languageServer": "Pylance",
@@ -138,7 +136,7 @@
       }
     }
   },
-  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install",
+  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'set -a; source /workspace/.env; set +a' >> /home/vscode/.bashrc && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install",
   "remoteUser": "vscode",
   "runArgs": ["--network=tastytrade_sdk_internal_net"],
   "mounts": ["source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"],

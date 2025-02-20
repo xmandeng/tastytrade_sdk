@@ -30,7 +30,6 @@ class BaseEvent(BaseModel):
 
 
 class FloatFieldMixin:
-
     @classmethod
     def validate_float_fields(cls, *field_names: str) -> Callable[[Any], Optional[float]]:
         @field_validator(*field_names, mode="before")
@@ -119,8 +118,8 @@ class SummaryEvent(BaseEvent, FloatFieldMixin):
     )
 
 
-class CandleEvent(BaseEvent, FloatFieldMixin):
-    time: Optional[datetime] = Field(default=None, description="Event timestamp")
+class BasicCandleEvent(BaseEvent, FloatFieldMixin):
+    time: datetime = Field(description="Event timestamp")
     eventFlags: Optional[int] = Field(default=None, description="Event flags")
     index: Optional[int] = Field(
         default=None, description="Unique per-symbol index of this candle event"
@@ -146,6 +145,13 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
     vwap: Optional[float] = Field(default=None, description="Volume Weighted Average Price", ge=0)
     impVolatility: Optional[float] = Field(default=None, description="Implied volatility", ge=0)
 
+    model_config = ConfigDict(
+        frozen=False,
+        validate_assignment=True,
+        extra="allow",
+        str_strip_whitespace=True,
+    )
+
     convert_float = FloatFieldMixin.validate_float_fields(
         "open",
         "high",
@@ -157,4 +163,38 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
         "openInterest",
         "vwap",
         "impVolatility",
+    )
+
+
+class CandleEvent(BasicCandleEvent):
+
+    tradeDate: Optional[str] = Field(default=None, description="Trade date for the candle")
+    tradeDateUTC: Optional[str] = Field(default=None, description="UTC Trade date for the candle")
+    tradeTime: Optional[str] = Field(default=None, description="Trade time for the candle")
+    tradeTimeUTC: Optional[str] = Field(default=None, description="UTC Trade time for the candle")
+
+    prevOpen: Optional[float] = Field(
+        default=None, description="Opening price for the interval", ge=0
+    )
+    prevHigh: Optional[float] = Field(
+        default=None, description="Highest price during the interval", ge=0
+    )
+    prevLow: Optional[float] = Field(
+        default=None, description="Lowest price during the interval", ge=0
+    )
+    prevClose: Optional[float] = Field(
+        default=None, description="Closing price for the interval", ge=0
+    )
+    prevDate: Optional[str] = Field(default=None, description="Trade date for the prev candle")
+    prevTime: Optional[str] = Field(default=None, description="Trade time for the prev candle")
+
+
+class StudyEvent(BaseEvent):
+    time: Optional[datetime] = Field(default=None, description="Event timestamp")
+    name: str = Field(description="Study name")
+    model_config = ConfigDict(
+        frozen=True,
+        validate_assignment=True,
+        extra="allow",
+        str_strip_whitespace=True,
     )

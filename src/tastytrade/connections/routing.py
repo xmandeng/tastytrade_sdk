@@ -4,11 +4,7 @@ from typing import List, Protocol
 
 from tastytrade.config.enumerations import Channels
 from tastytrade.messaging.handlers import ControlHandler, EventHandler
-from tastytrade.messaging.processors.default import (
-    CandleEventProcessor,
-    EventProcessor,
-    LatestEventProcessor,
-)
+from tastytrade.messaging.processors.default import CandleEventProcessor, LatestEventProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +42,6 @@ class MessageRouter:
             )
             for _, handler in self.handler.items()
         ]
-
-    def add_processor(self, processor: EventProcessor) -> None:
-        for handler in self.handler.values():
-            handler.add_processor(processor)
-
-    def remove_processor(self, processor: EventProcessor) -> None:
-        for handler in self.handler.values():
-            handler.remove_processor(processor)
 
     async def close(self) -> None:
         logger.info("Initiating cleanup...")

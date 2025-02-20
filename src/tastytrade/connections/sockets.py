@@ -2,9 +2,10 @@ import asyncio
 import json
 import logging
 from asyncio import Semaphore
+from dataclasses import dataclass, field
 from datetime import datetime
 from types import TracebackType
-from typing import List, Optional, Type
+from typing import Dict, List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
@@ -33,6 +34,18 @@ from tastytrade.messaging.models.messages import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SubscriptionInfo:
+    """Track information about a subscription."""
+
+    symbol: str
+    subscribe_time: datetime
+    interval: Optional[str] = None  # None for regular feed subscriptions
+    active: bool = True
+    last_update: Optional[datetime] = None
+    metadata: Dict = field(default_factory=dict)
+
+
 @singleton
 class DXLinkManager:
     """Responsible for managing the DXLink connection and the channels. It also handles the subscription and unsubscription to the channels.
@@ -51,23 +64,28 @@ class DXLinkManager:
     keepalive_task: Optional[asyncio.Task] = None
     router: Optional[MessageRouter] = None
 
-    @classmethod
-    def get_instance(cls) -> Optional["DXLinkManager"]:
-        return cls.instance
-
-    def __new__(cls: Type["DXLinkManager"]) -> "DXLinkManager":
+    def __new__(cls, credentials: Optional[Credentials] = None) -> "DXLinkManager":
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
-    def __init__(self) -> None:
-        config = DXLinkConfig()
-        self.queues = {channel.value: asyncio.Queue() for channel in Channels}
-        self.subscription_semaphore = Semaphore(config.max_subscriptions)
-        self.keepalive_stop = asyncio.Event()
+    def __init__(self, credentials: Optional[Credentials] = None) -> None:
+        if not hasattr(self, "initialized"):
+            config = DXLinkConfig()
+            self.queues = {channel.value: asyncio.Queue() for channel in Channels}
+            self.subscription_semaphore = Semaphore(config.max_subscriptions)
+            self.keepalive_stop = asyncio.Event()
+            self.credentials = credentials
 
-    async def __aenter__(self, credentials: Credentials) -> "DXLinkManager":
-        await self.open(credentials)
+            # Initialize subscription tracking
+            self.active_subscriptions: Dict[str, SubscriptionInfo] = {}
+            self.subscription_lock = asyncio.Lock()
+
+            self.initialized = True
+
+    async def __aenter__(self) -> "DXLinkManager":
+        if self.credentials:
+            await self.open(self.credentials)
         return self
 
     async def __aexit__(
@@ -118,6 +136,13 @@ class DXLinkManager:
                 try:
                     event = EventReceivedModel(**json.loads(message))
                     channel = event.channel if event.type == "FEED_DATA" else 0
+
+                    # Update subscription status if it's a feed event
+                    if event.type == "FEED_DATA" and "eventSymbol" in event.fields:
+                        await self.update_subscription_status(
+                            event.fields["eventSymbol"], event.fields
+                        )
+
                 except json.JSONDecodeError as e:
                     logger.error("Failed to parse message: %s\n%s", e, message)
                 except Exception as e:
@@ -184,6 +209,44 @@ class DXLinkManager:
 
             await asyncio.wait_for(ws.send(request), timeout=5)
 
+    async def track_subscription(self, symbol: str, interval: Optional[str] = None) -> None:
+        """Track a new subscription."""
+        async with self.subscription_lock:
+            sub_key = f"{symbol}{f'_{interval}' if interval else ''}"
+            self.active_subscriptions[sub_key] = SubscriptionInfo(
+                symbol=symbol, subscribe_time=datetime.now(), interval=interval
+            )
+            logger.info(f"Added subscription tracking for {sub_key}")
+
+    async def remove_subscription(self, symbol: str, interval: Optional[str] = None) -> None:
+        """Remove subscription tracking."""
+        async with self.subscription_lock:
+            sub_key = f"{symbol}{f'_{interval}' if interval else ''}"
+            if sub_key in self.active_subscriptions:
+                self.active_subscriptions[sub_key].active = False
+                logger.info(f"Marked subscription {sub_key} as inactive")
+
+    async def get_active_subscriptions(self) -> Dict[str, SubscriptionInfo]:
+        """Get all active subscriptions."""
+        async with self.subscription_lock:
+            return {k: v for k, v in self.active_subscriptions.items() if v.active}
+
+    async def update_subscription_status(self, symbol: str, data: Dict) -> None:
+        """Update last update time and metadata for a subscription."""
+        async with self.subscription_lock:
+            # Try both regular and candle subscription formats
+            sub_key = symbol
+            if sub_key not in self.active_subscriptions:
+                # Try to match a candle subscription
+                for key in self.active_subscriptions:
+                    if key.startswith(symbol + "_"):
+                        sub_key = key
+                        break
+
+            if sub_key in self.active_subscriptions:
+                self.active_subscriptions[sub_key].last_update = datetime.now()
+                self.active_subscriptions[sub_key].metadata.update(data)
+
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.
 
@@ -212,6 +275,11 @@ class DXLinkManager:
         """
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
+
+        # Track new subscriptions
+        for symbol in symbols:
+            await self.track_subscription(symbol)
+
         for specification in CHANNEL_SPECS.values():
             if specification.channel in [Channels.Control, Channels.Candle]:
                 continue
@@ -239,6 +307,11 @@ class DXLinkManager:
         """
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
+
+        # Remove subscription tracking
+        for symbol in symbols:
+            await self.remove_subscription(symbol)
+
         for specification in CHANNEL_SPECS.values():
             if specification.channel in [Channels.Control, Channels.Candle]:
                 continue
@@ -261,16 +334,12 @@ class DXLinkManager:
         from_time: datetime,
         to_time: Optional[datetime] = None,
     ) -> None:
-        """Subscribe to candle data for a symbol.
-
-        Args:
-            symbol: The symbol to subscribe to
-            interval: The interval of the candles to subscribe to
-            from_time: The start time of the candles to subscribe to
-
-        """
+        """Subscribe to candle data for a symbol."""
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
+
+        # Track candle subscription
+        await self.track_subscription(symbol, interval)
 
         request: CandleSubscriptionRequest = CandleSubscriptionRequest(
             symbol=symbol,
@@ -295,13 +364,13 @@ class DXLinkManager:
             await asyncio.wait_for(ws.send(subscription), timeout=5)
 
     async def unsubscribe_to_candles(self, *, symbol: str, interval: str) -> None:
-        """Subscribe to candle data for a symbol.
-
-        Args:
-            request: CandleSubscriptionRequest containing symbol and interval
-        """
+        """Subscribe to candle data for a symbol."""
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
+
+        # Remove candle subscription tracking
+        await self.remove_subscription(symbol, interval)
+
         request: CancelCandleSubscriptionRequest = CancelCandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
@@ -335,6 +404,12 @@ class DXLinkManager:
         await asyncio.gather(
             *[self.cancel_tasks(name, task) for name, task in tasks_to_cancel if task is not None]
         )
+
+        # Reset active subscriptions
+        self.active_subscriptions = {}
+
+        # Reset Initialized
+        self.initialized = False
 
         # Close websocket connection
         if self.websocket is not None:

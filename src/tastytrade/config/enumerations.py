@@ -2,7 +2,7 @@ import logging
 from enum import Enum
 
 from tastytrade.messaging.models.events import (
-    CandleEvent,
+    BasicCandleEvent,
     ControlEvent,
     GreeksEvent,
     ProfileEvent,
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 class Channels(Enum):
     Control = 0
-    Trade = 1
-    Quote = 3
-    Greeks = 5
-    Profile = 7
-    Summary = 9
-    Candle = 11
+    Profile = 1
+    Summary = 3
+    Trade = 5
+    Quote = 7
+    Candle = 9
+    Greeks = 11
     Errors = 99
 
 
@@ -32,7 +32,7 @@ class EventTypes(Enum):
     Greeks = GreeksEvent
     Profile = ProfileEvent
     Summary = SummaryEvent
-    Candle = CandleEvent
+    Candle = BasicCandleEvent
 
 
 class SessionState(Enum):
