@@ -135,7 +135,7 @@ class DynamicChart:
                 raw_df = (
                     router.handler[Channels.Candle]
                     .processors["feed"]
-                    .symbol[self.symbol]
+                    .frames[self.symbol]
                     .to_pandas()
                 )
 

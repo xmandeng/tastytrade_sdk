@@ -1,45 +1,69 @@
 """Market data provider implementation."""
 
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import polars as pl
 from influxdb_client import InfluxDBClient
 
-from tastytrade.config.configurations import CHANNEL_SPECS, ChannelSpecification
+from tastytrade.config.enumerations import Channels
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.messaging.models.events import BaseEvent
-from tastytrade.providers.processors.base import BaseEventProcessor  # type: ignore
-from tastytrade.providers.processors.live import LiveDataProcessor  # type: ignore
-from tastytrade.providers.service import DataProviderService
+from tastytrade.messaging.processors.default import BaseEventProcessor
+from tastytrade.providers.processors.live import LiveDataProcessor
 
 logger = logging.getLogger(__name__)
 
 
-class MarketDataProvider(DataProviderService):
+class MarketDataProvider:
     """Provider for market data combining historical and live sources."""
 
-    def __init__(self, influx: InfluxDBClient, dxlink: DXLinkManager) -> None:
+    def __init__(self, dxlink: DXLinkManager, influx: InfluxDBClient) -> None:
         """Initialize the market data provider."""
-        super().__init__()
+        # super().__init__()
         self.influx = influx
         self.dxlink = dxlink
 
-    def get_channel_spec(self, event_type: str) -> Optional[ChannelSpecification]:
-        """Get channel specification for event type."""
-        for channel, spec in CHANNEL_SPECS.items():
-            if spec.type == event_type:
-                return spec
-        return None
+        self.frames: dict[str, pl.DataFrame] = {}
 
-    async def get_history(
+        self.updates: dict[str, datetime] = {}
+        self.processors: dict[str, BaseEventProcessor] = {}
+
+        logger.debug("Initialized DataProviderService")
+
+    def __getitem__(self, item: str) -> pl.DataFrame:
+        """Implements behavior for accessing func[item]"""
+        if item in self.frames:
+            return self.frames[item]
+        else:
+            self.frames[item] = pl.DataFrame()
+            return self.frames[item]
+
+    def __setitem__(self, item: str, df: pl.DataFrame) -> None:
+        """Implements behavior for assigning func[item] = value"""
+        self.frames[item] = df
+
+    def __contains__(self, item: str) -> bool:
+        """Implements behavior for 'item in func'"""
+        return item in self.frames
+
+    def __len__(self) -> int:
+        """Implements behavior for len(func)"""
+        return len(self.frames)
+
+    def __iter__(self):
+        """Implements behavior for iteration"""
+        return iter(self.frames)
+
+    def retrieve(
         self,
         symbol: str,
-        start: datetime,
-        end: Optional[datetime] = None,
         event_type: str = "CandleEvent",
-    ) -> pl.DataFrame:
+        start: datetime = datetime.now(),
+        stop: Optional[datetime] = None,
+    ) -> None:
         """Get historical market data from InfluxDB.
 
         Uses Flux pivot operation to transform field-based records into rows that
@@ -51,92 +75,43 @@ class MarketDataProvider(DataProviderService):
             end: Optional end time
             event_type: Type of event to retrieve (e.g. TradeEvent, QuoteEvent)
         """
-        spec = self.get_channel_spec(event_type)
-        if not spec:
-            logger.error("Unsupported event type: %s", event_type)
-            return pl.DataFrame()
+        if stop:
+            date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop.strftime('%Y-%m-%dT%H:%M:%SZ')})"
+        else:
+            date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
-        try:
-            # Get fields from channel specification
-            value_fields = spec.fields
-            value_fields_str = '", "'.join(value_fields)
-
-            # Get tags (metadata fields) from the model
-            model = spec.event_type.value
-            tag_fields = [
-                field_name
-                for field_name, field in model.model_fields.items()
-                if (
-                    isinstance(field.annotation, str)
-                    and field.annotation != "datetime"
-                    and field_name not in value_fields
-                )
-            ]
-
-            query = f"""
-            from(bucket: "tastytrade")
-                |> range(start: {start.isoformat()}, stop: {end.isoformat() if end else "now()"})
-                |> filter(fn: (r) => r._measurement == "{event_type}")
-                |> filter(fn: (r) => r.eventSymbol == "{symbol}")
-                |> filter(fn: (r) => contains(value: r._field, set: ["{value_fields_str}"]))
-                |> pivot(
-                    rowKey: ["_time", "eventSymbol"{', "' + '", "'.join(tag_fields) + '"' if tag_fields else ''}],
-                    columnKey: ["_field"],
-                    valueColumn: "_value"
+        pivot_query = f"""
+            from(bucket: "{os.environ["INFLUX_DB_BUCKET"]}")
+            |> range(start: {date_range}
+            |> filter(fn: (r) => r["_measurement"] == "{event_type}")
+            |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
+            |> pivot(
+                rowKey: ["_time"],
+                columnKey: ["_field"],
+                valueColumn: "_value"
                 )
             """
 
-            tables = self.influx.query_api().query(query, org=self.influx.org)
+        logger.debug("Subscription query:\n%s", pivot_query)
 
-            if not tables:
-                logger.info("No data found for %s (%s)", symbol, event_type)
-                return pl.DataFrame()
-
-            # Convert to list of dicts with proper timestamp handling
-            records = []
-            for table in tables:
-                for record in table.records:
-                    # Start with any tag fields
-                    record_dict = {
-                        "eventSymbol": symbol,
-                        # Map _time to time
-                        "time": record.get_time(),
-                    }
-
-                    # Add tag fields
-                    for tag in tag_fields:
-                        if tag in record.values:
-                            record_dict[tag] = record.values[tag]
-
-                    # Add value fields, excluding internal InfluxDB fields
-                    for key, value in record.values.items():
-                        if (
-                            not key.startswith("_")
-                            and key not in ["result", "table"]
-                            and key in value_fields
-                        ):
-                            record_dict[key] = value
-
-                    try:
-                        # Validate record against event model
-                        model(**record_dict)  # Validate but don't keep
-                        records.append(record_dict)
-                    except Exception as e:
-                        logger.warning(
-                            "Invalid record for %s: %s Record: %s", event_type, e, record_dict
-                        )
-                        continue
-
-            if not records:
-                logger.warning("No valid records found after processing")
-                return pl.DataFrame()
-
-            logger.info("Retrieved %d historical %s records", len(records), event_type)
-            return pl.DataFrame(records)
+        try:
+            tables = self.influx.query_api().query(pivot_query, org=os.environ["INFLUX_DB_ORG"])
 
         except Exception as e:
             logger.error("Error querying InfluxDB for %s (%s): %s", symbol, event_type, e)
             return pl.DataFrame()
+
+        records = []
+        for table in tables:
+            for record in table.records:
+                record_dict = {k: v for k, v in record.values.items()}
+
+                record_dict["time"] = record.get_time()
+                records.append(record_dict)
+
+        drop_columns = ["result", "table", "_start", "_stop", "_time", "_measurement"]
+
+        self.frames[symbol] = pl.DataFrame(records).drop(drop_columns).sort("time")
 
     async def subscribe(self, symbol: str) -> None:
         """Setup live market data streaming via DXLink."""
@@ -150,24 +125,53 @@ class MarketDataProvider(DataProviderService):
             )
 
             self.processors[symbol] = processor
-            self.dxlink.router.add_processor(processor)
-            await self.dxlink.subscribe([symbol])
+            self.dxlink.router.handler[Channels.Candle].add_processor(processor)
+
+            subscriptions = await self.dxlink.get_active_subscriptions()
+            if symbol not in subscriptions:
+                await self.dxlink.subscribe([symbol])
+
             logger.info("Subscribed to %s", symbol)
 
         except Exception as e:
             logger.error("Error setting up subscription for %s: %s", symbol, e)
 
+    async def unsubscribe(self, symbol: str) -> None:
+        """Stop live data streaming for the given symbol."""
+        if symbol in self.processors:
+            logger.info("Unsubscribing from %s", symbol)
+            # Just pop without assignment since we don't use the processor
+            self.processors.pop(symbol)
+            if symbol in self.frames:
+                del self.frames[symbol]
+            if symbol in self.updates:
+                del self.updates[symbol]
+            logger.debug("Cleaned up resources for %s", symbol)
+
     def handle_update(self, symbol: str, event: BaseEvent) -> None:
-        """Handle incoming live market data updates."""
+        """Handle incoming live market data updates.
+
+        !! Caution - Managing to align timezones btw DXLink and InfluxDB proved tricky
+        """
+        if event.eventSymbol != symbol:
+            return
+
+        df_time_dtype = self.frames[symbol]["time"].dtype
+
+        # Convert event time to match the DataFrame format
+        if "time" in event and event.time.tzinfo == timezone.utc:
+            event.time = event.time.replace(tzinfo=None)
+
+        new_event = pl.DataFrame([event])
+        if "time" in new_event.columns:
+            new_event = new_event.with_columns(pl.col("time").cast(df_time_dtype))
+
         try:
-            if symbol not in self.frames:
-                self.frames[symbol] = pl.DataFrame()
-
-            # Use BaseEventProcessor for consistent structure
-            processor = BaseEventProcessor()
-            processor.process_event(event)
-
-            self.frames[symbol] = pl.concat([self.frames[symbol], processor.pl], how="vertical")
+            self.frames[symbol] = (
+                pl.concat([self.frames[symbol], new_event], how="diagonal")
+                .unique(subset=["eventSymbol", "time"], keep="last")
+                .sort("time", descending=False)
+            )
 
             self.updates[symbol] = datetime.now()
 

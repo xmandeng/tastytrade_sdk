@@ -4,13 +4,16 @@ import logging
 from typing import Callable
 
 from tastytrade.messaging.models.events import BaseEvent
-from tastytrade.providers.processors.base import BaseEventProcessor
+from tastytrade.messaging.processors.default import BaseEventProcessor
 
 logger = logging.getLogger(__name__)
 
 
 class LiveDataProcessor(BaseEventProcessor):
-    """Processor for live streaming data."""
+    """Processor for live streaming data.
+
+    In future we will use a separate Kafka subscription.
+    """
 
     def __init__(self, symbol: str, on_update: Callable[[BaseEvent], None]) -> None:
         """Initialize the live data processor.
@@ -32,5 +35,4 @@ class LiveDataProcessor(BaseEventProcessor):
         Args:
             event: Event to process
         """
-        super().process_event(event)
         self.on_update(event)
