@@ -113,6 +113,8 @@ class MarketDataProvider:
 
         self.frames[symbol] = pl.DataFrame(records).drop(drop_columns).sort("time")
 
+        logger.info("Retrieved %d records for %s", len(self.frames[symbol]), symbol)
+
     async def subscribe(self, symbol: str) -> None:
         """Setup live market data streaming via DXLink."""
         if not self.dxlink.router:

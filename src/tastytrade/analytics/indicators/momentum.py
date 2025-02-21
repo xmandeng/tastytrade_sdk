@@ -7,6 +7,7 @@ import pandas as pd
 
 from tastytrade.config.enumerations import Channels
 from tastytrade.connections.sockets import DXLinkManager
+from tastytrade.providers.market import MarketDataProvider
 
 
 def padded_wma_session(series, period, pad_value):
@@ -45,41 +46,45 @@ def padded_wma_session(series, period, pad_value):
 
 
 def hull(
-    dxlink: DXLinkManager,
-    symbol: str,
-    price_col="close",
-    length=20,
-    displace=0,
-    pad_value=None,
+    market_provider: Optional[MarketDataProvider] = None,
+    symbol: Optional[str] = None,
+    price_col: str = "close",
+    length: int = 20,
+    displace: int = 0,
+    pad_value: Optional[float] = None,
     input_df: Optional[pd.DataFrame] = None,
-):
+    dxlink: Optional[DXLinkManager] = None,  # For backwards compatibility
+) -> pd.DataFrame:
     """Compute the Hull Moving Average (HMA) for a DataFrame.
 
     The HMA is defined as:
     HMA = WMA(2 * WMA(price, length/2) - WMA(price, length), sqrt(length))
 
     Args:
-        dxlink (DXLinkManager): DXLink manager instance for data access
-        symbol (str): Symbol to compute HMA for (e.g. "SPX{=5m}")
-        price_col (str, optional): Name of the column containing price data. Defaults to "close".
-        length (int, optional): Period for HMA calculation. Defaults to 20.
-        displace (int, optional): Number of bars to shift the final HMA. Defaults to 0.
-        pad_value (float, optional): Value to pad beginning of series. If None, uses previous day's close. Defaults to None.
-        input_df (pd.DataFrame, optional): Pre-filtered DataFrame to use instead of fetching data. Defaults to None.
+        market_provider: MarketDataProvider instance (new interface)
+        symbol: Symbol to compute HMA for (e.g. "SPX{=5m}")
+        price_col: Column containing price data. Defaults to "close"
+        length: Period for HMA calculation. Defaults to 20
+        displace: Number of bars to shift the final HMA. Defaults to 0
+        pad_value: Value to pad beginning of series. If None, uses previous day's close
+        input_df: Pre-filtered DataFrame to use instead of fetching data
+        dxlink: DXLinkManager instance (legacy interface)
 
     Returns
-        pd.DataFrame: DataFrame with added columns:
-            - HMA: Hull Moving Average values
-            - HMA_color: "Up" when current HMA > previous HMA, "Down" otherwise
+        DataFrame with HMA values and colors
     """
     if input_df is not None:
         df = input_df.copy()
-    else:
+    elif market_provider is not None and symbol is not None:
+        df = market_provider[symbol].to_pandas()
+    elif dxlink is not None and symbol is not None:
         df = (
-            (dxlink.router.handler[Channels.Candle].processors["feed"].frames[symbol].to_pandas())
+            dxlink.router.handler[Channels.Candle].processors["feed"].frames[symbol].to_pandas()
             if dxlink.router
             else pd.DataFrame()
         )
+    else:
+        raise ValueError("Must provide either input_df or market_provider/dxlink with symbol")
 
     if df.empty:
         return pd.DataFrame()
@@ -88,19 +93,21 @@ def hull(
     df = df.sort_values("time").reset_index(drop=True)
 
     # Get the base symbol for summary lookup
-    base_symbol = re.sub(r"\{=\d*\w\}", "", symbol)
-    summary_df = (
-        dxlink.router.handler[Channels.Summary].processors["feed"].df
-        if dxlink.router
-        else pd.DataFrame()
-    )
-    summary_entry = summary_df["eventSymbol"] == base_symbol
+    base_symbol = re.sub(r"\{=\d*\w\}", "", symbol) if symbol else ""
 
+    # Try to get pad value from provider or dxlink
     if pad_value is None:
         try:
-            pad_value = summary_df.loc[summary_entry, "prevDayClosePrice"].iloc[0]
-        except (IndexError, KeyError):
-            # If we can't get the previous day's close, use the first bar's price
+            if market_provider is not None:
+                # TODO: Implement method to get previous day's close from provider
+                pad_value = df[price_col].iloc[0]
+            elif dxlink is not None and dxlink.router:
+                summary_df = dxlink.router.handler[Channels.Summary].processors["feed"].df
+                summary_entry = summary_df["eventSymbol"] == base_symbol
+                pad_value = summary_df.loc[summary_entry, "prevDayClosePrice"].iloc[0]
+            else:
+                pad_value = df[price_col].iloc[0]
+        except (IndexError, KeyError, AttributeError):
             pad_value = df[price_col].iloc[0] if not df.empty else None
 
     if pad_value is None:
