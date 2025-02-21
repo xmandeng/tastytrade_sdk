@@ -132,7 +132,7 @@ class DynamicChart:
             self.market_provider.retrieve(
                 symbol=self.symbol,
                 event_type="CandleEvent",
-                start=start,  # Now this is always a datetime, never None
+                start=start,
                 stop=self.end_time.to_pydatetime() if self.end_time is not None else None,
             )
 
