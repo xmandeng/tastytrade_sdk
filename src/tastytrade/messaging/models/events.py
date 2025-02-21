@@ -118,7 +118,7 @@ class SummaryEvent(BaseEvent, FloatFieldMixin):
     )
 
 
-class BasicCandleEvent(BaseEvent, FloatFieldMixin):
+class CandleEvent(BaseEvent, FloatFieldMixin):
     time: datetime = Field(description="Event timestamp")
     eventFlags: Optional[int] = Field(default=None, description="Event flags")
     index: Optional[int] = Field(
@@ -166,7 +166,7 @@ class BasicCandleEvent(BaseEvent, FloatFieldMixin):
     )
 
 
-class CandleEvent(BasicCandleEvent):
+class ExtendedCandleEvent(CandleEvent):
 
     tradeDate: Optional[str] = Field(default=None, description="Trade date for the candle")
     tradeDateUTC: Optional[str] = Field(default=None, description="UTC Trade date for the candle")
