@@ -44,8 +44,7 @@ def padded_wma_series(series, period, pad_value):
 
 
 def hull(
-    input_df: pd.DataFrame,
-    symbol: str,
+    input_df: pl.DataFrame,
     price_col="close",
     length=20,
     displace=0,
@@ -70,13 +69,7 @@ def hull(
             - HMA: Hull Moving Average values
             - HMA_color: "Up" when current HMA > previous HMA, "Down" otherwise
     """
-    if isinstance(input_df, pl.DataFrame):
-        assert isinstance(input_df, pl.DataFrame)
-        df = input_df.to_pandas().copy()
-    else:
-        df = input_df.copy()
-
-    df = df.loc[df["eventSymbol"] == symbol].sort_values("time").reset_index(drop=True)
+    df = input_df.to_pandas().copy()
 
     if df.empty:
         logger.warning("Can't calculate Hull Moving Average: Input DataFrame is empty")
