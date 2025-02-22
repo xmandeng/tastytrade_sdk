@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
@@ -8,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from IPython.display import clear_output, display
 
-from tastytrade.connections.sockets import Channels, DXLinkManager
+from tastytrade.providers.market import MarketDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +26,17 @@ class Study:
     color_column: Optional[str] = None
 
 
-class DynamicChart:
+class CandleChart:
+
     def __init__(
         self,
-        dxlink: DXLinkManager,
+        streamer: MarketDataProvider,
         symbol: str,
         start_time: Optional[pd.Timestamp] = None,
         end_time: Optional[pd.Timestamp] = None,
         chart_style: Optional[Dict[str, Any]] = None,
     ):
-        self.dxlink = dxlink
+        self.stream = streamer
         self.symbol = symbol
         self.start_time = start_time
         self.end_time = end_time
@@ -130,14 +132,8 @@ class DynamicChart:
 
         try:
             while True:
-                assert self.dxlink.router is not None
-                router = self.dxlink.router
-                raw_df = (
-                    router.handler[Channels.Candle]
-                    .processors["feed"]
-                    .frames[self.symbol]
-                    .to_pandas()
-                )
+                assert self.stream is not None
+                raw_df = self.stream[self.symbol].to_pandas()
 
                 if len(raw_df) == 0:
                     logger.warning("No data available for symbol %s", self.symbol)
@@ -158,9 +154,7 @@ class DynamicChart:
                         # Add candlesticks
                         fig.add_trace(
                             go.Candlestick(
-                                x=plot_df["time"]
-                                .dt.tz_localize("UTC")
-                                .dt.tz_convert("America/New_York"),
+                                x=plot_df["time"],
                                 open=plot_df["open"],
                                 high=plot_df["high"],
                                 low=plot_df["low"],
@@ -174,7 +168,7 @@ class DynamicChart:
                         # Add each study
                         for study in self.studies:
                             study_df = study.compute_fn(
-                                self.dxlink, self.symbol, input_df=plot_df, **study.params
+                                self.stream[self.symbol], self.symbol, **study.params
                             )
 
                             if study.color_column:
@@ -201,13 +195,13 @@ class DynamicChart:
 
                 except Exception as e:
                     logger.error(f"Error updating plot: {e}")
-
-                await self.dxlink.queues[Channels.Candle.value].get()
+                    break
 
         except asyncio.CancelledError:
             logger.debug(f"Stopped plotting {self.symbol}")
         except Exception as e:
             logger.error(f"Unexpected error in chart update: {e}")
+            sys.exit(1)
 
     def start(self) -> asyncio.Task:
         self.task = asyncio.create_task(self.update_chart(), name=f"dynamic_chart_{self.symbol}")
