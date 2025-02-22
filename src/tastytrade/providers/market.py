@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 import polars as pl
@@ -57,13 +57,14 @@ class MarketDataProvider:
         """Implements behavior for iteration"""
         return iter(self.frames)
 
-    def retrieve(
+    def download(
         self,
         symbol: str,
         event_type: str = "CandleEvent",
         start: datetime = datetime.now(),
         stop: Optional[datetime] = None,
-    ) -> None:
+        debug_mode: bool = False,
+    ) -> pl.DataFrame:
         """Get historical market data from InfluxDB.
 
         Uses Flux pivot operation to transform field-based records into rows that
@@ -99,19 +100,51 @@ class MarketDataProvider:
 
         except Exception as e:
             logger.error("Error querying InfluxDB for %s (%s): %s", symbol, event_type, e)
-            return pl.DataFrame()
 
         records = []
         for table in tables:
             for record in table.records:
-                record_dict = {k: v for k, v in record.values.items()}
+                record_dict = {key: value for key, value in record.values.items()}
 
-                record_dict["time"] = record.get_time()
+                # TODO IMPORTANT: Add unit_test to ensure "datetime" not timezone aware
+                record_dict["time"] = record.get_time().timestamp()
                 records.append(record_dict)
 
         drop_columns = ["result", "table", "_start", "_stop", "_time", "_measurement"]
 
-        self.frames[symbol] = pl.DataFrame(records).drop(drop_columns).sort("time")
+        data: pl.DataFrame = (
+            pl.DataFrame(records)
+            .with_columns(pl.from_epoch("time"))
+            .drop(drop_columns)
+            .sort("time")
+        )
+
+        if debug_mode:
+            return data
+        else:
+            self.frames[symbol] = data
+
+    def handle_update(self, symbol: str, event: BaseEvent) -> None:
+        """Handle incoming live market data updates.
+
+        !! Caution - Managing to align timezones btw DXLink and InfluxDB proved tricky
+        """
+        if event.eventSymbol != symbol:
+            return
+
+        new_event = pl.DataFrame([event])
+
+        try:
+            self.frames[symbol] = (
+                pl.concat([self.frames[symbol], new_event], how="diagonal")
+                .unique(subset=["eventSymbol", "time"], keep="last")
+                .sort("time", descending=False)
+            )
+
+            self.updates[symbol] = datetime.now()
+
+        except Exception as e:
+            logger.error("Error handling update for %s: %s", symbol, e)
 
     async def subscribe(self, symbol: str) -> None:
         """Setup live market data streaming via DXLink."""
@@ -148,32 +181,35 @@ class MarketDataProvider:
                 del self.updates[symbol]
             logger.debug("Cleaned up resources for %s", symbol)
 
-    def handle_update(self, symbol: str, event: BaseEvent) -> None:
-        """Handle incoming live market data updates.
 
-        !! Caution - Managing to align timezones btw DXLink and InfluxDB proved tricky
-        """
-        if event.eventSymbol != symbol:
-            return
+async def main() -> pl.DataFrame:
+    from dotenv import load_dotenv
 
-        df_time_dtype = self.frames[symbol]["time"].dtype
+    load_dotenv("/workspace/.env")
 
-        # Convert event time to match the DataFrame format
-        if "time" in event and event.time.tzinfo == timezone.utc:
-            event.time = event.time.replace(tzinfo=None)
+    from influxdb_client import InfluxDBClient
 
-        new_event = pl.DataFrame([event])
-        if "time" in new_event.columns:
-            new_event = new_event.with_columns(pl.col("time").cast(df_time_dtype))
+    from tastytrade.connections import Credentials, InfluxCredentials
+    from tastytrade.connections.sockets import DXLinkManager
 
-        try:
-            self.frames[symbol] = (
-                pl.concat([self.frames[symbol], new_event], how="diagonal")
-                .unique(subset=["eventSymbol", "time"], keep="last")
-                .sort("time", descending=False)
-            )
+    credentials = Credentials(env="Live")
 
-            self.updates[symbol] = datetime.now()
+    influx_user = InfluxCredentials()
+    influx = InfluxDBClient(
+        url=InfluxCredentials().url, token=influx_user.token, org=influx_user.org
+    )
+    async with DXLinkManager(credentials=credentials) as dxlink:
 
-        except Exception as e:
-            logger.error("Error handling update for %s: %s", symbol, e)
+        market = MarketDataProvider(dxlink, influx)
+        df = market.download(
+            "SPX{=5m}", start=datetime(2025, 2, 20), stop=datetime(2025, 2, 21), debug_mode=True
+        )
+
+        return df
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    df = asyncio.run(main())
+    print(df)
