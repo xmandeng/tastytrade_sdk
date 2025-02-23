@@ -20,14 +20,17 @@ logger = logging.getLogger(__name__)
 class MarketDataProvider:
     """Provider for market data combining historical and live sources."""
 
-    def __init__(self, dxlink: DXLinkManager, influx: InfluxDBClient) -> None:
+    event_type: str = "CandleEvent"
+
+    def __init__(
+        self, dxlink: DXLinkManager, influx: InfluxDBClient, event_type: Optional[str] = None
+    ) -> None:
         """Initialize the market data provider."""
-        # super().__init__()
         self.influx = influx
         self.dxlink = dxlink
+        self.event_type = event_type or self.event_type
 
         self.frames: dict[str, pl.DataFrame] = {}
-
         self.updates: dict[str, datetime] = {}
         self.processors: dict[str, BaseEventProcessor] = {}
 
@@ -60,7 +63,6 @@ class MarketDataProvider:
     def download(
         self,
         symbol: str,
-        event_type: str = "CandleEvent",
         start: datetime = datetime.now(),
         stop: Optional[datetime] = None,
         debug_mode: bool = False,
@@ -84,7 +86,7 @@ class MarketDataProvider:
         pivot_query = f"""
             from(bucket: "{os.environ["INFLUX_DB_BUCKET"]}")
             |> range(start: {date_range}
-            |> filter(fn: (r) => r["_measurement"] == "{event_type}")
+            |> filter(fn: (r) => r["_measurement"] == "{self.event_type}")
             |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
             |> pivot(
                 rowKey: ["_time"],
@@ -99,7 +101,7 @@ class MarketDataProvider:
             tables = self.influx.query_api().query(pivot_query, org=os.environ["INFLUX_DB_ORG"])
 
         except Exception as e:
-            logger.error("Error querying InfluxDB for %s (%s): %s", symbol, event_type, e)
+            logger.error("Error querying InfluxDB for %s (%s): %s", symbol, self.event_type, e)
 
         records = []
         for table in tables:
@@ -125,10 +127,7 @@ class MarketDataProvider:
             self.frames[symbol] = data
 
     def handle_update(self, symbol: str, event: BaseEvent) -> None:
-        """Handle incoming live market data updates.
-
-        !! Caution - Managing to align timezones btw DXLink and InfluxDB proved tricky
-        """
+        """Handle incoming live market data updates."""
         if event.eventSymbol != symbol:
             return
 
