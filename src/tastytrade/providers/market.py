@@ -98,33 +98,29 @@ class MarketDataProvider:
         logger.debug("Subscription query:\n%s", pivot_query)
 
         try:
-            tables = self.influx.query_api().query(pivot_query, org=os.environ["INFLUX_DB_ORG"])
+            df = (
+                self.influx.query_api().query_data_frame(pivot_query)
+                # Add CandleEvent time w/o timezone
+                .assign(time=lambda df: df["_time"].dt.tz_localize(None))
+            )
+
+            # Remove InfluxDB metadata columns
+            df = df.drop(
+                columns=[
+                    col
+                    for col in ["result", "table", "_start", "_stop", "_time", "_measurement"]
+                    if col in df
+                ]
+            )
 
         except Exception as e:
             logger.error("Error querying InfluxDB for %s (%s): %s", symbol, self.event_type, e)
-
-        records = []
-        for table in tables:
-            for record in table.records:
-                record_dict = {key: value for key, value in record.values.items()}
-
-                # TODO IMPORTANT: Add unit_test to ensure "datetime" not timezone aware
-                record_dict["time"] = record.get_time().timestamp()
-                records.append(record_dict)
-
-        drop_columns = ["result", "table", "_start", "_stop", "_time", "_measurement"]
-
-        data: pl.DataFrame = (
-            pl.DataFrame(records)
-            .with_columns(pl.from_epoch("time"))
-            .drop(drop_columns)
-            .sort("time")
-        )
+            raise ValueError(f"Error querying InfluxDB for {symbol} ({self.event_type}): {e}")
 
         if debug_mode:
-            return data
+            return pl.from_pandas(df)
         else:
-            self.frames[symbol] = data
+            self.frames[symbol] = pl.from_pandas(df)
 
     def handle_update(self, symbol: str, event: BaseEvent) -> None:
         """Handle incoming live market data updates."""
