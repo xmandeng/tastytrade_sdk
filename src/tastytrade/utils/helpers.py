@@ -1,6 +1,7 @@
+import re
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Optional
 
 
 def dict_to_class(data: dict[str, Any]) -> SimpleNamespace:
@@ -27,3 +28,21 @@ def last_weekday() -> datetime:
         d = datetime.now()
 
     return d.replace(hour=9, minute=30, second=0, microsecond=0)
+
+
+def format_influx_candle_symbol(symbol: str) -> str:
+    """Extract time interval from symbol."""
+    return re.sub(r"(?<=\{=)1([a-zA-Z])(?=\})", lambda m: f"{m.group(1)}", symbol)
+
+
+def parse_candle_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:
+
+    match = re.match(r"([a-zA-Z/:]+)\{=(\d*[a-zA-Z])}", symbol)
+
+    if match is None:
+        return None, None
+
+    ticker = match.group(1)
+    interval = match.group(2) if len(match.group(2)) > 1 else "1" + match.group(2)
+
+    return ticker, interval
