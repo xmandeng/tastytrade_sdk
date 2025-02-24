@@ -6,6 +6,7 @@ from typing import Optional
 import pandas as pd
 from influxdb_client import InfluxDBClient
 
+from tastytrade.common.logging import setup_logging
 from tastytrade.messaging.models.events import CandleEvent
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
 from tastytrade.utils.helpers import format_influx_candle_symbol, parse_candle_symbol
@@ -59,7 +60,7 @@ def prepare_and_fill_data(tables: pd.DataFrame, time_interval: str) -> pd.DataFr
     pandas_interval = time_interval.replace("m", "T").upper()
 
     # Convert '_time' to datetime and set as index
-    tables["_time"] = pd.to_datetime(tables["_time"])
+    tables["_time"] = pd.to_datetime(tables["_time"].dt.tz_localize(None))
     tables.set_index("_time", inplace=True)
 
     # Use first and last records as bookends
@@ -73,13 +74,13 @@ def prepare_and_fill_data(tables: pd.DataFrame, time_interval: str) -> pd.DataFr
     return tables.reindex(all_times).ffill().loc[missing_times]
 
 
-def write_candle_events(df_full, symbol):
+def write_candle_events(missing_df: pd.DataFrame, symbol: str):
     """Use TelegrafHTTPEventProcessor to process and write CandleEvent data."""
     processor = TelegrafHTTPEventProcessor()
 
     logging.info("Processing and writing CandleEvent data via Telegraf for %s", symbol)
 
-    for timestamp, row in df_full.iterrows():
+    for timestamp, row in missing_df.iterrows():
         try:
             # Populate CandleEvent model directly
             candle_event = CandleEvent(
@@ -115,7 +116,7 @@ def write_candle_events(df_full, symbol):
     except Exception as e:
         logging.info("[ERROR] Failed during flush/close of InfluxDB write API: %s", e)
 
-    logging.info("Forward-fill complete for CandleEvent - %s", symbol)
+    logging.info("Forward-fill added %s events for %s", str(len(missing_df)), symbol)
 
 
 def forward_fill_candle_event(symbol, lookback_days=30):
@@ -129,7 +130,7 @@ def forward_fill_candle_event(symbol, lookback_days=30):
     tables = query_candle_event_data(client, influx_symbol, lookback_days)
 
     if tables is None:
-        logging.info("No data found for %s in the last %s days", symbol, lookback_days)
+        logging.warning("No data found for %s in the last %s days", symbol, lookback_days)
         client.close()
         return
 
@@ -149,8 +150,15 @@ def forward_fill_candle_event(symbol, lookback_days=30):
 # Example Usage
 if __name__ == "__main__":
 
+    setup_logging(
+        level=logging.INFO,
+        console=True,
+    )
+
+    # forward_fill_candle_event(symbol="SPX{=1m}", lookback_days=365 * 25)
+
     for symbol in ["BTC/USD:CXTALP", "NVDA", "QQQ", "SPY", "SPX"]:
         for interval in ["1d", "1h", "30m", "15m", "5m", "1m"]:
             event_symbol = f"{symbol}{{={interval}}}"
             logging.info("Forward-filling %s", event_symbol)
-            forward_fill_candle_event(symbol=event_symbol, lookback_days=10)
+            forward_fill_candle_event(symbol=event_symbol, lookback_days=365 * 25)
