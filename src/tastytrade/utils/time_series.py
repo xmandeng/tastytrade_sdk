@@ -78,7 +78,7 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
     """Use TelegrafHTTPEventProcessor to process and write CandleEvent data."""
     processor = TelegrafHTTPEventProcessor()
 
-    logging.info("Processing and writing CandleEvent data via Telegraf for %s", symbol)
+    logging.debug("Processing and writing CandleEvent data via Telegraf for %s", symbol)
 
     for timestamp, row in missing_df.iterrows():
         try:
@@ -158,7 +158,8 @@ if __name__ == "__main__":
     # forward_fill_candle_event(symbol="SPX{=1m}", lookback_days=365 * 25)
 
     for symbol in ["BTC/USD:CXTALP", "NVDA", "QQQ", "SPY", "SPX"]:
+        # for symbol in ["SPX"]:
         for interval in ["1d", "1h", "30m", "15m", "5m", "1m"]:
             event_symbol = f"{symbol}{{={interval}}}"
-            logging.info("Forward-filling %s", event_symbol)
-            forward_fill_candle_event(symbol=event_symbol, lookback_days=365 * 25)
+            logging.debug("Forward-filling %s", event_symbol)
+            forward_fill_candle_event(symbol=event_symbol, lookback_days=5)
