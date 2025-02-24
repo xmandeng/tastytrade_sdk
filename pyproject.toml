@@ -33,6 +33,7 @@ uvicorn = "^0.34.0"
 fastapi = "^0.115.8"
 pydantic-settings = "^2.7.1"
 loguru = "^0.7.3"
+altair = "^5.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
