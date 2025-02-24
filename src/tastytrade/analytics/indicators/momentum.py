@@ -96,3 +96,78 @@ def hull(
     df["HMA_color"] = np.where(df["HMA"] > df["HMA"].shift(1), "Up", "Down")
 
     return df[["time", "HMA", "HMA_color"]]
+
+
+def ema_with_seed(values: np.ndarray, length: int, seed: float) -> np.ndarray:
+    alpha = 2.0 / (length + 1.0)
+    out = np.zeros_like(values, dtype=float)
+    if len(values) == 0:
+        return out
+
+    # Seed the first EMA
+    out[0] = alpha * values[0] + (1 - alpha) * seed
+    # Compute forward
+    for i in range(1, len(values)):
+        out[i] = alpha * values[i] + (1 - alpha) * out[i - 1]
+
+    return out
+
+
+def macd(
+    df: pl.DataFrame,
+    prior_close: float,
+    fast_length: int = 12,
+    slow_length: int = 26,
+    macd_length: int = 9,
+) -> pl.DataFrame:
+    # Sort by time just to be safe
+    df = df.sort("time")
+
+    # Convert 'close' to numpy
+    close_np = df["close"].to_numpy()
+
+    # 1) Fast EMA (seeded by prior_close)
+    ema_fast = ema_with_seed(close_np, fast_length, seed=prior_close)
+    # 2) Slow EMA (seeded by prior_close)
+    ema_slow = ema_with_seed(close_np, slow_length, seed=prior_close)
+    # MACD Value line
+    value = ema_fast - ema_slow
+
+    # 3) Signal line = EMA of Value (seed with 0.0 or some small guess).
+    #    If you prefer to seed it with prior day's final MACD, you can do so;
+    #    but the simplest is to seed with 0.0 or the difference from prior_close.
+    signal_seed = 0.0
+    ema_signal = ema_with_seed(value, macd_length, seed=signal_seed)
+
+    # 4) Histogram
+    diff = value - ema_signal
+    # Calculate diff colors based on value and previous value
+    diff_colors = np.empty(len(diff), dtype=object)
+
+    for i in range(len(diff)):
+        if i == 0:  # First value
+            if diff[i] > 0:
+                diff_colors[i] = "#04FE00"  # Bright green for first positive
+            else:
+                diff_colors[i] = "#FE0000"  # Bright red for first negative
+        else:  # All other values
+            if diff[i] > 0:  # Positive values
+                if diff[i] > diff[i - 1]:
+                    diff_colors[i] = "#04FE00"  # Bright green for increasing positive
+                else:
+                    diff_colors[i] = "#006401"  # Dark green for decreasing positive
+            else:  # Negative values
+                if diff[i] < diff[i - 1]:
+                    diff_colors[i] = "#FE0000"  # Bright red for decreasing negative
+                else:
+                    diff_colors[i] = "#7E0100"  # Dark red for increasing negative
+    # Attach them as new columns
+    df_res = df.with_columns(
+        [
+            pl.Series("Value", value),
+            pl.Series("avg", ema_signal),
+            pl.Series("diff", diff),
+            pl.Series("diff_color", diff_colors),
+        ]
+    )
+    return df_res
