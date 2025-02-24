@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class FloatFieldMixin:
     def validate_float_fields(cls, *field_names: str) -> Callable[[Any], Optional[float]]:
         @field_validator(*field_names, mode="before")
         def convert_float(value: Any) -> Optional[float]:
-            if value is None or value == "NaN" or value == float("inf"):
+            if value is None or value == "NaN" or value == float("inf") or pd.isna(value):
                 return None
             return round(float(value), MAX_PRECISION)
 
