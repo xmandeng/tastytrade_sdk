@@ -78,8 +78,12 @@ class MarketDataProvider:
             end: Optional end time
             event_type: Type of event to retrieve (e.g. TradeEvent, QuoteEvent)
         """
+        if stop and stop <= start:
+            raise ValueError("Stop time must be greater than start time")
+
         if stop:
             date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop.strftime('%Y-%m-%dT%H:%M:%SZ')})"
+
         else:
             date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
