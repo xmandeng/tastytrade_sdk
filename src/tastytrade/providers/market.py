@@ -20,14 +20,17 @@ logger = logging.getLogger(__name__)
 class MarketDataProvider:
     """Provider for market data combining historical and live sources."""
 
-    def __init__(self, dxlink: DXLinkManager, influx: InfluxDBClient) -> None:
+    event_type: str = "CandleEvent"
+
+    def __init__(
+        self, dxlink: DXLinkManager, influx: InfluxDBClient, event_type: Optional[str] = None
+    ) -> None:
         """Initialize the market data provider."""
-        # super().__init__()
         self.influx = influx
         self.dxlink = dxlink
+        self.event_type = event_type or self.event_type
 
         self.frames: dict[str, pl.DataFrame] = {}
-
         self.updates: dict[str, datetime] = {}
         self.processors: dict[str, BaseEventProcessor] = {}
 
@@ -60,7 +63,6 @@ class MarketDataProvider:
     def download(
         self,
         symbol: str,
-        event_type: str = "CandleEvent",
         start: datetime = datetime.now(),
         stop: Optional[datetime] = None,
         debug_mode: bool = False,
@@ -76,15 +78,19 @@ class MarketDataProvider:
             end: Optional end time
             event_type: Type of event to retrieve (e.g. TradeEvent, QuoteEvent)
         """
+        if stop and stop <= start:
+            raise ValueError("Stop time must be greater than start time")
+
         if stop:
             date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop.strftime('%Y-%m-%dT%H:%M:%SZ')})"
+
         else:
             date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
         pivot_query = f"""
             from(bucket: "{os.environ["INFLUX_DB_BUCKET"]}")
             |> range(start: {date_range}
-            |> filter(fn: (r) => r["_measurement"] == "{event_type}")
+            |> filter(fn: (r) => r["_measurement"] == "{self.event_type}")
             |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
             |> pivot(
                 rowKey: ["_time"],
@@ -96,39 +102,32 @@ class MarketDataProvider:
         logger.debug("Subscription query:\n%s", pivot_query)
 
         try:
-            tables = self.influx.query_api().query(pivot_query, org=os.environ["INFLUX_DB_ORG"])
+            df = (
+                self.influx.query_api().query_data_frame(pivot_query)
+                # Add CandleEvent time w/o timezone
+                .assign(time=lambda df: df["_time"].dt.tz_localize(None))
+            )
+
+            # Remove InfluxDB metadata columns
+            df = df.drop(
+                columns=[
+                    col
+                    for col in ["result", "table", "_start", "_stop", "_time", "_measurement"]
+                    if col in df
+                ]
+            )
 
         except Exception as e:
-            logger.error("Error querying InfluxDB for %s (%s): %s", symbol, event_type, e)
-
-        records = []
-        for table in tables:
-            for record in table.records:
-                record_dict = {key: value for key, value in record.values.items()}
-
-                # TODO IMPORTANT: Add unit_test to ensure "datetime" not timezone aware
-                record_dict["time"] = record.get_time().timestamp()
-                records.append(record_dict)
-
-        drop_columns = ["result", "table", "_start", "_stop", "_time", "_measurement"]
-
-        data: pl.DataFrame = (
-            pl.DataFrame(records)
-            .with_columns(pl.from_epoch("time"))
-            .drop(drop_columns)
-            .sort("time")
-        )
+            logger.error("Error querying InfluxDB for %s (%s): %s", symbol, self.event_type, e)
+            raise ValueError(f"Error querying InfluxDB for {symbol} ({self.event_type}): {e}")
 
         if debug_mode:
-            return data
+            return pl.from_pandas(df)
         else:
-            self.frames[symbol] = data
+            self.frames[symbol] = pl.from_pandas(df)
 
     def handle_update(self, symbol: str, event: BaseEvent) -> None:
-        """Handle incoming live market data updates.
-
-        !! Caution - Managing to align timezones btw DXLink and InfluxDB proved tricky
-        """
+        """Handle incoming live market data updates."""
         if event.eventSymbol != symbol:
             return
 

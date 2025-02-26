@@ -21,8 +21,8 @@ This procedure outlines the critical steps for cleaning up the InfluxDB database
 3. Delete all CandleEvent measurements from the beginning of time until now:
    ```bash
    influx delete --bucket tastytrade \
-     --start 1970-01-01T00:00:00Z \
-     --stop $(date +"%Y-%m-%dT%H:%M:%SZ") \
+     --start 1800-01-01T00:00:00Z \
+     --stop 2262-01-01T00:00:00Z  \
      --predicate '_measurement="CandleEvent"'
    ```
 

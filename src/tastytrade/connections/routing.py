@@ -17,6 +17,7 @@ class MessageRouter:
     instance = None
     queues: dict[int, asyncio.Queue] = {}
 
+    # ? Could we make this a defaultdict?
     handler: dict[Channels, EventHandler] = {
         Channels.Control: ControlHandler(),
         Channels.Quote: EventHandler(Channels.Quote, processor=LatestEventProcessor()),
