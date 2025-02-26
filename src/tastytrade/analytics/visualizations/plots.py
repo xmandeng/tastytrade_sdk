@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
@@ -5,7 +7,12 @@ from plotly.subplots import make_subplots
 from tastytrade.analytics.indicators.momentum import hull
 
 
-def plot_macd_with_hull(df: pl.DataFrame, pad_value: float | None = None) -> None:
+def plot_macd_with_hull(
+    df: pl.DataFrame,
+    pad_value: float | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> None:
     # First compute the Hull MA
     hma_study = hull(input_df=df, pad_value=pad_value)
 
@@ -13,6 +20,10 @@ def plot_macd_with_hull(df: pl.DataFrame, pad_value: float | None = None) -> Non
         event_symbol = df["eventSymbol"].unique()[0]
     except Exception:
         event_symbol = "Stock_Symbol"
+
+    # Determine x-axis range - use data range if not specified
+    x_min = start_time if start_time is not None else df["time"].min()
+    x_max = end_time if end_time is not None else df["time"].max()
 
     # Create the subplots
     fig = make_subplots(
@@ -38,6 +49,7 @@ def plot_macd_with_hull(df: pl.DataFrame, pad_value: float | None = None) -> Non
         row=1,
         col=1,
     )
+
     # Create separate traces for each color segment of HMA
     for i in range(1, len(hma_study)):
         fig.add_trace(
@@ -96,11 +108,11 @@ def plot_macd_with_hull(df: pl.DataFrame, pad_value: float | None = None) -> Non
         col=1,
     )
 
-    # Zero line for MACD
+    # Zero line for MACD - make sure it spans the full time range
     fig.add_shape(
         type="line",
-        x0=df["time"][0],
-        x1=df["time"][-1],
+        x0=x_min,
+        x1=x_max,
         y0=0,
         y1=0,
         line=dict(color="gray", width=1, dash="dot"),
@@ -123,6 +135,12 @@ def plot_macd_with_hull(df: pl.DataFrame, pad_value: float | None = None) -> Non
     )
 
     fig.update_yaxes(gridcolor="rgba(128,128,128,0.1)", zerolinecolor="rgba(128,128,128,0.1)")
-    fig.update_xaxes(gridcolor="rgba(128,128,128,0.1)", zerolinecolor="rgba(128,128,128,0.1)")
+
+    # Force the xaxis range for both subplots
+    fig.update_xaxes(
+        gridcolor="rgba(128,128,128,0.1)",
+        zerolinecolor="rgba(128,128,128,0.1)",
+        range=[x_min, x_max],
+    )
 
     fig.show()
