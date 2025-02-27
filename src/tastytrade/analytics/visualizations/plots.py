@@ -9,10 +9,6 @@ from plotly.subplots import make_subplots
 
 from tastytrade.analytics.indicators.momentum import hull
 
-# # Forward reference to avoid circular imports
-# if TYPE_CHECKING:
-#     from tastytrade.analytics.visualizations.plots import VerticalLine
-
 
 class HorizontalLine:
     """Class representing a horizontal line to be plotted on a chart."""
@@ -77,13 +73,17 @@ class VerticalLine:
         text_position: str = "top",  # "top", "middle", "bottom"
         show_label: bool = True,
         label_font_size: int = 11,
+        text_orientation: str = "horizontal",  # "horizontal", "vertical"
+        label_padding: int = 6,  # Increased default padding for labels
+        span_subplots: bool = True,  # Span both price and MACD panels
+        label_bg_opacity: float = 0.8,  # Control background opacity for better visibility
     ):
         """
         Initialize a vertical time line.
 
         Args:
             time: The x-value (datetime) where the line will be drawn
-            label: Optional text label for the line
+            label: Optional text label for the line (None to display no label)
             color: Color of the line (name, hex, or rgb)
             line_width: Width of the line in pixels
             line_dash: Line style ("solid", "dot", "dash", "longdash", "dashdot", "longdashdot")
@@ -91,9 +91,14 @@ class VerticalLine:
             text_position: Position of the label ("top", "middle", "bottom")
             show_label: Whether to display the label text
             label_font_size: Font size for the label
+            text_orientation: Orientation of label text ("horizontal", "vertical")
+            label_padding: Padding space around the label in pixels
+            span_subplots: Whether the line should span across all subplots
+            label_bg_opacity: Control background opacity for better visibility
         """
         self.time = time
-        self.label = label if label else time.strftime("%H:%M")
+        # Default label is None (optional) instead of using the time
+        self.label = label
         self.color = color
         self.line_width = line_width
         self.line_dash = line_dash
@@ -101,6 +106,10 @@ class VerticalLine:
         self.text_position = text_position
         self.show_label = show_label
         self.label_font_size = label_font_size
+        self.text_orientation = text_orientation
+        self.label_padding = label_padding
+        self.span_subplots = span_subplots
+        self.label_bg_opacity = label_bg_opacity
 
 
 def plot_macd_with_hull(
@@ -122,6 +131,7 @@ def plot_macd_with_hull(
         end_time: Optional end time for x-axis (defaults to latest data point)
         tz_name: Optional timezone name (defaults to TASTYTRADE_CHART_TIMEZONE env var or 'America/New_York')
         horizontal_lines: Optional list of HorizontalLine objects to plot on the chart
+        vertical_lines: Optional list of VerticalLine objects to plot on the chart
     """
     # First compute the Hull MA
     hma_study = hull(input_df=df, pad_value=pad_value)
@@ -157,10 +167,10 @@ def plot_macd_with_hull(
     # For pandas DataFrame (hma_study)
     hma_plot["time"] = hma_plot["time"].dt.tz_localize("UTC").dt.tz_convert(timezone_name)
 
-    try:
-        event_symbol = df["eventSymbol"].unique()[0]
-    except Exception:
-        event_symbol = "Stock_Symbol"
+    # try:
+    #     event_symbol = df["eventSymbol"].unique()[0]
+    # except Exception:
+    #     event_symbol = "Stock_Symbol"
 
     # Determine x-axis range - use data range if not specified
     x_min = convert_time(start_time) if start_time is not None else df_plot["time"].min()
@@ -337,12 +347,16 @@ def plot_macd_with_hull(
                     yref="y",
                 )
 
+    # Calculate y ranges for plots
+    y_min_price = price_min - price_padding
+    y_max_price = price_max + (price_padding * 2)  # Double padding at top for labels
+
+    # For MACD panel, get data-driven min/max
+    macd_min = min(df_plot["diff"].min(), df_plot["Value"].min()) * 1.2
+    macd_max = max(df_plot["Value"].max(), df_plot["avg"].max()) * 1.2
+
     # Add vertical time lines if provided
     if vertical_lines:
-        # Calculate y range for price chart
-        y_min = price_min - price_padding
-        y_max = price_max + price_padding
-
         for i, v_line in enumerate(vertical_lines):
             # Convert time to display timezone if it has one
             line_time = v_line.time
@@ -350,44 +364,50 @@ def plot_macd_with_hull(
                 line_time = line_time.replace(tzinfo=timezone.utc)
             line_time = line_time.astimezone(display_tz)
 
-            # Add the vertical line (for both the price chart and MACD)
-            for row_idx, y_range in [(1, [y_min, y_max]), (2, None)]:
-                # For MACD panel (row 2), we need to get data-driven min/max
-                if row_idx == 2:
-                    macd_min = df_plot["diff"].min() * 1.1
-                    macd_max = df_plot["Value"].max() * 1.1
-                    y_range = [macd_min, macd_max]
+            # Add the vertical line to both panels
+            for row_idx, y_range in [(1, [y_min_price, y_max_price]), (2, [macd_min, macd_max])]:
+                # Skip the second panel if not set to span subplots
+                if row_idx == 2 and not v_line.span_subplots:
+                    continue
 
                 fig.add_shape(
                     type="line",
                     x0=line_time,
                     x1=line_time,
-                    y0=y_range[0] if y_range else None,
-                    y1=y_range[1] if y_range else None,
+                    y0=y_range[0],
+                    y1=y_range[1],
                     line=dict(
                         color=v_line.color,
                         width=v_line.line_width,
                         dash=v_line.line_dash,
                     ),
                     opacity=v_line.opacity,
-                    xref="x",
-                    yref="y",
-                    row=row_idx,
-                    col=1,
+                    xref=f"x{row_idx}",
+                    yref=f"y{row_idx}",
                 )
 
-            # Add label only once (on the price chart)
-            if v_line.show_label and v_line.label:
-                # Calculate y position based on text_position
+            # Add label only once (on the price chart) if specified and showing labels
+            if v_line.show_label and v_line.label is not None:
+                # Calculate y position based on text_position with additional padding for top labels
                 if v_line.text_position == "top":
-                    y_pos = y_max
-                    y_anchor = "top"
+                    # Position text at the top of the chart
+                    y_pos = y_max_price
+                    y_anchor = "bottom"  # Position text above the line
                 elif v_line.text_position == "bottom":
-                    y_pos = y_min
-                    y_anchor = "bottom"
+                    y_pos = y_min_price
+                    y_anchor = "top"  # Position text below the line
                 else:  # middle
-                    y_pos = (y_min + y_max) / 2
+                    y_pos = (y_min_price + y_max_price) / 2
                     y_anchor = "middle"
+
+                # Set text angle based on orientation
+                text_angle = 270 if v_line.text_orientation == "vertical" else 0
+
+                # Add more padding for the label
+                # Preserve newlines in labels by setting align="center"
+                # Safely construct the background color with the line's opacity value
+                bg_opacity = v_line.label_bg_opacity
+                bg_color = f"rgba(25,25,25,{bg_opacity})"
 
                 fig.add_annotation(
                     x=line_time,
@@ -397,21 +417,24 @@ def plot_macd_with_hull(
                     font=dict(
                         color=v_line.color, size=v_line.label_font_size, family="Arial, sans-serif"
                     ),
-                    bgcolor="rgba(25,25,25,0.7)",  # Semi-transparent background
+                    bgcolor=bg_color,  # Use the pre-constructed background color
                     bordercolor=v_line.color,
                     borderwidth=1,
-                    borderpad=3,
-                    textangle=270,  # Vertical text
+                    borderpad=v_line.label_padding,  # Increased padding
+                    textangle=text_angle,
                     xanchor="center",
                     yanchor=y_anchor,
                     xref="x",
                     yref="y",
+                    align="center",  # Enables proper alignment for multi-line text
                 )
 
     # Update layout
-    title_with_tz = f"{event_symbol} w/ HMA-20 ({timezone_name})"
+    # title_with_tz = f"{event_symbol} w/ HMA-20 ({timezone_name})"
+    # Update layout
+    # title_with_tz = f"{event_symbol} w/ HMA-20 ({timezone_name})"
     fig.update_layout(
-        title=title_with_tz,
+        # title=title_with_tz,
         xaxis2_title="Time",
         yaxis_title="Price",
         yaxis2_title="MACD",
@@ -421,14 +444,14 @@ def plot_macd_with_hull(
         xaxis_rangeslider_visible=False,
         plot_bgcolor="rgb(25,25,25)",
         paper_bgcolor="rgb(25,25,25)",
-        margin=dict(l=30, r=5, t=50, b=10),  # Reduced left margin to 30px
+        margin=dict(l=30, r=5, t=50, b=10),  # Standard top margin
     )
 
     # Set y-axis range for price chart with padding
     fig.update_yaxes(
         gridcolor="rgba(128,128,128,0.1)",
         zerolinecolor="rgba(128,128,128,0.1)",
-        range=[price_min - price_padding, price_max + price_padding],
+        range=[y_min_price, y_max_price],
         row=1,
         col=1,
         ticklabelposition="outside",
@@ -447,6 +470,7 @@ def plot_macd_with_hull(
     fig.update_yaxes(
         gridcolor="rgba(128,128,128,0.1)",
         zerolinecolor="rgba(128,128,128,0.1)",
+        range=[macd_min, macd_max],  # Set explicit range
         row=2,
         col=1,
         side="left",
