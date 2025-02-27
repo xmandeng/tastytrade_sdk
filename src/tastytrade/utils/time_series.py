@@ -119,7 +119,7 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
     logging.info("Forward-fill added %s events for %s", str(len(missing_df)), symbol)
 
 
-def forward_fill_candle_event(symbol, lookback_days=30):
+def forward_fill(symbol, lookback_days=1):
     """Main function to forward-fill CandleEvent data."""
     client = initialize_influx_client()
 
@@ -155,11 +155,11 @@ if __name__ == "__main__":
         console=True,
     )
 
-    # forward_fill_candle_event(symbol="SPX{=1m}", lookback_days=365 * 25)
+    # forward_fill(symbol="SPX{=1m}", lookback_days=365 * 25)
 
     for symbol in ["BTC/USD:CXTALP", "NVDA", "QQQ", "SPY", "SPX"]:
         # for symbol in ["SPX"]:
         for interval in ["1d", "1h", "30m", "15m", "5m", "1m"]:
             event_symbol = f"{symbol}{{={interval}}}"
             logging.debug("Forward-filling %s", event_symbol)
-            forward_fill_candle_event(symbol=event_symbol, lookback_days=5)
+            forward_fill(symbol=event_symbol, lookback_days=5)
