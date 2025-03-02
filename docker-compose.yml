@@ -36,6 +36,14 @@ services:
     networks:
       - internal_net
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    volumes:
+      - /mnt/Plex/devstorage/redis:/data
+    networks:
+      - internal_net
+
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
