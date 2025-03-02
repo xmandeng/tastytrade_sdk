@@ -137,7 +137,7 @@ def forward_fill(symbol, lookback_days=1):
     gap_fill_df = prepare_and_fill_data(tables, time_interval)
 
     if gap_fill_df.empty:
-        logging.info("No missing data found for %s", symbol)
+        logging.debug("No missing data found for %s", symbol)
         client.close()
         return
 
