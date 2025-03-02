@@ -4,6 +4,8 @@ from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tastytrade.utils.helpers import format_candle_symbol
+
 logger = logging.getLogger(__name__)
 
 
@@ -199,7 +201,7 @@ class CandleSubscriptionRequest(BaseModel):
 
     @property
     def formatted(self) -> str:
-        return f"{self.symbol}{{={self.interval}}}"
+        return format_candle_symbol(f"{self.symbol}{{={self.interval}}}")
 
 
 class CancelCandleSubscriptionRequest(BaseModel):

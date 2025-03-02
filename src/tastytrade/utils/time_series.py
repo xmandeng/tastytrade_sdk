@@ -9,7 +9,7 @@ from influxdb_client import InfluxDBClient
 from tastytrade.common.logging import setup_logging
 from tastytrade.messaging.models.events import CandleEvent
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
-from tastytrade.utils.helpers import format_influx_candle_symbol, parse_candle_symbol
+from tastytrade.utils.helpers import format_candle_symbol, parse_candle_symbol
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -123,7 +123,7 @@ def forward_fill(symbol, lookback_days=1):
     """Main function to forward-fill CandleEvent data."""
     client = initialize_influx_client()
 
-    influx_symbol = format_influx_candle_symbol(symbol)
+    influx_symbol = format_candle_symbol(symbol)
     _, time_interval = parse_candle_symbol(symbol)
 
     # Removed field_types and allowed_fields since CandleEvent handles validation

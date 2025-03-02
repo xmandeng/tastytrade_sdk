@@ -30,7 +30,7 @@ def last_weekday() -> datetime:
     return d.replace(hour=9, minute=30, second=0, microsecond=0)
 
 
-def format_influx_candle_symbol(symbol: str) -> str:
+def format_candle_symbol(symbol: str) -> str:
     """Extract time interval from symbol."""
     return re.sub(r"(?<=\{=)1([a-zA-Z])(?=\})", lambda m: f"{m.group(1)}", symbol)
 

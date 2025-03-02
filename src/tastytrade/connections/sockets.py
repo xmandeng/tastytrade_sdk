@@ -31,6 +31,7 @@ from tastytrade.messaging.models.messages import (
     SetupModel,
     SubscriptionRequest,
 )
+from tastytrade.utils.helpers import parse_candle_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -223,16 +224,16 @@ class DXLinkManager:
             await asyncio.wait_for(ws.send(request), timeout=5)
 
     async def track_subscription(
-        self, symbol: str, interval: Optional[str] = None, metadata: Optional[Dict[Any, Any]] = None
+        self, symbol: str, metadata: Optional[Dict[Any, Any]] = None
     ) -> None:
         """Track a new subscription."""
-        await self.subscription_store.add_subscription(symbol, interval, metadata)
-        logger.info(f"Added subscription tracking for {symbol}{f'_{interval}' if interval else ''}")
+        await self.subscription_store.add_subscription(symbol, metadata)
+        logger.info(f"Added subscription tracking for {symbol}")
 
-    async def remove_subscription(self, symbol: str, interval: Optional[str] = None) -> None:
+    async def remove_subscription(self, symbol: str) -> None:
         """Remove subscription tracking."""
-        await self.subscription_store.remove_subscription(symbol, interval)
-        logger.info(f"Marked subscription {symbol}{f'_{interval}' if interval else ''} as inactive")
+        await self.subscription_store.remove_subscription(symbol)
+        logger.info(f"Marked subscription {symbol} as inactive")
 
     async def get_active_subscriptions(self) -> Dict:
         """Get all active subscriptions."""
@@ -333,9 +334,6 @@ class DXLinkManager:
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
 
-        # Track candle subscription
-        await self.track_subscription(symbol, interval)
-
         request: CandleSubscriptionRequest = CandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
@@ -358,14 +356,15 @@ class DXLinkManager:
         async with self.subscription_semaphore:
             await asyncio.wait_for(ws.send(subscription), timeout=5)
 
-    async def unsubscribe_to_candles(self, *, symbol: str, interval: str) -> None:
+        # Track candle subscription
+        await self.track_subscription(request.formatted)
+
+    async def unsubscribe_to_candles(self, event_symbol: str) -> None:
         """Subscribe to candle data for a symbol."""
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
 
-        # Remove candle subscription tracking
-        await self.remove_subscription(symbol, interval)
-
+        symbol, interval = parse_candle_symbol(event_symbol)
         request: CancelCandleSubscriptionRequest = CancelCandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
@@ -384,7 +383,10 @@ class DXLinkManager:
         async with self.subscription_semaphore:
             await asyncio.wait_for(ws.send(cancellation), timeout=5)
 
-        logger.info("Unsubscribed Candlesticks: %s{=%s}", symbol, interval)
+        # Remove candle subscription cache
+        await self.remove_subscription(event_symbol)
+
+        logger.info("Unsubscribed Candlesticks: %s", event_symbol)
 
     async def close(self) -> None:
         if self.websocket is None:
