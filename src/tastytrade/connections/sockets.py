@@ -5,7 +5,7 @@ from asyncio import Semaphore
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import TracebackType
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from injector import singleton
 from websockets.asyncio.client import ClientConnection, connect
@@ -15,6 +15,7 @@ from tastytrade.config.enumerations import Channels
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.routing import MessageRouter
+from tastytrade.connections.subscription import InMemorySubscriptionStore, SubscriptionStore
 from tastytrade.messaging.models.messages import (
     AddCandleItem,
     AddItem,
@@ -64,12 +65,20 @@ class DXLinkManager:
     keepalive_task: Optional[asyncio.Task] = None
     router: Optional[MessageRouter] = None
 
-    def __new__(cls, credentials: Optional[Credentials] = None) -> "DXLinkManager":
+    def __new__(
+        cls,
+        credentials: Optional[Credentials] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
+    ) -> "DXLinkManager":
         if cls.instance is None:
             cls.instance = object.__new__(cls)
         return cls.instance
 
-    def __init__(self, credentials: Optional[Credentials] = None) -> None:
+    def __init__(
+        self,
+        credentials: Optional[Credentials] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
+    ) -> None:
         if not hasattr(self, "initialized"):
             config = DXLinkConfig()
             self.queues = {channel.value: asyncio.Queue() for channel in Channels}
@@ -80,6 +89,9 @@ class DXLinkManager:
             # Initialize subscription tracking
             self.active_subscriptions: Dict[str, SubscriptionInfo] = {}
             self.subscription_lock = asyncio.Lock()
+            self.subscription_store: SubscriptionStore = (
+                subscription_store or InMemorySubscriptionStore()
+            )
 
             self.initialized = True
 
@@ -104,6 +116,7 @@ class DXLinkManager:
         self.websocket = await connect(self.session.session.headers["dxlink-url"])
 
         try:
+            await self.subscription_store.initialize()
             await self.setup_connection()
             await self.authorize_connection()
             await self.open_channels()
@@ -209,43 +222,25 @@ class DXLinkManager:
 
             await asyncio.wait_for(ws.send(request), timeout=5)
 
-    async def track_subscription(self, symbol: str, interval: Optional[str] = None) -> None:
+    async def track_subscription(
+        self, symbol: str, interval: Optional[str] = None, metadata: Optional[Dict[Any, Any]] = None
+    ) -> None:
         """Track a new subscription."""
-        async with self.subscription_lock:
-            sub_key = f"{symbol}{f'_{interval}' if interval else ''}"
-            self.active_subscriptions[sub_key] = SubscriptionInfo(
-                symbol=symbol, subscribe_time=datetime.now(), interval=interval
-            )
-            logger.info(f"Added subscription tracking for {sub_key}")
+        await self.subscription_store.add_subscription(symbol, interval, metadata)
+        logger.info(f"Added subscription tracking for {symbol}{f'_{interval}' if interval else ''}")
 
     async def remove_subscription(self, symbol: str, interval: Optional[str] = None) -> None:
         """Remove subscription tracking."""
-        async with self.subscription_lock:
-            sub_key = f"{symbol}{f'_{interval}' if interval else ''}"
-            if sub_key in self.active_subscriptions:
-                self.active_subscriptions[sub_key].active = False
-                logger.info(f"Marked subscription {sub_key} as inactive")
+        await self.subscription_store.remove_subscription(symbol, interval)
+        logger.info(f"Marked subscription {symbol}{f'_{interval}' if interval else ''} as inactive")
 
-    async def get_active_subscriptions(self) -> Dict[str, SubscriptionInfo]:
+    async def get_active_subscriptions(self) -> Dict:
         """Get all active subscriptions."""
-        async with self.subscription_lock:
-            return {k: v for k, v in self.active_subscriptions.items() if v.active}
+        return await self.subscription_store.get_active_subscriptions()
 
     async def update_subscription_status(self, symbol: str, data: Dict) -> None:
         """Update last update time and metadata for a subscription."""
-        async with self.subscription_lock:
-            # Try both regular and candle subscription formats
-            sub_key = symbol
-            if sub_key not in self.active_subscriptions:
-                # Try to match a candle subscription
-                for key in self.active_subscriptions:
-                    if key.startswith(symbol + "_"):
-                        sub_key = key
-                        break
-
-            if sub_key in self.active_subscriptions:
-                self.active_subscriptions[sub_key].last_update = datetime.now()
-                self.active_subscriptions[sub_key].metadata.update(data)
+        await self.subscription_store.update_subscription_status(symbol, data)
 
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.

@@ -51,6 +51,7 @@ black = "^23.3.0"
 isort = "^5.10.1"
 flake8 = "^5.0.4"
 types-requests = "^2.32.0.20241016"
+types-redis = "^4.6.0.20241004"
 
 [build-system]
 requires = ["poetry-core"]
