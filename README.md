@@ -38,7 +38,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
   - Fault-tolerant data flow
 
 ### 📈 Technical Analysis
-![Sample Technical Analysis Chart](devtools/images/sample_chart.png){width=75%}
+![Sample Technical Analysis Chart](devtools/images/sample_chart.png)
 
 - Real-time technical indicators:
   - Hull Moving Average (HMA)
