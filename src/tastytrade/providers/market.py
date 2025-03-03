@@ -8,6 +8,7 @@ from typing import Optional
 import polars as pl
 from influxdb_client import InfluxDBClient
 
+from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.messaging.models.events import BaseEvent
@@ -15,6 +16,8 @@ from tastytrade.messaging.processors.default import BaseEventProcessor
 from tastytrade.providers.processors.live import LiveDataProcessor
 
 logger = logging.getLogger(__name__)
+
+config = RedisConfigManager()
 
 
 class MarketDataProvider:
@@ -88,7 +91,7 @@ class MarketDataProvider:
             date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
         pivot_query = f"""
-            from(bucket: "{os.environ["INFLUX_DB_BUCKET"]}")
+            from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ["INFLUX_DB_BUCKET"]}")
             |> range(start: {date_range}
             |> filter(fn: (r) => r["_measurement"] == "{self.event_type}")
             |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
@@ -188,15 +191,16 @@ async def main() -> pl.DataFrame:
 
     from influxdb_client import InfluxDBClient
 
+    from tastytrade.config import RedisConfigManager
     from tastytrade.connections import Credentials, InfluxCredentials
     from tastytrade.connections.sockets import DXLinkManager
 
-    credentials = Credentials(env="Live")
+    config = RedisConfigManager()
 
-    influx_user = InfluxCredentials()
-    influx = InfluxDBClient(
-        url=InfluxCredentials().url, token=influx_user.token, org=influx_user.org
-    )
+    credentials = Credentials(config=config, env="Live")
+
+    influx_user = InfluxCredentials(config=config)
+    influx = InfluxDBClient(url=influx_user.url, token=influx_user.token, org=influx_user.org)
     async with DXLinkManager(credentials=credentials) as dxlink:
 
         market = MarketDataProvider(dxlink, influx)

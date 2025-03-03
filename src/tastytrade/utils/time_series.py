@@ -7,6 +7,7 @@ import pandas as pd
 from influxdb_client import InfluxDBClient
 
 from tastytrade.common.logging import setup_logging
+from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import CandleEvent
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
 from tastytrade.utils.helpers import format_candle_symbol, parse_candle_symbol
@@ -16,16 +17,16 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
 
-# InfluxDB Connection Details
-INFLUX_DB_URL = os.environ.get("INFLUX_DB_URL")
-INFLUX_DB_TOKEN = os.environ.get("INFLUX_DB_TOKEN")
-INFLUX_DB_ORG = os.environ.get("INFLUX_DB_ORG")
-INFLUX_DB_BUCKET = os.environ.get("INFLUX_DB_BUCKET")
+config = RedisConfigManager()
 
 
 def initialize_influx_client() -> InfluxDBClient:
     """Initialize and return an InfluxDB client."""
-    return InfluxDBClient(url=INFLUX_DB_URL, token=INFLUX_DB_TOKEN, org=INFLUX_DB_ORG)
+    return InfluxDBClient(
+        url=config.get("INFLUX_DB_URL") or os.environ.get("INFLUX_DB_URL"),
+        token=config.get("INFLUX_DB_TOKEN") or os.environ.get("INFLUX_DB_TOKEN"),
+        org=config.get("INFLUX_DB_ORG") or os.environ.get("INFLUX_DB_ORG"),
+    )
 
 
 def query_candle_event_data(
@@ -35,7 +36,7 @@ def query_candle_event_data(
     query_api = client.query_api()
 
     query = f"""
-    from(bucket: "{INFLUX_DB_BUCKET}")
+    from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ.get("INFLUX_DB_BUCKET")}")
       |> range(start: -{lookback_days}d)
       |> filter(fn: (r) => r["_measurement"] == "CandleEvent")
       |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
