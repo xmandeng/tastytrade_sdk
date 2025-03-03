@@ -1,6 +1,4 @@
-"""Values imported from environment variables."""
-
-import os
+from tastytrade.config import ConfigurationManager
 
 
 class Credentials:
@@ -13,7 +11,7 @@ class Credentials:
     def as_dict(self) -> dict:
         return vars(self)
 
-    def __init__(self, env: str = "Test"):
+    def __init__(self, config: ConfigurationManager, env: str = "Test"):
         """Tastytrade credentials are read from OS environment variables which can be loaded from a `.env` file, exported in the shell, or directly set in the environment.
 
         Args:
@@ -25,14 +23,18 @@ class Credentials:
         if env not in ["Test", "Live"]:
             raise ValueError("Environment must be either 'Test' or 'Live'")
 
-        self.login: str = os.environ["TT_SANDBOX_USER"] if env == "Test" else os.environ["TT_USER"]
+        self.login: str = config.get("TT_SANDBOX_USER") if env == "Test" else config.get("TT_USER")
+        # self.login: str = os.environ["TT_SANDBOX_USER"] if env == "Test" else os.environ["TT_USER"]
 
         self.password: str = (
-            os.environ["TT_SANDBOX_PASS"] if env == "Test" else os.environ["TT_PASS"]
+            config.get("TT_SANDBOX_PASS")
+            if env == "Test"
+            else config.get("TT_PASS")
+            # os.environ["TT_SANDBOX_PASS"] if env == "Test" else os.environ["TT_PASS"]
         )
 
         self.base_url: str = (
-            os.environ["TT_SANDBOX_URL"] if env == "Test" else os.environ["TT_API_URL"]
+            config.get("TT_SANDBOX_URL") if env == "Test" else config.get("TT_API_URL")
         )
 
         self.remember_me: bool = True
@@ -45,7 +47,7 @@ class InfluxCredentials:
     token: str
     org: str
 
-    def __init__(self):
-        self.url = os.environ["INFLUX_DB_URL"]
-        self.org = os.environ["INFLUX_DB_ORG"]
-        self.token = os.environ["INFLUX_DB_TOKEN"]
+    def __init__(self, config: ConfigurationManager):
+        self.url = config.get("INFLUX_DB_URL")
+        self.org = config.get("INFLUX_DB_ORG")
+        self.token = config.get("INFLUX_DB_TOKEN")

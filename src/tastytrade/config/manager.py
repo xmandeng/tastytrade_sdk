@@ -191,7 +191,7 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         Returns:
             The configuration value
         """
-        # Get from Redis
+        logger.debug(f"Getting {key} from Redis")
         hash_key = self.get_hash_key()
         value = self.redis_client.hget(hash_key, key)
 
@@ -232,6 +232,7 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         Returns:
             Dictionary of configuration values
         """
+        logger.debug("Getting all configuration values from Redis")
         hash_key = self.get_hash_key()
         values = self.redis_client.hgetall(hash_key)
 
@@ -340,7 +341,7 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         Returns:
             The configuration value
         """
-        # Get from Redis
+        logger.debug(f"Getting {key} from Redis")
         hash_key = self.get_hash_key()
         value = await self.redis_client.hget(hash_key, key)
 
@@ -381,6 +382,7 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         Returns:
             Dictionary of configuration values
         """
+        logger.debug("Getting all configuration values from Redis")
         hash_key = self.get_hash_key()
         values = await self.redis_client.hgetall(hash_key)
 
