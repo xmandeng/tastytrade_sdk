@@ -2,6 +2,8 @@
 
 A high-performance Python SDK for the TastyTrade Open API, providing programmatic access to trading operations and real-time market data with advanced analytics capabilities.
 
+![Sample Technical Analysis Chart](devtools/images/sample_chart.png)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python Versions](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Status](https://img.shields.io/badge/status-beta-yellow)
@@ -37,7 +39,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
   - Configurable event processors
   - Fault-tolerant data flow
 
-### 📈 Technical Analysis
+### 📈 Analytics
 
 - Real-time technical indicators:
   - Hull Moving Average (HMA)
@@ -46,8 +48,6 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
   - Custom price and time references
 - Interactive charting
 - Customizable dashboards
-
-![Sample Technical Analysis Chart](devtools/images/sample_chart.png)
 
 ### 🔧 Technical Architecture
 
