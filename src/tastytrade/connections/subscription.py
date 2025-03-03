@@ -5,7 +5,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-# Add type ignore comment for redis imports
 import redis.asyncio as redis  # type: ignore
 
 logger = logging.getLogger(__name__)
@@ -97,10 +96,6 @@ class RedisSubscriptionStore(SubscriptionStore):
             symbol: The exact symbol identifier (e.g., "SPX{=d}")
             data: dictionary of metadata to merge with existing subscription metadata
         """
-        # Try both formats (with/without interval)
-
-        # For candle subscriptions, we need to find all keys with the symbol as prefix
-
         if data_bytes := await self.redis.hget(self.hash_key, symbol):
             subscription_data = json.loads(data_bytes.decode("utf-8"))
             subscription_data["last_update"] = datetime.now(timezone.utc).isoformat()
@@ -165,6 +160,8 @@ class InMemorySubscriptionStore(SubscriptionStore):
         return {symbol: data for symbol, data in self.subscriptions.items() if data["active"]}
 
     async def update_subscription_status(self, symbol: str, data: dict) -> None:
+        # ! FIX THIS TO ALIGN WITH REDIS IMPLEMENTATION ! #
+
         # Try both formats (with/without interval)
         keys_to_try = [symbol]
 
