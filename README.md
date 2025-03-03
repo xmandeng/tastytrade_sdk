@@ -44,7 +44,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
   - MACD with dynamic color coding
   - Volume analysis (planned)
   - Custom indicator support
-- Interactive charting with Plotly
+- Interactive charting
 - Customizable dashboards
 
 ![Sample Technical Analysis Chart](devtools/images/sample_chart.png)
