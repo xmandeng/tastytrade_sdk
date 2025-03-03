@@ -117,6 +117,7 @@ VS Code will build and start the development container, which includes:
 - InfluxDB
 - Telegraf
 - Kafka
+- Redis
 - All required Python packages
 - Pre-configured development tools
 
