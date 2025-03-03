@@ -106,6 +106,7 @@ class ConfigManagerBase:
 class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
     """Redis-backed synchronous configuration manager."""
 
+    # ! CHANGE THIS FROM A SINGLETON TO UNQIUE PER NAMESPACE
     # Singleton instance
     instance = None
 
@@ -254,6 +255,7 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
 class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
     """Redis-backed asynchronous configuration manager."""
 
+    # ! CHANGE THIS FROM A SINGLETON TO UNQIUE PER NAMESPACE
     # Singleton instance
     instance = None
 
