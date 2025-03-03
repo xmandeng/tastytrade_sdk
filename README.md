@@ -43,7 +43,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
   - Hull Moving Average (HMA)
   - MACD with dynamic color coding
   - Volume analysis (planned)
-  - Custom indicator support
+  - Custom price and time references
 - Interactive charting
 - Customizable dashboards
 
