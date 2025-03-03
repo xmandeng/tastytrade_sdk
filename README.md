@@ -55,7 +55,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
                                   WebSocket Feed
                                         │
                                    ┌──────────┐
-                    ┌─────────────►│ DXClient │ (Parser/Streamer)
+                    ┌──────────────│ DXClient │ (Parser/Streamer)
                     │              └──────────┘
                     │                    │
                     │                    ▼
