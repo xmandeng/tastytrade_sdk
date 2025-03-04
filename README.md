@@ -73,7 +73,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
              │             │             │              │                  │
              ▼             ▼             ▼              ▼                  ▼
     ┌───────────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────┐     ┌────────────┐
-    │   Analytics   │ │ Alerts  │ │ Strategies  │ │  Logging   │ ... │    etc     │
+    │   Analytics   │ │ Alerts  │ │   Recipes   │ │  Logging   │ ... │    etc     │
     └───────────────┘ └─────────┘ └─────────────┘ └────────────┘     └────────────┘
 ```
 
