@@ -52,11 +52,11 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
 ### 🔧 Technical Architecture
 
 ```
-                                  WebSocket Feed
-                                        │
-                                   ┌──────────┐
-                    ┌──────────────│ DXClient │ (Parser/Streamer)
-                    │              └──────────┘
+                                   WebSocket Feed
+                                         │
+                                    ┌──────────┐
+                    ┌───────────────│ DXClient │ (Parser/Streamer)
+                    │               └──────────┘
                     │                    │
                     │                    ▼
                     │               ┌──────────┐
@@ -65,7 +65,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
                     │                    │                     │
                     ▼                    ▼                     ▼
               ┌──────────┐          ┌──────────┐          ┌──────────┐
-              │   Redis  │          │ InfluxDB │          │   Kafka  │ (under development)
+              │  Redis   │          │ InfluxDB │          │   Kafka  │ (under development)
               └──────────┘          └──────────┘          └────┬─────┘
                                                                │
                                                                ▼
