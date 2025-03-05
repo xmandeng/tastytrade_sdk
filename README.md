@@ -29,10 +29,10 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
   - Telegraf as data routing backbone:
     - Receives processed events from DXLink client
     - Writes to InfluxDB for time-series storage
-    - Streams to Kafka for real-time distribution
+    - Streams to Kafka for real-time distribution *(in development)*
     - Provides system metrics and monitoring
   - InfluxDB for historical analysis
-  - Kafka for scalable event distribution
+  - ~~Kafka~~ Redis for scalable event distribution
 - Event processing and analytics:
   - Real-time technical indicators
   - Custom data transformations
@@ -54,21 +54,21 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
 ```
                                    WebSocket Feed
                                          │
-                                    ┌──────────┐
-                    ┌───────────────│ DXClient │ (Parser/Streamer)
-                    │               └──────────┘
+                                    ┌──────────┐  Message Parser
+                    ┌───────────────│ DXClient │        &
+                    │               └──────────┘   Event Router
                     │                    │
                     │                    ▼
                     │               ┌──────────┐
-                    │               │ Telegraf │───────────────┐
-                    │               └──────────┘               │
+                    │               │ Telegraf │  ──  ──  ──  ─┐
+                    │               └──────────┘
                     │                    │                     │
                     ▼                    ▼                     ▼
-              ┌──────────┐          ┌──────────┐          ┌──────────┐
-              │  Redis   │          │ InfluxDB │          │   Kafka  │ (under development)
-              └──────────┘          └──────────┘          └────┬─────┘
-                                                               │
-                                                               ▼
+     pub/sub  ┌──────────┐          ┌──────────┐          ┌──────────┐
+        &     │  Redis   │          │ InfluxDB │          │   Kafka  │ (in development)
+      cache   └─────┬────┘          └──────────┘          └────┬─────┘
+                    │                                          │
+                    ▼                                          ▼
     ┌────────┬─────────────┬─────────────┬──────────────┬──────────────────┬──────┐
              │             │             │              │                  │
              ▼             ▼             ▼              ▼                  ▼
@@ -79,7 +79,7 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
 
 - **Real-time Processing**: WebSocket streaming with asynchronous event handling
 - **Data Storage**: InfluxDB for time-series data storage and analysis
-- **Message Queue**: Kafka for reliable event distribution
+- **Message Queue**: ~~Kafka~~ Redis for reliable event distribution
 - **Metrics Collection**: Telegraf for system and application metrics
 - **Containerization**: Full Docker support with dev containers
 
@@ -118,6 +118,7 @@ VS Code will build and start the development container, which includes:
 - Telegraf
 - Kafka
 - Redis
+- Redis-Commander
 - All required Python packages
 - Pre-configured development tools
 
@@ -186,7 +187,7 @@ async with DXLinkManager(credentials) as dxlink:
 1. Real-time data ingestion via WebSocket
 2. Event processing and normalization
 3. Storage in InfluxDB for historical analysis
-4. Distribution via Kafka for real-time processing
+4. Distribution via ~~Kafka~~ Redis for real-time processing
 5. Analytics and visualization
 
 ### Sample Visualization
