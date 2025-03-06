@@ -9,11 +9,8 @@ import polars as pl
 from influxdb_client import InfluxDBClient
 
 from tastytrade.config import RedisConfigManager
-from tastytrade.config.enumerations import Channels
-from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.messaging.models.events import BaseEvent
-from tastytrade.messaging.processors.default import BaseEventProcessor
-from tastytrade.providers.processors.live import LiveDataProcessor
+from tastytrade.providers.subscriptions import DataSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +23,18 @@ class MarketDataProvider:
     event_type: str = "CandleEvent"
 
     def __init__(
-        self, dxlink: DXLinkManager, influx: InfluxDBClient, event_type: Optional[str] = None
+        self,
+        data_feed: DataSubscription,
+        influx: InfluxDBClient,
+        event_type: Optional[str] = None,
     ) -> None:
         """Initialize the market data provider."""
         self.influx = influx
-        self.dxlink = dxlink
+        self.data_feed = data_feed
         self.event_type = event_type or self.event_type
 
         self.frames: dict[str, pl.DataFrame] = {}
         self.updates: dict[str, datetime] = {}
-        self.processors: dict[str, BaseEventProcessor] = {}
 
         logger.debug("Initialized DataProviderService")
 
@@ -129,90 +128,40 @@ class MarketDataProvider:
         else:
             self.frames[symbol] = pl.from_pandas(df)
 
-    def handle_update(self, symbol: str, event: BaseEvent) -> None:
-        """Handle incoming live market data updates."""
-        if event.eventSymbol != symbol:
-            return
-
-        new_event = pl.DataFrame([event])
+    def handle_update(self, event: BaseEvent) -> None:
+        """Handle incoming market data events."""
+        event_key = f"{event.__class__.__name__}:{event.eventSymbol}"
 
         try:
-            self.frames[symbol] = (
-                pl.concat([self.frames[symbol], new_event], how="diagonal")
+            self.frames[event_key] = (
+                pl.concat(
+                    [self.frames.get(event_key, pl.DataFrame()), pl.DataFrame([event])],
+                    how="diagonal",
+                )
                 .unique(subset=["eventSymbol", "time"], keep="last")
                 .sort("time", descending=False)
             )
 
-            self.updates[symbol] = datetime.now()
+            self.updates[event_key] = datetime.now()
 
         except Exception as e:
-            logger.error("Error handling update for %s: %s", symbol, e)
-
-    async def subscribe(self, symbol: str) -> None:
-        """Setup live market data streaming via DXLink."""
-        if not self.dxlink.router:
-            logger.error("DXLink router not initialized")
-            return
-
-        try:
-            processor = LiveDataProcessor(
-                symbol=symbol, on_update=lambda event: self.handle_update(symbol, event)
+            logger.error(
+                "Error handling update for %s: %s",
+                event_key,
+                e,
             )
 
-            self.processors[symbol] = processor
-            self.dxlink.router.handler[Channels.Candle].add_processor(processor)
-
-            subscriptions = await self.dxlink.get_active_subscriptions()
-            if symbol not in subscriptions:
-                await self.dxlink.subscribe([symbol])
-
+    async def subscribe(self, event_type: str, symbol: str) -> None:
+        """Setup live market data streaming via DataSubscription."""
+        try:
+            await self.data_feed.subscribe(
+                channel_pattern=f"market:{event_type}:{symbol}", on_update=self.handle_update
+            )
             logger.info("Subscribed to %s", symbol)
 
         except Exception as e:
             logger.error("Error setting up subscription for %s: %s", symbol, e)
 
-    async def unsubscribe(self, symbol: str) -> None:
+    async def unsubscribe(self, event_type: str, symbol: str) -> None:
         """Stop live data streaming for the given symbol."""
-        if symbol in self.processors:
-            logger.info("Unsubscribing from %s", symbol)
-            # Just pop without assignment since we don't use the processor
-            self.processors.pop(symbol)
-            if symbol in self.frames:
-                del self.frames[symbol]
-            if symbol in self.updates:
-                del self.updates[symbol]
-            logger.debug("Cleaned up resources for %s", symbol)
-
-
-async def main() -> pl.DataFrame:
-    from dotenv import load_dotenv
-
-    load_dotenv("/workspace/.env")
-
-    from influxdb_client import InfluxDBClient
-
-    from tastytrade.config import RedisConfigManager
-    from tastytrade.connections import Credentials, InfluxCredentials
-    from tastytrade.connections.sockets import DXLinkManager
-
-    config = RedisConfigManager()
-
-    credentials = Credentials(config=config, env="Live")
-
-    influx_user = InfluxCredentials(config=config)
-    influx = InfluxDBClient(url=influx_user.url, token=influx_user.token, org=influx_user.org)
-    async with DXLinkManager(credentials=credentials) as dxlink:
-
-        market = MarketDataProvider(dxlink, influx)
-        df = market.download(
-            "SPX{=5m}", start=datetime(2025, 2, 20), stop=datetime(2025, 2, 21), debug_mode=True
-        )
-
-        return df
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    df = asyncio.run(main())
-    print(df)
+        await self.data_feed.unsubscribe(channel_pattern=f"market:{event_type}:{symbol}")

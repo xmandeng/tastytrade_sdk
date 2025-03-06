@@ -14,7 +14,7 @@ class RedisEventProcessor(BaseEventProcessor):
     def process_event(self, event: BaseEvent) -> None:
         """Process an event and publish it to Redis."""
         channel = f"market:{event.__class__.__name__}:{event.eventSymbol}"
-        self.redis.publish(channel, event.model_dump_json())
+        self.redis.publish(channel=channel, message=event.model_dump_json())
 
 
 """
@@ -29,6 +29,12 @@ redis-cli SUBSCRIBE "market:TradeEvent:*"
 # Subscribe to a specific symbol
 redis-cli SUBSCRIBE "market:TradeEvent:AAPL"
 
+# Subscribe to all candle events
+redis-cli PSUBSCRIBE "market:CandleEvent:*"
+
+# Subscribe to all matching events
+redis-cli PSUBSCRIBE "market:CandleEvent:SPX{*m}"
+
 # List all keys in Redis
 redis-cli keys "*"
 
@@ -40,6 +46,4 @@ redis-cli get <key>
 
 # Set the value of a key
 redis-cli set <key> <value>
-
-
 """
