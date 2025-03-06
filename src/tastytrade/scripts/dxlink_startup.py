@@ -133,5 +133,21 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Run the main async function
     sys.exit(asyncio.run(main()))
+
+"""
+# Run with Test environment (default)
+python -m tastytrade.scripts.dxlink_startup
+
+# Run with Live environment
+python -m tastytrade.scripts.dxlink_startup --live
+
+# Run with debug logging
+python -m tastytrade.scripts.dxlink_startup --debug
+
+# Fill historical data gaps
+python -m tastytrade.scripts.dxlink_startup --fill-gaps
+
+# Run for a specific duration in seconds
+python -m tastytrade.scripts.dxlink_startup --duration 300
+"""
