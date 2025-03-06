@@ -12,8 +12,6 @@ from tastytrade.messaging.models.events import BaseEvent
 
 logger = logging.getLogger(__name__)
 
-PLACEHOLDER = lambda x: None
-
 
 def event_model(message: dict[str, Any]) -> BaseEvent:
     channel = message["channel"].decode()
@@ -34,6 +32,7 @@ class DataSubscription(ABC):
     async def subscribe(
         self,
         channel_pattern: str,
+        on_update: Callable,
     ) -> None:
         pass
 
@@ -76,7 +75,7 @@ class RedisSubscription(DataSubscription):
     async def subscribe(
         self,
         channel_pattern: str,
-        on_update: Callable = PLACEHOLDER,
+        on_update: Callable = lambda x: None,
     ) -> None:
         """Subscribe to a channel or pattern and process messages.
 
