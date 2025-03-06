@@ -352,8 +352,8 @@ def plot_macd_with_hull(
     y_max_price = price_max + (price_padding * 2)  # Double padding at top for labels
 
     # For MACD panel, get data-driven min/max
-    macd_min = min(df_plot["diff"].min(), df_plot["Value"].min()) * 1.2
-    macd_max = max(df_plot["Value"].max(), df_plot["avg"].max()) * 1.2
+    macd_min = min(df_plot["diff"].min(), df_plot["Value"].min(), df_plot["avg"].min()) * 1.2
+    macd_max = max(df_plot["diff"].max(), df_plot["Value"].max(), df_plot["avg"].max()) * 1.2
 
     # Add vertical time lines if provided
     if vertical_lines:
