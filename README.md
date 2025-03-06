@@ -2,7 +2,7 @@
 
 A high-performance Python SDK for the TastyTrade Open API, providing programmatic access to trading operations and real-time market data with advanced analytics capabilities.
 
-![Sample Technical Analysis Chart](devtools/images/sample_chart.png)
+![Sample Technical Analysis Chart](src/devtools/images/sample_chart.png)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python Versions](https://img.shields.io/badge/python-3.11%2B-blue)
