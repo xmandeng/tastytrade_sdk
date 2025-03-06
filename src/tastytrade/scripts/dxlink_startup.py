@@ -30,7 +30,9 @@ LOOKBACK_DAYS = 5
 
 def parse_args():
     parser = ArgumentParser(description="DXLink Market Data Startup")
-    parser.add_argument("--env", default="Test", choices=["Live", "Test"], help="Environment")
+    parser.add_argument(
+        "--live", action="store_true", help="Use Live environment (default is Test)"
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--fill-gaps", action="store_true", help="Fill historical data gaps")
     parser.add_argument(
@@ -47,15 +49,18 @@ async def main():
     setup_logging(level=log_level, console=True, file=True)
     logger = logging.getLogger(__name__)
 
-    # Set up connection
-    logger.info(f"Initializing DXLink in {args.env} environment")
+    # Determine environment
+    env = "Live" if args.live else "Test"
+
+    # Initialize connection
+    logger.info(f"Initializing DXLink in {env} environment")
 
     # Initialize Redis configuration
     config = RedisConfigManager()
     config.initialize()
 
     # Set API credentials
-    credentials = Credentials(config=config, env=args.env)
+    credentials = Credentials(config=config, env=env)
     start_time = datetime.now() - timedelta(days=1)
 
     try:
@@ -109,12 +114,14 @@ async def main():
             # Keep the connection alive
             if args.duration > 0:
                 logger.info(f"Running for {args.duration} seconds")
-                await asyncio.sleep(args.duration)
+                try:
+                    await asyncio.wait_for(dxlink.send_keepalives(), timeout=args.duration)
+                except asyncio.TimeoutError:
+                    logger.info(f"Duration of {args.duration} seconds reached")
             else:
+                await asyncio.sleep(5)
                 logger.info("Running indefinitely (press Ctrl+C to stop)")
-                while True:
-                    await asyncio.sleep(60)
-                    logger.debug("Still running...")
+                await dxlink.send_keepalives()
 
     except KeyboardInterrupt:
         logger.info("Shutting down...")
@@ -126,4 +133,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Run the main async function
     sys.exit(asyncio.run(main()))
