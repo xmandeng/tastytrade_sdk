@@ -133,8 +133,8 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
             env_file: Path to .env file for loading variables (optional)
         """
         # Skip initialization if already initialized
-        if hasattr(self, "initialized"):
-            return
+        # if hasattr(self, "initialized"):
+        #     return
 
         # Load environment variables from .env file
         self.env_file = env_file or ".env"
