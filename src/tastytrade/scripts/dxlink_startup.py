@@ -23,7 +23,7 @@ from tastytrade.messaging.processors import RedisEventProcessor, TelegrafHTTPEve
 from tastytrade.utils.time_series import forward_fill
 
 # Default configuration
-DEFAULT_SYMBOLS = ["BTC/USD:CXTALP", "SPX", "NVDA", "SPY", "QQQ"]
+DEFAULT_SYMBOLS = ["BTC/USD:CXTALP", "SPX", "NVDA", "SPY", "QQQ", "AAPL"]
 DEFAULT_INTERVALS = ["1d", "1h", "30m", "15m", "5m", "m"]
 LOOKBACK_DAYS = 5
 
