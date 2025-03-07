@@ -37,7 +37,7 @@ def format_candle_symbol(symbol: str) -> str:
 
 def parse_candle_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:
 
-    match = re.match(r"([a-zA-Z/:]+)\{=(\d*[a-zA-Z])}", symbol)
+    match = re.match(r"([a-zA-Z0-9\/:]+)\{=(\d*[a-zA-Z])\}", symbol)
 
     if match is None:
         return None, None
