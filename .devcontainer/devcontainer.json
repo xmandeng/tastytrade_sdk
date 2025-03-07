@@ -109,6 +109,7 @@
         "python.createEnvironment.contentButton": "show",
         "python.experiments.enabled": false,
         "python.languageServer": "Pylance",
+        "python.terminal.shellIntegration.enabled": true,
         "python.analysis.extraPaths": [
           "/workspace/src",
           "/workspace/.venv/lib/python3.11/site-packages"
@@ -117,7 +118,8 @@
         "python.testing.pytestEnabled": true,
         "autoDocstring.docstringFormat": "numpy",
         "autoDocstring.includeName": true,
-        "autoDocstring.logLevel": "Debug"
+        "autoDocstring.logLevel": "Debug",
+        "pylint.enabled": false
       },
       "launch": {
         "configurations": [
