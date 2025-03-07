@@ -1,16 +1,5 @@
 #!/bin/bash
 
-# sudo apt-get install -y redis-tools
-
-# Flush Redis cache on remote host
-echo "Flushing Redis cache..."
-redis-cli -h ${REDIS_HOST:-localhost} -p ${REDIS_PORT:-6379} FLUSHALL
-echo "Redis cache flushed successfully."
-
-# Small delay to ensure Redis is ready
-sleep 1
-
-
 # Define symbols and intervals
 SYMBOLS=("SPY" "AAPL" "SPX" "QQQ" "NVDA" "BTC/USD:CXTALP")
 INTERVALS=("1m" "5m" "15m" "30m" "1h" "1d")
