@@ -9,15 +9,16 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from tastytrade.common.logging import setup_logging
+from tastytrade.config import RedisConfigManager
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
+from tastytrade.connections.subscription import RedisSubscriptionStore
+from tastytrade.messaging.processors import RedisEventProcessor, TelegrafHTTPEventProcessor
 
 """Example curl requests:
 
 # Subscribe to feed
-curl -X POST "http://localhost:8000/subscribe/feed" \
-     -H "Content-Type: application/json" \
-     -d '{"symbols": ["SPY", "AAPL"]}'
+curl -X POST "http://localhost:8000/subscribe/feed" -H "Content-Type: application/json" -d '{"symbols": ["SPY", "AAPL", "SPX", "QQQ", "NVDA", "BTC/USD:CXTALP"]}'
 
 # Unsubscribe to feed
 curl -X POST "http://localhost:8000/unsubscribe/feed" \
@@ -25,9 +26,47 @@ curl -X POST "http://localhost:8000/unsubscribe/feed" \
      -d '{"symbols": ["SPY", "AAPL"]}'
 
 # Subscribe to candles
-curl -X POST "http://localhost:8000/subscribe/candles" \
-     -H "Content-Type: application/json" \
-     -d '{"symbol": "SPY", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "NVDA", "interval": "1m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "NVDA", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "NVDA", "interval": "15m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "NVDA", "interval": "30m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "NVDA", "interval": "1h"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "NVDA", "interval": "1d"}'
+
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "AAPL", "interval": "1m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "AAPL", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "AAPL", "interval": "15m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "AAPL", "interval": "30m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "AAPL", "interval": "1h"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "AAPL", "interval": "1d"}'
+
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPY", "interval": "1m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPY", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPY", "interval": "15m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPY", "interval": "30m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPY", "interval": "1h"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPY", "interval": "1d"}'
+
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "QQQ", "interval": "1m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "QQQ", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "QQQ", "interval": "15m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "QQQ", "interval": "30m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "QQQ", "interval": "1h"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "QQQ", "interval": "1d"}'
+
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPX", "interval": "1m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPX", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPX", "interval": "15m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPX", "interval": "30m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPX", "interval": "1h"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "SPX", "interval": "1d"}'
+
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "BTC/USD:CXTALP", "interval": "1m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "BTC/USD:CXTALP", "interval": "5m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "BTC/USD:CXTALP", "interval": "15m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "BTC/USD:CXTALP", "interval": "30m"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "BTC/USD:CXTALP", "interval": "1h"}'
+curl -X POST "http://localhost:8000/subscribe/candles" -H "Content-Type: application/json" -d '{"symbol": "BTC/USD:CXTALP", "interval": "1d"}'
 """
 
 # Configure logging
@@ -46,13 +85,29 @@ async def lifespan(app: FastAPI):
     async with initialization_lock:
         if dxlink_manager is None:
             try:
-                credentials = Credentials(env="Live")
-                dxlink_manager = DXLinkManager()
+                config = RedisConfigManager()
+                config.initialize(force=True)
+                credentials = Credentials(config=config, env="Live")
+                dxlink_manager = DXLinkManager(subscription_store=RedisSubscriptionStore())
                 await dxlink_manager.open(credentials)
-                logger.info("DXLink manager initialized successfully")
+                assert dxlink_manager.router is not None
+
+                for handler_name, event_handler in dxlink_manager.router.handler.items():
+                    logger.info(f"Adding processors to {handler_name} handler")
+                    event_handler.add_processor(TelegrafHTTPEventProcessor())
+                    event_handler.add_processor(RedisEventProcessor())
+
+                logger.info(
+                    "Setting up event processors: %s, %s",
+                    TelegrafHTTPEventProcessor.__name__,
+                    RedisEventProcessor.__name__,
+                )
+
             except Exception as e:
                 logger.error(f"Failed to initialize DXLink manager: {e}")
                 raise
+
+            logger.info("DXLink manager initialized successfully")
 
     yield
 
@@ -262,7 +317,10 @@ async def clear_all_subscriptions(background_tasks: BackgroundTasks):
 
 
 def start():
-    """Entry point for the API when run through poetry."""
+    """Entry point for the API when run through poetry.
+
+    `poetry run api`
+    """
     import uvicorn
 
     uvicorn.run("tastytrade.api.main:app", host="0.0.0.0", port=8000, reload=True)

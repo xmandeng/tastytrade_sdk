@@ -228,7 +228,7 @@ class DXLinkManager:
     ) -> None:
         """Track a new subscription."""
         await self.subscription_store.add_subscription(symbol, metadata)
-        logger.info(f"Added subscription tracking for {symbol}")
+        logger.info(f"Added subscription: {symbol}")
 
     async def remove_subscription(self, symbol: str) -> None:
         """Remove subscription tracking."""
