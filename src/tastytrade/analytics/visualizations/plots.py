@@ -492,6 +492,8 @@ def plot_macd_with_hull(
         zerolinecolor="rgba(128,128,128,0.1)",
         range=[x_min, x_max],
         automargin=True,
+        # Set 30-minute interval for x-axis ticks
+        dtick=30 * 60 * 1000,  # 30 minutes in milliseconds
     )
 
     fig.show()
