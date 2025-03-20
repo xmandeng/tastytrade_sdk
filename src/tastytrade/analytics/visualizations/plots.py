@@ -1,3 +1,4 @@
+import io
 import os
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -5,6 +6,8 @@ from typing import List, Optional
 import plotly.graph_objects as go
 import polars as pl
 import pytz
+from PIL import Image
+from PIL.Image import Image as PILImage
 from plotly.subplots import make_subplots
 
 from tastytrade.analytics.indicators.momentum import hull
@@ -120,7 +123,10 @@ def plot_macd_with_hull(
     tz_name: str | None = None,
     horizontal_lines: Optional[List[HorizontalLine]] = None,
     vertical_lines: Optional[List["VerticalLine"]] = None,
-) -> None:
+    render_to_image: bool = False,
+    image_width: int = 1200,
+    image_height: int = 800,
+) -> Optional[PILImage]:
     """
     Generate a candlestick chart with Hull Moving Average and MACD.
 
@@ -132,6 +138,12 @@ def plot_macd_with_hull(
         tz_name: Optional timezone name (defaults to TASTYTRADE_CHART_TIMEZONE env var or 'America/New_York')
         horizontal_lines: Optional list of HorizontalLine objects to plot on the chart
         vertical_lines: Optional list of VerticalLine objects to plot on the chart
+        render_to_image: If True, returns a PIL Image instead of displaying the plot
+        image_width: Width of the output image when render_to_image is True
+        image_height: Height of the output image when render_to_image is True
+
+    Returns:
+        PIL.Image.Image if render_to_image is True, otherwise None
     """
     # First compute the Hull MA
     hma_study = hull(input_df=df, pad_value=pad_value)
@@ -167,11 +179,6 @@ def plot_macd_with_hull(
     # For pandas DataFrame (hma_study)
     hma_plot["time"] = hma_plot["time"].dt.tz_localize("UTC").dt.tz_convert(timezone_name)
 
-    # try:
-    #     event_symbol = df["eventSymbol"].unique()[0]
-    # except Exception:
-    #     event_symbol = "Stock_Symbol"
-
     # Determine x-axis range - use data range if not specified
     x_min = convert_time(start_time) if start_time is not None else df_plot["time"].min()
     x_max = convert_time(end_time) if end_time is not None else df_plot["time"].max()
@@ -179,6 +186,14 @@ def plot_macd_with_hull(
     # Calculate price range for y-axis limits including horizontal lines
     price_min = df_plot["low"].min()
     price_max = df_plot["high"].max()
+
+    # Also consider HMA values for y-axis range
+    hma_min = hma_plot["HMA"].min()
+    hma_max = hma_plot["HMA"].max()
+
+    # Take the minimum of price_min and hma_min
+    price_min = min(price_min, hma_min)
+    price_max = max(price_max, hma_max)
 
     # Adjust min/max to include all horizontal lines
     if horizontal_lines:
@@ -439,7 +454,8 @@ def plot_macd_with_hull(
         yaxis_title="Price",
         yaxis2_title="MACD",
         showlegend=True,
-        height=800,
+        height=image_height if render_to_image else 800,
+        width=image_width if render_to_image else None,
         template="plotly_dark",
         xaxis_rangeslider_visible=False,
         plot_bgcolor="rgb(25,25,25)",
@@ -464,6 +480,18 @@ def plot_macd_with_hull(
         showgrid=True,
         zeroline=False,  # Remove zero line to avoid artifacts
         showticklabels=True,
+        # Set main tick interval to 20
+        dtick=10,
+        # Add minor ticks configuration
+        minor=dict(
+            ticklen=2,  # Shorter length for minor ticks
+            tickwidth=1,
+            tickcolor="rgba(150,150,150,0.5)",
+            tickmode="linear",
+            dtick=5,  # 5-point intervals for minor ticks
+            showgrid=False,
+            ticks="outside",
+        ),
     )
 
     # Normal styling for MACD subplot
@@ -496,4 +524,11 @@ def plot_macd_with_hull(
         dtick=30 * 60 * 1000,  # 30 minutes in milliseconds
     )
 
-    fig.show()
+    if render_to_image:
+        # Convert the plotly figure to a PIL Image
+        img_bytes = fig.to_image(format="png", width=image_width, height=image_height)
+        img = Image.open(io.BytesIO(img_bytes))
+        return img
+    else:
+        fig.show()
+        return None
