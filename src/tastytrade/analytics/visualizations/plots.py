@@ -480,6 +480,18 @@ def plot_macd_with_hull(
         showgrid=True,
         zeroline=False,  # Remove zero line to avoid artifacts
         showticklabels=True,
+        # Set main tick interval to 20
+        dtick=10,
+        # Add minor ticks configuration
+        minor=dict(
+            ticklen=2,  # Shorter length for minor ticks
+            tickwidth=1,
+            tickcolor="rgba(150,150,150,0.5)",
+            tickmode="linear",
+            dtick=5,  # 5-point intervals for minor ticks
+            showgrid=False,
+            ticks="outside",
+        ),
     )
 
     # Normal styling for MACD subplot
