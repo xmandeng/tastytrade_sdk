@@ -20,47 +20,6 @@ from tastytrade.utils.helpers import parse_candle_symbol
 logger = logging.getLogger(__name__)
 
 
-# Extend MarketDataProvider with callback support
-class EventDrivenMarketDataProvider(MarketDataProvider):
-    """Extension of MarketDataProvider with event callback support."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.update_callbacks = {}
-
-    def register_update_callback(self, event_symbol: str, callback):
-        """Register a callback to be triggered when data for a symbol is updated."""
-        if event_symbol not in self.update_callbacks:
-            self.update_callbacks[event_symbol] = []
-        self.update_callbacks[event_symbol].append(callback)
-        logger.debug(f"Registered update callback for {event_symbol}")
-        return callback  # Return the callback for convenience
-
-    def unregister_update_callback(self, event_symbol: str, callback):
-        """Remove a registered callback."""
-        if (
-            event_symbol in self.update_callbacks
-            and callback in self.update_callbacks[event_symbol]
-        ):
-            self.update_callbacks[event_symbol].remove(callback)
-            logger.debug(f"Unregistered update callback for {event_symbol}")
-
-    def handle_update(self, event: BaseEvent) -> None:
-        """Handle incoming market data events and trigger callbacks."""
-        event_key = f"{event.__class__.__name__}:{event.eventSymbol}"
-
-        # Call the original handle_update method
-        super().handle_update(event)
-
-        # Trigger callbacks if registered for this symbol
-        if event_key in self.update_callbacks and self.update_callbacks[event_key]:
-            for callback in self.update_callbacks[event_key]:
-                try:
-                    callback(event_key, event)
-                except Exception as e:
-                    logger.error(f"Error in update callback for {event_key}: {e}")
-
-
 class LiveMarketChart:
     """Event-driven live updating market data chart with technical indicators."""
 
