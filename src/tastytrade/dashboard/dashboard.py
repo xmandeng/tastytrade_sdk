@@ -4,7 +4,7 @@ import asyncio
 import logging
 from queue import Queue
 from threading import Lock, Thread
-from typing import List, Optional
+from typing import Any, List, Optional, Tuple, cast
 
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -13,6 +13,7 @@ from dash import Dash, ctx, dcc, html
 from dash.dependencies import ALL, Input, Output, State
 
 from tastytrade.analytics.indicators.momentum import hull
+from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
@@ -32,7 +33,7 @@ class DashApp:
             update_title=None,
         )
         self.dxlink: Optional[DXLinkManager] = None
-        self.subscription_queue: Queue[tuple[str, str]] = (
+        self.subscription_queue: Queue[Tuple[str, str]] = (
             Queue()
         )  # Queue of (symbol, interval) tuples
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -276,7 +277,7 @@ class DashApp:
             if not ctx.triggered_id:
                 logger.debug("No trigger ID in update_charts callback")
                 return [
-                    self.create_initial_figure(props["id"]["symbol"])
+                    self.create_initial_figure(cast(dict[str, Any], props["id"])["symbol"])
                     for props in ctx.inputs_list[0]
                 ]
 
@@ -286,7 +287,7 @@ class DashApp:
                 if not self.dxlink or not self.dxlink.router:
                     logger.warning("DXLink or router not initialized")
                     return [
-                        self.create_initial_figure(props["id"]["symbol"])
+                        self.create_initial_figure(cast(dict[str, Any], props["id"])["symbol"])
                         for props in ctx.inputs_list[0]
                     ]
 
@@ -303,7 +304,7 @@ class DashApp:
                 if candle_data.empty:
                     logger.warning("No candle data available")
                     return [
-                        self.create_initial_figure(props["id"]["symbol"])
+                        self.create_initial_figure(cast(dict[str, Any], props["id"])["symbol"])
                         for props in ctx.inputs_list[0]
                     ]
 
@@ -315,8 +316,9 @@ class DashApp:
 
                 # Now process each symbol using our copied data
                 for interval_props in ctx.inputs_list[0]:
-                    symbol = interval_props["id"]["symbol"]
-                    interval = interval_props["id"]["interval"]
+                    props_id = cast(dict[str, Any], interval_props["id"])
+                    symbol = props_id["symbol"]
+                    interval = props_id["interval"]
                     candle_symbol = f"{symbol}{{={interval}}}"
                     logger.debug(f"Processing chart update for {candle_symbol}")
 
@@ -365,7 +367,7 @@ class DashApp:
             if not ctx.triggered_id:
                 return existing_charts
 
-            symbol = ctx.triggered_id["symbol"]
+            symbol = cast(dict[str, Any], ctx.triggered_id)["symbol"]
             return [
                 chart for chart in existing_charts if chart["props"]["id"] != f"chart-card-{symbol}"
             ]
@@ -479,7 +481,8 @@ class DashApp:
                 try:
                     logger.debug(f"Calculating HMA for {candle_symbol}")
                     # Pass the formatted symbol to hull() since it expects that format
-                    hma_df = hull(self.dxlink, candle_symbol, length=20, input_df=df)
+                    # Calculate HMA using the existing data instead of passing df as a parameter
+                    hma_df = hull(self.dxlink, candle_symbol, length=20)
                     if not hma_df.empty:
                         logger.debug(f"HMA calculation successful, shape: {hma_df.shape}")
                         logger.debug(f"HMA sample:\n{hma_df.head(1).to_dict('records')}")
@@ -549,7 +552,8 @@ class DashApp:
 
     async def connect_dxlink(self) -> None:
         try:
-            credentials = Credentials(env="Live")
+            config = RedisConfigManager()
+            credentials = Credentials(config=config, env="Live")
             self.dxlink = DXLinkManager()
             await self.dxlink.open(credentials)
             logger.info("Connected to DXLink")

@@ -13,7 +13,7 @@ from tastytrade.messaging.models.events import BaseEvent
 logger = logging.getLogger(__name__)
 
 
-def event_model(message: dict[str, Any]) -> BaseEvent:
+def convert_message_to_event(message: dict[str, Any]) -> BaseEvent:
     channel = message["channel"].decode()
     data = json.loads(message["data"])
     event_type = channel.split(":")[1]
@@ -103,7 +103,7 @@ class RedisSubscription(DataSubscription):
                     continue
 
                 try:
-                    event = event_model(message)
+                    event = convert_message_to_event(message)
                     logger.debug(f"Received message: {event}")
 
                 except json.JSONDecodeError:
