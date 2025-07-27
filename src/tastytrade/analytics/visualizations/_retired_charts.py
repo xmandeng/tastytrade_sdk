@@ -27,7 +27,6 @@ class Study:
 
 
 class CandleChart:
-
     def __init__(
         self,
         streamer: MarketDataProvider,
@@ -159,8 +158,12 @@ class CandleChart:
                                 high=plot_df["high"],
                                 low=plot_df["low"],
                                 close=plot_df["close"],
-                                increasing=dict(line=dict(width=1), fillcolor="#26A69A"),
-                                decreasing=dict(line=dict(width=1), fillcolor="#EF5350"),
+                                increasing=dict(
+                                    line=dict(width=1), fillcolor="#26A69A"
+                                ),
+                                decreasing=dict(
+                                    line=dict(width=1), fillcolor="#EF5350"
+                                ),
                                 name="Price",
                             )
                         )
@@ -204,7 +207,9 @@ class CandleChart:
             sys.exit(1)
 
     def start(self) -> asyncio.Task:
-        self.task = asyncio.create_task(self.update_chart(), name=f"dynamic_chart_{self.symbol}")
+        self.task = asyncio.create_task(
+            self.update_chart(), name=f"dynamic_chart_{self.symbol}"
+        )
         return self.task
 
     async def stop(self) -> None:

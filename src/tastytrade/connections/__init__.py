@@ -23,13 +23,13 @@ class Credentials:
         if env not in ["Test", "Live"]:
             raise ValueError("Environment must be either 'Test' or 'Live'")
 
-        self.login: str = config.get("TT_SANDBOX_USER") if env == "Test" else config.get("TT_USER")
+        self.login: str = (
+            config.get("TT_SANDBOX_USER") if env == "Test" else config.get("TT_USER")
+        )
         # self.login: str = os.environ["TT_SANDBOX_USER"] if env == "Test" else os.environ["TT_USER"]
 
         self.password: str = (
-            config.get("TT_SANDBOX_PASS")
-            if env == "Test"
-            else config.get("TT_PASS")
+            config.get("TT_SANDBOX_PASS") if env == "Test" else config.get("TT_PASS")
             # os.environ["TT_SANDBOX_PASS"] if env == "Test" else os.environ["TT_PASS"]
         )
 

@@ -42,7 +42,6 @@ def validate_response(response: requests.Response) -> bool:
         return True
 
     elif response.status_code in range(200, 300):
-
         try:
             response.json()
             return True
@@ -69,5 +68,7 @@ def validate_async_response(response: aiohttp.ClientResponse) -> bool:
     if response.status not in range(200, 300):
         error_message = "Unknown error"
         if response.headers.get("content-type") == "application/json":
-            raise Exception(f"Request failed with status {response.status}: {error_message}")
+            raise Exception(
+                f"Request failed with status {response.status}: {error_message}"
+            )
     return True

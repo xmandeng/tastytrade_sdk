@@ -4,7 +4,10 @@ from typing import List, Protocol
 
 from tastytrade.config.enumerations import Channels
 from tastytrade.messaging.handlers import ControlHandler, EventHandler
-from tastytrade.messaging.processors.default import CandleEventProcessor, LatestEventProcessor
+from tastytrade.messaging.processors.default import (
+    CandleEventProcessor,
+    LatestEventProcessor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +25,18 @@ class MessageRouter:
         Channels.Control: ControlHandler(),
         Channels.Quote: EventHandler(Channels.Quote, processor=LatestEventProcessor()),
         Channels.Trade: EventHandler(Channels.Trade),
-        Channels.Greeks: EventHandler(Channels.Greeks, processor=LatestEventProcessor()),
-        Channels.Profile: EventHandler(Channels.Profile, processor=LatestEventProcessor()),
-        Channels.Summary: EventHandler(Channels.Summary, processor=LatestEventProcessor()),
-        Channels.Candle: EventHandler(Channels.Candle, processor=CandleEventProcessor()),
+        Channels.Greeks: EventHandler(
+            Channels.Greeks, processor=LatestEventProcessor()
+        ),
+        Channels.Profile: EventHandler(
+            Channels.Profile, processor=LatestEventProcessor()
+        ),
+        Channels.Summary: EventHandler(
+            Channels.Summary, processor=LatestEventProcessor()
+        ),
+        Channels.Candle: EventHandler(
+            Channels.Candle, processor=CandleEventProcessor()
+        ),
     }
 
     def __new__(cls, *args: object, **kwargs: object) -> "MessageRouter":
@@ -34,7 +45,6 @@ class MessageRouter:
         return cls.instance
 
     def __init__(self, websocket: Websocket) -> None:
-
         # Start queue listeners
         self.tasks: List[asyncio.Task] = [
             asyncio.create_task(
@@ -95,7 +105,10 @@ class MessageRouter:
                     break
         except Exception as e:
             logger.error(
-                "Error draining %s queue on channel %s: %s", channel.name, channel.value, e
+                "Error draining %s queue on channel %s: %s",
+                channel.name,
+                channel.value,
+                e,
             )
 
         logger.debug("%s channel %s drained", channel.name, channel.value)

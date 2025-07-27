@@ -32,10 +32,17 @@ class BaseEvent(BaseModel):
 
 class FloatFieldMixin:
     @classmethod
-    def validate_float_fields(cls, *field_names: str) -> Callable[[Any], Optional[float]]:
+    def validate_float_fields(
+        cls, *field_names: str
+    ) -> Callable[[Any], Optional[float]]:
         @field_validator(*field_names, mode="before")
         def convert_float(value: Any) -> Optional[float]:
-            if value is None or value == "NaN" or value == float("inf") or pd.isna(value):
+            if (
+                value is None
+                or value == "NaN"
+                or value == float("inf")
+                or pd.isna(value)
+            ):
                 return None
             return round(float(value), MAX_PRECISION)
 
@@ -95,12 +102,24 @@ class ProfileEvent(BaseEvent, FloatFieldMixin):
     statusReason: Optional[str] = Field(
         default=None, description="Reason for current trading status"
     )
-    haltStartTime: Optional[int] = Field(default=None, description="Trading halt start timestamp")
-    haltEndTime: Optional[int] = Field(default=None, description="Trading halt end timestamp")
-    highLimitPrice: Optional[float] = Field(default=None, description="Upper price limit", ge=0)
-    lowLimitPrice: Optional[float] = Field(default=None, description="Lower price limit", ge=0)
-    high52WeekPrice: Optional[float] = Field(default=None, description="52-week high price", ge=0)
-    low52WeekPrice: Optional[float] = Field(default=None, description="52-week low price", ge=0)
+    haltStartTime: Optional[int] = Field(
+        default=None, description="Trading halt start timestamp"
+    )
+    haltEndTime: Optional[int] = Field(
+        default=None, description="Trading halt end timestamp"
+    )
+    highLimitPrice: Optional[float] = Field(
+        default=None, description="Upper price limit", ge=0
+    )
+    lowLimitPrice: Optional[float] = Field(
+        default=None, description="Lower price limit", ge=0
+    )
+    high52WeekPrice: Optional[float] = Field(
+        default=None, description="52-week high price", ge=0
+    )
+    low52WeekPrice: Optional[float] = Field(
+        default=None, description="52-week low price", ge=0
+    )
 
     convert_float = FloatFieldMixin.validate_float_fields(
         "highLimitPrice", "lowLimitPrice", "high52WeekPrice", "low52WeekPrice"
@@ -108,14 +127,22 @@ class ProfileEvent(BaseEvent, FloatFieldMixin):
 
 
 class SummaryEvent(BaseEvent, FloatFieldMixin):
-    openInterest: Optional[float] = Field(default=None, description="Open interest", ge=0)
+    openInterest: Optional[float] = Field(
+        default=None, description="Open interest", ge=0
+    )
     dayOpenPrice: Optional[float] = Field(description="Opening price for the day", ge=0)
     dayHighPrice: Optional[float] = Field(description="Highest price for the day", ge=0)
     dayLowPrice: Optional[float] = Field(description="Lowest price for the day", ge=0)
-    prevDayClosePrice: Optional[float] = Field(description="Previous day's closing price", ge=0)
+    prevDayClosePrice: Optional[float] = Field(
+        description="Previous day's closing price", ge=0
+    )
 
     convert_float = FloatFieldMixin.validate_float_fields(
-        "openInterest", "dayOpenPrice", "dayHighPrice", "dayLowPrice", "prevDayClosePrice"
+        "openInterest",
+        "dayOpenPrice",
+        "dayHighPrice",
+        "dayLowPrice",
+        "prevDayClosePrice",
     )
 
 
@@ -125,14 +152,24 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
     index: Optional[int] = Field(
         default=None, description="Unique per-symbol index of this candle event"
     )
-    sequence: Optional[int] = Field(default=None, description="Sequence number of this event")
-    count: Optional[int] = Field(default=None, description="Total number of events in the candle")
-    open: Optional[float] = Field(default=None, description="Opening price for the interval", ge=0)
+    sequence: Optional[int] = Field(
+        default=None, description="Sequence number of this event"
+    )
+    count: Optional[int] = Field(
+        default=None, description="Total number of events in the candle"
+    )
+    open: Optional[float] = Field(
+        default=None, description="Opening price for the interval", ge=0
+    )
     high: Optional[float] = Field(
         default=None, description="Highest price during the interval", ge=0
     )
-    low: Optional[float] = Field(default=None, description="Lowest price during the interval", ge=0)
-    close: Optional[float] = Field(default=None, description="Closing price for the interval", ge=0)
+    low: Optional[float] = Field(
+        default=None, description="Lowest price during the interval", ge=0
+    )
+    close: Optional[float] = Field(
+        default=None, description="Closing price for the interval", ge=0
+    )
     volume: Optional[float] = Field(
         default=None, description="Volume of trades during the interval", ge=0
     )
@@ -142,9 +179,15 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
     askVolume: Optional[float] = Field(
         default=None, description="Ask volume of trades during the interval", ge=0
     )
-    openInterest: Optional[float] = Field(default=None, description="Open interest", ge=0)
-    vwap: Optional[float] = Field(default=None, description="Volume Weighted Average Price", ge=0)
-    impVolatility: Optional[float] = Field(default=None, description="Implied volatility", ge=0)
+    openInterest: Optional[float] = Field(
+        default=None, description="Open interest", ge=0
+    )
+    vwap: Optional[float] = Field(
+        default=None, description="Volume Weighted Average Price", ge=0
+    )
+    impVolatility: Optional[float] = Field(
+        default=None, description="Implied volatility", ge=0
+    )
 
     model_config = ConfigDict(
         frozen=False,

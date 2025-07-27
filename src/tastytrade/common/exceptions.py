@@ -26,7 +26,9 @@ class TastytradeSdkError(Exception, ABC):
                     "message", "No detailed error message available."
                 )
             except JSONDecodeError:
-                error_message = self.response.text  # Fallback to raw text if JSON parsing fails
+                error_message = (
+                    self.response.text
+                )  # Fallback to raw text if JSON parsing fails
 
             return f"{base_message} (Status: {self.response.status_code}, Message: {error_message})"
         return base_message
@@ -85,9 +87,7 @@ class AsyncTastytradeSdkError(Exception, ABC):
     def __str__(self) -> str:
         base_message = super().__str__()
         if self.response is not None and self._error_message:
-            return (
-                f"{base_message} (Status: {self.response.status}, Message: {self._error_message})"
-            )
+            return f"{base_message} (Status: {self.response.status}, Message: {self._error_message})"
         return base_message
 
 

@@ -8,6 +8,7 @@ and subscribes to market data for specified symbols and intervals.
 Usage:
     python dxlink_startup.py
 """
+
 import asyncio
 import logging
 import sys
@@ -19,7 +20,10 @@ from tastytrade.config import RedisConfigManager
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
-from tastytrade.messaging.processors import RedisEventProcessor, TelegrafHTTPEventProcessor
+from tastytrade.messaging.processors import (
+    RedisEventProcessor,
+    TelegrafHTTPEventProcessor,
+)
 from tastytrade.utils.time_series import forward_fill
 
 # Default configuration
@@ -34,9 +38,14 @@ def parse_args():
         "--live", action="store_true", help="Use Live environment (default is Test)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--fill-gaps", action="store_true", help="Fill historical data gaps")
     parser.add_argument(
-        "--duration", type=int, default=0, help="Run duration in seconds (0 = indefinite)"
+        "--fill-gaps", action="store_true", help="Fill historical data gaps"
+    )
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=0,
+        help="Run duration in seconds (0 = indefinite)",
     )
     return parser.parse_args()
 
@@ -68,7 +77,6 @@ async def main():
         async with DXLinkManager(
             credentials=credentials, subscription_store=RedisSubscriptionStore()
         ) as dxlink:
-
             # Add processors
             logger.info("Setting up event processors")
             for handler_name, event_handler in dxlink.router.handler.items():
@@ -103,7 +111,9 @@ async def main():
                         event_symbol = f"{symbol}{{={interval_str}}}"
                         try:
                             logger.debug(f"Forward-filling {event_symbol}")
-                            forward_fill(symbol=event_symbol, lookback_days=LOOKBACK_DAYS)
+                            forward_fill(
+                                symbol=event_symbol, lookback_days=LOOKBACK_DAYS
+                            )
                         except Exception as e:
                             logger.error(f"Error forward-filling {event_symbol}: {e}")
 
@@ -115,7 +125,9 @@ async def main():
             if args.duration > 0:
                 logger.info(f"Running for {args.duration} seconds")
                 try:
-                    await asyncio.wait_for(dxlink.send_keepalives(), timeout=args.duration)
+                    await asyncio.wait_for(
+                        dxlink.send_keepalives(), timeout=args.duration
+                    )
                 except asyncio.TimeoutError:
                     logger.info(f"Duration of {args.duration} seconds reached")
             else:

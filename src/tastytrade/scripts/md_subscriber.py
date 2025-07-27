@@ -8,6 +8,7 @@ and subscribes to specified event types and symbols.
 Usage:
     python md_subscriber.py [--event EVENT_TYPE] [--symbol SYMBOL] [--live] [--debug]
 """
+
 import asyncio
 import logging
 import sys
@@ -40,7 +41,10 @@ def parse_args():
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument(
-        "--duration", type=int, default=0, help="Subscription duration in seconds (0 = indefinite)"
+        "--duration",
+        type=int,
+        default=0,
+        help="Subscription duration in seconds (0 = indefinite)",
     )
     parser.add_argument(
         "--interval",
@@ -126,9 +130,13 @@ async def main():
         # Set up data display task if interval > 0
         display_task = None
         if args.interval > 0:
-            logger.info(f"Setting up data display to refresh every {args.interval} seconds")
+            logger.info(
+                f"Setting up data display to refresh every {args.interval} seconds"
+            )
             display_task = asyncio.create_task(
-                display_data_periodically(streamer, args.event, args.symbol, args.interval)
+                display_data_periodically(
+                    streamer, args.event, args.symbol, args.interval
+                )
             )
 
         # Keep the subscription active

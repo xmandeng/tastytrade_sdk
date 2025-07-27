@@ -69,7 +69,9 @@ def prepare_and_fill_data(tables: pd.DataFrame, time_interval: str) -> pd.DataFr
     last_valid_index = tables.index.max()
 
     # Create complete time range between bookends
-    all_times = pd.date_range(start=first_valid_index, end=last_valid_index, freq=pandas_interval)
+    all_times = pd.date_range(
+        start=first_valid_index, end=last_valid_index, freq=pandas_interval
+    )
     missing_times = all_times[~all_times.isin(tables.index)]
 
     return tables.reindex(all_times).ffill().loc[missing_times]
@@ -107,7 +109,9 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
             processor.process_event(candle_event)
 
         except Exception as e:
-            logging.info("[ERROR] Failed to process CandleEvent at %s: %s", timestamp, e)
+            logging.info(
+                "[ERROR] Failed to process CandleEvent at %s: %s", timestamp, e
+            )
 
     # Flush and close the write API to ensure all data is written
     try:
@@ -131,7 +135,9 @@ def forward_fill(symbol, lookback_days=1):
     tables = query_candle_event_data(client, influx_symbol, lookback_days)
 
     if tables is None:
-        logging.warning("No data found for %s in the last %s days", symbol, lookback_days)
+        logging.warning(
+            "No data found for %s in the last %s days", symbol, lookback_days
+        )
         client.close()
         return
 
@@ -150,7 +156,6 @@ def forward_fill(symbol, lookback_days=1):
 
 # Example Usage
 if __name__ == "__main__":
-
     setup_logging(
         level=logging.INFO,
         console=True,

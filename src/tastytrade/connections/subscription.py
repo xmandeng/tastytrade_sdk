@@ -88,7 +88,9 @@ class RedisSubscriptionStore(SubscriptionStore):
 
         return result
 
-    async def update_subscription_status(self, symbol: str, data: dict[str, Any]) -> None:
+    async def update_subscription_status(
+        self, symbol: str, data: dict[str, Any]
+    ) -> None:
         """
         Updates the metadata and timestamp of a subscription in Redis.
 
@@ -157,7 +159,11 @@ class InMemorySubscriptionStore(SubscriptionStore):
             self.subscriptions[symbol]["active"] = False
 
     async def get_active_subscriptions(self) -> dict:
-        return {symbol: data for symbol, data in self.subscriptions.items() if data["active"]}
+        return {
+            symbol: data
+            for symbol, data in self.subscriptions.items()
+            if data["active"]
+        }
 
     async def update_subscription_status(self, symbol: str, data: dict) -> None:
         # ! FIX THIS TO ALIGN WITH REDIS IMPLEMENTATION ! #
@@ -166,9 +172,13 @@ class InMemorySubscriptionStore(SubscriptionStore):
         keys_to_try = [symbol]
 
         # Try to find keys that start with this symbol (for candle subscriptions)
-        keys_to_try.extend([k for k in self.subscriptions.keys() if k.startswith(f"{symbol}_")])
+        keys_to_try.extend(
+            [k for k in self.subscriptions.keys() if k.startswith(f"{symbol}_")]
+        )
 
         for key in keys_to_try:
             if key in self.subscriptions:
-                self.subscriptions[key]["last_update"] = datetime.now(timezone.utc).isoformat()
+                self.subscriptions[key]["last_update"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
                 self.subscriptions[key]["metadata"].update(data)

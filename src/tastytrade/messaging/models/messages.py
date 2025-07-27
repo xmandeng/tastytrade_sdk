@@ -64,7 +64,9 @@ class EventReceivedModel(BaseModel):
         if name in self.fields:
             return self.fields[name]
         logger.error(f"'{type(self).__name__}' object has no attribute '{name}'")
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
 
     def get(self, key: str, default: Any = None) -> Any:
         """Safely get any field"""
@@ -115,13 +117,17 @@ class SubscriptionRequest(BaseModel):
     channel: int
     reset: bool = False
     add: Optional[List[AddItem | AddCandleItem]] = Field(default_factory=lambda: list())
-    remove: Optional[List[CancelItem | CancelCandleItem]] = Field(default_factory=lambda: list())
+    remove: Optional[List[CancelItem | CancelCandleItem]] = Field(
+        default_factory=lambda: list()
+    )
 
 
 class CandleSubscriptionRequest(BaseModel):
     symbol: str
     interval: str
-    from_time: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1000))
+    from_time: int = Field(
+        default_factory=lambda: int(datetime.now().timestamp() * 1000)
+    )
     to_time: Optional[int] = None
 
     @staticmethod
@@ -184,7 +190,9 @@ class CandleSubscriptionRequest(BaseModel):
     def round_from_time(self) -> "CandleSubscriptionRequest":
         """Round from_time down to the nearest interval boundary."""
         try:
-            interval_ms = self.parse_interval("1m" if self.interval == "m" else self.interval)
+            interval_ms = self.parse_interval(
+                "1m" if self.interval == "m" else self.interval
+            )
             self.from_time = (self.from_time // interval_ms) * interval_ms
         except ValueError as e:
             logger.warning(f"Could not parse interval '{self.interval}': {e}")

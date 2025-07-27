@@ -150,13 +150,17 @@ def plot_macd_with_hull(
 
     # Get timezone from parameter, environment, or default to America/New_York
     # Ensure we have a string before calling pytz.timezone()
-    timezone_name = tz_name or os.environ.get("TASTYTRADE_CHART_TIMEZONE") or "America/New_York"
+    timezone_name = (
+        tz_name or os.environ.get("TASTYTRADE_CHART_TIMEZONE") or "America/New_York"
+    )
     try:
         display_tz = pytz.timezone(timezone_name)
     except pytz.exceptions.UnknownTimeZoneError:
         # Fall back to US Eastern time if timezone is invalid
         display_tz = pytz.timezone("America/New_York")
-        print(f"Warning: Unknown timezone '{timezone_name}'. Using 'America/New_York' instead.")
+        print(
+            f"Warning: Unknown timezone '{timezone_name}'. Using 'America/New_York' instead."
+        )
 
     # Convert times to the specified timezone
     def convert_time(dt):
@@ -177,10 +181,14 @@ def plot_macd_with_hull(
     )
 
     # For pandas DataFrame (hma_study)
-    hma_plot["time"] = hma_plot["time"].dt.tz_localize("UTC").dt.tz_convert(timezone_name)
+    hma_plot["time"] = (
+        hma_plot["time"].dt.tz_localize("UTC").dt.tz_convert(timezone_name)
+    )
 
     # Determine x-axis range - use data range if not specified
-    x_min = convert_time(start_time) if start_time is not None else df_plot["time"].min()
+    x_min = (
+        convert_time(start_time) if start_time is not None else df_plot["time"].min()
+    )
     x_max = convert_time(end_time) if end_time is not None else df_plot["time"].max()
 
     # Calculate price range for y-axis limits including horizontal lines
@@ -237,7 +245,11 @@ def plot_macd_with_hull(
                 y=hma_plot["HMA"].iloc[i - 1 : i + 1],
                 mode="lines",
                 line=dict(
-                    color="#01FFFF" if hma_plot["HMA_color"].iloc[i] == "Up" else "#FF66FE",
+                    color=(
+                        "#01FFFF"
+                        if hma_plot["HMA_color"].iloc[i] == "Up"
+                        else "#FF66FE"
+                    ),
                     width=0.6,
                 ),
                 showlegend=False,
@@ -346,7 +358,9 @@ def plot_macd_with_hull(
                     text=h_line.label,
                     showarrow=False,
                     font=dict(
-                        color=h_line.color, size=h_line.label_font_size, family="Arial, sans-serif"
+                        color=h_line.color,
+                        size=h_line.label_font_size,
+                        family="Arial, sans-serif",
                     ),
                     bgcolor="rgba(25,25,25,0.7)",  # Semi-transparent background
                     bordercolor=h_line.color,
@@ -355,7 +369,9 @@ def plot_macd_with_hull(
                     xanchor=(
                         "left"
                         if h_line.text_position == "left"
-                        else "right" if h_line.text_position == "right" else "center"
+                        else "right"
+                        if h_line.text_position == "right"
+                        else "center"
                     ),
                     yanchor="bottom",
                     xref="x",
@@ -367,8 +383,12 @@ def plot_macd_with_hull(
     y_max_price = price_max + (price_padding * 2)  # Double padding at top for labels
 
     # For MACD panel, get data-driven min/max
-    macd_min = min(df_plot["diff"].min(), df_plot["Value"].min(), df_plot["avg"].min()) * 1.2
-    macd_max = max(df_plot["diff"].max(), df_plot["Value"].max(), df_plot["avg"].max()) * 1.2
+    macd_min = (
+        min(df_plot["diff"].min(), df_plot["Value"].min(), df_plot["avg"].min()) * 1.2
+    )
+    macd_max = (
+        max(df_plot["diff"].max(), df_plot["Value"].max(), df_plot["avg"].max()) * 1.2
+    )
 
     # Add vertical time lines if provided
     if vertical_lines:
@@ -380,7 +400,10 @@ def plot_macd_with_hull(
             line_time = line_time.astimezone(display_tz)
 
             # Add the vertical line to both panels
-            for row_idx, y_range in [(1, [y_min_price, y_max_price]), (2, [macd_min, macd_max])]:
+            for row_idx, y_range in [
+                (1, [y_min_price, y_max_price]),
+                (2, [macd_min, macd_max]),
+            ]:
                 # Skip the second panel if not set to span subplots
                 if row_idx == 2 and not v_line.span_subplots:
                     continue
@@ -430,7 +453,9 @@ def plot_macd_with_hull(
                     text=v_line.label,
                     showarrow=False,
                     font=dict(
-                        color=v_line.color, size=v_line.label_font_size, family="Arial, sans-serif"
+                        color=v_line.color,
+                        size=v_line.label_font_size,
+                        family="Arial, sans-serif",
                     ),
                     bgcolor=bg_color,  # Use the pre-constructed background color
                     bordercolor=v_line.color,

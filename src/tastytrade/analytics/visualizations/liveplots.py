@@ -103,8 +103,13 @@ class LiveMarketChart:
 
     async def cleanup(self):
         """Unregister callbacks and clean up resources."""
-        if hasattr(self.streamer, "unregister_update_callback") and self.update_callback:
-            self.streamer.unregister_update_callback(self.event_symbol, self.update_callback)
+        if (
+            hasattr(self.streamer, "unregister_update_callback")
+            and self.update_callback
+        ):
+            self.streamer.unregister_update_callback(
+                self.event_symbol, self.update_callback
+            )
             logger.info(f"Unregistered update callback for {self.event_symbol}")
 
     def _on_data_update(self, event_key: str, event: BaseEvent):
@@ -121,7 +126,11 @@ class LiveMarketChart:
             app.clientside_queue.put(
                 Output(f"{self.id}-update-count", "data"),
                 {
-                    "timestamp": self.last_update_time.timestamp() if self.last_update_time else 0,
+                    "timestamp": (
+                        self.last_update_time.timestamp()
+                        if self.last_update_time
+                        else 0
+                    ),
                     "symbol": self.event_symbol,
                     "event_type": event.__class__.__name__,
                 },
@@ -143,7 +152,9 @@ class LiveMarketChart:
             ):
                 # Set the date range to get prior day data
                 end_date = datetime.now()
-                start_date = end_date - timedelta(days=5)  # Look back 5 days to ensure we get data
+                start_date = end_date - timedelta(
+                    days=5
+                )  # Look back 5 days to ensure we get data
 
                 # Fetch the daily data
                 self.streamer.download(
@@ -203,9 +214,15 @@ class LiveMarketChart:
                     disabled=True,  # Disabled by default, enabled if no event system
                 ),
                 # Hidden divs to store component properties
-                html.Div(id=f"{self.id}-symbol", style={"display": "none"}, children=self.symbol),
                 html.Div(
-                    id=f"{self.id}-interval", style={"display": "none"}, children=self.interval
+                    id=f"{self.id}-symbol",
+                    style={"display": "none"},
+                    children=self.symbol,
+                ),
+                html.Div(
+                    id=f"{self.id}-interval",
+                    style={"display": "none"},
+                    children=self.interval,
                 ),
                 html.Div(
                     id=f"{self.id}-event-symbol",
@@ -213,7 +230,9 @@ class LiveMarketChart:
                     children=self.event_symbol,
                 ),
                 html.Div(
-                    id=f"{self.id}-chart-tz", style={"display": "none"}, children=self.chart_tz
+                    id=f"{self.id}-chart-tz",
+                    style={"display": "none"},
+                    children=self.chart_tz,
                 ),
                 html.Div(
                     id=f"{self.id}-lookback-days",
@@ -279,7 +298,9 @@ class LiveMarketChart:
             use_macd = use_macd_str.lower() == "true"
 
             ctx = dash.callback_context
-            triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
+            triggered_id = (
+                ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
+            )
 
             if not triggered_id:
                 raise PreventUpdate
@@ -309,7 +330,9 @@ class LiveMarketChart:
         clientside_functions = getattr(app, "_livechart_clientside_registered", set())
 
         if "update_trigger" not in clientside_functions:
-            app._livechart_clientside_registered = clientside_functions.union({"update_trigger"})
+            app._livechart_clientside_registered = clientside_functions.union(
+                {"update_trigger"}
+            )
 
             # Add clientside JavaScript
             app.clientside_callback(
@@ -332,7 +355,9 @@ class LiveMarketChart:
 
         fig.update_layout(
             template="plotly_dark",
-            title=dict(text=f"{self.symbol} ({self.interval}) Loading...", x=0.5, y=0.95),
+            title=dict(
+                text=f"{self.symbol} ({self.interval}) Loading...", x=0.5, y=0.95
+            ),
             annotations=[
                 dict(
                     text="Loading market data...",
@@ -384,7 +409,11 @@ class LiveMarketChart:
                 # Use the first close price as the prior close for MACD calculation
                 prior_close = pdf["close"].iloc[0]
                 df_macd = macd(
-                    df, prior_close=prior_close, fast_length=12, slow_length=26, macd_length=9
+                    df,
+                    prior_close=prior_close,
+                    fast_length=12,
+                    slow_length=26,
+                    macd_length=9,
                 )
                 pdf_macd = df_macd.to_pandas()
             else:
@@ -439,7 +468,9 @@ class LiveMarketChart:
                             mode="lines",
                             line=dict(
                                 color=(
-                                    "#01FFFF" if hma_df["HMA_color"].iloc[i] == "Up" else "#FF66FE"
+                                    "#01FFFF"
+                                    if hma_df["HMA_color"].iloc[i] == "Up"
+                                    else "#FF66FE"
                                 ),
                                 width=0.6,
                             ),
@@ -554,7 +585,9 @@ class LiveMarketChart:
                         xanchor=(
                             "left"
                             if h_line.text_position == "left"
-                            else "right" if h_line.text_position == "right" else "center"
+                            else (
+                                "right" if h_line.text_position == "right" else "center"
+                            )
                         ),
                         yanchor="bottom",
                         row=1,
@@ -591,11 +624,19 @@ class LiveMarketChart:
                 # Add MACD panel line if using MACD and set to span subplots
                 if use_macd and v_line.span_subplots:
                     macd_min = (
-                        min(pdf_macd["diff"].min(), pdf_macd["Value"].min(), pdf_macd["avg"].min())
+                        min(
+                            pdf_macd["diff"].min(),
+                            pdf_macd["Value"].min(),
+                            pdf_macd["avg"].min(),
+                        )
                         * 1.2
                     )
                     macd_max = (
-                        max(pdf_macd["diff"].max(), pdf_macd["Value"].max(), pdf_macd["avg"].max())
+                        max(
+                            pdf_macd["diff"].max(),
+                            pdf_macd["Value"].max(),
+                            pdf_macd["avg"].max(),
+                        )
                         * 1.2
                     )
 
@@ -765,7 +806,10 @@ class LiveChartDashboard:
         return html.Div(
             [
                 html.H2("Market Data Dashboard", className="mb-4"),
-                html.Div([chart.render() for chart in self.charts], className="chart-container"),
+                html.Div(
+                    [chart.render() for chart in self.charts],
+                    className="chart-container",
+                ),
             ],
             className="dashboard",
         )
