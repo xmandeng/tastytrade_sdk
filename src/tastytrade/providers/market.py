@@ -3,7 +3,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import polars as pl
 from influxdb_client import InfluxDBClient
@@ -35,6 +35,7 @@ class MarketDataProvider:
 
         self.frames: dict[str, pl.DataFrame] = {}
         self.updates: dict[str, datetime] = {}
+        self.handlers: dict[str, Callable] = {}
 
         logger.debug("Initialized DataProviderService")
 
@@ -128,6 +129,11 @@ class MarketDataProvider:
         else:
             self.frames[symbol] = pl.from_pandas(df)
 
+        pass
+
+    def event_listener(self):
+        pass
+
     def handle_update(self, event: BaseEvent) -> None:
         """Handle incoming market data events."""
         event_key = f"{event.__class__.__name__}:{event.eventSymbol}"
@@ -151,12 +157,16 @@ class MarketDataProvider:
                 e,
             )
 
-    async def subscribe(self, event_type: str, symbol: str) -> None:
+    async def subscribe(
+        self, event_type: str, symbol: str, subscription_prefix: str = "market:"
+    ) -> None:
         """Setup live market data streaming via DataSubscription."""
         try:
             await self.data_feed.subscribe(
-                channel_pattern=f"market:{event_type}:{symbol}", on_update=self.handle_update
+                channel_pattern=f"{subscription_prefix}:{event_type}:{symbol}",
+                on_update=self.handle_update,
             )
+            self.event_listener()
             logger.info("Subscribed to %s", symbol)
 
         except Exception as e:
@@ -165,3 +175,44 @@ class MarketDataProvider:
     async def unsubscribe(self, event_type: str, symbol: str) -> None:
         """Stop live data streaming for the given symbol."""
         await self.data_feed.unsubscribe(channel_pattern=f"market:{event_type}:{symbol}")
+
+
+# Extend MarketDataProvider with callback support
+class EventDrivenProvider(MarketDataProvider):
+    """Extension of MarketDataProvider with event callback support."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.update_callbacks = {}
+
+    def register_update_callback(self, event_symbol: str, callback):
+        """Register a callback to be triggered when data for a symbol is updated."""
+        if event_symbol not in self.update_callbacks:
+            self.update_callbacks[event_symbol] = []
+        self.update_callbacks[event_symbol].append(callback)
+        logger.debug(f"Registered update callback for {event_symbol}")
+        return callback  # Return the callback for convenience
+
+    def unregister_update_callback(self, event_symbol: str, callback):
+        """Remove a registered callback."""
+        if (
+            event_symbol in self.update_callbacks
+            and callback in self.update_callbacks[event_symbol]
+        ):
+            self.update_callbacks[event_symbol].remove(callback)
+            logger.debug(f"Unregistered update callback for {event_symbol}")
+
+    def handle_update(self, event: BaseEvent) -> None:
+        """Handle incoming market data events and trigger callbacks."""
+        event_key = f"{event.__class__.__name__}:{event.eventSymbol}"
+
+        # Call the original handle_update method
+        super().handle_update(event)
+
+        # Trigger callbacks if registered for this symbol
+        if event_key in self.update_callbacks and self.update_callbacks[event_key]:
+            for callback in self.update_callbacks[event_key]:
+                try:
+                    callback(event_key, event)
+                except Exception as e:
+                    logger.error(f"Error in update callback for {event_key}: {e}")
