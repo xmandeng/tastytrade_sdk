@@ -46,3 +46,9 @@ echo "Installing pre-commit hooks..."
 /workspace/.venv/bin/pre-commit install
 
 echo "Workspace setup completed. All dependencies installed and pre-commit hooks configured."
+
+# Step 4: Run personal configuration setup if enabled
+if [ -f "/workspace/.devcontainer/personal-setup.sh" ]; then
+    echo "Checking for personal development environment setup..."
+    /workspace/.devcontainer/personal-setup.sh
+fi

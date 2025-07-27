@@ -63,3 +63,7 @@ test.ipynb
 
 src/devtools/*
 .claude/settings.local.json
+
+# Personal Devcontainer Configuration
+.devcontainer/devcontainer.local.json
+.devcontainer/personal/
