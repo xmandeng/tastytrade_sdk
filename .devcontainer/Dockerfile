@@ -11,12 +11,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 # Verify Node.js installation
 RUN node --version && npm --version
 
-# Install Claude Code globally
-RUN npm install -g @anthropic-ai/claude-code
-
-# Verify Claude Code installation
-RUN claude --version || echo "Claude Code installed, will be available after authentication"
-
 # Install additional system dependencies if needed
 RUN apt-get install -y \
     git \
@@ -26,11 +20,23 @@ RUN apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up vscode user's npm global directory
+# Switch to vscode user for user-specific installations
 USER vscode
+
+# Install UV package manager
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && echo 'source $HOME/.cargo/env' >> ~/.bashrc \
+    && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+# Set up npm global directory and install Claude Code
 RUN mkdir -p ~/.npm-global \
     && npm config set prefix '~/.npm-global' \
-    && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+    && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc \
+    && npm install -g @anthropic-ai/claude-code
+
+# Verify installations
+RUN source ~/.bashrc && uv --version || echo "UV installed, will be available after sourcing bashrc"
+RUN claude --version || echo "Claude Code installed, will be available after authentication"
 
 # Switch back to root for any additional setup
 USER root

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Environment
 
-This project uses UV for fast dependency management and is designed to run in a development container with pre-configured services.
+This project uses UV for fast dependency management and is designed to run in a development container with pre-configured services. The Dockerfile includes UV, Node.js, and Claude Code pre-installed for optimal performance.
 
 ## Common Commands
 

@@ -186,11 +186,11 @@
     }
   },
 
-  // Enhanced postCreateCommand with UV and Claude Code installation
+  // Workspace-specific setup after container creation
   "postCreateCommand": [
     "bash",
     "-c",
-    "curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.cargo/env && uv sync --dev && touch /workspace/.env && echo 'source $HOME/.cargo/env' >> /home/vscode/.bashrc && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install && curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - && sudo apt-get install -y nodejs && npm install -g @anthropic-ai/claude-code && echo 'UV and Claude Code installation completed. Run \"claude\" in terminal to start using your subscription.'"
+    "source $HOME/.cargo/env && uv sync --dev && touch /workspace/.env && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install && echo 'Workspace setup completed. All dependencies installed and pre-commit hooks configured.'"
   ],
 
   "remoteUser": "vscode",
