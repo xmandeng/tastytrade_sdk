@@ -25,7 +25,6 @@
         "ms-toolsai.vscode-jupyter-slideshow",
 
         // Docker & Infrastructure
-        "ms-azuretools.vscode-docker",
         "ms-vscode-remote.remote-containers",
         "ms-vscode-remote.remote-ssh",
         "ms-vscode-remote.remote-ssh-edit",
@@ -33,8 +32,6 @@
         // Git & Version Control
         "eamodio.gitlens",
         "donjayamanne.githistory",
-        "github.copilot",
-        "github.copilot-chat",
         "github.vscode-pull-request-github",
         "huizhou.githd",
         "mhutchie.git-graph",
@@ -54,38 +51,23 @@
         "yzhang.markdown-all-in-one",
 
         // Data & File Utilities
-        "mechatroner.rainbow-csv",
-        "grapecity.gc-excelviewer",
-        "phplasma.csv-to-table",
         "mohsen1.prettify-json",
 
         // Development Tools
         "alefragnani.bookmarks",
-        "amazonwebservices.aws-toolkit-vscode",
         "bodil.prettier-toml",
         "tamasfe.even-better-toml",
         "redhat.vscode-yaml",
         "mikestead.dotenv",
         "postman.postman-for-vscode",
 
-        // Terminal & Debugging
-        "rogalmic.bash-debug",
         "ibm.output-colorizer",
-        "ms-vscode.live-server",
         "ms-vscode.remote-explorer",
         "ms-vscode.remote-server",
 
         // Specialized Tools
-        "csstools.postcss",
-        "ecmel.vscode-html-css",
-        "ms-edgedevtools.vscode-edge-devtools",
-        "tintinweb.graphviz-interactive-preview",
-        "wholroyd.jinja",
         "kevinrose.vsc-python-indent",
-        "medo64.code-point",
-        "hyunkyunmoon.gzipdecompressor",
         "inferrinizzard.prettier-sql-vscode",
-        "rvest.vs-code-prettier-eslint"
       ],
       "settings": {
         "files.autoSave": "afterDelay",
@@ -187,14 +169,14 @@
   },
 
   // Workspace-specific setup after container creation
-  "postCreateCommand": "/workspace/.devcontainer/setup.sh",
+  "postCreateCommand": "chmod +x /workspace/.devcontainer/setup.sh && /workspace/.devcontainer/setup.sh",
 
   "remoteUser": "vscode",
   "runArgs": ["--network=tastytrade_sdk_internal_net"],
 
-  // Enhanced mounts for Claude Code configuration (optional)
+  // Enhanced mounts for Claude Code configuration and session persistence
   "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind",
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
   ],
 

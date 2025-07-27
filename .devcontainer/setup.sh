@@ -17,6 +17,18 @@ echo "Starting workspace setup..."
 # Ensure UV is available in PATH
 export PATH="$HOME/.local/bin:$PATH"
 
+# Ensure Claude Code configuration directory exists and has proper permissions
+if [ -d "/home/vscode/.claude" ]; then
+    echo "Claude Code configuration directory found, ensuring proper permissions..."
+    chmod 700 /home/vscode/.claude
+    # Ensure credentials file has proper permissions if it exists
+    if [ -f "/home/vscode/.claude/.credentials.json" ]; then
+        chmod 600 /home/vscode/.claude/.credentials.json
+    fi
+else
+    echo "Note: Claude Code configuration directory will be created on first login"
+fi
+
 # Step 1: Install all project dependencies including development tools
 echo "Installing dependencies with UV..."
 uv sync --dev
