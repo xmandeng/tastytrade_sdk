@@ -8,7 +8,9 @@ import pytz
 from tastytrade.providers.market import MarketDataProvider
 
 # Define a namedtuple for the opening range results
-OpeningRange = namedtuple("OpeningRange", ["symbol", "range_minutes", "high", "low", "date"])
+OpeningRange = namedtuple(
+    "OpeningRange", ["symbol", "range_minutes", "high", "low", "date"]
+)
 
 
 async def get_opening_range(
@@ -54,7 +56,9 @@ async def get_opening_range(
     market_open_utc = market_open_dt.astimezone(pytz.UTC).replace(tzinfo=None)
     range_end_utc = range_end.astimezone(pytz.UTC).replace(tzinfo=None)
 
-    logger.debug(f"Fetching opening range data for {symbol} with {range_minutes}m range")
+    logger.debug(
+        f"Fetching opening range data for {symbol} with {range_minutes}m range"
+    )
     logger.debug(f"Range timeframe: {market_open_utc} to {range_end_utc}")
 
     try:
@@ -68,9 +72,15 @@ async def get_opening_range(
 
         # Check if we have data
         if candles is None or candles.is_empty():
-            logger.warning(f"No data found for {symbol} during opening range on {date.date()}")
+            logger.warning(
+                f"No data found for {symbol} during opening range on {date.date()}"
+            )
             return OpeningRange(
-                symbol=symbol, range_minutes=range_minutes, high=None, low=None, date=date.date()
+                symbol=symbol,
+                range_minutes=range_minutes,
+                high=None,
+                low=None,
+                date=date.date(),
             )
 
         # Calculate the high and low
@@ -92,11 +102,19 @@ async def get_opening_range(
         except Exception as e:
             logger.error(f"Error calculating opening range values: {str(e)}")
             return OpeningRange(
-                symbol=symbol, range_minutes=range_minutes, high=None, low=None, date=date.date()
+                symbol=symbol,
+                range_minutes=range_minutes,
+                high=None,
+                low=None,
+                date=date.date(),
             )
 
     except Exception as e:
         logger.error(f"Error fetching data for {symbol} opening range: {str(e)}")
         return OpeningRange(
-            symbol=symbol, range_minutes=range_minutes, high=None, low=None, date=date.date()
+            symbol=symbol,
+            range_minutes=range_minutes,
+            high=None,
+            low=None,
+            date=date.date(),
         )

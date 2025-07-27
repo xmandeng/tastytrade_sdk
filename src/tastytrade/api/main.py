@@ -13,7 +13,10 @@ from tastytrade.config import RedisConfigManager
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
-from tastytrade.messaging.processors import RedisEventProcessor, TelegrafHTTPEventProcessor
+from tastytrade.messaging.processors import (
+    RedisEventProcessor,
+    TelegrafHTTPEventProcessor,
+)
 
 """Example curl requests:
 
@@ -88,11 +91,16 @@ async def lifespan(app: FastAPI):
                 config = RedisConfigManager()
                 config.initialize(force=True)
                 credentials = Credentials(config=config, env="Live")
-                dxlink_manager = DXLinkManager(subscription_store=RedisSubscriptionStore())
+                dxlink_manager = DXLinkManager(
+                    subscription_store=RedisSubscriptionStore()
+                )
                 await dxlink_manager.open(credentials)
                 assert dxlink_manager.router is not None
 
-                for handler_name, event_handler in dxlink_manager.router.handler.items():
+                for (
+                    handler_name,
+                    event_handler,
+                ) in dxlink_manager.router.handler.items():
                     logger.info(f"Adding processors to {handler_name} handler")
                     event_handler.add_processor(TelegrafHTTPEventProcessor())
                     event_handler.add_processor(RedisEventProcessor())
@@ -117,7 +125,9 @@ async def lifespan(app: FastAPI):
         logger.info("DXLink manager closed")
 
 
-app = FastAPI(title="TastyTrade API", description="REST API for TastyTrade SDK", lifespan=lifespan)
+app = FastAPI(
+    title="TastyTrade API", description="REST API for TastyTrade SDK", lifespan=lifespan
+)
 
 # Global DXLink manager instance
 dxlink_manager: Optional[DXLinkManager] = None
@@ -196,7 +206,9 @@ async def get_subscriptions() -> Dict[str, SubscriptionStatus]:
 
 
 @app.post("/subscribe/feed")
-async def subscribe(subscription: SymbolSubscription, background_tasks: BackgroundTasks):
+async def subscribe(
+    subscription: SymbolSubscription, background_tasks: BackgroundTasks
+):
     """Subscribe to market data feed for specified symbols."""
     if not dxlink_manager:
         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
@@ -213,7 +225,9 @@ async def subscribe(subscription: SymbolSubscription, background_tasks: Backgrou
 
 
 @app.post("/unsubscribe/feed")
-async def unsubscribe(subscription: SymbolSubscription, background_tasks: BackgroundTasks):
+async def unsubscribe(
+    subscription: SymbolSubscription, background_tasks: BackgroundTasks
+):
     """Unsubscribe from market data feed for specified symbols."""
     if not dxlink_manager:
         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
@@ -230,7 +244,9 @@ async def unsubscribe(subscription: SymbolSubscription, background_tasks: Backgr
 
 
 @app.post("/subscribe/candles")
-async def subscribe_to_candles(subscription: CandleSubscription, background_tasks: BackgroundTasks):
+async def subscribe_to_candles(
+    subscription: CandleSubscription, background_tasks: BackgroundTasks
+):
     """Subscribe to candle data for a specified symbol and interval."""
     if not dxlink_manager:
         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
@@ -304,7 +320,9 @@ async def clear_all_subscriptions(background_tasks: BackgroundTasks):
         # Unsubscribe from all candles
         for sub in candle_subscriptions:
             background_tasks.add_task(
-                dxlink_manager.unsubscribe_to_candles, symbol=sub.symbol, interval=sub.interval
+                dxlink_manager.unsubscribe_to_candles,
+                symbol=sub.symbol,
+                interval=sub.interval,
             )
 
         return {

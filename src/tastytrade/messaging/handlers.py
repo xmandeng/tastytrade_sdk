@@ -37,14 +37,14 @@ class QueueMetrics:
 
 
 class EventHandler:
-
     stop_listener = asyncio.Event()
     diagnostic = True
 
     def __init__(
-        self, channel: Channels = Channels.Control, processor: Optional[BaseEventProcessor] = None
+        self,
+        channel: Channels = Channels.Control,
+        processor: Optional[BaseEventProcessor] = None,
     ) -> None:
-
         if channel not in CHANNEL_SPECS:
             channel = Channels.Control
             logger.error("Channel %s not found in channel_specs", channel)
@@ -75,7 +75,9 @@ class EventHandler:
             del self.processors[processor.name]
 
     async def queue_listener(self, queue: asyncio.Queue) -> None:
-        logger.info("Started %s listener on channel %s", self.channel, self.channel.value)
+        logger.info(
+            "Started %s listener on channel %s", self.channel, self.channel.value
+        )
 
         try:
             while not self.stop_listener.is_set():
@@ -98,10 +100,14 @@ class EventHandler:
                 except MessageProcessingError as e:
                     self.metrics.record_error()
                     logger.error(
-                        "Message processing error in %s listener: %s", self.channel.name, e
+                        "Message processing error in %s listener: %s",
+                        self.channel.name,
+                        e,
                     )
                     if e.original_exception:
-                        logger.debug("Original exception:", exc_info=e.original_exception)
+                        logger.debug(
+                            "Original exception:", exc_info=e.original_exception
+                        )
                     continue
 
                 except Exception:
@@ -114,7 +120,11 @@ class EventHandler:
                     continue
 
         except asyncio.CancelledError:
-            logger.info("%s listener stopped for channel %s", self.channel.name, self.channel.value)
+            logger.info(
+                "%s listener stopped for channel %s",
+                self.channel.name,
+                self.channel.value,
+            )
 
             # Log final metrics
             logger.info(
@@ -125,7 +135,9 @@ class EventHandler:
                 self.metrics.max_queue_size,
             )
 
-    async def handle_message(self, message: Message) -> Optional[Union[BaseEvent, List[BaseEvent]]]:
+    async def handle_message(
+        self, message: Message
+    ) -> Optional[Union[BaseEvent, List[BaseEvent]]]:
         events: List[BaseEvent] = []
         channel_name = Channels(message.channel).name
 
@@ -138,7 +150,9 @@ class EventHandler:
 
             # Process data in chunks based on # of fields
             field_tally = len(self.fields)
-            while chunk := list(islice(flat_data, field_tally)):  # islice is memory friendly
+            while chunk := list(
+                islice(flat_data, field_tally)
+            ):  # islice is memory friendly
                 if len(chunk) != field_tally:
                     logger.error(
                         "Incomplete data received on %s channel. Expected %d fields, got %d",
@@ -190,7 +204,6 @@ class EventHandler:
 
 
 class ControlHandler(EventHandler):
-
     def __init__(self) -> None:
         super().__init__(channel=Channels.Control)
         self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
@@ -226,4 +239,6 @@ class ControlHandler(EventHandler):
         logger.debug("%s:Received", message.type)
 
     async def handle_error(self, message: Message) -> None:
-        logger.error("%s:%s", message.headers.get("error"), message.headers.get("message"))
+        logger.error(
+            "%s:%s", message.headers.get("error"), message.headers.get("message")
+        )

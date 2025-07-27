@@ -16,7 +16,9 @@ class ConfigurationManager(ABC):
     """Abstract base class defining the configuration manager interface."""
 
     @abstractmethod
-    def get(self, key: str, default: Any = None, value_type: Optional[Type[T]] = None) -> Any:
+    def get(
+        self, key: str, default: Any = None, value_type: Optional[Type[T]] = None
+    ) -> Any:
         """Get a configuration value."""
         pass
 
@@ -50,7 +52,9 @@ class AsyncConfigurationManager(ABC):
     """Abstract base class defining the async configuration manager interface."""
 
     @abstractmethod
-    async def get(self, key: str, default: Any = None, value_type: Optional[Type[T]] = None) -> Any:
+    async def get(
+        self, key: str, default: Any = None, value_type: Optional[Type[T]] = None
+    ) -> Any:
         """Get a configuration value asynchronously."""
         pass
 
@@ -167,7 +171,9 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
             if env_vars := dotenv_values(self.env_file):
                 hash_key = self.get_hash_key()
                 self.redis_client.hset(hash_key, mapping=env_vars)
-                logger.info(f"Initialized {len(env_vars)} variables from .env file in Redis")
+                logger.info(
+                    f"Initialized {len(env_vars)} variables from .env file in Redis"
+                )
             else:
                 logger.warning(f"No variables found in .env file: {self.env_file}")
 
@@ -175,12 +181,16 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
 
         except FileNotFoundError:
             logger.warning(f".env file not found: {self.env_file}")
-            self.initialized = True  # Still mark as initialized to avoid repeated attempts
+            self.initialized = (
+                True  # Still mark as initialized to avoid repeated attempts
+            )
         except Exception as e:
             logger.error(f"Error initializing configuration: {e}")
             raise
 
-    def get(self, key: str, default: Any = None, value_type: Optional[Type[T]] = None) -> Any:
+    def get(
+        self, key: str, default: Any = None, value_type: Optional[Type[T]] = None
+    ) -> Any:
         """Get a configuration value.
 
         Args:
@@ -317,7 +327,9 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
             if env_vars := dotenv_values(self.env_file):
                 hash_key = self.get_hash_key()
                 await self.redis_client.hset(hash_key, mapping=env_vars)
-                logger.info(f"Initialized {len(env_vars)} variables from .env file in Redis")
+                logger.info(
+                    f"Initialized {len(env_vars)} variables from .env file in Redis"
+                )
             else:
                 logger.warning(f"No variables found in .env file: {self.env_file}")
 
@@ -325,12 +337,16 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
 
         except FileNotFoundError:
             logger.warning(f".env file not found: {self.env_file}")
-            self.initialized = True  # Still mark as initialized to avoid repeated attempts
+            self.initialized = (
+                True  # Still mark as initialized to avoid repeated attempts
+            )
         except Exception as e:
             logger.error(f"Error initializing configuration: {e}")
             raise
 
-    async def get(self, key: str, default: Any = None, value_type: Optional[Type[T]] = None) -> Any:
+    async def get(
+        self, key: str, default: Any = None, value_type: Optional[Type[T]] = None
+    ) -> Any:
         """Get a configuration value asynchronously.
 
         Args:

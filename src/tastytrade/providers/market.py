@@ -106,7 +106,8 @@ class MarketDataProvider:
 
         try:
             df = (
-                self.influx.query_api().query_data_frame(pivot_query)
+                self.influx.query_api()
+                .query_data_frame(pivot_query)
                 # Add CandleEvent time w/o timezone
                 .assign(time=lambda df: df["_time"].dt.tz_localize(None))
             )
@@ -115,14 +116,25 @@ class MarketDataProvider:
             df = df.drop(
                 columns=[
                     col
-                    for col in ["result", "table", "_start", "_stop", "_time", "_measurement"]
+                    for col in [
+                        "result",
+                        "table",
+                        "_start",
+                        "_stop",
+                        "_time",
+                        "_measurement",
+                    ]
                     if col in df
                 ]
             )
 
         except Exception as e:
-            logger.error("Error querying InfluxDB for %s (%s): %s", symbol, self.event_type, e)
-            raise ValueError(f"Error querying InfluxDB for {symbol} ({self.event_type}): {e}")
+            logger.error(
+                "Error querying InfluxDB for %s (%s): %s", symbol, self.event_type, e
+            )
+            raise ValueError(
+                f"Error querying InfluxDB for {symbol} ({self.event_type}): {e}"
+            )
 
         if debug_mode:
             return pl.from_pandas(df)
@@ -174,7 +186,9 @@ class MarketDataProvider:
 
     async def unsubscribe(self, event_type: str, symbol: str) -> None:
         """Stop live data streaming for the given symbol."""
-        await self.data_feed.unsubscribe(channel_pattern=f"market:{event_type}:{symbol}")
+        await self.data_feed.unsubscribe(
+            channel_pattern=f"market:{event_type}:{symbol}"
+        )
 
 
 # Extend MarketDataProvider with callback support

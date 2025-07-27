@@ -1,20 +1,11 @@
 repos:
--   repo: https://github.com/psf/black
-    rev: 24.10.0
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.3
     hooks:
-    -   id: black
+    -   id: ruff
+        args: [--fix]
         exclude: \.ipynb$
-
--   repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.10.1
-    hooks:
-    -   id: isort
-        exclude: \.ipynb$
-
--   repo: https://github.com/PyCQA/flake8
-    rev: 7.1.1
-    hooks:
-    -   id: flake8
+    -   id: ruff-format
         exclude: \.ipynb$
 
 -   repo: https://github.com/pre-commit/mirrors-mypy

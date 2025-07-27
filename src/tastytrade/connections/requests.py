@@ -71,7 +71,9 @@ class SessionHandler:
             ),
         )
 
-        self.session.headers.update({"Authorization": response.json()["data"]["session-token"]})
+        self.session.headers.update(
+            {"Authorization": response.json()["data"]["session-token"]}
+        )
 
         logger.info("Session created")
         self.is_active = True
@@ -98,7 +100,9 @@ class SessionHandler:
             url=self.base_url + "/api-quote-tokens",
         )
 
-        self.session.headers.update({"dxlink-url": response.json()["data"]["dxlink-url"]})
+        self.session.headers.update(
+            {"dxlink-url": response.json()["data"]["dxlink-url"]}
+        )
         self.session.headers.update({"token": response.json()["data"]["token"]})
 
 
@@ -143,18 +147,24 @@ class AsyncSessionHandler:
             if validate_async_response(response):
                 logger.info("Session created successfully")
 
-            self.session.headers.update({"Authorization": response_data["data"]["session-token"]})
+            self.session.headers.update(
+                {"Authorization": response_data["data"]["session-token"]}
+            )
             self.is_active = True
 
     async def get_dxlink_token(self) -> None:
         """Get the dxlink token."""
-        async with self.session.get(url=f"{self.base_url}/api-quote-tokens") as response:
+        async with self.session.get(
+            url=f"{self.base_url}/api-quote-tokens"
+        ) as response:
             response_data = await response.json()
 
             if validate_async_response(response):
                 logger.debug("Retrieved dxlink token")
 
-            self.session.headers.update({"dxlink-url": response_data["data"]["dxlink-url"]})
+            self.session.headers.update(
+                {"dxlink-url": response_data["data"]["dxlink-url"]}
+            )
             self.session.headers.update({"token": response_data["data"]["token"]})
 
     async def close(self) -> None:

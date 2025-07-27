@@ -17,7 +17,9 @@ from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
-from tastytrade.utils.helpers import last_weekday  # corrected import path for trade day helper
+from tastytrade.utils.helpers import (
+    last_weekday,
+)  # corrected import path for trade day helper
 
 from .types import Component, Figure
 
@@ -71,11 +73,26 @@ class DashApp:
                                                 dbc.Select(
                                                     id="interval-select",
                                                     options=[
-                                                        {"label": "1 minute", "value": "1m"},
-                                                        {"label": "5 minutes", "value": "5m"},
-                                                        {"label": "15 minutes", "value": "15m"},
-                                                        {"label": "30 minutes", "value": "30m"},
-                                                        {"label": "1 hour", "value": "1h"},
+                                                        {
+                                                            "label": "1 minute",
+                                                            "value": "1m",
+                                                        },
+                                                        {
+                                                            "label": "5 minutes",
+                                                            "value": "5m",
+                                                        },
+                                                        {
+                                                            "label": "15 minutes",
+                                                            "value": "15m",
+                                                        },
+                                                        {
+                                                            "label": "30 minutes",
+                                                            "value": "30m",
+                                                        },
+                                                        {
+                                                            "label": "1 hour",
+                                                            "value": "1h",
+                                                        },
                                                     ],
                                                     value="5m",
                                                     className="me-2",
@@ -135,7 +152,9 @@ class DashApp:
             logger.debug(f"Using start time for subscription: {start_time}")
 
             # Subscribe to candles with base symbol and converted interval
-            logger.debug(f"Subscribing to candles for {symbol} with interval {dxlink_interval}")
+            logger.debug(
+                f"Subscribing to candles for {symbol} with interval {dxlink_interval}"
+            )
             await self.dxlink.subscribe_to_candles(
                 symbol=symbol,
                 interval=dxlink_interval,
@@ -152,8 +171,13 @@ class DashApp:
             max_retries = 10  # Increase retries
             retry_delay = 0.5  # Increase delay to 500ms
             for attempt in range(max_retries):
-                if self.dxlink.router and self.dxlink.router.handler[Channels.Candle].processors:
-                    processor = self.dxlink.router.handler[Channels.Candle].processors["feed"]
+                if (
+                    self.dxlink.router
+                    and self.dxlink.router.handler[Channels.Candle].processors
+                ):
+                    processor = self.dxlink.router.handler[Channels.Candle].processors[
+                        "feed"
+                    ]
                     try:
                         df = processor.df
                         if df is not None:
@@ -178,10 +202,14 @@ class DashApp:
                                         f"No data found for {candle_symbol} in current data"
                                     )
                     except Exception as e:
-                        logger.debug(f"Attempt {attempt + 1}: Waiting for data... ({str(e)})")
+                        logger.debug(
+                            f"Attempt {attempt + 1}: Waiting for data... ({str(e)})"
+                        )
                 await asyncio.sleep(retry_delay)
             else:
-                logger.warning(f"No data received for {candle_symbol} after {max_retries} attempts")
+                logger.warning(
+                    f"No data received for {candle_symbol} after {max_retries} attempts"
+                )
 
         except Exception:
             logger.error(f"Error subscribing to feeds for {symbol}")
@@ -198,7 +226,9 @@ class DashApp:
 
                 logger.debug("Waiting for symbol from queue...")
                 symbol, interval = self.subscription_queue.get()
-                logger.debug(f"Got symbol from queue: {symbol} with interval: {interval}")
+                logger.debug(
+                    f"Got symbol from queue: {symbol} with interval: {interval}"
+                )
 
                 future = asyncio.run_coroutine_threadsafe(
                     self.subscribe_to_symbol(symbol, interval), self.loop
@@ -243,7 +273,9 @@ class DashApp:
                 chart_id = f"chart-card-{symbol}-{interval}"
                 for chart in existing_charts:
                     if chart["props"]["id"] == chart_id:
-                        logger.debug(f"Chart for {symbol} with {interval} interval already exists")
+                        logger.debug(
+                            f"Chart for {symbol} with {interval} interval already exists"
+                        )
                         return existing_charts
 
             # Queue the subscription request
@@ -263,21 +295,32 @@ class DashApp:
         @self.app.callback(
             Output({"type": "chart", "symbol": ALL, "interval": ALL}, "figure"),
             [
-                Input({"type": "interval", "symbol": ALL, "interval": ALL}, "n_intervals"),
-                Input({"type": "interval-slow", "symbol": ALL, "interval": ALL}, "n_intervals"),
+                Input(
+                    {"type": "interval", "symbol": ALL, "interval": ALL}, "n_intervals"
+                ),
+                Input(
+                    {"type": "interval-slow", "symbol": ALL, "interval": ALL},
+                    "n_intervals",
+                ),
             ],
             prevent_initial_call=False,
         )
-        def update_charts(n_intervals: List[int], n_intervals_slow: List[int]) -> List[Figure]:
+        def update_charts(
+            n_intervals: List[int], n_intervals_slow: List[int]
+        ) -> List[Figure]:
             logger.debug("Update charts callback triggered")
-            logger.debug(f"Intervals: {n_intervals}, Slow intervals: {n_intervals_slow}")
+            logger.debug(
+                f"Intervals: {n_intervals}, Slow intervals: {n_intervals_slow}"
+            )
             logger.debug(f"Triggered by: {ctx.triggered_id}")
             logger.debug(f"Input list: {ctx.inputs_list}")
 
             if not ctx.triggered_id:
                 logger.debug("No trigger ID in update_charts callback")
                 return [
-                    self.create_initial_figure(cast(dict[str, Any], props["id"])["symbol"])
+                    self.create_initial_figure(
+                        cast(dict[str, Any], props["id"])["symbol"]
+                    )
                     for props in ctx.inputs_list[0]
                 ]
 
@@ -287,24 +330,32 @@ class DashApp:
                 if not self.dxlink or not self.dxlink.router:
                     logger.warning("DXLink or router not initialized")
                     return [
-                        self.create_initial_figure(cast(dict[str, Any], props["id"])["symbol"])
+                        self.create_initial_figure(
+                            cast(dict[str, Any], props["id"])["symbol"]
+                        )
                         for props in ctx.inputs_list[0]
                     ]
 
                 # Get a snapshot of the candle data
                 with self.df_lock:
-                    processor = self.dxlink.router.handler[Channels.Candle].processors["feed"]
+                    processor = self.dxlink.router.handler[Channels.Candle].processors[
+                        "feed"
+                    ]
                     logger.debug("Checking processor state")
                     logger.debug(f"Processor type: {type(processor)}")
                     logger.debug(f"Processor has data: {processor.df is not None}")
                     candle_data = (
-                        processor.df.copy() if processor.df is not None else pd.DataFrame()
+                        processor.df.copy()
+                        if processor.df is not None
+                        else pd.DataFrame()
                     )
 
                 if candle_data.empty:
                     logger.warning("No candle data available")
                     return [
-                        self.create_initial_figure(cast(dict[str, Any], props["id"])["symbol"])
+                        self.create_initial_figure(
+                            cast(dict[str, Any], props["id"])["symbol"]
+                        )
                         for props in ctx.inputs_list[0]
                     ]
 
@@ -333,12 +384,16 @@ class DashApp:
                             figures.append(self.create_initial_figure(symbol))
                             continue
 
-                        logger.debug(f"Found {len(symbol_data)} candles for {candle_symbol}")
+                        logger.debug(
+                            f"Found {len(symbol_data)} candles for {candle_symbol}"
+                        )
                         logger.debug(f"First candle: {symbol_data.iloc[0].to_dict()}")
                         logger.debug(f"Last candle: {symbol_data.iloc[-1].to_dict()}")
 
                         # Process the data and create the figure
-                        figure = self._create_figure_from_data(symbol, symbol_data, interval)
+                        figure = self._create_figure_from_data(
+                            symbol, symbol_data, interval
+                        )
                         logger.debug(
                             f"Figure created for {candle_symbol} with {len(figure.data)} traces"
                         )
@@ -369,7 +424,9 @@ class DashApp:
 
             symbol = cast(dict[str, Any], ctx.triggered_id)["symbol"]
             return [
-                chart for chart in existing_charts if chart["props"]["id"] != f"chart-card-{symbol}"
+                chart
+                for chart in existing_charts
+                if chart["props"]["id"] != f"chart-card-{symbol}"
             ]
 
     def _create_chart_card(self, symbol: str, interval: str = "5m") -> Component:
@@ -395,7 +452,11 @@ class DashApp:
                 ),
                 # Slow interval for regular updates
                 dcc.Interval(
-                    id={"type": "interval-slow", "symbol": symbol, "interval": interval},
+                    id={
+                        "type": "interval-slow",
+                        "symbol": symbol,
+                        "interval": interval,
+                    },
                     interval=500,  # 500ms for more frequent regular updates
                     n_intervals=0,
                     disabled=False,  # Ensure interval is enabled
@@ -484,8 +545,12 @@ class DashApp:
                     # Calculate HMA using the existing data instead of passing df as a parameter
                     hma_df = hull(self.dxlink, candle_symbol, length=20)
                     if not hma_df.empty:
-                        logger.debug(f"HMA calculation successful, shape: {hma_df.shape}")
-                        logger.debug(f"HMA sample:\n{hma_df.head(1).to_dict('records')}")
+                        logger.debug(
+                            f"HMA calculation successful, shape: {hma_df.shape}"
+                        )
+                        logger.debug(
+                            f"HMA sample:\n{hma_df.head(1).to_dict('records')}"
+                        )
                         logger.debug(f"HMA columns: {hma_df.columns.tolist()}")
                     else:
                         logger.warning("HMA calculation returned empty DataFrame")
@@ -573,7 +638,9 @@ class DashApp:
 
                 # Start subscription queue processor
                 logger.debug("Starting subscription queue processor thread")
-                subscription_thread = Thread(target=self.process_subscription_queue, daemon=True)
+                subscription_thread = Thread(
+                    target=self.process_subscription_queue, daemon=True
+                )
                 subscription_thread.start()
 
                 self.loop.run_forever()

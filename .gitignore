@@ -30,6 +30,8 @@ venv/
 ENV/
 .python-version
 
+.claude/*
+
 # IDE
 .idea/
 .vscode/
@@ -60,3 +62,4 @@ test.ipynb
 .cursorrules
 
 src/devtools/*
+.claude/settings.local.json

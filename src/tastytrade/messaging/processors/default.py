@@ -57,8 +57,9 @@ class LatestEventProcessor(BaseEventProcessor):
     name = "feed"
 
     def process_event(self, event: BaseEvent) -> None:
-
-        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(subset=["eventSymbol"], keep="last")
+        self.pl = self.pl.vstack(pl.DataFrame([event])).unique(
+            subset=["eventSymbol"], keep="last"
+        )
 
 
 class CandleEventProcessor(BaseEventProcessor):
@@ -71,7 +72,6 @@ class CandleEventProcessor(BaseEventProcessor):
         self.frames: dict[str, pl.DataFrame] = defaultdict(lambda: pl.DataFrame())
 
     def process_event(self, event: CandleEvent) -> None:
-
         self.frames[event.eventSymbol] = (
             self.frames[event.eventSymbol]
             .vstack(pl.DataFrame([event]))
@@ -80,4 +80,6 @@ class CandleEventProcessor(BaseEventProcessor):
         )
 
         if len(self.frames[event.eventSymbol]) > 2 * ROW_LIMIT:
-            self.frames[event.eventSymbol] = self.frames[event.eventSymbol].tail(ROW_LIMIT)
+            self.frames[event.eventSymbol] = self.frames[event.eventSymbol].tail(
+                ROW_LIMIT
+            )

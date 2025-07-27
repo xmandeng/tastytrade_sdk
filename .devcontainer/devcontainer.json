@@ -1,81 +1,80 @@
 {
-  "name": "Python Dev Container",
-  "image": "mcr.microsoft.com/vscode/devcontainers/python:3.11",
+  "name": "TastyTrade SDK with Claude Code",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
   "customizations": {
     "vscode": {
       "extensions": [
+        // Claude Code Integration
+        "anthropic.claude-code",
+
+        // Python Development
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-azuretools.vscode-docker",
-        "esbenp.prettier-vscode",
-        "aaron-bond.better-comments",
-        "alefragnani.bookmarks",
-        "amazonwebservices.aws-toolkit-vscode",
-        "bodil.prettier-toml",
-        "charliermarsh.ruff",
-        "csstools.postcss",
-        "davidanson.vscode-markdownlint",
-        "donjayamanne.githistory",
-        "eamodio.gitlens",
-        "ecmel.vscode-html-css",
-        "esbenp.prettier-vscode",
-        "github.copilot",
-        "github.copilot-chat",
-        "github.vscode-pull-request-github",
-        "grapecity.gc-excelviewer",
-        "huizhou.githd",
-        "hyunkyunmoon.gzipdecompressor",
-        "ibm.output-colorizer",
-        "inferrinizzard.prettier-sql-vscode",
-        "kevinrose.vsc-python-indent",
-        "mechatroner.rainbow-csv",
-        "medo64.code-point",
-        "mhutchie.git-graph",
-        "mikestead.dotenv",
-        "mohsen1.prettify-json",
-        "ms-azuretools.vscode-docker",
-        "ms-edgedevtools.vscode-edge-devtools",
-        "ms-python.black-formatter",
         "ms-python.debugpy",
-        "ms-python.flake8",
-        "ms-python.isort",
         "ms-python.mypy-type-checker",
-        "ms-python.pylint",
-        "ms-python.python",
-        "ms-python.vscode-pylance",
+
+        // Jupyter & Data Science
         "ms-toolsai.jupyter",
         "ms-toolsai.jupyter-keymap",
         "ms-toolsai.jupyter-renderers",
         "ms-toolsai.vscode-jupyter-cell-tags",
         "ms-toolsai.vscode-jupyter-powertoys",
         "ms-toolsai.vscode-jupyter-slideshow",
+
+        // Docker & Infrastructure
         "ms-vscode-remote.remote-containers",
         "ms-vscode-remote.remote-ssh",
         "ms-vscode-remote.remote-ssh-edit",
-        "ms-vscode.live-server",
+
+        // Git & Version Control
+        "eamodio.gitlens",
+        "donjayamanne.githistory",
+        "github.vscode-pull-request-github",
+        "huizhou.githd",
+        "mhutchie.git-graph",
+
+        // Code Quality & Formatting
+        "charliermarsh.ruff",
+        "esbenp.prettier-vscode",
+        "usernamehw.errorlens",
+        "visualstudioexptteam.vscodeintellicode",
+        "visualstudioexptteam.intellicode-api-usage-examples",
+
+        // Documentation & Comments
+        "aaron-bond.better-comments",
+        "njpwerner.autodocstring",
+        "davidanson.vscode-markdownlint",
+        "shd101wyy.markdown-preview-enhanced",
+        "yzhang.markdown-all-in-one",
+
+        // Data & File Utilities
+        "mohsen1.prettify-json",
+
+        // Development Tools
+        "alefragnani.bookmarks",
+        "bodil.prettier-toml",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "mikestead.dotenv",
+        "postman.postman-for-vscode",
+
+        "ibm.output-colorizer",
         "ms-vscode.remote-explorer",
         "ms-vscode.remote-server",
-        "njpwerner.autodocstring",
-        "openai.openai-chatgpt-adhoc",
-        "phplasma.csv-to-table",
-        "postman.postman-for-vscode",
-        "redhat.vscode-yaml",
-        "rogalmic.bash-debug",
-        "rvest.vs-code-prettier-eslint",
-        "shd101wyy.markdown-preview-enhanced",
-        "tamasfe.even-better-toml",
-        "tintinweb.graphviz-interactive-preview",
-        "usernamehw.errorlens",
-        "visualstudioexptteam.intellicode-api-usage-examples",
-        "visualstudioexptteam.vscodeintellicode",
-        "wholroyd.jinja",
-        "yzhang.markdown-all-in-one"
+
+        // Specialized Tools
+        "kevinrose.vsc-python-indent",
+        "inferrinizzard.prettier-sql-vscode",
       ],
       "settings": {
         "files.autoSave": "afterDelay",
         "files.autoSaveDelay": 1000,
+
+        // Terminal Configuration for Claude Code
         "terminal.integrated.env.linux": {
-          "POETRY_VIRTUALENVS_IN_PROJECT": "true",
           "VIRTUAL_ENV": "/workspace/.venv",
           "PATH": "/workspace/.venv/bin:${env:PATH}"
         },
@@ -88,21 +87,17 @@
           }
         },
         "terminal.integrated.defaultProfile.linux": "bash",
+
+        // Python Configuration
         "[python]": {
           "editor.formatOnType": true,
           "editor.formatOnSave": true,
-          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.codeActionsOnSave": {
-            "source.fixAll": "always",
-            "source.organizeImports": "always"
+            "source.fixAll.ruff": "always",
+            "source.organizeImports.ruff": "always"
           }
         },
-        "markdownlint.config": {
-          "MD013": false,
-          "MD029": false,
-          "MD033": false
-        },
-        "postman.settings.dotenv-detection-notification-visibility": false,
         "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
         "python.envFile": "${workspaceFolder}/.env",
         "python.createEnvironment.contentButton": "show",
@@ -115,15 +110,41 @@
         ],
         "python.terminal.activateEnvInCurrentTerminal": true,
         "python.testing.pytestEnabled": true,
+
+        // Documentation Configuration
         "autoDocstring.docstringFormat": "numpy",
         "autoDocstring.includeName": true,
         "autoDocstring.logLevel": "Debug",
-        "pylint.enabled": false
+        "markdownlint.config": {
+          "MD013": false,
+          "MD029": false,
+          "MD033": false
+        },
+
+        // Tool Configuration
+        "postman.settings.dotenv-detection-notification-visibility": false,
+        "pylint.enabled": false,
+        "ruff.enable": true,
+        "ruff.organizeImports": true,
+
+        // Claude Code specific settings
+        "claude-code.autoStart": false,
+        "claude-code.permissions.skipConfirmation": false
       },
       "launch": {
         "configurations": [
           {
-            "name": "Python: Live",
+            "name": "Python: Live Environment",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "cwd": "${workspaceFolder}",
+            "args": ["--live"]
+          },
+          {
+            "name": "Python: Test Environment",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
@@ -131,16 +152,69 @@
             "envFile": "${workspaceFolder}/.env",
             "cwd": "${workspaceFolder}",
             "args": []
+          },
+          {
+            "name": "DXLink Startup Script",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/tastytrade/scripts/dxlink_startup.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "cwd": "${workspaceFolder}",
+            "args": ["--debug"]
           }
         ]
       }
     }
   },
-  "postCreateCommand": "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'set -a; source /workspace/.env; set +a' >> /home/vscode/.bashrc && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install",
+
+  // Workspace-specific setup after container creation
+  "postCreateCommand": "chmod +x /workspace/.devcontainer/setup.sh && /workspace/.devcontainer/setup.sh",
+
   "remoteUser": "vscode",
   "runArgs": ["--network=tastytrade_sdk_internal_net"],
-  "mounts": ["source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"],
-  "forwardPorts": [],
+
+  // Enhanced mounts for Claude Code configuration and session persistence
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
+  ],
+
+  // Port forwarding for development services
+  "forwardPorts": [8000, 8086, 3000, 9090],
+  "portsAttributes": {
+    "8000": {
+      "label": "FastAPI Server",
+      "onAutoForward": "notify"
+    },
+    "8086": {
+      "label": "InfluxDB",
+      "onAutoForward": "ignore"
+    },
+    "3000": {
+      "label": "Dashboard",
+      "onAutoForward": "notify"
+    },
+    "9090": {
+      "label": "Prometheus",
+      "onAutoForward": "ignore"
+    }
+  },
+
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-  "workspaceFolder": "/workspace"
+  "workspaceFolder": "/workspace",
+
+  // Features for additional capabilities (removed Node.js since it's in Dockerfile)
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {
+      "ppa": false
+    }
+  },
+
+  // Environment variables
+  "remoteEnv": {
+    "PYTHONPATH": "/workspace/src:${env:PYTHONPATH}",
+    "TASTYTRADE_ENV": "development",
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+  }
 }

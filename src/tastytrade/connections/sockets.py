@@ -15,7 +15,10 @@ from tastytrade.config.enumerations import Channels
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.routing import MessageRouter
-from tastytrade.connections.subscription import InMemorySubscriptionStore, SubscriptionStore
+from tastytrade.connections.subscription import (
+    InMemorySubscriptionStore,
+    SubscriptionStore,
+)
 from tastytrade.messaging.models.messages import (
     AddCandleItem,
     AddItem,
@@ -131,7 +134,9 @@ class DXLinkManager:
             raise e
 
     async def start_listener(self) -> None:
-        self.listener_task = asyncio.create_task(self.socket_listener(), name="websocket_listener")
+        self.listener_task = asyncio.create_task(
+            self.socket_listener(), name="websocket_listener"
+        )
 
         self.keepalive_task = asyncio.create_task(
             self.send_keepalives(), name="websocket_keepalive"
@@ -282,7 +287,10 @@ class DXLinkManager:
 
             subscription = SubscriptionRequest(
                 channel=specification.channel.value,
-                add=[AddItem(type=specification.type, symbol=symbol) for symbol in symbols],
+                add=[
+                    AddItem(type=specification.type, symbol=symbol)
+                    for symbol in symbols
+                ],
             ).model_dump_json()
 
             async with self.subscription_semaphore:
@@ -314,7 +322,10 @@ class DXLinkManager:
 
             cancellation = SubscriptionRequest(
                 channel=specification.channel.value,
-                remove=[CancelItem(type=specification.type, symbol=symbol) for symbol in symbols],
+                remove=[
+                    CancelItem(type=specification.type, symbol=symbol)
+                    for symbol in symbols
+                ],
             ).model_dump_json()
 
             async with self.subscription_semaphore:
@@ -399,7 +410,11 @@ class DXLinkManager:
         ]
 
         await asyncio.gather(
-            *[self.cancel_tasks(name, task) for name, task in tasks_to_cancel if task is not None]
+            *[
+                self.cancel_tasks(name, task)
+                for name, task in tasks_to_cancel
+                if task is not None
+            ]
         )
 
         # Reset active subscriptions

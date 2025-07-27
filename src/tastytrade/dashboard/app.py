@@ -23,6 +23,8 @@ if __name__ == "__main__":
 
     # Add exception handler to catch and log any rendering errors
     def exception_handler(exc_type, exc_value, exc_traceback):
-        logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+        logging.error(
+            "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
+        )
 
     sys.excepthook = exception_handler

@@ -19,13 +19,11 @@ def convert_message_to_event(message: dict[str, Any]) -> BaseEvent:
     data = json.loads(message["data"])
     event_type = channel.split(":")[1]
     if not event_type:
-
         logger.error("event_type is required: %s", message["channel"])
     return vars(events)[event_type](**data)
 
 
 class DataSubscription(ABC):
-
     queue: dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
 
     @abstractmethod
@@ -50,7 +48,6 @@ class DataSubscription(ABC):
 
 
 class RedisSubscription(DataSubscription):
-
     redis_url: str
     pubsub: redis.client.PubSub
     subscriptions: set[str]
@@ -64,9 +61,7 @@ class RedisSubscription(DataSubscription):
             port: Redis port
             db: Redis database number
         """
-        self.redis_url: str = (
-            f"redis://{config.get('host', 'redis')}:{config.get('port', 6379)}/{config.get('db', 0)}"
-        )
+        self.redis_url: str = f"redis://{config.get('host', 'redis')}:{config.get('port', 6379)}/{config.get('db', 0)}"
         self.subscriptions = set()
         self.listener_task = None
 
@@ -108,7 +103,9 @@ class RedisSubscription(DataSubscription):
 
                 try:
                     event: BaseEvent = convert_message_to_event(message)
-                    self.queue[f"{event.__class__.__name__}:{event.eventSymbol}"].put_nowait(event)
+                    self.queue[
+                        f"{event.__class__.__name__}:{event.eventSymbol}"
+                    ].put_nowait(event)
                     logger.debug(f"Received message: {event}")
 
                 except json.JSONDecodeError:

@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 def plot_live_candlesticks(
-    dxlink: DXLinkManager, symbol: str, start_time: datetime, end_time: Optional[datetime] = None
+    dxlink: DXLinkManager,
+    symbol: str,
+    start_time: datetime,
+    end_time: Optional[datetime] = None,
 ):
     """Live candlestick chart that updates based on the most recent data.
 
@@ -31,10 +34,14 @@ def plot_live_candlesticks(
         paper_bgcolor="rgb(25,25,25)",
         title=dict(text=symbol, x=0.5, font=dict(color="white", size=16)),
         yaxis=dict(
-            gridcolor="rgba(128,128,128,0.1)", zerolinecolor="rgba(128,128,128,0.1)", color="white"
+            gridcolor="rgba(128,128,128,0.1)",
+            zerolinecolor="rgba(128,128,128,0.1)",
+            color="white",
         ),
         xaxis=dict(
-            gridcolor="rgba(128,128,128,0.1)", zerolinecolor="rgba(128,128,128,0.1)", color="white"
+            gridcolor="rgba(128,128,128,0.1)",
+            zerolinecolor="rgba(128,128,128,0.1)",
+            color="white",
         ),
         showlegend=False,
     )
@@ -64,7 +71,9 @@ def plot_live_candlesticks(
                 # Convert timestamps to EDT
                 plot_df = raw_df.copy()
                 plot_df["time"] = (
-                    plot_df["time"].dt.tz_localize("UTC").dt.tz_convert("America/New_York")
+                    plot_df["time"]
+                    .dt.tz_localize("UTC")
+                    .dt.tz_convert("America/New_York")
                 )
 
                 # Update the candlesticks
@@ -78,8 +87,12 @@ def plot_live_candlesticks(
                                 high=plot_df["high"],
                                 low=plot_df["low"],
                                 close=plot_df["close"],
-                                increasing=dict(line=dict(width=1), fillcolor="#26A69A"),
-                                decreasing=dict(line=dict(width=1), fillcolor="#EF5350"),
+                                increasing=dict(
+                                    line=dict(width=1), fillcolor="#26A69A"
+                                ),
+                                decreasing=dict(
+                                    line=dict(width=1), fillcolor="#EF5350"
+                                ),
                             )
                         )
 
