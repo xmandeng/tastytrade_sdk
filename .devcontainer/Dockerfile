@@ -25,7 +25,6 @@ USER vscode
 
 # Install UV package manager
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && echo 'source $HOME/.cargo/env' >> ~/.bashrc \
     && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
 # Set up npm global directory and install Claude Code

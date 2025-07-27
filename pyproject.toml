@@ -92,5 +92,5 @@ fixable = ["ALL"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.12.5",
+    "pre-commit>=4.2.0",
 ]

@@ -30,6 +30,8 @@ venv/
 ENV/
 .python-version
 
+.claude/
+
 # IDE
 .idea/
 .vscode/

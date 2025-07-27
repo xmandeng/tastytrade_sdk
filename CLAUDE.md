@@ -90,3 +90,6 @@ Required services (managed via docker-compose):
 - No emojis in commit messages
 - No "Co-Authored-By: Claude" lines
 - Use conventional commit format when appropriate
+
+## Development Container Guidelines
+- Anything you do in this environment must be reflected in the dev container.

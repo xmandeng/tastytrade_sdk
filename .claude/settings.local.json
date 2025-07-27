@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(poetry run ruff:*)",
+      "Bash(git add:*)",
+      "Bash(export:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run:*)",
+      "Bash(uv add:*)",
+      "Bash(docker build:*)"
+    ],
+    "deny": []
+  },
+  "includeCoAuthoredBy": false
+}
