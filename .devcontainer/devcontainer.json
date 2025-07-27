@@ -13,12 +13,8 @@
         // Python Development
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-python.black-formatter",
         "ms-python.debugpy",
-        "ms-python.flake8",
-        "ms-python.isort",
         "ms-python.mypy-type-checker",
-        "ms-python.pylint",
 
         // Jupyter & Data Science
         "ms-toolsai.jupyter",
@@ -97,7 +93,6 @@
 
         // Terminal Configuration for Claude Code
         "terminal.integrated.env.linux": {
-          "POETRY_VIRTUALENVS_IN_PROJECT": "true",
           "VIRTUAL_ENV": "/workspace/.venv",
           "PATH": "/workspace/.venv/bin:${env:PATH}"
         },
@@ -115,10 +110,10 @@
         "[python]": {
           "editor.formatOnType": true,
           "editor.formatOnSave": true,
-          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.codeActionsOnSave": {
-            "source.fixAll": "always",
-            "source.organizeImports": "always"
+            "source.fixAll.ruff": "always",
+            "source.organizeImports.ruff": "always"
           }
         },
         "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
@@ -147,6 +142,8 @@
         // Tool Configuration
         "postman.settings.dotenv-detection-notification-visibility": false,
         "pylint.enabled": false,
+        "ruff.enable": true,
+        "ruff.organizeImports": true,
 
         // Claude Code specific settings
         "claude-code.autoStart": false,
@@ -189,11 +186,11 @@
     }
   },
 
-  // Enhanced postCreateCommand with Claude Code installation
+  // Enhanced postCreateCommand with UV and Claude Code installation
   "postCreateCommand": [
     "bash",
     "-c",
-    "curl -sSL https://install.python-poetry.org | python3 - && export PATH=\"$HOME/.local/bin:$PATH\" && poetry config virtualenvs.in-project true && poetry install && touch /workspace/.env && echo 'set -a; source /workspace/.env; set +a' >> /home/vscode/.bashrc && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install && curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - && sudo apt-get install -y nodejs && npm install -g @anthropic-ai/claude-code && echo 'Claude Code installation completed. Run \"claude\" in terminal to start using your subscription.'"
+    "curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.cargo/env && uv sync --dev && touch /workspace/.env && echo 'source $HOME/.cargo/env' >> /home/vscode/.bashrc && echo 'export PATH=\"/workspace/.venv/bin:$PATH\"' >> /home/vscode/.bashrc && /workspace/.venv/bin/pre-commit install && curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - && sudo apt-get install -y nodejs && npm install -g @anthropic-ai/claude-code && echo 'UV and Claude Code installation completed. Run \"claude\" in terminal to start using your subscription.'"
   ],
 
   "remoteUser": "vscode",

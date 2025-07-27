@@ -4,28 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Environment
 
-This project uses Poetry for dependency management and is designed to run in a development container with pre-configured services.
+This project uses UV for fast dependency management and is designed to run in a development container with pre-configured services.
 
 ## Common Commands
 
 ### Environment Setup
-- `poetry install` - Install dependencies
+- `uv sync --dev` - Install all dependencies including dev dependencies
+- `uv sync` - Install only production dependencies
 - `docker-compose up -d` - Start infrastructure services (InfluxDB, Redis, Telegraf, Grafana)
 - `cp .env.example .env` - Copy environment template (edit with credentials)
 
 ### Code Quality
-- `poetry run ruff check .` - Lint code with Ruff
-- `poetry run ruff format .` - Format code with Ruff (replaces Black/isort)
-- `poetry run mypy .` - Type checking with MyPy
+- `uv run ruff check .` - Lint code with Ruff
+- `uv run ruff format .` - Format code with Ruff (replaces Black/isort)
+- `uv run mypy .` - Type checking with MyPy
 
 ### Testing
-- `poetry run pytest` - Run all tests
-- `poetry run pytest unit_tests/` - Run specific test directory
-- `poetry run pytest -v` - Run tests with verbose output
-- `poetry run pytest --cov` - Run tests with coverage
+- `uv run pytest` - Run all tests
+- `uv run pytest unit_tests/` - Run specific test directory
+- `uv run pytest -v` - Run tests with verbose output
+- `uv run pytest --cov` - Run tests with coverage
 
 ### Application
-- `poetry run api` - Start the FastAPI server
+- `uv run api` - Start the FastAPI server
 - Script entry points available in `src/tastytrade/scripts/`
 
 ## Architecture Overview
