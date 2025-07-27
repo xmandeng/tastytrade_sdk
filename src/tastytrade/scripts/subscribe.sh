@@ -5,7 +5,7 @@ SYMBOLS=("SPY" "AAPL" "SPX" "QQQ" "NVDA" "BTC/USD:CXTALP")
 INTERVALS=("1m" "5m" "15m" "30m" "1h" "1d")
 
 # Base URL
-BASE_URL="http://localhost:8000"
+BASE_URL="http://127.0.0.1:8000"
 
 # Subscribe to feed for all symbols
 echo "Subscribing to feed for all symbols..."

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from typing import Any, Callable
 
 import redis.asyncio as redis  # type: ignore
@@ -24,6 +25,9 @@ def convert_message_to_event(message: dict[str, Any]) -> BaseEvent:
 
 
 class DataSubscription(ABC):
+
+    queue: dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
+
     @abstractmethod
     async def connect(self) -> None:
         pass
@@ -89,10 +93,10 @@ class RedisSubscription(DataSubscription):
             self.subscriptions.add(channel_pattern)
 
         if not self.listener_task:
-            self.listener_task = asyncio.create_task(self.listener(on_update=on_update))
+            self.listener_task = asyncio.create_task(self.listener())
             self.listener_task.add_done_callback(handle_task_exception)
 
-    async def listener(self, on_update: Callable) -> None:
+    async def listener(self) -> None:
         """Listen for messages across subscribed channels."""
         try:
             async for message in self.pubsub.listen():
@@ -103,7 +107,8 @@ class RedisSubscription(DataSubscription):
                     continue
 
                 try:
-                    event = convert_message_to_event(message)
+                    event: BaseEvent = convert_message_to_event(message)
+                    self.queue[f"{event.__class__.__name__}:{event.eventSymbol}"].put_nowait(event)
                     logger.debug(f"Received message: {event}")
 
                 except json.JSONDecodeError:
@@ -111,8 +116,6 @@ class RedisSubscription(DataSubscription):
 
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
-
-                on_update(event)
 
         except asyncio.CancelledError:
             logger.error("Redis pub/sub subscriptions cancelled")

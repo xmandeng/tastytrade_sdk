@@ -3,7 +3,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import polars as pl
 from influxdb_client import InfluxDBClient
@@ -35,6 +35,7 @@ class MarketDataProvider:
 
         self.frames: dict[str, pl.DataFrame] = {}
         self.updates: dict[str, datetime] = {}
+        self.handlers: dict[str, Callable] = {}
 
         logger.debug("Initialized DataProviderService")
 
@@ -128,6 +129,11 @@ class MarketDataProvider:
         else:
             self.frames[symbol] = pl.from_pandas(df)
 
+        pass
+
+    def event_listener(self):
+        pass
+
     def handle_update(self, event: BaseEvent) -> None:
         """Handle incoming market data events."""
         event_key = f"{event.__class__.__name__}:{event.eventSymbol}"
@@ -151,12 +157,16 @@ class MarketDataProvider:
                 e,
             )
 
-    async def subscribe(self, event_type: str, symbol: str) -> None:
+    async def subscribe(
+        self, event_type: str, symbol: str, subscription_prefix: str = "market:"
+    ) -> None:
         """Setup live market data streaming via DataSubscription."""
         try:
             await self.data_feed.subscribe(
-                channel_pattern=f"market:{event_type}:{symbol}", on_update=self.handle_update
+                channel_pattern=f"{subscription_prefix}:{event_type}:{symbol}",
+                on_update=self.handle_update,
             )
+            self.event_listener()
             logger.info("Subscribed to %s", symbol)
 
         except Exception as e:
