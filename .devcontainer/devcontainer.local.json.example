@@ -1,0 +1,57 @@
+{
+  // Personal Devcontainer Configuration Example
+  // Copy this file to devcontainer.local.json and customize for your personal setup
+  // This file is gitignored and won't affect other team members
+
+  "name": "TastyTrade SDK with Personal Customizations",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Add your personal VS Code extensions here
+        // Examples:
+        // "PKief.material-icon-theme",
+        // "ms-vscode.vscode-json",
+        // "bradlc.vscode-tailwindcss"
+      ],
+      "settings": {
+        // Add your personal VS Code settings here
+        // Examples:
+        // "workbench.colorTheme": "Material Theme",
+        // "editor.fontSize": 14,
+        // "terminal.integrated.fontSize": 12,
+        // "editor.fontFamily": "'Fira Code', monospace"
+      }
+    }
+  },
+
+  // Personal dotfiles configuration
+  "dotfiles": {
+    "repository": "https://github.com/YOUR_USERNAME/dotfiles",
+    "targetPath": "~/dotfiles",
+    "installCommand": "~/dotfiles/install.sh"
+  },
+
+  // Personal environment variables
+  "remoteEnv": {
+    "ENABLE_PERSONAL_DOTFILES": "true",
+    "PERSONAL_SETUP": "true"
+    // Add any other personal environment variables here
+  },
+
+  // Personal port forwards (in addition to base configuration)
+  "forwardPorts": [
+    // Add any additional ports you need for personal tools
+    // Examples:
+    // 8080,  // Personal development server
+    // 9000   // Personal monitoring tools
+  ],
+
+  // Personal mounts (in addition to base configuration)
+  "mounts": [
+    // Add personal file mounts here
+    // Examples:
+    // "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
+    // "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+  ]
+}
