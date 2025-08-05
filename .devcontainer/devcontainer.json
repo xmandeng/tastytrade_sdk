@@ -67,7 +67,7 @@
 
         // Specialized Tools
         "kevinrose.vsc-python-indent",
-        "inferrinizzard.prettier-sql-vscode",
+        "inferrinizzard.prettier-sql-vscode"
       ],
       "settings": {
         "files.autoSave": "afterDelay",
@@ -215,6 +215,7 @@
   "remoteEnv": {
     "PYTHONPATH": "/workspace/src:${env:PYTHONPATH}",
     "TASTYTRADE_ENV": "development",
-    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
+    "UV_LINK_MODE": "copy"
   }
 }
