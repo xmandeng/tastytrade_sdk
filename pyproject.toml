@@ -27,6 +27,9 @@ dependencies = [
     "redis>=5.2.1",
     "hiredis>=3.1.0",
     "kaleido==0.1.0",
+    "Pillow>=10.0.0",
+    "nbformat>=4.2.0",
+    "ipykernel>=6.30.0",
 ]
 
 [project.optional-dependencies]
