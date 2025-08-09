@@ -51,42 +51,104 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
 
 ### 🔧 Technical Architecture
 
-```
-                                   WebSocket Feed
-                                         │
-                                    ┌──────────┐  Message Parser
-                    ┌───────────────│ DXClient │        &
-                    │               └──────────┘   Event Router
-                    │                    │
-                    │                    ▼
-                    │               ┌──────────┐
-                    │               │ Telegraf │  ──  ──  ──  ─┐
-                    │               └──────────┘
-                    │                    │                     │
-                    ▼                    ▼                     ▼
-     pub/sub  ┌──────────┐          ┌──────────┐          ┌──────────┐
-        &     │  Redis   │          │ InfluxDB │          │   Kafka  │ (in development)
-      cache   └─────┬────┘          └──────────┘          └────┬─────┘
-                    │                                          │
-                    ▼                                          ▼
-    ┌────────┬─────────────┬─────────────┬──────────────┬──────────────────┬──────┐
-             │             │             │              │                  │
-             ▼             ▼             ▼              ▼                  ▼
-    ┌───────────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────┐     ┌────────────┐
-    │   Analytics   │ │ Alerts  │ │   Recipes   │ │  Logging   │ ... │    etc     │
-    └───────────────┘ └─────────┘ └─────────────┘ └────────────┘     └────────────┘
+#### 1. High‑Level Data Flow
 
-       ▲
-       │ enriched deltas (analytics:delta:<symbol>)
-    ┌───────┴────────┐
-    │ IndicatorWorker│ (Redis pattern sub: market:CandleEvent:*)
-    └───────┬────────┘
-       │ publishes deltas & snapshots
-       ▼
-     ┌───────────────┐  WebSocket + REST (snapshot/history)
-     │  FastAPI Edge │  /ws/{symbol}  /snapshot/{symbol}
-     └───────────────┘
+```mermaid
+flowchart LR
+   subgraph Ingestion
+      WS[DXLink WebSocket] --> PARSER[Message Parser &\nEvent Router]
+   end
+   PARSER --> TELEGRAF[Telegraf]
+   PARSER --> REDIS[(Redis\nPub/Sub + Cache)]
+   PARSER --> KAFKA[(Kafka*)]
+   TELEGRAF --> INFLUX[(InfluxDB)]
+   REDIS --> WORKER[IndicatorWorker]
+   WORKER --> REDIS
+   WORKER --> INFLUX
+   REDIS --> FASTAPI[FastAPI Edge]\nstyle FASTAPI fill:#0b3d91,stroke:#0b3d91,color:#fff
+   INFLUX --> FASTAPI
+   FASTAPI --> CLIENTS[Dashboards / Bots / Notebooks]
+   classDef opt fill:#333,stroke:#555,color:#bbb,stroke-dasharray: 5 5;
+   class KAFKA opt;
 ```
+
+#### 2. Realtime Streaming Sequence
+
+```mermaid
+sequenceDiagram
+   participant DX as DXLink Feed
+   participant W as IndicatorWorker
+   participant R as Redis
+   participant F as FastAPI
+   participant C as Client
+
+   DX->>R: PUBLISH market:CandleEvent:SYMBOL
+   Note over R: Raw candle events
+   R-->>W: pattern subscription (market:CandleEvent:*)
+   W->>W: Incremental MACD + HMA update
+   W->>R: SET snapshot:SYMBOL
+   W->>R: PUBLISH analytics:delta:SYMBOL
+   C->>F: WebSocket connect /ws/{symbol}
+   F->>R: GET snapshot:SYMBOL
+   R-->>F: Snapshot JSON
+   F-->>C: Snapshot (bootstrap)
+   R-->>F: Pub/Sub delta stream
+   F-->>C: Forward deltas (MACD/HMA)
+```
+
+#### 3. Component Roles
+
+| Component | Responsibility | Notes |
+|-----------|----------------|-------|
+| DXLink Client | Maintain upstream market data WS and parse raw messages | Reconnects, routes by event type |
+| Event Router | Fan out parsed events to processors | Adds processors without changing core ingest |
+| Telegraf | Receives normalized events, forwards to InfluxDB & metrics | HTTP input → Influx batch writes |
+| InfluxDB | Historical time‑series store | Queried for backfill & analytics |
+| Redis | Low‑latency pub/sub + hot cache (snapshots) | Channels: `market:CandleEvent:*`, `analytics:delta:*` |
+| IndicatorWorker | Subscribes to raw candles, computes MACD + HMA, publishes deltas & maintains snapshot | Incremental O(1) MACD, tail HMA recompute |
+| FastAPI Edge | Public boundary: WebSocket fanout + REST snapshots | `/ws/{symbol}`, `/snapshot/{symbol}` |
+| Kafka* | (Pluggable) scalable stream bus for future consumers | Optional; currently not required |
+| Clients | UI dashboards, bots, notebooks | Consume snapshot + deltas |
+
+*Kafka is optional / experimental and can be disabled without impacting the core flow.*
+
+#### 4. Data Artifacts & Channels
+
+| Artifact / Channel | Producer | Consumer(s) | Purpose |
+|--------------------|----------|-------------|---------|
+| `market:CandleEvent:<sym>` | DXLink → RedisEventProcessor | IndicatorWorker (pattern), diagnostics | Raw candle updates |
+| `snapshot:<sym>` (string key) | IndicatorWorker | FastAPI / clients (REST) | Last enriched state (candle + indicators) |
+| `analytics:delta:<sym>` | IndicatorWorker | FastAPI (WS) | Incremental indicator deltas |
+| Influx measurements (CandleEvent) | Telegraf | Batch / history API | Historical queries & backfill |
+
+#### 5. Why This Layout
+
+1. Isolation: Heavy indicator math & enrichment lives outside the FastAPI request loop.
+2. Elastic Fanout: Redis pattern subscription keeps adding symbols cheap; FastAPI only subscribes to deltas it actually serves.
+3. Low Latency Bootstrap: Snapshot fetch (O(1) Redis GET) precedes streaming deltas for instant chart warmup.
+4. Evolution Path: Swap Redis Pub/Sub with Kafka later by only changing Worker + Gateway subscription layers.
+5. Simplicity First: Single enrichment worker; can shard by symbol hash if throughput demands.
+
+#### 6. Scaling Levers
+
+| Concern | Initial Approach | Scale Strategy |
+|---------|------------------|---------------|
+| Symbol Count | Single worker process | Partition symbols across N workers (hash modulo) |
+| WS Connections | Single FastAPI deployment | Split realtime (WS) vs REST pods; use Redis Cluster |
+| Indicator Set | MACD + HMA | Plug-in pipeline; store serialized indicator modules |
+| Backfill | On-demand Influx queries | Precompute rolling snapshots per timeframe |
+| Persistence | Redis volatile | Periodic snapshot dump to durable store (S3) |
+
+#### 7. Plain Text Fallback (Optional)
+
+```
+DXLink → Redis (raw) → IndicatorWorker → Redis (snapshot + delta) → FastAPI → Clients
+                  ↘ Influx (historical)                        ↖ Influx (history API)
+```
+
+---
+
+Below sections describe individual features and usage.
 
 - **Real-time Processing**: WebSocket streaming with asynchronous event handling
 - **Data Storage**: InfluxDB for time-series data storage and analysis
