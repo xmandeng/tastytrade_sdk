@@ -56,29 +56,29 @@ To aid progressive understanding, this section is layered from the original line
 #### 0. Conceptual Overview (Original Linear Layout)
 
 ```text
-                                                    WebSocket Feed
-                                                             │
-                                                      ┌──────────┐  Message Parser
-                              ┌───────────────│ DXClient │        &
-                              │               └──────────┘   Event Router
-                              │                    │
-                              │                    ▼
-                              │               ┌──────────┐
-                              │               │ Telegraf │  ──  ──  ──  ─┐
-                              │               └──────────┘
-                              │                    │                     │
-                              ▼                    ▼                     ▼
-       pub/sub  ┌──────────┐          ┌──────────┐          ┌──────────┐
-            &     │  Redis   │          │ InfluxDB │          │   Kafka  │ (in development)
-         cache   └─────┬────┘          └──────────┘          └────┬─────┘
-                              │                                          │
-                              ▼                                          ▼
-      ┌────────┬─────────────┬─────────────┬──────────────┬──────────────────┬──────┐
-                   │             │             │              │                  │
-                   ▼             ▼             ▼              ▼                  ▼
-      ┌───────────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────┐     ┌────────────┐
-      │   Analytics   │ │ Alerts  │ │   Recipes   │ │  Logging   │ ... │    etc     │
-      └───────────────┘ └─────────┘ └─────────────┘ └────────────┘     └────────────┘
+                                   WebSocket Feed
+                                         │
+                                    ┌──────────┐  Message Parser
+                    ┌───────────────│ DXClient │        &
+                    │               └──────────┘   Event Router
+                    │                    │
+                    │                    ▼
+                    │               ┌──────────┐
+                    │               │ Telegraf │  ──  ──  ──  ─┐
+                    │               └──────────┘
+                    │                    │                     │
+                    ▼                    ▼                     ▼
+     pub/sub  ┌──────────┐          ┌──────────┐          ┌──────────┐
+        &     │  Redis   │          │ InfluxDB │          │   Kafka  │ (in development)
+      cache   └─────┬────┘          └──────────┘          └────┬─────┘
+                    │                                          │
+                    ▼                                          ▼
+    ┌────────┬─────────────┬─────────────┬──────────────┬──────────────────┬──────┐
+             │             │             │              │                  │
+             ▼             ▼             ▼              ▼                  ▼
+    ┌───────────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────┐     ┌────────────┐
+    │   Analytics   │ │ Alerts  │ │   Recipes   │ │  Logging   │ ... │    etc     │
+    └───────────────┘ └─────────┘ └─────────────┘ └────────────┘     └────────────┘
 ```
 
 Key idea: A single ingestion spine fans raw events horizontally into simple, discrete downstream responsibilities. Everything after ingestion is optional / composable.
