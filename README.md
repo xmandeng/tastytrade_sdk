@@ -102,23 +102,49 @@ Reading Path:
 5. Data Artifacts / Channels (contract & naming).
 6. Scaling Levers (capacity planning cheatsheet).
 
-#### 1. High‑Level Data Flow
+#### 1. High‑Level Data Flow (Top‑Down + Horizontals)
 
 ```mermaid
-flowchart LR
-   subgraph Ingestion
-      WS[DXLink WebSocket] --> PARSER[Message Parser &<br/>Event Router]
+flowchart TB
+   %% Ingestion Layer
+   subgraph INGEST[Ingestion]
+      WS[DXLink WebSocket]
+      PARSER[Message Parser &<br/>Event Router]
+      WS --> PARSER
    end
+
+   %% Core Spine
    PARSER --> TELEGRAF[Telegraf]
    PARSER --> REDIS[(Redis<br/>Pub/Sub + Cache)]
    PARSER --> KAFKA[(Kafka*)]
    TELEGRAF --> INFLUX[(InfluxDB)]
+
+   %% Enrichment Worker (loop back into Redis & Influx)
    REDIS --> WORKER[IndicatorWorker]
    WORKER --> REDIS
    WORKER --> INFLUX
+
+   %% Horizontal Services subscribing to bus (Redis now, Kafka later)
+   subgraph H[Horizontal Services]
+      ALERTS[Alerts]
+      RECIPES[Recipes]
+      LOGGING[Logging]
+      ETC[etc.]
+   end
+   REDIS --> ALERTS
+   REDIS --> RECIPES
+   REDIS --> LOGGING
+   REDIS --> ETC
+   KAFKA --> ALERTS
+   KAFKA --> RECIPES
+   KAFKA --> LOGGING
+   KAFKA --> ETC
+
+   %% Edge & Clients
    REDIS --> FASTAPI[FastAPI Edge]
    INFLUX --> FASTAPI
    FASTAPI --> CLIENTS[Dashboards / Bots / Notebooks]
+
    classDef opt fill:#333,stroke:#555,color:#bbb,stroke-dasharray:5 5;
    class KAFKA opt;
    style FASTAPI fill:#0b3d91,stroke:#0b3d91,color:#fff
