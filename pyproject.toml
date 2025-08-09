@@ -55,6 +55,7 @@ dev = [
 
 [project.scripts]
 api = "tastytrade.api.main:start"
+indicator-worker = "tastytrade.realtime.worker:start"
 
 [build-system]
 requires = ["hatchling"]

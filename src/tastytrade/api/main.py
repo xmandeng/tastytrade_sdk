@@ -5,8 +5,15 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel
+from redis import asyncio as aioredis  # type: ignore
 
 from tastytrade.common.logging import setup_logging
 from tastytrade.config import RedisConfigManager
@@ -17,6 +24,7 @@ from tastytrade.messaging.processors import (
     RedisEventProcessor,
     TelegrafHTTPEventProcessor,
 )
+from tastytrade.realtime.schemas import Snapshot
 
 """Example curl requests:
 
@@ -132,6 +140,7 @@ app = FastAPI(
 # Global DXLink manager instance
 dxlink_manager: Optional[DXLinkManager] = None
 initialization_lock = asyncio.Lock()
+redis_client: Optional[aioredis.Redis] = None
 
 
 class SymbolSubscription(BaseModel):
@@ -202,7 +211,7 @@ async def get_subscriptions() -> Dict[str, SubscriptionStatus]:
         }
     except Exception as e:
         logger.error(f"Error getting subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/subscribe/feed")
@@ -221,7 +230,7 @@ async def subscribe(
         }
     except Exception as e:
         logger.error(f"Error subscribing to feed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/unsubscribe/feed")
@@ -240,7 +249,7 @@ async def unsubscribe(
         }
     except Exception as e:
         logger.error(f"Error unsubscribing from feed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/subscribe/candles")
@@ -265,7 +274,7 @@ async def subscribe_to_candles(
         }
     except Exception as e:
         logger.error(f"Error subscribing to candles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/unsubscribe/candles")
@@ -288,7 +297,7 @@ async def unsubscribe_from_candles(
         }
     except Exception as e:
         logger.error(f"Error unsubscribing from candles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/subscriptions")
@@ -331,7 +340,7 @@ async def clear_all_subscriptions(background_tasks: BackgroundTasks):
         }
     except Exception as e:
         logger.error(f"Error clearing subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def start():
@@ -342,6 +351,53 @@ def start():
     import uvicorn
 
     uvicorn.run("tastytrade.api.main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+# ----------------------------------------------------------------------------------
+# Realtime snapshot & WebSocket streaming
+# ----------------------------------------------------------------------------------
+
+
+async def get_redis() -> aioredis.Redis:
+    global redis_client
+    if redis_client is None:
+        redis_client = aioredis.from_url("redis://redis:6379/0", decode_responses=True)
+    return redis_client
+
+
+@app.get("/snapshot/{symbol}", response_model=Snapshot)
+async def get_snapshot(symbol: str):
+    r = await get_redis()
+    raw = await r.get(f"snapshot:{symbol}")
+    if not raw:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return Snapshot.model_validate_json(raw)
+
+
+@app.websocket("/ws/{symbol}")
+async def ws_symbol(websocket: WebSocket, symbol: str):
+    await websocket.accept()
+    r = await get_redis()
+    raw = await r.get(f"snapshot:{symbol}")
+    if raw:
+        await websocket.send_text(raw)
+    pubsub = r.pubsub()
+    channel = f"analytics:delta:{symbol}"
+    await pubsub.subscribe(channel)
+    try:
+        while True:
+            message = await pubsub.get_message(
+                ignore_subscribe_messages=True, timeout=5.0
+            )
+            if message and message.get("type") == "message":
+                data = message.get("data")
+                if data:
+                    await websocket.send_text(data)
+            await asyncio.sleep(0.05)
+    except WebSocketDisconnect:
+        await pubsub.unsubscribe(channel)
+    finally:
+        await pubsub.close()
 
 
 if __name__ == "__main__":

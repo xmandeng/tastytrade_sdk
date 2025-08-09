@@ -75,11 +75,23 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
     ┌───────────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────┐     ┌────────────┐
     │   Analytics   │ │ Alerts  │ │   Recipes   │ │  Logging   │ ... │    etc     │
     └───────────────┘ └─────────┘ └─────────────┘ └────────────┘     └────────────┘
+
+       ▲
+       │ enriched deltas (analytics:delta:<symbol>)
+    ┌───────┴────────┐
+    │ IndicatorWorker│ (Redis pattern sub: market:CandleEvent:*)
+    └───────┬────────┘
+       │ publishes deltas & snapshots
+       ▼
+     ┌───────────────┐  WebSocket + REST (snapshot/history)
+     │  FastAPI Edge │  /ws/{symbol}  /snapshot/{symbol}
+     └───────────────┘
 ```
 
 - **Real-time Processing**: WebSocket streaming with asynchronous event handling
 - **Data Storage**: InfluxDB for time-series data storage and analysis
 - **Message Queue**: ~~Kafka~~ Redis for reliable event distribution
+- **Realtime Edge**: FastAPI WebSocket gateway & snapshot REST backed by Redis
 - **Metrics Collection**: Telegraf for system and application metrics
 - **Containerization**: Full Docker support with dev containers
 
@@ -188,9 +200,43 @@ async with DXLinkManager(credentials) as dxlink:
 2. Event processing and normalization
 3. Storage in InfluxDB for historical analysis
 4. Distribution via ~~Kafka~~ Redis for real-time processing
-5. Analytics and visualization
+5. IndicatorWorker enriches CandleEvents to MACD + HMA deltas (publishes analytics:delta:<symbol>)
+6. FastAPI gateway streams deltas over WebSocket & serves /snapshot/{symbol}
 
 ### Sample Visualization
+### Realtime Streaming (WebSocket)
+
+Start the indicator worker (after the API has begun publishing CandleEvents to Redis):
+
+```bash
+poetry run indicator-worker
+```
+
+Connect to a symbol stream:
+
+```python
+import asyncio, json, websockets
+
+symbol = "SPX{=1m}"
+
+async def consumer():
+   async with websockets.connect(f"ws://localhost:8000/ws/{symbol}") as ws:
+      async for raw in ws:
+         msg = json.loads(raw)
+         if msg["type"] == "snapshot":
+            print("Snapshot", msg["last_candle"]["time"])
+         else:
+            print("Delta", msg["candle"]["time"], msg["macd"]["hist"])
+
+asyncio.run(consumer())
+```
+
+Fetch the latest snapshot via REST:
+
+```bash
+curl http://localhost:8000/snapshot/SPX{=1m}
+```
+
 ```python
 from tastytrade.analytics.visualizations.charts import Study
 
