@@ -55,7 +55,7 @@ To aid progressive understanding, this section is layered from the original line
 
 #### 0. Conceptual Overview (Original Linear Layout)
 
-```
+```text
                                                     WebSocket Feed
                                                              │
                                                       ┌──────────┐  Message Parser
