@@ -56,20 +56,21 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
 ```mermaid
 flowchart LR
    subgraph Ingestion
-      WS[DXLink WebSocket] --> PARSER[Message Parser &\nEvent Router]
+      WS[DXLink WebSocket] --> PARSER[Message Parser &<br/>Event Router]
    end
    PARSER --> TELEGRAF[Telegraf]
-   PARSER --> REDIS[(Redis\nPub/Sub + Cache)]
+   PARSER --> REDIS[(Redis<br/>Pub/Sub + Cache)]
    PARSER --> KAFKA[(Kafka*)]
    TELEGRAF --> INFLUX[(InfluxDB)]
    REDIS --> WORKER[IndicatorWorker]
    WORKER --> REDIS
    WORKER --> INFLUX
-   REDIS --> FASTAPI[FastAPI Edge]\nstyle FASTAPI fill:#0b3d91,stroke:#0b3d91,color:#fff
+   REDIS --> FASTAPI[FastAPI Edge]
    INFLUX --> FASTAPI
    FASTAPI --> CLIENTS[Dashboards / Bots / Notebooks]
-   classDef opt fill:#333,stroke:#555,color:#bbb,stroke-dasharray: 5 5;
+   classDef opt fill:#333,stroke:#555,color:#bbb,stroke-dasharray:5 5;
    class KAFKA opt;
+   style FASTAPI fill:#0b3d91,stroke:#0b3d91,color:#fff
 ```
 
 #### 2. Realtime Streaming Sequence
