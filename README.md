@@ -126,9 +126,9 @@ flowchart TB
 
    %% Consumer Layer (edge clients + horizontal internal services aligned)
             %% Consumer layer grouped (blank title for alignment w/out caption)
+            FASTAPI[FastAPI Edge]
             subgraph CONSUMER_LAYER[ ]
                direction LR
-               FASTAPI[FastAPI Edge]
                CLIENTS[Dashboards / Bots / Notebooks]
                ALERTS[Alerts]
                RECIPES[Recipes]
