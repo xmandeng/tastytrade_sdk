@@ -119,18 +119,27 @@ flowchart TB
    PARSER --> KAFKA[(Kafka*)]
    TELEGRAF --> INFLUX[(InfluxDB)]
 
-   %% Enrichment Worker (loop back into Redis & Influx)
+   %% Enrichment Worker (loop back)
    REDIS --> WORKER[IndicatorWorker]
    WORKER --> REDIS
    WORKER --> INFLUX
 
-   %% Horizontal Services subscribing to bus (Redis now, Kafka later)
-   subgraph H[Horizontal Services]
-      ALERTS[Alerts]
-      RECIPES[Recipes]
-      LOGGING[Logging]
-      ETC[etc.]
+   %% Consumer Layer (edge clients + horizontal internal services aligned)
+   subgraph CONSUMERS[Consumers]
+      FASTAPI[FastAPI Edge]
+      CLIENTS[Dashboards / Bots / Notebooks]
+      subgraph H[Horizontal Services]
+         ALERTS[Alerts]
+         RECIPES[Recipes]
+         LOGGING[Logging]
+         ETC[etc.]
+      end
    end
+
+   %% Bus connections
+   REDIS --> FASTAPI
+   INFLUX --> FASTAPI
+   FASTAPI --> CLIENTS
    REDIS --> ALERTS
    REDIS --> RECIPES
    REDIS --> LOGGING
@@ -139,11 +148,6 @@ flowchart TB
    KAFKA --> RECIPES
    KAFKA --> LOGGING
    KAFKA --> ETC
-
-   %% Edge & Clients
-   REDIS --> FASTAPI[FastAPI Edge]
-   INFLUX --> FASTAPI
-   FASTAPI --> CLIENTS[Dashboards / Bots / Notebooks]
 
    classDef opt fill:#333,stroke:#555,color:#bbb,stroke-dasharray:5 5;
    class KAFKA opt;
