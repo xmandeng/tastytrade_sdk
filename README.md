@@ -51,6 +51,57 @@ A high-performance Python SDK for the TastyTrade Open API, providing programmati
 
 ### 🔧 Technical Architecture
 
+To aid progressive understanding, this section is layered from the original linear concept → concise responsibilities → detailed flow & realtime specifics. Skim in order; each layer adds resolution.
+
+#### 0. Conceptual Overview (Original Linear Layout)
+
+```
+                                                    WebSocket Feed
+                                                             │
+                                                      ┌──────────┐  Message Parser
+                              ┌───────────────│ DXClient │        &
+                              │               └──────────┘   Event Router
+                              │                    │
+                              │                    ▼
+                              │               ┌──────────┐
+                              │               │ Telegraf │  ──  ──  ──  ─┐
+                              │               └──────────┘
+                              │                    │                     │
+                              ▼                    ▼                     ▼
+       pub/sub  ┌──────────┐          ┌──────────┐          ┌──────────┐
+            &     │  Redis   │          │ InfluxDB │          │   Kafka  │ (in development)
+         cache   └─────┬────┘          └──────────┘          └────┬─────┘
+                              │                                          │
+                              ▼                                          ▼
+      ┌────────┬─────────────┬─────────────┬──────────────┬──────────────────┬──────┐
+                   │             │             │              │                  │
+                   ▼             ▼             ▼              ▼                  ▼
+      ┌───────────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────┐     ┌────────────┐
+      │   Analytics   │ │ Alerts  │ │   Recipes   │ │  Logging   │ ... │    etc     │
+      └───────────────┘ └─────────┘ └─────────────┘ └────────────┘     └────────────┘
+```
+
+Key idea: A single ingestion spine fans raw events horizontally into simple, discrete downstream responsibilities. Everything after ingestion is optional / composable.
+
+#### 0.1 Component Responsibilities (At a Glance)
+
+- DXLink Client + Router: Normalize & tag events, keep upstream connection healthy.
+- Telegraf: Bridge normalized events into InfluxDB & metrics without coupling app code to DB client complexity.
+- Redis (Core Runtime Bus): Ultra‑low latency pub/sub + hot cache for snapshots.
+- IndicatorWorker (Analytics seed): Converts raw candle stream to enriched indicator deltas (MACD/HMA now, pluggable later).
+- FastAPI Edge: Boundary for external consumers (WebSocket fanout + REST snapshot/history).
+- InfluxDB: Durable, queryable historical store (source of truth for backfill and analytics over longer ranges).
+- Kafka (Optional Future): Horizontal scaling / multi‑tenant fanout when Redis pub/sub is insufficient.
+- Horizontal Services (Alerts / Recipes / Logging / etc.): Subscribe, act, remain decoupled.
+
+Reading Path:
+1. Original ASCII (shape & separation) – done above.
+2. Responsibilities summary (keeps mental map small).
+3. High‑Level Data Flow (graph form) – next section.
+4. Realtime Sequence (temporal ordering of live updates).
+5. Data Artifacts / Channels (contract & naming).
+6. Scaling Levers (capacity planning cheatsheet).
+
 #### 1. High‑Level Data Flow
 
 ```mermaid
