@@ -125,16 +125,15 @@ flowchart TB
    WORKER --> INFLUX
 
    %% Consumer Layer (edge clients + horizontal internal services aligned)
-   subgraph CONSUMERS[Consumers]
-      FASTAPI[FastAPI Edge]
-      CLIENTS[Dashboards / Bots / Notebooks]
-      subgraph H[Horizontal Services]
+      subgraph CONSUMERS[Consumers]
+         FASTAPI[FastAPI Edge]
+         CLIENTS[Dashboards / Bots / Notebooks]
+         %% Horizontal service nodes (no caption box)
          ALERTS[Alerts]
          RECIPES[Recipes]
          LOGGING[Logging]
          ETC[etc.]
       end
-   end
 
    %% Bus connections
    REDIS --> FASTAPI
