@@ -11,6 +11,7 @@ on channels: ``market:CandleEvent:{eventSymbol}`` and publishes enriched deltas 
 ``snapshot:{eventSymbol}``.
 """
 
+from .live_chart import LiveMACDHullStreamer
 from .schemas import (
     CandlePayload,
     DeltaMessage,
@@ -25,4 +26,5 @@ __all__ = [
     "CandlePayload",
     "MACDPayload",
     "HMAPayload",
+    "LiveMACDHullStreamer",
 ]

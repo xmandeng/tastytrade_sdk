@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import AsyncGenerator, Optional
+from typing import TYPE_CHECKING, AsyncGenerator, Callable, Optional
 
 import polars as pl
 
-from ..messaging.models.events import CandleEvent
 from ..analytics.visualizations.realtime import RealTimeMACDHullChart
+
+if TYPE_CHECKING:  # pragma: no cover
+    from asyncio import Queue as _AsyncCandleQueue  # noqa: F401
+from ..messaging.models.events import CandleEvent
 
 
 async def wait_for_candle_frame(
@@ -61,40 +64,102 @@ async def candle_event_stream(
     interval: str,
     poll_secs: float = 1.0,
 ) -> AsyncGenerator[CandleEvent, None]:
-    """Yield new/updated CandleEvent rows for the specified symbol+interval."""
-    handler = (
-        dxlink.router.handler[dxlink.router.subscription_channels.Candle].processors[
-            "feed"
-        ]
-        if hasattr(dxlink.router, "subscription_channels")
-        else dxlink.router.handler["Candle"].processors["feed"]
-    )  # type: ignore[index]
-    key = f"{symbol}{{={interval}}}"
-    last_dt: datetime | None = None
-    while True:
-        frame = handler.frames.get(key)
-        if frame is not None and not frame.is_empty():
-            row = frame.tail(1)
+    """Yield new/updated CandleEvent rows for the specified symbol+interval.
+
+    If the underlying CandleEventProcessor exposes an "on_candle" callback registry
+    (future extension), we would hook directly; for now we retain light polling
+    fallback. Poll interval can be tuned down (e.g., 0.25) but consumers wanting
+    pure event-driven updates should use `register_candle_listener`.
+    """
+    if hasattr(dxlink.router.handler.get("Candle"), "listeners"):
+        q: asyncio.Queue[CandleEvent] = asyncio.Queue()  # type: ignore[name-defined]
+        key = f"{symbol}{{={interval}}}"
+
+        def _listener(event):  # type: ignore[no-untyped-def]
+            if getattr(event, "eventSymbol", None) == key:
+                try:
+                    q.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
+
+        dxlink.router.handler["Candle"].listeners.append(_listener)  # type: ignore[attr-defined]
+        try:
+            while True:
+                ev = await q.get()
+                if isinstance(ev, CandleEvent):
+                    yield ev
+        finally:
             try:
-                ct = row["time"][0]
+                dxlink.router.handler["Candle"].listeners.remove(_listener)  # type: ignore[attr-defined]
             except Exception:
-                ct = datetime.utcnow()
-            if last_dt is None or ct != last_dt:
-                last_dt = ct
-                candle = CandleEvent(
-                    time=ct,
-                    open=row.get_column("open")[0] if "open" in row.columns else None,
-                    high=row.get_column("high")[0] if "high" in row.columns else None,
-                    low=row.get_column("low")[0] if "low" in row.columns else None,
-                    close=row.get_column("close")[0]
-                    if "close" in row.columns
-                    else None,
-                    volume=row.get_column("volume")[0]
-                    if "volume" in row.columns
-                    else None,
-                )
-                yield candle
-        await asyncio.sleep(poll_secs)
+                pass
+    else:
+        handler = (
+            dxlink.router.handler[
+                dxlink.router.subscription_channels.Candle
+            ].processors["feed"]
+            if hasattr(dxlink.router, "subscription_channels")
+            else dxlink.router.handler["Candle"].processors["feed"]
+        )  # type: ignore[index]
+        key = f"{symbol}{{={interval}}}"
+        last_dt: datetime | None = None
+        while True:
+            frame = handler.frames.get(key)
+            if frame is not None and not frame.is_empty():
+                row = frame.tail(1)
+                try:
+                    ct = row["time"][0]
+                except Exception:
+                    ct = datetime.utcnow()
+                if last_dt is None or ct != last_dt:
+                    last_dt = ct
+                    candle = CandleEvent(
+                        time=ct,
+                        open=row.get_column("open")[0]
+                        if "open" in row.columns
+                        else None,
+                        high=row.get_column("high")[0]
+                        if "high" in row.columns
+                        else None,
+                        low=row.get_column("low")[0] if "low" in row.columns else None,
+                        close=row.get_column("close")[0]
+                        if "close" in row.columns
+                        else None,
+                        volume=row.get_column("volume")[0]
+                        if "volume" in row.columns
+                        else None,
+                    )
+                    yield candle
+            await asyncio.sleep(poll_secs)
+
+
+def register_candle_listener(
+    dxlink, symbol: str, interval: str, callback: Callable[[CandleEvent], None]
+) -> bool:
+    """Attempt to register a synchronous callback fired on each CandleEvent for symbol/interval.
+
+    Returns True if an event-driven listener was attached, False if not supported (caller can fall back).
+    """
+    handler = dxlink.router.handler.get("Candle")
+    if handler is None:
+        return False
+    # Simple attribute-based extension: create list if absent
+    listeners = getattr(handler, "listeners", None)
+    if listeners is None:
+        listeners = []
+        handler.listeners = listeners  # type: ignore[attr-defined]
+
+    key = f"{symbol}{{={interval}}}"
+
+    def _listener(event):  # type: ignore[no-untyped-def]
+        if (
+            isinstance(event, CandleEvent)
+            and getattr(event, "eventSymbol", None) == key
+        ):
+            callback(event)
+
+    listeners.append(_listener)
+    return True
 
 
 async def setup_realtime_chart(
@@ -145,4 +210,5 @@ __all__ = [
     "candle_event_stream",
     "setup_realtime_chart",
     "start_chart_stream_task",
+    "register_candle_listener",
 ]
