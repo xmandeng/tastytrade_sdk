@@ -34,17 +34,45 @@ async def wait_for_candle_frame(
     timeout: Optional[float] = 30.0,
 ) -> pl.DataFrame:
     """Poll until a candle frame with >= min_rows exists."""
-    handler = (
-        dxlink.router.handler[dxlink.router.subscription_channels.Candle].processors[
-            "feed"
-        ]
-        if hasattr(dxlink.router, "subscription_channels")
-        else dxlink.router.handler["Candle"].processors["feed"]
-    )  # type: ignore[index]
     key = f"{symbol}{{={interval}}}"
     start = asyncio.get_running_loop().time()
+
+    def _resolve_feed():  # inner helper tries several key forms
+        handler_map = getattr(dxlink.router, "handler", {})
+        # 1. subscription_channels enum if present
+        if hasattr(dxlink.router, "subscription_channels"):
+            try:
+                enum_key = dxlink.router.subscription_channels.Candle  # type: ignore[attr-defined]
+                h = handler_map.get(enum_key)
+                if h is not None:
+                    return h.processors["feed"]
+            except Exception:  # noqa: BLE001
+                pass
+        # 2. Direct string key
+        h = handler_map.get("Candle")
+        if h is not None:
+            return h.processors["feed"]
+        # 3. Fuzzy match (enum repr or other naming)
+        for k, v in handler_map.items():
+            ks = str(k)
+            if ks.endswith(".Candle") or ks.lower().endswith("candle"):
+                try:
+                    return v.processors["feed"]
+                except Exception:  # noqa: BLE001
+                    continue
+        return None
+
     while True:
-        frame = handler.frames.get(key)
+        feed = _resolve_feed()
+        if feed is None:  # handler not yet registered
+            if (
+                timeout is not None
+                and (asyncio.get_running_loop().time() - start) > timeout
+            ):
+                raise TimeoutError(f"Timed out waiting for Candle handler for {key}")
+            await asyncio.sleep(poll_secs)
+            continue
+        frame = feed.frames.get(key)
         if frame is not None and not frame.is_empty() and len(frame) >= min_rows:
             return frame
         if (
@@ -133,17 +161,31 @@ async def candle_event_stream(
             await asyncio.sleep(poll_secs)
 
 
+def _resolve_candle_handler(dxlink):  # internal helper tolerant of enum vs str keys
+    # Prefer subscription_channels enum mapping if present
+    if hasattr(dxlink.router, "subscription_channels"):
+        try:
+            key = dxlink.router.subscription_channels.Candle  # enum value
+            handler = dxlink.router.handler.get(key)
+            if handler is not None:
+                return handler
+        except Exception:  # noqa: BLE001
+            pass
+    # Fallback to raw string key
+    return dxlink.router.handler.get("Candle")
+
+
 def register_candle_listener(
     dxlink, symbol: str, interval: str, callback: Callable[[CandleEvent], None]
 ) -> bool:
-    """Attempt to register a synchronous callback fired on each CandleEvent for symbol/interval.
+    """Attempt to register a synchronous callback fired on each CandleEvent.
 
-    Returns True if an event-driven listener was attached, False if not supported (caller can fall back).
+    Returns True if attached, False if not supported (caller should fall back to polling).
+    Robust to router handler key being an enum or plain string.
     """
-    handler = dxlink.router.handler.get("Candle")
+    handler = _resolve_candle_handler(dxlink)
     if handler is None:
         return False
-    # Simple attribute-based extension: create list if absent
     listeners = getattr(handler, "listeners", None)
     if listeners is None:
         listeners = []

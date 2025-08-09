@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 from ..analytics.visualizations.realtime import RealTimeMACDHullChart
 from .notebook import (
+    register_candle_listener,
     setup_realtime_chart,
     start_chart_stream_task,
-    register_candle_listener,
 )
 
 
@@ -30,6 +30,7 @@ class LiveMACDHullStreamer:
     retries: int = 3
     poll_secs: float = 1.0
     hma_length: int = 20
+    auto_display: bool = True  # attempt to auto-display figure in notebook
     on_status: Optional[Callable[[str], None]] = None
     _chart: Optional[RealTimeMACDHullChart] = None
     _task: Optional[asyncio.Task] = None
@@ -52,7 +53,7 @@ class LiveMACDHullStreamer:
         last_err: Exception | None = None
         while attempt <= self.retries:
             try:
-                self._emit(f"bootstrap attempt {attempt+1} (min_rows={target_rows})")
+                self._emit(f"bootstrap attempt {attempt + 1} (min_rows={target_rows})")
                 self._chart = await setup_realtime_chart(
                     dxlink,
                     self.symbol,
@@ -76,6 +77,15 @@ class LiveMACDHullStreamer:
         self._chart.figure.update_layout(
             title=f"{self.symbol} {self.interval} — Live MACD + Hull"
         )
+
+        # Auto-display for Jupyter / VSCode notebooks if requested
+        if self.auto_display:
+            try:  # defer import to avoid hard dependency outside notebooks
+                from IPython.display import display  # type: ignore
+
+                display(self._chart.figure)
+            except Exception:  # noqa: BLE001
+                pass
 
         # Prefer event-driven listener
         def _on_candle(ev):  # type: ignore[no-untyped-def]

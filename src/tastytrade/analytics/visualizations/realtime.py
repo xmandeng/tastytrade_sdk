@@ -162,6 +162,10 @@ class RealTimeMACDHullChart:
 
         # Data buffers
         self._df: Optional[pl.DataFrame] = None  # full candle history we manage
+        # Display artifacts
+        self._display_handle = (
+            None  # will hold IPython display handle when FigureWidget unavailable
+        )
         self._fig = self._build_base_figure()
 
     @property
@@ -176,11 +180,74 @@ class RealTimeMACDHullChart:
             t1 = historical["time"][1]
             if isinstance(t0, datetime) and isinstance(t1, datetime):
                 self.candle_interval = t1 - t0
+        # Keep only rows with complete OHLC to ensure candlestick renders
+        required_cols = ["open", "high", "low", "close"]
+        have_cols = [c for c in required_cols if c in historical.columns]
+        if len(have_cols) < 4:
+            # Attempt to detect alternative naming (e.g., close_price) – basic heuristic
+            rename_map = {}
+            for alt, std in [
+                ("close_price", "close"),
+                ("open_price", "open"),
+                ("high_price", "high"),
+                ("low_price", "low"),
+            ]:
+                if alt in historical.columns and std not in historical.columns:
+                    rename_map[alt] = std
+            if rename_map:
+                historical = historical.rename(rename_map)
+        filtered = historical
+        if {"open", "high", "low", "close"}.issubset(set(filtered.columns)):
+            filtered = filtered.filter(
+                pl.col("open").is_not_null()
+                & pl.col("high").is_not_null()
+                & pl.col("low").is_not_null()
+                & pl.col("close").is_not_null()
+            )
+        if filtered.is_empty():
+            # Fall back to original if filtering removed everything
+            filtered = historical
 
-        macd_full = full_macd(historical, prior_close=self.prior_close)
-        hma_df = self.hma_calc.compute(historical)
+        macd_full = full_macd(filtered, prior_close=self.prior_close)
+        hma_df = self.hma_calc.compute(filtered)
+        # Ensure polars DataFrame for join
+        if (
+            hasattr(hma_df, "__class__")
+            and hma_df.__class__.__name__ == "DataFrame"
+            and not isinstance(hma_df, pl.DataFrame)
+        ):  # pandas DataFrame
+            try:
+                import pandas as _pd  # type: ignore
+
+                if isinstance(hma_df, _pd.DataFrame):  # convert
+                    hma_df = pl.from_pandas(hma_df)
+            except Exception:  # noqa: BLE001
+                pass
         self._df = macd_full.join(hma_df, on="time", how="left")
         self._render_full()
+        # Fallback: if candlestick trace has zero points but we have data, add a simple line so user sees something
+        try:
+            cs = self._fig.data[0]
+            if (len(getattr(cs, "x", []) or []) == 0) and not self._df.is_empty():
+                # replace first trace with line
+                import plotly.graph_objects as go  # local import
+
+                with_nulls = self._df.select(["time", "close"]).to_pandas()
+                with_nulls = with_nulls[with_nulls["close"].notna()]
+                self._fig.data = tuple(
+                    [
+                        go.Scatter(
+                            x=with_nulls["time"],
+                            y=with_nulls["close"],
+                            mode="lines",
+                            line={"color": "#4CAF50", "width": 1},
+                            name="Close",
+                        )
+                    ]
+                    + list(self._fig.data[1:])
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
     def add_candle(self, candle: CandleEvent) -> None:
         if self._df is None:
@@ -252,6 +319,18 @@ class RealTimeMACDHullChart:
         hma_df = self.hma_calc.compute(
             self._df.select(["time", "open", "high", "low", "close", "volume"])
         )
+        if (
+            hasattr(hma_df, "__class__")
+            and hma_df.__class__.__name__ == "DataFrame"
+            and not isinstance(hma_df, pl.DataFrame)
+        ):
+            try:
+                import pandas as _pd  # type: ignore
+
+                if isinstance(hma_df, _pd.DataFrame):
+                    hma_df = pl.from_pandas(hma_df)
+            except Exception:  # noqa: BLE001
+                pass
         self._df = self._df.join(
             hma_df.select(["time", "HMA", "HMA_color"]), on="time", how="left"
         )
@@ -318,7 +397,18 @@ class RealTimeMACDHullChart:
             plot_bgcolor="rgb(25,25,25)",
             paper_bgcolor="rgb(25,25,25)",
         )
-        return fig
+        # Wrap in FigureWidget for reactive notebook updates (so updating data arrays refreshes display)
+        try:  # if ipywidgets available
+            return go.FigureWidget(fig)
+        except Exception:  # noqa: BLE001
+            # Defer import to keep lightweight when running outside notebooks
+            try:
+                from IPython.display import display  # type: ignore
+
+                self._display_handle = display(fig, display_id=True)
+            except Exception:  # noqa: BLE001
+                self._display_handle = None
+            return fig  # fallback (we'll push manual updates via _render_full)
 
     def _render_full(self):
         assert self._df is not None
@@ -340,6 +430,12 @@ class RealTimeMACDHullChart:
             self._fig.data[4].update(
                 x=df["time"], y=df["diff"], marker_color=df["diff_color"]
             )
+        # If we are in fallback (non-FigureWidget) mode with a display handle, trigger an update
+        if self._display_handle is not None:
+            try:  # noqa: BLE001
+                self._display_handle.update(self._fig)
+            except Exception:
+                pass
 
     def _extend_latest_traces(self):
         self._render_full()
