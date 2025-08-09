@@ -129,7 +129,9 @@ flowchart TB
             FASTAPI[FastAPI Edge]
             subgraph CONSUMER_LAYER[ ]
                direction LR
-               CLIENTS[Dashboards / Bots / Notebooks]
+               DASH[Dashboards]
+               BOTS[Bots]
+               NB[Notebooks]
                ALERTS[Alerts]
                RECIPES[Recipes]
                LOGGING[Logging]
@@ -139,7 +141,9 @@ flowchart TB
    %% Bus connections
    REDIS --> FASTAPI
    INFLUX --> FASTAPI
-   FASTAPI --> CLIENTS
+   FASTAPI --> DASH
+   FASTAPI --> BOTS
+   FASTAPI --> NB
    REDIS --> ALERTS
    REDIS --> RECIPES
    REDIS --> LOGGING
