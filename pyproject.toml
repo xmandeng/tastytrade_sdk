@@ -30,6 +30,8 @@ dependencies = [
     "Pillow>=10.0.0",
     "nbformat>=4.2.0",
     "ipykernel>=6.30.0",
+    "anywidget>=0.9.18",
+    "ipywidgets>=8.1.7",
 ]
 
 [project.optional-dependencies]

@@ -113,7 +113,7 @@ The TastyTrade SDK is designed to run in a development container that provides a
 
 VS Code will build and start the development container, which includes:
 - Python 3.11 environment
-- Poetry for dependency management
+- UV (fast Python package manager) for dependency management
 - InfluxDB
 - Telegraf
 - Kafka
@@ -236,15 +236,50 @@ INFLUX_DB_TOKEN=your_token
 - Automatic infrastructure service management
 - Consistent development experience across machines
 
+### Dependency Management (UV)
+
+This project uses [uv](https://github.com/astral-sh/uv) instead of Poetry.
+
+Install uv (if not already installed):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Sync (install) dependencies (inside repo root):
+```bash
+uv sync
+```
+
+Add a runtime dependency:
+```bash
+uv add some-package
+```
+
+Add a dev-only dependency:
+```bash
+uv add --dev some-dev-package
+```
+
+Update all dependencies (respecting version constraints):
+```bash
+uv lock --upgrade
+uv sync
+```
+
+Run a command in the project environment:
+```bash
+uv run python -m tastytrade --help
+```
+
 ### Running Tests
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 ### Code Quality
 ```bash
-poetry run ruff check .
-poetry run mypy .
+uv run ruff check .
+uv run mypy .
 ```
 
 ## 📚 Documentation
