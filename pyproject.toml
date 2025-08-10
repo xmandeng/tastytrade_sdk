@@ -55,6 +55,8 @@ dev = [
     "altair>=5.5.0",
 ]
 
+# Note: 'uv sync --dev' must be run inside the devcontainer to install optional 'dev' deps including pytest.
+
 [project.scripts]
 api = "tastytrade.api.main:start"
 
@@ -95,5 +97,11 @@ fixable = ["ALL"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.17.0",
     "pre-commit>=4.2.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.2.1",
+    "pytest-mock>=3.14.1",
+    "ruff>=0.12.5",
 ]

@@ -115,13 +115,33 @@ def ema_with_seed(values: np.ndarray, length: int, seed: float) -> np.ndarray:
 
 def macd(
     df: pl.DataFrame,
-    prior_close: float,
+    prior_close: float | None,
     fast_length: int = 12,
     slow_length: int = 26,
     macd_length: int = 9,
 ) -> pl.DataFrame:
+    """Compute MACD with EMA seeding.
+
+    Args:
+        df: Polars DataFrame containing a 'close' column.
+        prior_close: Previous session close used to seed the EMAs. If None, falls back to
+            the first non-null close in df.
+        fast_length: Fast EMA period.
+        slow_length: Slow EMA period.
+        macd_length: Signal EMA period.
+    """
     # Sort by time just to be safe
     df = df.sort("time")
+
+    # Resolve prior_close if missing
+    if prior_close is None:
+        try:
+            first_close_series = df.select(pl.col("close").drop_nulls()).to_series()
+            if len(first_close_series) == 0:
+                raise ValueError("Cannot infer prior_close: no non-null close values")
+            prior_close = float(first_close_series[0])
+        except Exception as e:  # pragma: no cover - defensive
+            raise ValueError("prior_close is required and could not be inferred") from e
 
     # Convert 'close' to numpy
     close_np = df["close"].to_numpy()

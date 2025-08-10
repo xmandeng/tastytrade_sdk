@@ -1,0 +1,23 @@
+{
+  "include": ["src"],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/.git",
+    "logs",
+    "devtoools",
+    "notebooks",
+    "unit_tests"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportMissingImports": "warning",
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "extraPaths": ["src", "typings"]
+    }
+  ]
+}
