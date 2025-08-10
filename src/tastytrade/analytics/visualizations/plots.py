@@ -18,7 +18,7 @@ class HorizontalLine:
 
     def __init__(
         self,
-        price: float,
+        price: float | int | None,
         label: Optional[str] = None,
         color: str = "white",
         line_width: float = 1.0,
@@ -26,7 +26,7 @@ class HorizontalLine:
         opacity: float = 0.7,
         text_position: str = "left",
         show_label: bool = True,
-        label_font_size: int = 11,
+        label_font_size: float = 11.0,
         extend_to_end: bool = False,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
@@ -48,7 +48,9 @@ class HorizontalLine:
             start_time: Optional custom start time for the line (if None, uses chart min time)
             end_time: Optional custom end time for the line (if None, uses chart max time)
         """
-        self.price = price
+        if price is None:
+            raise ValueError("price cannot be None for HorizontalLine")
+        self.price = float(price)
         self.label = label  # Allow None value without providing a default
         self.color = color
         self.line_width = line_width
@@ -75,7 +77,7 @@ class VerticalLine:
         opacity: float = 0.7,
         text_position: str = "top",  # "top", "middle", "bottom"
         show_label: bool = True,
-        label_font_size: int = 11,
+        label_font_size: float = 11.0,
         text_orientation: str = "horizontal",  # "horizontal", "vertical"
         label_padding: int = 6,  # Increased default padding for labels
         span_subplots: bool = True,  # Span both price and MACD panels

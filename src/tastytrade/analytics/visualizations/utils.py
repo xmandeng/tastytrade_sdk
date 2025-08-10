@@ -1,7 +1,7 @@
 import logging
 from collections import namedtuple
-from datetime import datetime, time, timedelta
-from typing import Optional
+from datetime import date, datetime, time, timedelta
+from typing import Optional, Union
 
 import pytz
 
@@ -17,7 +17,7 @@ async def get_opening_range(
     streamer: MarketDataProvider,
     symbol: str,
     range_minutes: int = 5,
-    date: Optional[datetime] = None,
+    date: Optional[Union[datetime, date]] = None,
     market_open_time: time = time(9, 30),
     timezone: str = "America/New_York",
 ) -> OpeningRange:
@@ -43,6 +43,7 @@ async def get_opening_range(
         date = datetime.now()
 
     # Ensure date has no time component
+    # Normalize any date-like object to a datetime at midnight
     date = datetime(date.year, date.month, date.day)
 
     # Create market open datetime in the specified timezone

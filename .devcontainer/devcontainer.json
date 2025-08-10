@@ -110,6 +110,8 @@
         ],
         "python.terminal.activateEnvInCurrentTerminal": true,
         "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["unit_tests"],
+        "python.testing.unittestEnabled": false,
 
         // Documentation Configuration
         "autoDocstring.docstringFormat": "numpy",
@@ -126,6 +128,27 @@
         "pylint.enabled": false,
         "ruff.enable": true,
         "ruff.organizeImports": true,
+
+        // Pylance / Pyright performance & clarity: exclude heavy, non-source dirs
+        "python.analysis.exclude": [
+          "**/logs",
+          "**/unit_tests",
+          "**/notebooks",
+          "**/__pycache__",
+          "deploy",
+          ".venv"
+        ],
+        // Avoid FS watcher overload on large / noisy directories
+        "files.watcherExclude": {
+          "**/logs/**": true,
+          "**/unit_tests/**": true,
+          "**/notebooks/**": true,
+          "**/.venv/**": true,
+          "**/__pycache__/**": true
+        },
+        // Ensure rich inference even without explicit stubs
+        "python.analysis.useLibraryCodeForTypes": true,
+        "python.analysis.autoImportCompletions": true,
 
         // Claude Code specific settings
         "claude-code.autoStart": false,

@@ -30,9 +30,12 @@ else
 fi
 
 # Step 1: Install all project dependencies including development tools
-echo "Installing dependencies with UV..."
-uv sync --dev
-uv add --dev pre-commit
+echo "Installing dependencies with UV (including dev extras)..."
+# Install base + optional 'dev' extras defined under [project.optional-dependencies]
+uv sync --all-extras || uv sync
+
+# Ensure dev tooling explicitly (fallback if extras not applied)
+uv add --dev pytest pytest-cov pytest-asyncio pytest-mock ruff mypy pre-commit || true
 
 # Step 2: Configure shell to use project virtual environment
 # Only add if not already present to avoid duplicates

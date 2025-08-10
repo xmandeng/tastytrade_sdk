@@ -2,8 +2,8 @@
 
 import logging
 import os
-from datetime import datetime
-from typing import Callable, Optional
+from datetime import date, datetime
+from typing import Callable, Optional, Union, overload
 
 import polars as pl
 from influxdb_client import InfluxDBClient
@@ -63,11 +63,29 @@ class MarketDataProvider:
         """Implements behavior for iteration"""
         return iter(self.frames)
 
+    @overload
     def download(
         self,
         symbol: str,
-        start: datetime = datetime.now(),
+        start: datetime,
         stop: Optional[datetime] = None,
+        debug_mode: bool = False,
+    ) -> pl.DataFrame: ...
+
+    @overload
+    def download(
+        self,
+        symbol: str,
+        start: date,
+        stop: Optional[date] = None,
+        debug_mode: bool = False,
+    ) -> pl.DataFrame: ...
+
+    def download(
+        self,
+        symbol: str,
+        start: Union[datetime, date],
+        stop: Optional[Union[datetime, date]] = None,
         debug_mode: bool = False,
     ) -> pl.DataFrame:
         """Get historical market data from InfluxDB.
@@ -81,14 +99,23 @@ class MarketDataProvider:
             end: Optional end time
             event_type: Type of event to retrieve (e.g. TradeEvent, QuoteEvent)
         """
-        if stop and stop <= start:
+
+        # Normalize date inputs to naive UTC-midnight datetimes (consistent with existing behavior)
+        def coerce(dt: Union[datetime, date]) -> datetime:
+            if isinstance(dt, datetime):
+                return dt
+            return datetime(dt.year, dt.month, dt.day)
+
+        start_dt = coerce(start)
+        stop_dt = coerce(stop) if stop else None
+
+        if stop_dt and stop_dt <= start_dt:
             raise ValueError("Stop time must be greater than start time")
 
-        if stop:
-            date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop.strftime('%Y-%m-%dT%H:%M:%SZ')})"
-
+        if stop_dt:
+            date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
         else:
-            date_range = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')})"
+            date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
         pivot_query = f"""
             from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ["INFLUX_DB_BUCKET"]}")
@@ -105,12 +132,13 @@ class MarketDataProvider:
         logger.debug("Subscription query:\n%s", pivot_query)
 
         try:
-            df = (
-                self.influx.query_api()
-                .query_data_frame(pivot_query)
-                # Add CandleEvent time w/o timezone
-                .assign(time=lambda df: df["_time"].dt.tz_localize(None))
-            )
+            # Query returns a pandas DataFrame (or list). Normalize to DataFrame.
+            raw = self.influx.query_api().query_data_frame(pivot_query)
+            import pandas as _pd  # local import to keep top-level light
+
+            if isinstance(raw, list):
+                raw = _pd.concat(raw, ignore_index=True) if raw else _pd.DataFrame()
+            df = raw.assign(time=lambda d: d["_time"].dt.tz_localize(None))
 
             # Remove InfluxDB metadata columns
             df = df.drop(
@@ -134,14 +162,13 @@ class MarketDataProvider:
             )
             raise ValueError(
                 f"Error querying InfluxDB for {symbol} ({self.event_type}): {e}"
-            )
+            ) from e
 
+        result = pl.from_pandas(df)
         if debug_mode:
-            return pl.from_pandas(df)
-        else:
-            self.frames[symbol] = pl.from_pandas(df)
-
-        pass
+            return result
+        self.frames[symbol] = result
+        return result
 
     def event_listener(self):
         pass
