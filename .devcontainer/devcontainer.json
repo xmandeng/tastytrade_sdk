@@ -49,6 +49,7 @@
         "davidanson.vscode-markdownlint",
         "shd101wyy.markdown-preview-enhanced",
         "yzhang.markdown-all-in-one",
+        "bierner.markdown-mermaid",
 
         // Data & File Utilities
         "mohsen1.prettify-json",
