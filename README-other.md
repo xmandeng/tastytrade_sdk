@@ -118,10 +118,20 @@ flowchart TB
     REDISPROC[Redis Event Processor]
   end
 
+  subgraph ANALYTICS[Outputs]
+    LIVEPLOT[Plots]
+    ALERTS[Alerts]
+    STUDIES[Studies]
+    LIVEPLOT <--> ALERTS
+    ALERTS <--> STUDIES
+  end
+
   ROUTER --> TELEGRAF
   ROUTER --> REDISPROC
   TELEGRAF --> INFLUX[(InfluxDB)]
   REDISPROC --> REDIS[(Redis Pub/Sub)]
+  REDIS <--> ANALYTICS
+  INFLUX <--> ANALYTICS
 
   subgraph API[FastAPI REST]
     SUBEP[/subscribe endpoints/]
