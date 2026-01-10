@@ -2,6 +2,8 @@ services:
   influxdb:
     image: influxdb:2.7.1
     container_name: influxdb
+    labels:
+      - "traefik.enable=false"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
@@ -21,6 +23,8 @@ services:
   telegraf:
     image: telegraf:1.25.0
     container_name: telegraf
+    labels:
+      - "traefik.enable=false"
     depends_on:
       - influxdb
     volumes:
@@ -39,6 +43,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
+    labels:
+      - "traefik.enable=false"
     command: redis-server --appendonly yes --save 60 1 --loglevel warning
     volumes:
       - /mnt/Plex/devstorage/redis:/data
@@ -55,6 +61,8 @@ services:
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: redis-commander
+    labels:
+      - "traefik.enable=false"
     environment:
       - REDIS_HOSTS=local:redis:6379
       - HTTP_USER=admin
@@ -69,6 +77,8 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
+    labels:
+      - "traefik.enable=false"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=adminpassword
