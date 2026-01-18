@@ -8,7 +8,8 @@
 # 1. Install Python dependencies using UV package manager
 # 2. Add pre-commit development dependency
 # 3. Configure shell environment to use project virtual environment
-# 4. Install pre-commit git hooks for code quality checks
+# 4. Configure shell aliases for development workflow
+# 5. Install pre-commit git hooks for code quality checks
 
 set -e
 
@@ -42,6 +43,53 @@ uv add --dev pytest pytest-cov pytest-asyncio pytest-mock ruff mypy pre-commit |
 if ! grep -q 'export PATH="/workspace/.venv/bin:$PATH"' /home/vscode/.bashrc; then
     echo "Adding virtual environment to PATH..."
     echo 'export PATH="/workspace/.venv/bin:$PATH"' >> /home/vscode/.bashrc
+fi
+
+# Step 2b: Configure shell aliases
+# Only add if not already present to avoid duplicates
+if ! grep -q '# Project Shell Aliases' /home/vscode/.bashrc; then
+    echo "Adding shell aliases..."
+    cat >> /home/vscode/.bashrc << 'EOF'
+
+# Project Shell Aliases
+# Shell
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias c="clear"
+alias s="source ~/.bashrc"
+
+# grep w/ PCRE search ("-P")
+alias grep="/bin/grep --color=auto"
+alias fgrep='/bin/fgrep --color=auto'
+alias egrep='/bin/egrep --color=auto'
+
+# DEV
+alias python=python3
+alias awslogin='aws sso login --profile ${AWS_PROFILE}'
+
+# Git add incl dotfiles
+alias ga="git add . -A"
+alias gs="git status"
+alias gc="git commit -m"
+alias gpush="git push"
+alias gpull="git pull"
+alias gco="git branch -r | sed 's/^ *origin\///' | fzf --cycle --no-info --border=rounded --reverse | xargs git checkout"
+alias gcd="git checkout develop"
+alias gl="git log --oneline --graph --all --decorate --parents"
+alias gstat="git diff --stat"
+alias uncommit="git reset --soft HEAD~1"
+alias forget="git reset --hard HEAD~1"
+alias cleanup="git branch -vv | grep 'origin/.*: gone]' | awk '{print \$1}' | xargs git branch -D"
+
+# TMUX
+alias t="tmux"
+alias ta="tmux a -t"
+alias tls="tmux ls"
+alias tn="tmux new -t"
+alias tkill="tmux kill-server"
+EOF
 fi
 
 # Step 3: Install pre-commit hooks for automated code quality checks

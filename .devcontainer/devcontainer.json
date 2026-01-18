@@ -7,9 +7,6 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        // Claude Code Integration
-        "anthropic.claude-code",
-
         // Python Development
         "ms-python.python",
         "ms-python.vscode-pylance",
@@ -40,8 +37,6 @@
         "charliermarsh.ruff",
         "esbenp.prettier-vscode",
         "usernamehw.errorlens",
-        "visualstudioexptteam.vscodeintellicode",
-        "visualstudioexptteam.intellicode-api-usage-examples",
 
         // Documentation & Comments
         "aaron-bond.better-comments",
@@ -149,11 +144,7 @@
         },
         // Ensure rich inference even without explicit stubs
         "python.analysis.useLibraryCodeForTypes": true,
-        "python.analysis.autoImportCompletions": true,
-
-        // Claude Code specific settings
-        "claude-code.autoStart": false,
-        "claude-code.permissions.skipConfirmation": false
+        "python.analysis.autoImportCompletions": true
       },
       "launch": {
         "configurations": [
@@ -201,7 +192,9 @@
   // Enhanced mounts for Claude Code configuration and session persistence
   "mounts": [
     "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/starship.toml,target=/home/vscode/.config/starship.toml,type=bind,consistency=cached"
   ],
 
   // Port forwarding for development services
