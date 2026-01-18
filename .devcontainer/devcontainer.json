@@ -225,7 +225,8 @@
   "features": {
     "ghcr.io/devcontainers/features/git:1": {
       "ppa": false
-    }
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
   // Environment variables

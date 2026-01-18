@@ -236,6 +236,20 @@ INFLUX_DB_TOKEN=your_token
 - Automatic infrastructure service management
 - Consistent development experience across machines
 
+### Agentic Skills (Claude Code)
+
+This project includes agentic skills for GitHub and Jira integration with [Claude Code](https://claude.ai/code). After installing dev dependencies, run:
+
+```bash
+uv run quber-workflow init \
+  --project=tasty \
+  --package=tasty \
+  --repo=xmandeng/tastytrade_sdk \
+  --jira-key=TT
+```
+
+This configures GitHub PR operations and Jira issue management directly from Claude Code.
+
 ### Dependency Management (UV)
 
 This project uses [uv](https://github.com/astral-sh/uv) instead of Poetry.
