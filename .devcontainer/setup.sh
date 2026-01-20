@@ -10,6 +10,9 @@
 # 3. Configure shell environment to use project virtual environment
 # 4. Configure shell aliases for development workflow
 # 5. Install pre-commit git hooks for code quality checks
+# 6. Install Pyright language server via UV
+# 7. Configure Claude Code plugin marketplaces
+# 8. Install Python LSP plugin for Claude Code
 
 set -e
 
@@ -95,6 +98,21 @@ fi
 # Step 3: Install pre-commit hooks for automated code quality checks
 echo "Installing pre-commit hooks..."
 /workspace/.venv/bin/pre-commit install
+
+# Step 4: Install Pyright language server via UV
+echo "Installing Pyright language server..."
+uv tool install pyright || echo "Pyright already installed"
+
+# Step 5: Configure Claude Code plugin marketplaces
+echo "Configuring Claude Code plugin marketplaces..."
+# Add official Anthropic plugin marketplace
+claude plugin marketplace add anthropics/claude-plugins-official 2>/dev/null || echo "Official marketplace already added or Claude not authenticated"
+# Add demo marketplace with examples
+claude plugin marketplace add anthropics/claude-code 2>/dev/null || echo "Demo marketplace already added or Claude not authenticated"
+
+# Step 6: Install Python LSP plugin (requires authentication)
+echo "Installing Python LSP plugin (pyright-lsp)..."
+claude plugin install pyright-lsp 2>/dev/null || echo "Python LSP plugin install skipped (requires Claude authentication)"
 
 echo "Workspace setup completed. All dependencies installed and pre-commit hooks configured."
 

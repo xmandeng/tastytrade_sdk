@@ -1,0 +1,291 @@
+name: Update Jira on PR and Branch Events
+
+on:
+  pull_request:
+    types: [opened, closed]
+  create:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  update-jira:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira Issue Key
+        id: jira
+        run: |
+          # For branch creation events
+          if [ "${{ github.event_name }}" = "create" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            ISSUE_KEY=$(echo "${{ github.ref_name }}" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+          # For PR events
+          else
+            ISSUE_KEY=$(echo "${{ github.event.pull_request.title }}" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+            if [ -z "$ISSUE_KEY" ]; then
+              ISSUE_KEY=$(echo "${{ github.head_ref }}" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+            fi
+          fi
+
+          if [ -z "$ISSUE_KEY" ]; then
+            echo "No Jira issue key found"
+            echo "key=" >> $GITHUB_OUTPUT
+          else
+            echo "Found Jira issue: $ISSUE_KEY"
+            echo "key=$ISSUE_KEY" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get Available Transitions (Debug)
+        if: steps.jira.outputs.key != ''
+        run: |
+          echo "Fetching available transitions for ${{ steps.jira.outputs.key }}..."
+          curl -s -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions" \
+            | jq '.transitions[] | {id: .id, name: .name}'
+
+      - name: Transition to In Progress on Branch Create
+        if: github.event_name == 'create' && github.ref_type == 'branch' && steps.jira.outputs.key != ''
+        run: |
+          # Get available transitions
+          TRANSITIONS=$(curl -s -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          # Try to find "Pickup" transition (To Do -> In Progress)
+          TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("Pickup"; "i")) | .id' | head -1)
+          TRANSITION_NAME="Pickup"
+
+          # If no "Pickup", try direct "In Progress" transition
+          if [ -z "$TRANSITION_ID" ]; then
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("In Progress"; "i")) | .id' | head -1)
+            TRANSITION_NAME="In Progress"
+          fi
+
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "No 'Pickup' or 'In Progress' transition found for ${{ steps.jira.outputs.key }}"
+            echo "Available transitions:"
+            echo "$TRANSITIONS" | jq '.transitions[] | {id: .id, name: .name}'
+            echo "Issue may already be in progress or not in 'To Do' status - skipping transition"
+            exit 0
+          fi
+
+          echo "Transitioning ${{ steps.jira.outputs.key }} to In Progress via $TRANSITION_NAME (ID: $TRANSITION_ID)..."
+
+          # Perform the transition
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\":{\"id\":\"$TRANSITION_ID\"}}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Successfully transitioned ${{ steps.jira.outputs.key }} to In Progress"
+          else
+            echo "Failed to transition (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
+
+          # Add comment with branch info
+          curl -s -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"Branch created: ${{ github.ref_name }}\"}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/comment"
+
+          echo "✓ Added branch comment to ${{ steps.jira.outputs.key }}"
+
+      - name: Transition to Review on PR Open
+        if: github.event.action == 'opened' && steps.jira.outputs.key != ''
+        run: |
+          # Get available transitions
+          TRANSITIONS=$(curl -s -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          # Try to find transition to review status in order of preference
+          TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("In Review"; "i")) | .id' | head -1)
+          TRANSITION_NAME="In Review"
+
+          # If no "In Review", try "Signoff"
+          if [ -z "$TRANSITION_ID" ]; then
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("Signoff"; "i")) | .id' | head -1)
+            TRANSITION_NAME="Signoff"
+          fi
+
+          # If no "Signoff", try "Handoff" (from "In Progress" to "In Review")
+          if [ -z "$TRANSITION_ID" ]; then
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("Handoff"; "i")) | .id' | head -1)
+            TRANSITION_NAME="Handoff"
+          fi
+
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "No review transition found for ${{ steps.jira.outputs.key }}"
+            echo "Available transitions:"
+            echo "$TRANSITIONS" | jq '.transitions[] | {id: .id, name: .name}'
+            exit 1
+          fi
+
+          echo "Transitioning ${{ steps.jira.outputs.key }} to review status via $TRANSITION_NAME (ID: $TRANSITION_ID)..."
+
+          # Perform the transition
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\":{\"id\":\"$TRANSITION_ID\"}}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Successfully transitioned ${{ steps.jira.outputs.key }} to review status"
+          else
+            echo "Failed to transition (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
+
+          # Add comment with PR link
+          curl -s -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"Pull Request created: ${{ github.event.pull_request.html_url }}\"}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/comment"
+
+          echo "✓ Added PR comment to ${{ steps.jira.outputs.key }}"
+
+      - name: Transition to In Progress on PR Closed Without Merge
+        if: github.event.action == 'closed' && github.event.pull_request.merged == false && steps.jira.outputs.key != ''
+        run: |
+          # Get available transitions
+          TRANSITIONS=$(curl -s -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          # Try to find "Pickup" transition (back to In Progress)
+          TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("Pickup"; "i")) | .id' | head -1)
+          TRANSITION_NAME="Pickup"
+
+          # If no "Pickup", try direct "In Progress" transition
+          if [ -z "$TRANSITION_ID" ]; then
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("In Progress"; "i")) | .id' | head -1)
+            TRANSITION_NAME="In Progress"
+          fi
+
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "No 'Pickup' or 'In Progress' transition available for ${{ steps.jira.outputs.key }}"
+            echo "Available transitions:"
+            echo "$TRANSITIONS" | jq '.transitions[] | {id: .id, name: .name}'
+            echo "Issue may already be in correct status - skipping transition"
+            exit 0
+          fi
+
+          echo "PR closed without merge - transitioning ${{ steps.jira.outputs.key }} back to In Progress via $TRANSITION_NAME (ID: $TRANSITION_ID)..."
+
+          # Perform the transition
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\":{\"id\":\"$TRANSITION_ID\"}}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Successfully transitioned ${{ steps.jira.outputs.key }} back to In Progress"
+          else
+            echo "Failed to transition (HTTP $HTTP_CODE): $BODY"
+            # Don't fail the workflow if transition fails (issue might already be in the right state)
+            exit 0
+          fi
+
+          # Add comment with PR close info
+          curl -s -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"Pull Request closed without merge: ${{ github.event.pull_request.html_url }}\"}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/comment"
+
+          echo "✓ Added PR close comment to ${{ steps.jira.outputs.key }}"
+
+      - name: Transition to Done on PR Merge
+        if: github.event.action == 'closed' && github.event.pull_request.merged == true && steps.jira.outputs.key != ''
+        run: |
+          # Get available transitions
+          TRANSITIONS=$(curl -s -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          # Try to find "Done" transition first
+          TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("Done"; "i")) | .id' | head -1)
+          TRANSITION_NAME="Done"
+
+          # If no "Done" transition, try "Signoff" (which may auto-transition to Done)
+          if [ -z "$TRANSITION_ID" ]; then
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name | test("Signoff"; "i")) | .id' | head -1)
+            TRANSITION_NAME="Signoff"
+          fi
+
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "No 'Done' or 'Signoff' transition found for ${{ steps.jira.outputs.key }}"
+            echo "Available transitions:"
+            echo "$TRANSITIONS" | jq '.transitions[] | {id: .id, name: .name}'
+            exit 1
+          fi
+
+          echo "Transitioning ${{ steps.jira.outputs.key }} to $TRANSITION_NAME (ID: $TRANSITION_ID)..."
+
+          # Perform the transition
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\":{\"id\":\"$TRANSITION_ID\"}}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/transitions")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Successfully transitioned ${{ steps.jira.outputs.key }} to $TRANSITION_NAME"
+          else
+            echo "Failed to transition (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
+
+          # Add comment with merge info
+          curl -s -X POST \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"Pull Request merged: ${{ github.event.pull_request.html_url }}\"}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}/comment"
+
+          echo "✓ Added merge comment to ${{ steps.jira.outputs.key }}"
+
+      - name: Remove automation labels on PR Merge
+        if: github.event.action == 'closed' && github.event.pull_request.merged == true && steps.jira.outputs.key != ''
+        run: |
+          # Get current issue to check labels
+          ISSUE=$(curl -s -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}?fields=labels")
+
+          CURRENT_LABELS=$(echo "$ISSUE" | jq -r '.fields.labels[]' | jq -R -s -c 'split("\n")[:-1]')
+
+          # Remove both automate:safe and automate:claimed labels
+          NEW_LABELS=$(echo "$CURRENT_LABELS" | jq '[.[] | select(. != "automate:safe" and . != "automate:claimed")]')
+
+          echo "Current labels: $CURRENT_LABELS"
+          echo "New labels: $NEW_LABELS"
+
+          # Update labels
+          curl -s -X PUT \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"fields\":{\"labels\":$NEW_LABELS}}" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/2/issue/${{ steps.jira.outputs.key }}"
+
+          echo "✓ Removed automation labels from ${{ steps.jira.outputs.key }}"

@@ -34,11 +34,11 @@ RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes \
 # Install just command runner
 RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
 
-# Set up npm global directory and install Claude Code
+# Set up npm global directory and install Claude Code + Pyright LSP
 RUN mkdir -p ~/.npm-global ~/.local/bin \
     && npm config set prefix '~/.npm-global' \
     && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc \
-    && npm install -g @anthropic-ai/claude-code \
+    && npm install -g @anthropic-ai/claude-code pyright \
     && ln -sfn ~/.npm-global/bin/claude ~/.local/bin/claude \
     && echo "alias claudeyolo='claude --dangerously-skip-permissions'" >> ~/.bashrc
 
