@@ -5,6 +5,7 @@ This module implements the `tasty-subscription` CLI tool with `run` and `status`
 subcommands for managing market data feeds.
 """
 
+import asyncio
 import logging
 import sys
 from datetime import datetime
@@ -12,6 +13,7 @@ from datetime import datetime
 import click
 
 from tastytrade.common.logging import setup_logging
+from tastytrade.subscription.orchestrator import run_subscription
 
 # Valid log levels for validation
 VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -152,10 +154,20 @@ def run(
     logger.info(f"  Feed Count:  {len(symbols) * len(intervals)} candle feeds")
     logger.info("=" * 60)
 
-    # Placeholder for orchestration (implemented in later stories)
-    logger.info("Feed process initialized successfully")
-    logger.info("Orchestration not yet implemented - exiting cleanly")
-    logger.info("See TT-7 through TT-12 for remaining implementation")
+    # Run the orchestration
+    try:
+        asyncio.run(
+            run_subscription(
+                symbols=symbols,
+                intervals=intervals,
+                start_date=start_date,
+            )
+        )
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal - shutting down")
+    except Exception as e:
+        logger.error("Fatal error: %s", e, exc_info=True)
+        sys.exit(1)
 
     sys.exit(0)
 
