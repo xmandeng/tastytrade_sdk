@@ -3177,6 +3177,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "anywidget" },
+    { name = "click" },
     { name = "dash" },
     { name = "dash-bootstrap-components" },
     { name = "fastapi" },
@@ -3248,6 +3249,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.2" },
     { name = "altair", marker = "extra == 'dev'", specifier = ">=5.5.0" },
     { name = "anywidget", specifier = ">=0.9.18" },
+    { name = "click", specifier = ">=8.1.0" },
     { name = "dash", specifier = ">=2.18.2" },
     { name = "dash-bootstrap-components", specifier = ">=1.7.1" },
     { name = "fastapi", specifier = ">=0.115.8" },
