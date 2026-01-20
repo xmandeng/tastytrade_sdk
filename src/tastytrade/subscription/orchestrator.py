@@ -80,24 +80,47 @@ async def run_subscription(
 
         # Candle subscriptions with historical backfill
         total_candle_feeds = len(symbols) * len(intervals)
+        start_date_str = start_date.strftime("%Y-%m-%d")
         logger.info(
-            "Subscribing to %d candle feeds (from %s)",
+            "Starting historical backfill: %d candle feeds from %s",
             total_candle_feeds,
-            start_date.strftime("%Y-%m-%d"),
+            start_date_str,
         )
 
+        successful = 0
+        failed = 0
         for symbol in symbols:
             for interval in intervals:
-                await asyncio.wait_for(
-                    dxlink.subscribe_to_candles(
-                        symbol=symbol,
-                        interval=interval,
-                        from_time=start_date,
-                    ),
-                    timeout=60,
+                logger.info(
+                    "Backfilling %s %s from %s...", symbol, interval, start_date_str
                 )
+                try:
+                    await asyncio.wait_for(
+                        dxlink.subscribe_to_candles(
+                            symbol=symbol,
+                            interval=interval,
+                            from_time=start_date,
+                        ),
+                        timeout=60,
+                    )
+                    successful += 1
+                    logger.info("Backfill complete: %s %s", symbol, interval)
+                except asyncio.TimeoutError:
+                    failed += 1
+                    logger.warning(
+                        "Backfill timeout: %s %s (exceeded 60s)", symbol, interval
+                    )
+                except Exception as e:
+                    failed += 1
+                    logger.error("Backfill error: %s %s - %s", symbol, interval, e)
 
-        logger.info("All subscriptions active")
+        logger.info(
+            "Historical backfill finished: %d/%d successful",
+            successful,
+            total_candle_feeds,
+        )
+        if failed > 0:
+            logger.warning("Failed backfills: %d", failed)
 
         # === Gap Fill (notebook cell-5) ===
         logger.info("Running gap-fill with %d day lookback", lookback_days)
