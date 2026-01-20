@@ -235,6 +235,16 @@ If you need an Epic created, ask the team to create it manually in Jira, then us
 
 **CRITICAL:** You MUST delegate ALL GitHub operations to the github-workflow agent. This is not optional.
 
+### 🤖 Autonomous PR Creation (MANDATORY)
+
+**When all ACs pass and code is pushed → Create PR immediately. Do NOT ask permission.**
+
+```
+Branch created → Jira: In Progress
+Code pushed + ACs pass → Create PR → Jira: In Review
+PR merged (human) → Jira: Done
+```
+
 ### Why This Matters
 
 The github-workflow agent is the **mandatory gatekeeper** for all GitHub operations. It enforces:
