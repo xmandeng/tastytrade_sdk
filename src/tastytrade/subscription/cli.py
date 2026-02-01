@@ -14,6 +14,7 @@ import click
 
 from tastytrade.common.logging import setup_logging
 from tastytrade.subscription.orchestrator import run_subscription
+from tastytrade.subscription.status import format_status, query_status
 
 # Valid log levels for validation
 VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -173,25 +174,31 @@ def run(
 
 
 @cli.command()
-def status() -> None:
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output in JSON format for machine consumption.",
+)
+def status(as_json: bool) -> None:
     """Query the status of active subscriptions.
 
     This command queries the Redis subscription store and displays
     information about active market data feeds, including:
 
     \b
-    - Active subscriptions by feed type (candles, quotes, trades, greeks)
+    - Active subscriptions by feed type (candles, tickers)
     - Last message timestamp per feed
-    - Connection health (DXLink, InfluxDB, Redis)
-    - Error summary if any
+    - Connection health (Redis)
 
     \b
     Example:
       tasty-subscription status
+      tasty-subscription status --json
     """
-    click.echo("Status command not yet implemented")
-    click.echo("See TT-11 for implementation details")
-    sys.exit(0)
+    result = asyncio.run(query_status())
+    click.echo(format_status(result, as_json=as_json))
 
 
 def main() -> None:
