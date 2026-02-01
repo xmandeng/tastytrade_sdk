@@ -1,4 +1,5 @@
 from .influxdb import TelegrafHTTPEventProcessor
 from .redis import RedisEventProcessor
+from .snapshot import CandleSnapshotTracker
 
-__all__ = ["RedisEventProcessor", "TelegrafHTTPEventProcessor"]
+__all__ = ["CandleSnapshotTracker", "RedisEventProcessor", "TelegrafHTTPEventProcessor"]

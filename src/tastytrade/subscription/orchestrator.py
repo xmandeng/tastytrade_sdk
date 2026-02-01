@@ -13,10 +13,13 @@ from tastytrade.config import RedisConfigManager
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
+from tastytrade.config.enumerations import Channels
 from tastytrade.messaging.processors import (
+    CandleSnapshotTracker,
     RedisEventProcessor,
     TelegrafHTTPEventProcessor,
 )
+from tastytrade.utils.helpers import format_candle_symbol
 from tastytrade.utils.time_series import forward_fill
 
 logger = logging.getLogger(__name__)
@@ -81,8 +84,21 @@ async def run_subscription(
         # Candle subscriptions with historical backfill
         total_candle_feeds = len(symbols) * len(intervals)
         start_date_str = start_date.strftime("%Y-%m-%d")
+        # Set up snapshot tracker with per-symbol gap-fill via completions queue
+        candle_handler = handlers_dict.get(Channels.Candle)
+        if candle_handler is None:
+            raise RuntimeError("Candle handler not found in router")
+
+        snapshot_tracker = CandleSnapshotTracker()
+
+        for symbol in symbols:
+            for interval in intervals:
+                event_symbol = format_candle_symbol(f"{symbol}{{={interval}}}")
+                snapshot_tracker.register_symbol(event_symbol)
+
+        candle_handler.add_processor(snapshot_tracker)
         logger.info(
-            "Starting historical backfill: %d candle feeds from %s",
+            "Subscribing to %d candle feeds from %s",
             total_candle_feeds,
             start_date_str,
         )
@@ -91,8 +107,8 @@ async def run_subscription(
         failed = 0
         for symbol in symbols:
             for interval in intervals:
-                logger.info(
-                    "Backfilling %s %s from %s...", symbol, interval, start_date_str
+                logger.debug(
+                    "Subscribing %s %s from %s", symbol, interval, start_date_str
                 )
                 try:
                     await asyncio.wait_for(
@@ -104,7 +120,6 @@ async def run_subscription(
                         timeout=60,
                     )
                     successful += 1
-                    logger.info("Backfill complete: %s %s", symbol, interval)
                 except asyncio.TimeoutError:
                     failed += 1
                     logger.warning(
@@ -114,23 +129,57 @@ async def run_subscription(
                     failed += 1
                     logger.error("Backfill error: %s %s - %s", symbol, interval, e)
 
+        if failed > 0:
+            logger.warning(
+                "Subscribed %d/%d feeds (%d failed)",
+                successful,
+                total_candle_feeds,
+                failed,
+            )
+
+        # === Gap Fill — runs per-symbol as each snapshot completes ===
+        snapshot_timeout = max(60.0, total_candle_feeds * 5.0)
+        logger.info("Waiting for snapshots and loading data...")
+
+        async def gap_fill_consumer() -> int:
+            """Drain the completions queue, gap-filling each symbol immediately."""
+            filled = 0
+            while True:
+                event_symbol = await snapshot_tracker.completions.get()
+                await asyncio.to_thread(
+                    forward_fill, symbol=event_symbol, lookback_days=lookback_days
+                )
+                filled += 1
+                logger.info(
+                    "Loaded %s (%d/%d)",
+                    event_symbol,
+                    filled,
+                    total_candle_feeds,
+                )
+                snapshot_tracker.completions.task_done()
+
+        consumer_task = asyncio.create_task(gap_fill_consumer())
+
+        incomplete = await snapshot_tracker.wait_for_completion(
+            timeout=snapshot_timeout
+        )
+        if incomplete:
+            logger.warning(
+                "%d incomplete snapshots (gap-fill skipped): %s",
+                len(incomplete),
+                sorted(incomplete),
+            )
+
+        # Wait for queued gap-fills to finish, then cancel the consumer
+        await snapshot_tracker.completions.join()
+        consumer_task.cancel()
+
+        candle_handler.remove_processor(snapshot_tracker)
         logger.info(
-            "Historical backfill finished: %d/%d successful",
-            successful,
+            "Gap-fill complete for %d/%d feeds",
+            len(snapshot_tracker.completed_symbols),
             total_candle_feeds,
         )
-        if failed > 0:
-            logger.warning("Failed backfills: %d", failed)
-
-        # === Gap Fill (notebook cell-5) ===
-        logger.info("Running gap-fill with %d day lookback", lookback_days)
-        for symbol in symbols:
-            for interval in intervals:
-                event_symbol = f"{symbol}{{={interval}}}"
-                logger.debug("Forward-filling %s", event_symbol)
-                forward_fill(symbol=event_symbol, lookback_days=lookback_days)
-
-        logger.info("Gap-fill complete")
 
         # === Run until interrupted ===
         logger.info("Subscription active - press Ctrl+C to stop")
