@@ -453,6 +453,7 @@ For EVERY acceptance criterion, provide:
 
 ### Testing
 - Tests located in `unit_tests/` directory
+- Use **functional pytest style** (plain `def test_*` functions, NOT class-based `TestFoo`)
 - Use pytest with async support (`pytest-asyncio`)
 - Mock external dependencies (`pytest-mock`)
 - Coverage reporting available (`pytest-cov`)
