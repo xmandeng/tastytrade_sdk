@@ -48,6 +48,7 @@ async def run_subscription(
         lookback_days: Number of days to look back for gap-fill (default: 5)
     """
     dxlink: DXLinkManager | None = None
+    session_symbols: set[str] = set()
 
     try:
         # === Service Connections (notebook cell-2) ===
@@ -80,6 +81,7 @@ async def run_subscription(
         # Ticker subscriptions (Quote/Trade/Greeks)
         logger.info("Subscribing to ticker feeds for %d symbols", len(symbols))
         await dxlink.subscribe(symbols)
+        session_symbols.update(symbols)
 
         # Candle subscriptions with historical backfill
         total_candle_feeds = len(symbols) * len(intervals)
@@ -120,6 +122,8 @@ async def run_subscription(
                         timeout=60,
                     )
                     successful += 1
+                    event_symbol = format_candle_symbol(f"{symbol}{{={interval}}}")
+                    session_symbols.add(event_symbol)
                 except asyncio.TimeoutError:
                     failed += 1
                     logger.warning(
@@ -188,6 +192,17 @@ async def run_subscription(
 
     finally:
         if dxlink is not None:
+            # Mark this session's subscriptions as inactive in Redis
+            if session_symbols:
+                logger.info(
+                    "Marking %d session subscriptions inactive", len(session_symbols)
+                )
+                for sym in session_symbols:
+                    try:
+                        await dxlink.subscription_store.remove_subscription(sym)
+                    except Exception as e:
+                        logger.warning("Failed to deactivate %s: %s", sym, e)
+
             logger.info("Closing DXLink connection")
             await dxlink.close()
             logger.info("Cleanup complete")
