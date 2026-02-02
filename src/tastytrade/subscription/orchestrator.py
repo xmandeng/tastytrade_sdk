@@ -7,6 +7,7 @@ extracted from devtools/playground_testbench.ipynb for CLI integration.
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 
 from tastytrade.config import RedisConfigManager
@@ -25,12 +26,26 @@ from tastytrade.utils.time_series import forward_fill
 logger = logging.getLogger(__name__)
 
 
+def format_uptime(seconds: float) -> str:
+    """Format elapsed seconds as a human-readable uptime string."""
+    total = int(seconds)
+    days, remainder = divmod(total, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _ = divmod(remainder, 60)
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
 async def run_subscription(
     symbols: list[str],
     intervals: list[str],
     start_date: datetime,
     env_file: str = ".env",
     lookback_days: int = 5,
+    health_interval: int = 300,
 ) -> None:
     """
     Orchestrate market data subscriptions.
@@ -46,6 +61,7 @@ async def run_subscription(
         start_date: Date to begin historical backfill
         env_file: Path to .env file for configuration
         lookback_days: Number of days to look back for gap-fill (default: 5)
+        health_interval: Seconds between health log entries (default: 300)
     """
     dxlink: DXLinkManager | None = None
     session_symbols: set[str] = set()
@@ -185,10 +201,31 @@ async def run_subscription(
             total_candle_feeds,
         )
 
-        # === Run until interrupted ===
+        # === Run until interrupted — periodic health check ===
         logger.info("Subscription active - press Ctrl+C to stop")
+        start_time = time.monotonic()
+        stale_threshold = health_interval * 2
+
         while True:
-            await asyncio.sleep(3600)
+            await asyncio.sleep(health_interval)
+
+            uptime = format_uptime(time.monotonic() - start_time)
+            feed_count = sum(
+                h.metrics.total_messages > 0 for h in handlers_dict.values()
+            )
+            msg = f"Health — Uptime: {uptime} | {feed_count} feeds active"
+
+            now = time.time()
+            stale = [
+                h.channel.name
+                for h in handlers_dict.values()
+                if h.metrics.last_message_time > 0
+                and (now - h.metrics.last_message_time) > stale_threshold
+            ]
+            if stale:
+                msg += f" | {len(stale)} stale: {', '.join(sorted(stale))}"
+
+            logger.info(msg)
 
     finally:
         if dxlink is not None:

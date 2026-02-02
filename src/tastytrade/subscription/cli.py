@@ -122,11 +122,18 @@ def cli() -> None:
     callback=validate_log_level,
     help="Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO",
 )
+@click.option(
+    "--health-interval",
+    default=300,
+    type=int,
+    help="Seconds between health status log entries. Default: 300 (5 min)",
+)
 def run(
     start_date: datetime,
     symbols: list[str],
     intervals: list[str],
     log_level: str,
+    health_interval: int,
 ) -> None:
     """Start the feed process with specified configuration.
 
@@ -153,6 +160,7 @@ def run(
     logger.info(f"  Intervals:   {', '.join(intervals)}")
     logger.info(f"  Log Level:   {log_level}")
     logger.info(f"  Feed Count:  {len(symbols) * len(intervals)} candle feeds")
+    logger.info(f"  Health Int:  {health_interval}s")
     logger.info("=" * 60)
 
     # Run the orchestration
@@ -162,6 +170,7 @@ def run(
                 symbols=symbols,
                 intervals=intervals,
                 start_date=start_date,
+                health_interval=health_interval,
             )
         )
     except KeyboardInterrupt:
