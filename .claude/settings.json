@@ -7,10 +7,7 @@
     ],
     "deny": [
       "Skill(jira-operations)",
-      "Skill(github-operations)",
-      "Bash(gh:*)",
-      "Bash(curl:*atlassian:*)",
-      "Bash(curl:*github.com/api:*)"
+      "Skill(github-operations)"
     ],
     "ask": []
   },
