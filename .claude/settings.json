@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv --version:*)",
+      "Bash(tree:*)",
+      "Bash(env)"
+    ],
+    "deny": [
+      "Skill(jira-operations)",
+      "Skill(github-operations)",
+      "Bash(gh:*)",
+      "Bash(curl:*atlassian:*)",
+      "Bash(curl:*github.com/api:*)"
+    ],
+    "ask": []
+  },
+  "allowedMcpServers": []
+}
