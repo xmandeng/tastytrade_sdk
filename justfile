@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 # TastyTrade SDK - Common development recipes
 # Run `just --list` to see all available recipes
 

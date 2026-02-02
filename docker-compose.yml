@@ -1,3 +1,5 @@
+name: tastytrade_sdk
+
 services:
   influxdb:
     image: influxdb:2.7.1
@@ -12,8 +14,8 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: "${INFLUX_DB_BUCKET}"
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_DB_TOKEN}"
     volumes:
-      - /mnt/Plex/devstorage/influxdb:/var/lib/influxdb2
-      - /mnt/Plex/devstorage/telegraf:/etc/telegraf
+      - ${INFLUX_DIR}:/var/lib/influxdb2
+      - ${TELEGRAF_DIR}:/etc/telegraf
     user: "1000:1000"
     ports:
       - "0.0.0.0:8086:8086"
@@ -28,7 +30,7 @@ services:
     depends_on:
       - influxdb
     volumes:
-      - ./deploy:/etc/telegraf:rw
+      - ${TELEGRAF_VOL}:rw
     environment:
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_DB_TOKEN=${INFLUX_DB_TOKEN}
@@ -47,7 +49,7 @@ services:
       - "traefik.enable=false"
     command: redis-server --appendonly yes --save 60 1 --loglevel warning
     volumes:
-      - /mnt/Plex/devstorage/redis:/data
+      - ${REDIS_VOL}:/data
     networks:
       - internal_net
     ports:
@@ -64,7 +66,7 @@ services:
     labels:
       - "traefik.enable=false"
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      - REDIS_HOSTS=local:${REDIS_HOST}:${REDIS_PORT}
       - HTTP_USER=admin
       - HTTP_PASSWORD=adminpassword
     ports:
@@ -84,9 +86,9 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=adminpassword
       - GF_INSTALL_PLUGINS=volkovlabs-echarts-panel
     volumes:
-      - /mnt/Plex/devstorage/grafana:/var/lib/grafana
-      - ./deploy/influxdb.yml:/var/lib/grafana/influxdb.yml:rw
-      - ./deploy/grafana.ini:/etc/grafana/grafana.ini:rw
+      - ${GRAFANA_VOL}:/var/lib/grafana
+      - ${GRAFANA_INXLUXDB}:/var/lib/grafana/influxdb.yml:rw
+      - ${GRAFANA_INI}:/etc/grafana/grafana.ini:rw
     ports:
       - "3000:3000"
     depends_on:
