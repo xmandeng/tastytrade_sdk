@@ -99,8 +99,8 @@ class EventHandler:
 
                 except MessageProcessingError as e:
                     self.metrics.record_error()
-                    logger.error(
-                        "Message processing error in %s listener: %s",
+                    logger.warning(
+                        "Event skipped in %s listener: %s",
                         self.channel.name,
                         e,
                     )
@@ -163,17 +163,19 @@ class EventHandler:
                     break
 
                 try:
-                    data = dict(zip(self.fields, chunk))
+                    data = dict(zip(self.fields, chunk, strict=False))
                     event = self.event.value(**data)
                     events.append(event)
 
                 except ValidationError as e:
-                    logger.error("Validation error in %s handler: %s", channel_name, e)
-                    raise MessageProcessingError("Validation error in handler", e)
+                    logger.warning(
+                        "Skipped invalid event on %s channel: %s", channel_name, e
+                    )
+                    raise MessageProcessingError("Skipped invalid event", e) from e
 
                 except Exception as e:
                     logger.error("Unexpected error in %s handler:", self.channel.name)
-                    raise MessageProcessingError("Unexpected error occurred", e)
+                    raise MessageProcessingError("Unexpected error occurred", e) from e
 
             # Check for any remaining data, indicating a problem
             if remaining := list(flat_data):
@@ -199,8 +201,8 @@ class EventHandler:
             return events if events else None
 
         except Exception as e:
-            logger.error("Fatal error in message handler for channel %s:", channel_name)
-            raise MessageProcessingError("Fatal error in message handler", e)
+            logger.warning("Skipped invalid event on %s channel", channel_name)
+            raise MessageProcessingError("Skipped invalid event", e) from e
 
 
 class ControlHandler(EventHandler):
