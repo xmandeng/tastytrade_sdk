@@ -10,10 +10,10 @@ import logging
 from datetime import datetime
 
 from tastytrade.config import RedisConfigManager
+from tastytrade.config.enumerations import Channels
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
-from tastytrade.config.enumerations import Channels
 from tastytrade.messaging.processors import (
     CandleSnapshotTracker,
     RedisEventProcessor,
@@ -176,7 +176,7 @@ async def run_subscription(
 
         candle_handler.remove_processor(snapshot_tracker)
         logger.info(
-            "Gap-fill complete for %d/%d feeds",
+            "Subscription and back-fill complete for %d/%d feeds",
             len(snapshot_tracker.completed_symbols),
             total_candle_feeds,
         )
