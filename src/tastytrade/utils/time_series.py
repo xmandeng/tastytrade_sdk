@@ -46,10 +46,10 @@ def query_candle_event_data(
 
     tables = query_api.query_data_frame(query)
     if tables.empty:
-        logging.info(
-            "No CandleEvent data found for %s in the last %s days",
+        logger.debug(
+            "No CandleEvent data found for %s in the last %d days",
             symbol,
-            str(lookback_days),
+            lookback_days,
         )
         return None
 
@@ -81,7 +81,7 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
     """Use TelegrafHTTPEventProcessor to process and write CandleEvent data."""
     processor = TelegrafHTTPEventProcessor()
 
-    logging.debug("Processing and writing CandleEvent data via Telegraf for %s", symbol)
+    logger.debug("Processing and writing CandleEvent data via Telegraf for %s", symbol)
 
     for timestamp, row in missing_df.iterrows():
         try:
@@ -109,19 +109,17 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
             processor.process_event(candle_event)
 
         except Exception as e:
-            logging.info(
-                "[ERROR] Failed to process CandleEvent at %s: %s", timestamp, e
-            )
+            logger.error("Failed to process CandleEvent at %s: %s", timestamp, e)
 
     # Flush and close the write API to ensure all data is written
     try:
         processor.write_api.flush()
         processor.write_api.close()
-        logging.info("Successfully flushed and closed InfluxDB write API")
+        logger.debug("Flushed and closed InfluxDB write API")
     except Exception as e:
-        logging.info("[ERROR] Failed during flush/close of InfluxDB write API: %s", e)
+        logger.error("Failed during flush/close of InfluxDB write API: %s", e)
 
-    logging.info("Forward-fill added %s events for %s", str(len(missing_df)), symbol)
+    logger.debug("Forward-fill added %d events for %s", len(missing_df), symbol)
 
 
 def forward_fill(symbol, lookback_days=1):
@@ -135,8 +133,8 @@ def forward_fill(symbol, lookback_days=1):
     tables = query_candle_event_data(client, influx_symbol, lookback_days)
 
     if tables is None:
-        logging.warning(
-            "No data found for %s in the last %s days", symbol, lookback_days
+        logger.warning(
+            "No data found for %s in the last %d days", symbol, lookback_days
         )
         client.close()
         return
@@ -144,7 +142,7 @@ def forward_fill(symbol, lookback_days=1):
     gap_fill_df = prepare_and_fill_data(tables, time_interval)
 
     if gap_fill_df.empty:
-        logging.debug("No missing data found for %s", symbol)
+        logger.debug("No missing data found for %s", symbol)
         client.close()
         return
 
@@ -167,5 +165,5 @@ if __name__ == "__main__":
         # for symbol in ["SPX"]:
         for interval in ["1d", "1h", "30m", "15m", "5m", "1m"]:
             event_symbol = f"{symbol}{{={interval}}}"
-            logging.debug("Forward-filling %s", event_symbol)
+            logger.debug("Forward-filling %s", event_symbol)
             forward_fill(symbol=event_symbol, lookback_days=5)
