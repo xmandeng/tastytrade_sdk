@@ -46,6 +46,10 @@ async def get_opening_range(
     # Normalize any date-like object to a datetime at midnight
     date = datetime(date.year, date.month, date.day)
 
+    # Roll back to prior Friday if date falls on a weekend
+    while date.weekday() > 4:
+        date -= timedelta(days=1)
+
     # Create market open datetime in the specified timezone
     tz = pytz.timezone(timezone)
     market_open_dt = tz.localize(datetime.combine(date, market_open_time))
