@@ -229,6 +229,52 @@ jira-workflow agent has read-only status awareness. Do not manually transition t
 
 If you need an Epic created, ask the team to create it manually in Jira, then use jira-workflow agent to link tickets to it.
 
+### Implementation Completion Documentation (MANDATORY)
+
+**When you complete work on a Jira ticket, you MUST add a comprehensive implementation comment.**
+
+The comment MUST include:
+
+1. **Expected Behaviors** (MOST IMPORTANT)
+   - Describe changes from user/operational perspective
+   - Use Before/After format for each behavioral change
+   - Be specific: "Status now shows '8s ago' for active feeds" not "improved status display"
+
+2. **Technical Implementation**
+   - New components added (classes, functions, enums)
+   - Modified components with explanations
+   - Data flow changes if architectural
+
+3. **Features Added/Removed**
+   - Tables listing all features with file locations
+   - Reasons for any removed features
+
+4. **Verification Evidence**
+   - Test results (unit, integration, live)
+   - Specific examples with real data
+
+**Example Expected Behaviors section:**
+```
+Before: Status showed subscription creation time, not actual data flow
+After: Status shows when data was last received (e.g., "8s ago" updating in real-time)
+
+Before: Constant "stale: Profile, Summary" warnings even when feeds were healthy
+After: No false staleness warnings - low-frequency feeds are expected behavior
+```
+
+The jira-workflow agent has detailed templates for this. Always delegate completion comments to it.
+
+### Jira Quality Assurance (MANDATORY)
+
+After creating or updating any Jira ticket, the jira-workflow agent MUST:
+
+1. **Re-read the ticket** to verify it was created correctly
+2. **Check completeness** against quality standards
+3. **Fix any deficiencies** before reporting back
+4. **Report confidence level** to you (✅ complete or ⚠️ needs attention)
+
+This ensures tickets are properly documented and nothing is missed.
+
 ---
 
 ## GitHub Operations Protocol - MANDATORY DELEGATION
