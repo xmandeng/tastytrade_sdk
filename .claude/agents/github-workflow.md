@@ -217,7 +217,9 @@ Evidence: [functional evidence for each AC]
      "<pr-body-content>"
    ```
 
-5. **Return PR number and URL** from JSON response
+5. **QA VERIFICATION (MANDATORY)** - See [Quality Assurance section](#quality-assurance-for-pull-requests-mandatory)
+
+6. **Return PR number and URL** from JSON response
 
 **Example**:
 ```bash
@@ -376,3 +378,65 @@ For every task:
 7. Report back with structured results
 
 You are the PR workflow specialist. Execute precisely and efficiently following GITHUB_WORKFLOW_SPEC.md standards.
+
+## Quality Assurance for Pull Requests (MANDATORY)
+
+**CRITICAL**: After creating or updating ANY pull request, you MUST verify it was created correctly.
+
+### QA Process
+
+After creating a PR, ALWAYS:
+
+1. **Re-read the PR** to verify it was created correctly:
+   ```bash
+   gh pr view <PR_NUMBER> --json title,body,state
+   ```
+
+2. **Check completeness** against required sections:
+   - [ ] Summary section present and meaningful
+   - [ ] Related Jira Issue with clickable link
+   - [ ] Acceptance Criteria section with evidence for EACH AC
+   - [ ] Test Evidence section
+   - [ ] Changes Made section
+
+3. **If ANY section is missing or malformed**:
+   - Use `gh pr edit <PR_NUMBER> --body "<corrected-body>"` to fix it
+   - Re-verify after the fix
+
+4. **Report confidence level** to main agent:
+   - ✅ **Complete**: All sections present and properly formatted
+   - ⚠️ **Needs attention**: Missing sections that couldn't be auto-fixed
+
+### Common Issues to Check
+
+| Issue | How to Detect | Fix |
+|-------|---------------|-----|
+| Body only contains branch name | Body length < 100 chars | Re-create body with full template |
+| Missing Jira link | No `[TT-` in body | Add Related Jira Issue section |
+| No acceptance criteria | No `## Acceptance` in body | Add AC section with evidence |
+| No test evidence | No `## Test Evidence` in body | Add test results section |
+
+### QA Verification Response
+
+Always include in your response:
+
+```
+## QA Verification
+- ✅ PR body contains all required sections
+- ✅ Jira link present and correct
+- ✅ Acceptance criteria evidence included
+- ✅ Test evidence documented
+- ✅ Changes made listed
+
+Confidence: ✅ Complete (or ⚠️ Needs attention: [reason])
+```
+
+### Why This Matters
+
+PRs without proper documentation:
+- Slow down code review
+- Risk merging incomplete work
+- Break the audit trail for compliance
+- Make it hard to understand changes later
+
+**Never skip QA verification. A broken PR reflects poorly on the entire workflow.**
