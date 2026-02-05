@@ -498,6 +498,243 @@ For every task:
 - **Automatic labeling**: All created issues are automatically labeled with `$JIRA_PROJECT_LABEL` (transparent to main agent)
 - **Sub-task support**: Can create Sub-tasks with parent-key parameter
 
+---
+
+## 📋 Implementation Completion Comments (MANDATORY)
+
+When main agent completes work on a Jira ticket, you MUST add a high-quality implementation summary comment. This is **not optional** - every completed ticket needs proper documentation.
+
+### Required Comment Structure
+
+```
+h2. Implementation Complete
+
+h3. Problem Statement
+[What problem was this ticket solving? Why was it needed?]
+
+---
+
+h2. Expected Behaviors
+
+h3. 1. [Behavior Name]
+*Before:* [How it worked before / what the problem was]
+*After:* [How it works now / what the improvement is]
+
+h3. 2. [Behavior Name]
+*Before:* [Previous behavior]
+*After:* [New behavior]
+
+[Continue for all significant behavioral changes...]
+
+---
+
+h2. Technical Implementation
+
+h3. New Components
+[List new classes, functions, enums, etc. with brief descriptions]
+
+h3. Modified Components
+[List what was changed and why]
+
+h3. Data Flow
+[Describe how data moves through the system if relevant]
+
+---
+
+h2. Features Added
+
+|| Feature || File || Description ||
+| [Feature 1] | [file.py] | [Brief description] |
+| [Feature 2] | [file.py] | [Brief description] |
+
+h2. Features Removed
+
+|| Feature || File || Reason ||
+| [Feature 1] | [file.py] | [Why it was removed] |
+
+---
+
+h2. Verification
+
+h3. Testing Results
+[Unit tests, integration tests, live testing performed]
+
+h3. Evidence
+[Specific examples showing the feature works with real data]
+
+---
+
+h2. PR
+[PR URL]
+
+*Files Changed:* [X files, +Y/-Z lines]
+```
+
+### Key Principles for Implementation Comments
+
+1. **Expected Behaviors are CRITICAL**
+   - Always describe the user/operational perspective first
+   - Use Before/After format to show the improvement
+   - Be specific about what changed from the user's point of view
+   - Include concrete examples where possible
+
+2. **Technical Implementation supports Expected Behaviors**
+   - Technical details explain HOW the behaviors were achieved
+   - Include code snippets for complex logic
+   - Show data flow diagrams for architectural changes
+
+3. **Be Comprehensive**
+   - List ALL features added and removed
+   - Include verification evidence
+   - Link to PR and show file change summary
+
+### Example: High-Quality Comment
+
+```
+h2. Implementation Complete
+
+h3. Problem Statement
+Health monitoring reported "stale" feeds based on message frequency. This was flawed because low-frequency feeds (Profile, Summary) naturally don't update frequently, causing false positives.
+
+---
+
+h2. Expected Behaviors
+
+h3. 1. Real-Time Subscription Status
+*Before:* Status showed subscription creation time, not actual data flow
+*After:* Status shows when data was last received for each feed
+
+{code}
+Ticker feeds:
+  /MESH26:XCME    8s ago    ← Updates every few seconds with live data
+  SPY             2m ago    ← Reflects actual last data receipt
+{code}
+
+h3. 2. No False Staleness Warnings
+*Before:* Constant warnings like "stale: Profile, Summary" even when feeds were healthy
+*After:* No staleness warnings - low-frequency feeds are expected behavior
+
+h3. 3. Automatic Reconnection on Errors
+*Before:* Connection failures required manual restart
+*After:* Automatic reconnection with exponential backoff when WebSocket drops
+
+---
+
+h2. Technical Implementation
+
+h3. New Components
+* {{DXLinkErrorType}} enum - Protocol error types (TIMEOUT, UNAUTHORIZED, etc.)
+* {{trigger_reconnect()}} method - Signals reconnection needed
+* {{restore_subscriptions()}} function - Post-reconnect recovery
+
+h3. Data Flow
+{code}
+WebSocket Message → socket_listener() → Queue → EventHandler → update_subscription_status()
+{code}
+
+---
+
+h2. Features Added
+
+|| Feature || File || Description ||
+| DXLinkErrorType enum | enumerations.py | Protocol error types |
+| Reconnect event system | sockets.py | Event-based reconnection |
+| last_update tracking | handlers.py | Real-time subscription status |
+
+h2. Features Removed
+
+|| Feature || File || Reason ||
+| Staleness check | orchestrator.py | False positives on low-frequency feeds |
+
+---
+
+h2. Verification
+
+* 52 unit tests passing
+* Live testing with /MESH26:XCME futures showing real-time timestamp updates
+* AUTH_STATE false positive eliminated
+
+h2. PR
+https://github.com/org/repo/pull/82
+
+*Files Changed:* 5 files, +284/-41 lines
+```
+
+---
+
+## 🔍 Quality Assurance for Jira Tickets (MANDATORY)
+
+After creating or updating any Jira ticket, you MUST perform QA to ensure it meets quality standards.
+
+### QA Checklist for New Tickets
+
+After creating a ticket, verify:
+
+1. **Title Quality**
+   - [ ] Clear and descriptive (not vague like "Fix bug" or "Update code")
+   - [ ] Follows naming conventions from ISSUES_SPEC.md
+   - [ ] No redundant prefixes
+
+2. **Description Completeness**
+   - [ ] Problem statement is clear
+   - [ ] Acceptance criteria are specific and measurable
+   - [ ] Test Evidence Requirements section is present
+   - [ ] Technical context is sufficient for implementation
+
+3. **Metadata Accuracy**
+   - [ ] Correct issue type (Story/Task/Bug/Sub-task)
+   - [ ] Appropriate priority
+   - [ ] Linked to correct parent/Epic if applicable
+   - [ ] Labels applied correctly
+
+### QA Checklist for Implementation Comments
+
+After adding an implementation completion comment, verify:
+
+1. **Expected Behaviors Section**
+   - [ ] All significant behavioral changes documented
+   - [ ] Before/After format used consistently
+   - [ ] User perspective is clear (not just technical changes)
+   - [ ] Concrete examples provided where helpful
+
+2. **Technical Implementation Section**
+   - [ ] All new components listed
+   - [ ] All modified components explained
+   - [ ] Data flow described if architectural changes made
+
+3. **Features Tables**
+   - [ ] All features added are listed with files
+   - [ ] All features removed are listed with reasons
+   - [ ] No features missing from the list
+
+4. **Verification Section**
+   - [ ] Test results included
+   - [ ] Live/production testing evidence if applicable
+   - [ ] PR link included
+
+### Auto-QA Process
+
+When you complete a Jira operation, automatically:
+
+1. **Re-read the ticket** after creation/update
+2. **Check against the QA checklist** above
+3. **If deficiencies found**, update the ticket to fix them
+4. **Report to main agent** with confidence level:
+   - ✅ "Ticket created and verified complete"
+   - ⚠️ "Ticket created but [specific issue] needs attention"
+
+### Example QA Flow
+
+```
+1. Create ticket TT-25
+2. Get issue TT-25 to verify
+3. Check: Title clear? ✅
+4. Check: Description complete? ⚠️ Missing AC3
+5. Update TT-25 to add missing AC
+6. Get issue TT-25 again to verify fix
+7. Report: "Created TT-25, added missing acceptance criterion during QA"
+```
+
 ## Integration with Other Agents
 
 See docs/ISSUES_SPEC.md "Integration Patterns" for:
