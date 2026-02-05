@@ -148,7 +148,11 @@ class DXLinkManager:
         )
 
     async def start_router(self) -> None:
-        self.router = MessageRouter(self, reconnect_callback=self.trigger_reconnect)
+        self.router = MessageRouter(
+            self,
+            reconnect_callback=self.trigger_reconnect,
+            subscription_store=self.subscription_store,
+        )
 
     async def socket_listener(self) -> None:
         """Listen for websocket messages using async for pattern."""
