@@ -21,6 +21,8 @@ class EventProcessor(Protocol):
 
     def process_event(self, event: BaseEvent) -> None: ...
 
+    def close(self) -> None: ...
+
 
 class BaseEventProcessor:
     """Base processor that handles DataFrame storage"""
@@ -51,6 +53,10 @@ class BaseEventProcessor:
 
     def last(self, symbol: str) -> pd.DataFrame:
         return self.df.loc[self.df["eventSymbol"] == symbol].tail(1)
+
+    def close(self) -> None:
+        """Close the processor and release any resources. Override in subclasses."""
+        pass
 
 
 class LatestEventProcessor(BaseEventProcessor):
