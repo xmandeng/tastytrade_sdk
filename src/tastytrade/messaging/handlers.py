@@ -206,8 +206,11 @@ class EventHandler:
 
 
 class ControlHandler(EventHandler):
-    def __init__(self) -> None:
+    def __init__(
+        self, reconnect_callback: Optional[Callable[[str], None]] = None
+    ) -> None:
         super().__init__(channel=Channels.Control)
+        self.reconnect_callback = reconnect_callback
         self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
             "AUTH_STATE": self.handle_auth_state,
@@ -227,7 +230,13 @@ class ControlHandler(EventHandler):
         logger.info("%s", message.type)
 
     async def handle_auth_state(self, message: Message) -> None:
-        logger.info("%s:%s", message.type, message.headers.get("state"))
+        state = message.headers.get("state", "UNKNOWN")
+        if state == "UNAUTHORIZED":
+            logger.error("DXLink AUTH_STATE: UNAUTHORIZED - triggering reconnect")
+            if self.reconnect_callback:
+                self.reconnect_callback("AUTH_STATE: UNAUTHORIZED")
+        else:
+            logger.info("%s:%s", message.type, state)
 
     async def handle_channel_opened(self, message: Message) -> None:
         logger.info("%s:%s", message.type, message.channel)
@@ -241,6 +250,14 @@ class ControlHandler(EventHandler):
         logger.debug("%s:Received", message.type)
 
     async def handle_error(self, message: Message) -> None:
-        logger.error(
-            "%s:%s", message.headers.get("error"), message.headers.get("message")
-        )
+        error_type = message.headers.get("error", "UNKNOWN")
+        error_msg = message.headers.get("message", "")
+
+        if error_type in ("TIMEOUT", "UNAUTHORIZED"):
+            logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
+            if self.reconnect_callback:
+                self.reconnect_callback(f"{error_type}: {error_msg}")
+        elif error_type == "UNSUPPORTED_PROTOCOL":
+            logger.critical("DXLink UNSUPPORTED_PROTOCOL: %s - fatal error", error_msg)
+        else:
+            logger.warning("DXLink %s: %s", error_type, error_msg)

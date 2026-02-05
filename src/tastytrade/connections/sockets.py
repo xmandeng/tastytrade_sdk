@@ -97,6 +97,11 @@ class DXLinkManager:
                 subscription_store or InMemorySubscriptionStore()
             )
 
+            # Reconnection state
+            self.reconnect_event: asyncio.Event = asyncio.Event()
+            self.should_reconnect: bool = True
+            self.reconnect_reason: Optional[str] = None
+
             self.initialized = True
 
     async def __aenter__(self) -> "DXLinkManager":
@@ -143,7 +148,7 @@ class DXLinkManager:
         )
 
     async def start_router(self) -> None:
-        self.router = MessageRouter(self)
+        self.router = MessageRouter(self, reconnect_callback=self.trigger_reconnect)
 
     async def socket_listener(self) -> None:
         """Listen for websocket messages using async for pattern."""
@@ -156,26 +161,27 @@ class DXLinkManager:
                     event = EventReceivedModel(**json.loads(message))
                     channel = event.channel if event.type == "FEED_DATA" else 0
 
-                    # Update subscription status if it's a feed event
-                    if event.type == "FEED_DATA" and "eventSymbol" in event.fields:
-                        await self.update_subscription_status(
-                            event.fields["eventSymbol"], event.fields
-                        )
+                    try:
+                        await self.queues[channel].put(event.fields)
+                    except asyncio.QueueFull:
+                        logger.warning("Queue %d is full - dropping message", channel)
 
                 except json.JSONDecodeError as e:
                     logger.error("Failed to parse message: %s\n%s", e, message)
                 except Exception as e:
                     logger.error("Error processing message: %s\n%s", e, message)
 
-                try:
-                    await self.queues[channel].put(event.fields)
-                except asyncio.QueueFull:
-                    logger.warning(f"Queue {channel} is full - dropping message")
-
         except asyncio.CancelledError:
             logger.info("Websocket listener stopped")
         except Exception as e:
-            logger.error(f"Websocket listener error: {e}")
+            logger.error("Websocket listener error: %s", e)
+            if self.should_reconnect:
+                self.trigger_reconnect(f"WebSocket error: {e}")
+        else:
+            # Loop exited normally = server closed connection
+            logger.warning("WebSocket connection closed by server")
+            if self.should_reconnect:
+                self.trigger_reconnect("Connection closed by server")
 
     async def send_keepalives(self) -> None:
         """Send keepalive messages every 30 seconds."""
@@ -247,6 +253,17 @@ class DXLinkManager:
     async def update_subscription_status(self, symbol: str, data: Dict) -> None:
         """Update last update time and metadata for a subscription."""
         await self.subscription_store.update_subscription_status(symbol, data)
+
+    def trigger_reconnect(self, reason: str) -> None:
+        """Signal that reconnection is needed."""
+        self.reconnect_reason = reason
+        self.reconnect_event.set()
+
+    async def wait_for_reconnect_signal(self) -> str:
+        """Wait for reconnection signal, return reason."""
+        await self.reconnect_event.wait()
+        self.reconnect_event.clear()
+        return self.reconnect_reason or "unknown"
 
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.
