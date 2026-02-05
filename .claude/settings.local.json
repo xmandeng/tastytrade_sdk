@@ -26,7 +26,8 @@
       "Bash(pip show:*)",
       "Bash(bash:*)",
       "Bash(echo:*)",
-      "Bash(claude help:*)"
+      "Bash(claude help:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }
