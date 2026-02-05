@@ -44,3 +44,18 @@ class SessionState(Enum):
     AUTHENTICATED = "authenticated"
     DISCONNECTED = "disconnected"
     ERROR = "error"
+
+
+class DXLinkErrorType(Enum):
+    """DXLink protocol error types from AsyncAPI spec."""
+
+    TIMEOUT = "TIMEOUT"
+    UNAUTHORIZED = "UNAUTHORIZED"
+    UNSUPPORTED_PROTOCOL = "UNSUPPORTED_PROTOCOL"
+    INVALID_MESSAGE = "INVALID_MESSAGE"
+    BAD_ACTION = "BAD_ACTION"
+    UNKNOWN = "UNKNOWN"
+
+
+# Errors that should trigger reconnection
+RECONNECTABLE_ERRORS = {DXLinkErrorType.TIMEOUT, DXLinkErrorType.UNAUTHORIZED}

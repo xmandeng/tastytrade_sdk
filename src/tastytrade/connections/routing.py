@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Protocol
+from typing import Callable, List, Optional, Protocol
 
 from tastytrade.config.enumerations import Channels
 from tastytrade.messaging.handlers import ControlHandler, EventHandler
@@ -12,6 +12,9 @@ from tastytrade.messaging.processors.default import (
 logger = logging.getLogger(__name__)
 
 
+ReconnectCallback = Callable[[str], None]
+
+
 class Websocket(Protocol):
     queues: dict[int, asyncio.Queue]
 
@@ -20,8 +23,8 @@ class MessageRouter:
     instance = None
     queues: dict[int, asyncio.Queue] = {}
 
-    # ? Could we make this a defaultdict?
-    handler: dict[Channels, EventHandler] = {
+    # Default handlers (without reconnect callback)
+    default_handlers: dict[Channels, EventHandler] = {
         Channels.Control: ControlHandler(),
         Channels.Quote: EventHandler(Channels.Quote, processor=LatestEventProcessor()),
         Channels.Trade: EventHandler(Channels.Trade),
@@ -44,7 +47,31 @@ class MessageRouter:
             cls.instance = super().__new__(cls)
         return cls.instance
 
-    def __init__(self, websocket: Websocket) -> None:
+    def __init__(
+        self,
+        websocket: Websocket,
+        reconnect_callback: Optional[ReconnectCallback] = None,
+    ) -> None:
+        # Create handler dict with reconnect-aware ControlHandler
+        self.handler: dict[Channels, EventHandler] = {
+            Channels.Control: ControlHandler(reconnect_callback=reconnect_callback),
+            Channels.Quote: EventHandler(
+                Channels.Quote, processor=LatestEventProcessor()
+            ),
+            Channels.Trade: EventHandler(Channels.Trade),
+            Channels.Greeks: EventHandler(
+                Channels.Greeks, processor=LatestEventProcessor()
+            ),
+            Channels.Profile: EventHandler(
+                Channels.Profile, processor=LatestEventProcessor()
+            ),
+            Channels.Summary: EventHandler(
+                Channels.Summary, processor=LatestEventProcessor()
+            ),
+            Channels.Candle: EventHandler(
+                Channels.Candle, processor=CandleEventProcessor()
+            ),
+        }
         # Start queue listeners
         self.tasks: List[asyncio.Task] = [
             asyncio.create_task(

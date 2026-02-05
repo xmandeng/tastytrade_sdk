@@ -7,8 +7,10 @@ extracted from devtools/playground_testbench.ipynb for CLI integration.
 
 import asyncio
 import logging
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict
 
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels
@@ -25,6 +27,12 @@ from tastytrade.utils.time_series import forward_fill
 
 logger = logging.getLogger(__name__)
 
+# Backfill buffer for candle restoration after reconnect
+BACKFILL_BUFFER = timedelta(hours=1)
+
+# Regex pattern to extract symbol and interval from candle symbol like "AAPL{=1d}"
+CANDLE_SYMBOL_PATTERN = re.compile(r"^(.+)\{=(.+)\}$")
+
 
 def format_uptime(seconds: float) -> str:
     """Format elapsed seconds as a human-readable uptime string."""
@@ -37,6 +45,81 @@ def format_uptime(seconds: float) -> str:
     if hours > 0:
         return f"{hours}h {minutes}m"
     return f"{minutes}m"
+
+
+def extract_candle_parts(symbol: str) -> tuple[str, str] | None:
+    """Extract base symbol and interval from candle symbol like 'AAPL{=1d}'.
+
+    Returns:
+        Tuple of (base_symbol, interval) or None if not a candle symbol.
+    """
+    match = CANDLE_SYMBOL_PATTERN.match(symbol)
+    if match:
+        return match.group(1), match.group(2)
+    return None
+
+
+async def restore_subscriptions(dxlink: DXLinkManager) -> int:
+    """
+    Restore previously active subscriptions after reconnect.
+
+    Retrieves subscriptions from the Redis store and re-subscribes.
+    For candle subscriptions, uses a 1-hour backfill buffer from last_update.
+
+    Args:
+        dxlink: The DXLinkManager instance to restore subscriptions on.
+
+    Returns:
+        Number of subscriptions restored.
+    """
+    active: Dict[str, Any] = await dxlink.subscription_store.get_active_subscriptions()
+
+    if not active:
+        logger.info("No active subscriptions to restore")
+        return 0
+
+    # Separate ticker vs candle subscriptions
+    tickers = [s for s in active if "{=" not in s]
+    candles = [s for s in active if "{=" in s]
+
+    restored = 0
+
+    # Restore ticker subscriptions (Quote/Trade/Greeks)
+    if tickers:
+        await dxlink.subscribe(tickers)
+        restored += len(tickers)
+        logger.info("Restored %d ticker subscriptions", len(tickers))
+
+    # Restore candle subscriptions with backfill
+    for symbol in candles:
+        parts = extract_candle_parts(symbol)
+        if not parts:
+            logger.warning("Could not parse candle symbol: %s", symbol)
+            continue
+
+        base_symbol, interval = parts
+
+        # Determine backfill start time
+        metadata = active.get(symbol, {})
+        last_update_str = (
+            metadata.get("last_update") if isinstance(metadata, dict) else None
+        )
+
+        if last_update_str:
+            try:
+                last_update = datetime.fromisoformat(last_update_str)
+                from_time = last_update - BACKFILL_BUFFER
+            except (ValueError, TypeError):
+                from_time = datetime.now(timezone.utc) - BACKFILL_BUFFER
+        else:
+            from_time = datetime.now(timezone.utc) - BACKFILL_BUFFER
+
+        await dxlink.subscribe_to_candles(base_symbol, interval, from_time)
+        restored += 1
+        logger.info("Restored %s from %s", symbol, from_time.isoformat())
+
+    logger.info("Restored %d total subscriptions", restored)
+    return restored
 
 
 async def run_subscription(
@@ -204,7 +287,6 @@ async def run_subscription(
         # === Run until interrupted — periodic health check ===
         logger.info("Subscription active - press Ctrl+C to stop")
         start_time = time.monotonic()
-        stale_threshold = health_interval * 2
 
         while True:
             await asyncio.sleep(health_interval)
@@ -213,19 +295,7 @@ async def run_subscription(
             feed_count = sum(
                 h.metrics.total_messages > 0 for h in handlers_dict.values()
             )
-            msg = f"Health — Uptime: {uptime} | {feed_count} feeds active"
-
-            now = time.time()
-            stale = [
-                h.channel.name
-                for h in handlers_dict.values()
-                if h.metrics.last_message_time > 0
-                and (now - h.metrics.last_message_time) > stale_threshold
-            ]
-            if stale:
-                msg += f" | {len(stale)} stale: {', '.join(sorted(stale))}"
-
-            logger.info(msg)
+            logger.info("Health — Uptime: %s | %d feeds active", uptime, feed_count)
 
     finally:
         if dxlink is not None:
@@ -243,3 +313,57 @@ async def run_subscription(
             logger.info("Closing DXLink connection")
             await dxlink.close()
             logger.info("Cleanup complete")
+
+
+async def run_subscription_with_reconnect(
+    symbols: list[str],
+    intervals: list[str],
+    start_date: datetime,
+    max_reconnect_attempts: int = 10,
+    base_delay: float = 1.0,
+    max_delay: float = 300.0,
+    **kwargs: object,
+) -> None:
+    """
+    Run subscription with automatic reconnection on failure.
+
+    Wraps run_subscription with exponential backoff reconnection logic.
+
+    Args:
+        symbols: List of symbols to subscribe to
+        intervals: List of candle intervals
+        start_date: Date to begin historical backfill
+        max_reconnect_attempts: Maximum number of reconnection attempts (default: 10)
+        base_delay: Initial delay in seconds between reconnection attempts (default: 1.0)
+        max_delay: Maximum delay in seconds between reconnection attempts (default: 300.0)
+        **kwargs: Additional arguments passed to run_subscription
+    """
+    attempt = 0
+
+    while attempt < max_reconnect_attempts:
+        try:
+            await run_subscription(
+                symbols,
+                intervals,
+                start_date,
+                **kwargs,  # type: ignore[arg-type]
+            )
+            break  # Clean exit
+        except asyncio.CancelledError:
+            logger.info("Subscription cancelled by user")
+            raise  # User interrupt - don't reconnect
+        except Exception as e:
+            attempt += 1
+            delay = min(base_delay * (2**attempt), max_delay)
+            logger.warning(
+                "Connection failed (attempt %d/%d): %s. Reconnecting in %.1fs",
+                attempt,
+                max_reconnect_attempts,
+                e,
+                delay,
+            )
+            await asyncio.sleep(delay)
+    else:
+        logger.error(
+            "Max reconnection attempts (%d) reached, giving up", max_reconnect_attempts
+        )
