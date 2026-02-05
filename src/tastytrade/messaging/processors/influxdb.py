@@ -1,4 +1,5 @@
 # ! NEEDS ERROR HANDLING - WHEN INFLUXDB IS DOWN, THE PROCESSOR SHOULD ALERT
+import logging
 import os
 from datetime import datetime
 
@@ -6,6 +7,8 @@ from influxdb_client import InfluxDBClient, Point
 
 from tastytrade.messaging.models.events import BaseEvent
 from tastytrade.messaging.processors.default import BaseEventProcessor
+
+logger = logging.getLogger(__name__)
 
 
 class TelegrafHTTPEventProcessor(BaseEventProcessor):
@@ -35,3 +38,10 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
                 point.field(attr, value)
 
         self.write_api.write(bucket=os.environ["INFLUX_DB_BUCKET"], record=point)
+
+    def close(self) -> None:
+        """Flush pending writes and close the InfluxDB client."""
+        logger.info("Flushing InfluxDB write API...")
+        self.write_api.close()
+        self.client.close()
+        logger.info("InfluxDB client closed")

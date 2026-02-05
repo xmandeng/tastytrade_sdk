@@ -310,6 +310,13 @@ async def run_subscription(
                     except Exception as e:
                         logger.warning("Failed to deactivate %s: %s", sym, e)
 
+            # Flush all processors before closing DXLink
+            # This ensures InfluxDB batched writes are flushed
+            if dxlink.router is not None:
+                logger.info("Flushing processors...")
+                for handler in dxlink.router.handler.values():
+                    handler.close_processors()
+
             logger.info("Closing DXLink connection")
             await dxlink.close()
             logger.info("Cleanup complete")

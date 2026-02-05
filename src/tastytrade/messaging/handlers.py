@@ -77,6 +77,14 @@ class EventHandler:
         if processor.name in self.processors:
             del self.processors[processor.name]
 
+    def close_processors(self) -> None:
+        """Close all registered processors, flushing any pending data."""
+        for name, processor in self.processors.items():
+            try:
+                processor.close()
+            except Exception as e:
+                logger.warning("Error closing processor %s: %s", name, e)
+
     async def queue_listener(self, queue: asyncio.Queue) -> None:
         logger.info(
             "Started %s listener on channel %s", self.channel, self.channel.value
