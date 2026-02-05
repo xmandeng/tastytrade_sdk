@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from tastytrade.common.exceptions import MessageProcessingError
 from tastytrade.config.configurations import CHANNEL_SPECS
 from tastytrade.config.enumerations import Channels
+from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
 from tastytrade.messaging.processors.default import BaseEventProcessor
@@ -44,6 +45,7 @@ class EventHandler:
         self,
         channel: Channels = Channels.Control,
         processor: Optional[BaseEventProcessor] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
     ) -> None:
         if channel not in CHANNEL_SPECS:
             channel = Channels.Control
@@ -51,6 +53,7 @@ class EventHandler:
 
         self.channel = channel
         self.processor = processor
+        self.subscription_store = subscription_store
 
         self.event = CHANNEL_SPECS[self.channel].event_type
         self.fields = CHANNEL_SPECS[self.channel].fields
@@ -190,6 +193,12 @@ class EventHandler:
                 for _, processor in self.processors.items():
                     processor.process_event(event)
 
+                # Update subscription status with last_update timestamp
+                if self.subscription_store and hasattr(event, "eventSymbol"):
+                    await self.subscription_store.update_subscription_status(
+                        event.eventSymbol, {}
+                    )
+
             if self.diagnostic:
                 logger.debug(
                     "%s handler for channel %s processed %d events",
@@ -211,6 +220,7 @@ class ControlHandler(EventHandler):
     ) -> None:
         super().__init__(channel=Channels.Control)
         self.reconnect_callback = reconnect_callback
+        self.was_authorized = False  # Track if we've been authorized before
         self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
             "AUTH_STATE": self.handle_auth_state,
@@ -231,10 +241,18 @@ class ControlHandler(EventHandler):
 
     async def handle_auth_state(self, message: Message) -> None:
         state = message.headers.get("state", "UNKNOWN")
-        if state == "UNAUTHORIZED":
-            logger.error("DXLink AUTH_STATE: UNAUTHORIZED - triggering reconnect")
-            if self.reconnect_callback:
-                self.reconnect_callback("AUTH_STATE: UNAUTHORIZED")
+        if state == "AUTHORIZED":
+            self.was_authorized = True
+            logger.info("%s:%s", message.type, state)
+        elif state == "UNAUTHORIZED":
+            # Only trigger reconnect if we were previously authorized
+            # Initial UNAUTHORIZED during handshake is expected
+            if self.was_authorized:
+                logger.error("DXLink AUTH_STATE: UNAUTHORIZED - triggering reconnect")
+                if self.reconnect_callback:
+                    self.reconnect_callback("AUTH_STATE: UNAUTHORIZED")
+            else:
+                logger.debug("AUTH_STATE: UNAUTHORIZED (initial handshake, expected)")
         else:
             logger.info("%s:%s", message.type, state)
 

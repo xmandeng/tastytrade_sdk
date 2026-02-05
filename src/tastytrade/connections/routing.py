@@ -3,6 +3,7 @@ import logging
 from typing import Callable, List, Optional, Protocol
 
 from tastytrade.config.enumerations import Channels
+from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.handlers import ControlHandler, EventHandler
 from tastytrade.messaging.processors.default import (
     CandleEventProcessor,
@@ -51,25 +52,39 @@ class MessageRouter:
         self,
         websocket: Websocket,
         reconnect_callback: Optional[ReconnectCallback] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
     ) -> None:
         # Create handler dict with reconnect-aware ControlHandler
+        # Pass subscription_store to data handlers for last_update tracking
         self.handler: dict[Channels, EventHandler] = {
             Channels.Control: ControlHandler(reconnect_callback=reconnect_callback),
             Channels.Quote: EventHandler(
-                Channels.Quote, processor=LatestEventProcessor()
+                Channels.Quote,
+                processor=LatestEventProcessor(),
+                subscription_store=subscription_store,
             ),
-            Channels.Trade: EventHandler(Channels.Trade),
+            Channels.Trade: EventHandler(
+                Channels.Trade, subscription_store=subscription_store
+            ),
             Channels.Greeks: EventHandler(
-                Channels.Greeks, processor=LatestEventProcessor()
+                Channels.Greeks,
+                processor=LatestEventProcessor(),
+                subscription_store=subscription_store,
             ),
             Channels.Profile: EventHandler(
-                Channels.Profile, processor=LatestEventProcessor()
+                Channels.Profile,
+                processor=LatestEventProcessor(),
+                subscription_store=subscription_store,
             ),
             Channels.Summary: EventHandler(
-                Channels.Summary, processor=LatestEventProcessor()
+                Channels.Summary,
+                processor=LatestEventProcessor(),
+                subscription_store=subscription_store,
             ),
             Channels.Candle: EventHandler(
-                Channels.Candle, processor=CandleEventProcessor()
+                Channels.Candle,
+                processor=CandleEventProcessor(),
+                subscription_store=subscription_store,
             ),
         }
         # Start queue listeners
