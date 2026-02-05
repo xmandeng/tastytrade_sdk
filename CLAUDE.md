@@ -504,6 +504,22 @@ For EVERY acceptance criterion, provide:
    - Verify dependencies actually work (import and use them)
    - Demonstrate configuration settings function
 
+### PR Quality Assurance (MANDATORY)
+
+After creating or updating any pull request, the github-workflow agent MUST:
+
+1. **Re-read the PR** to verify it was created correctly
+2. **Check completeness** against required sections:
+   - Summary section present and meaningful
+   - Related Jira Issue with clickable link
+   - Acceptance Criteria with evidence for EACH AC
+   - Test Evidence section
+   - Changes Made section
+3. **Fix any deficiencies** before reporting back
+4. **Report confidence level** (✅ Complete or ⚠️ Needs attention)
+
+This ensures PRs are properly documented and nothing is missed.
+
 ---
 
 ## Code Quality Standards
