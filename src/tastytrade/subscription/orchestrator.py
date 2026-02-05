@@ -279,7 +279,7 @@ async def run_subscription(
 
         candle_handler.remove_processor(snapshot_tracker)
         logger.info(
-            "Subscription and back-fill complete for %d/%d feeds",
+            "Subscription and back-fill complete for %d/%d subscriptions",
             len(snapshot_tracker.completed_symbols),
             total_candle_feeds,
         )
@@ -295,7 +295,7 @@ async def run_subscription(
             feed_count = sum(
                 h.metrics.total_messages > 0 for h in handlers_dict.values()
             )
-            logger.info("Health — Uptime: %s | %d feeds active", uptime, feed_count)
+            logger.info("Health — Uptime: %s | %d channels active", uptime, feed_count)
 
     finally:
         if dxlink is not None:
