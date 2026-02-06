@@ -409,7 +409,110 @@ pipelines
 
 ------------------------------------------------------------------------
 
+# 14. Implementation Details (TT-23)
+
+## Module Location
+
+```
+src/tastytrade/common/observability.py
+```
+
+Lives alongside existing `logging.py` in the common utilities package.
+
+## CLI Integration
+
+The `tasty-subscription` CLI auto-enables Grafana Cloud logging when credentials are present:
+
+```python
+# src/tastytrade/subscription/cli.py
+if os.getenv("GRAFANA_CLOUD_TOKEN"):
+    init_observability()
+else:
+    setup_logging(...)  # Fallback to local-only logging
+```
+
+## Backward Compatibility
+
+**No changes required to existing logging code.**
+
+The observability module works at the Python root logger level:
+
+1. `init_observability()` replaces root logger handlers with queue-based handler
+2. All child loggers (`logging.getLogger("anything")`) inherit from root
+3. All existing `logger.info()`, `logger.warning()`, etc. automatically flow through
+
+Existing patterns continue to work unchanged:
+
+```python
+# Both work - extra={} is optional for structured fields
+logger.info("Starting subscription")
+logger.info("order_submitted", extra={"order_id": 123})
+```
+
+## Environment Variable Loading
+
+Variables must be loaded before `init_observability()` is called.
+
+**Option 1: Shell (development)**
+```bash
+set -a && source .env && set +a
+uv run tasty-subscription run ...
+```
+
+**Option 2: Docker Compose (production)**
+```yaml
+services:
+  subscription:
+    env_file: .env
+    # or explicit environment: block
+```
+
+**Option 3: python-dotenv (if needed)**
+```python
+from dotenv import load_dotenv
+load_dotenv()
+init_observability()
+```
+
+## Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Root logger replacement | Zero changes to existing code - all loggers inherit |
+| Auto-enable on token presence | Graceful fallback when Grafana not configured |
+| Queue drop on overflow | Trading safety - never block the event loop |
+| Daemon thread | Automatic cleanup on process exit |
+| atexit handler | Flush pending logs before exit |
+| 1s batch delay | Balance between latency and efficiency |
+| 5s export timeout | Prevent blocking on network issues |
+
+## Grafana Cloud Query Examples
+
+```
+# All logs from this service
+{service_name="tastytrade-subscription"}
+
+# Errors only
+{service_name="tastytrade-subscription"} |= "ERROR"
+
+# Specific component
+{service_name="tastytrade-subscription"} | json | name="orchestrator"
+
+# By environment
+{deployment_environment="prod"}
+```
+
+------------------------------------------------------------------------
+
 # Appendix --- Revision Notes
+
+### v4 Implementation (TT-23, 2026-02-06)
+
+• Module implemented at `src/tastytrade/common/observability.py`
+• Integrated with `tasty-subscription` CLI (auto-enables when `GRAFANA_CLOUD_TOKEN` set)
+• Backward compatible - no changes to existing logging code required
+• Tested and verified with Grafana Cloud production endpoint
+• Dependencies added to `pyproject.toml`
 
 ### v3 Final Production Version
 
