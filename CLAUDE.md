@@ -154,6 +154,51 @@ Required services (managed via docker-compose):
 - **Grafana** (port 3000) - Monitoring and visualization dashboards
 - **Redis-Commander** (port 8081) - Redis management interface
 
+### Observability & Logging
+
+The project uses a non-blocking observability module (`src/tastytrade/common/observability.py`) that provides:
+
+1. **Dual output**: JSON logs to stdout + OTLP export to Grafana Cloud
+2. **Trading-safe design**: Queue-based, never blocks the event loop
+3. **Zero code changes**: Works with existing `logging.getLogger()` calls
+
+**How it works:**
+- `init_observability()` replaces root logger handlers with a queue-based handler
+- All child loggers automatically inherit and flow through the observability pipeline
+- Background thread handles stdout JSON formatting + OTLP batched export
+
+**Environment Variables (required for Grafana Cloud):**
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-<region>.grafana.net/otlp
+GRAFANA_CLOUD_INSTANCE_ID=<your-instance-id>
+GRAFANA_CLOUD_TOKEN=<your-api-token>
+OTEL_SERVICE_NAME=tastytrade-subscription
+APP_ENV=dev
+APP_VERSION=1.0.0
+LOG_LEVEL=INFO
+```
+
+**Usage:**
+```bash
+# Load env vars and run (Grafana Cloud logging auto-enables when token present)
+set -a && source .env && set +a
+uv run tasty-subscription run --start-date 2026-02-01 --symbols SPY --intervals 1d
+```
+
+**Existing logging code works unchanged:**
+```python
+logger = logging.getLogger(__name__)
+logger.info("Starting subscription")  # Automatically goes to stdout + Grafana Cloud
+```
+
+**Grafana Cloud queries:**
+```
+{service_name="tastytrade-subscription"}
+{service_name="tastytrade-subscription"} |= "ERROR"
+```
+
+See `docs/trading_observability_spec_FINAL.md` for complete architecture and design decisions.
+
 ---
 
 ## Jira Operations Protocol - MANDATORY DELEGATION
