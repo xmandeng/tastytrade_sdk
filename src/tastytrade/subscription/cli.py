@@ -7,12 +7,14 @@ subcommands for managing market data feeds.
 
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 
 import click
 
 from tastytrade.common.logging import setup_logging
+from tastytrade.common.observability import init_observability, shutdown_observability
 from tastytrade.subscription.orchestrator import run_subscription
 from tastytrade.subscription.status import format_status, query_status
 
@@ -145,10 +147,16 @@ def run(
     Example:
       tasty-subscription run --start-date 2026-01-15 --symbols AAPL,SPY --intervals 1d,1h,5m
     """
-    # Initialize logging
-    log_level_int = getattr(logging, log_level)
-    setup_logging(level=log_level_int, console=True, file=False)
-    logger = logging.getLogger(__name__)
+    # Initialize logging - use observability module if Grafana Cloud is configured
+    os.environ["LOG_LEVEL"] = log_level
+    if os.getenv("GRAFANA_CLOUD_TOKEN"):
+        init_observability()
+        logger = logging.getLogger(__name__)
+        logger.info("Grafana Cloud logging enabled")
+    else:
+        log_level_int = getattr(logging, log_level)
+        setup_logging(level=log_level_int, console=True, file=False)
+        logger = logging.getLogger(__name__)
 
     # Display startup banner
     logger.info("=" * 60)
@@ -178,6 +186,10 @@ def run(
     except Exception as e:
         logger.error("Fatal error: %s", e, exc_info=True)
         sys.exit(1)
+    finally:
+        # Ensure logs are flushed to Grafana Cloud before exit
+        if os.getenv("GRAFANA_CLOUD_TOKEN"):
+            shutdown_observability()
 
     sys.exit(0)
 
