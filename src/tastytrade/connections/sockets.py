@@ -4,10 +4,22 @@ import logging
 from asyncio import Semaphore
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from types import TracebackType
 from typing import Any, Dict, List, Optional
 
 from injector import singleton
+
+
+class ConnectionState(Enum):
+    """Connection state for the DXLink WebSocket."""
+
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    RECONNECTING = "reconnecting"
+    ERROR = "error"
+
+
 from websockets.asyncio.client import ClientConnection, connect
 
 from tastytrade.config.configurations import CHANNEL_SPECS, DXLinkConfig
@@ -102,6 +114,10 @@ class DXLinkManager:
             self.should_reconnect: bool = True
             self.reconnect_reason: Optional[str] = None
 
+            # Connection state tracking
+            self.connection_state: ConnectionState = ConnectionState.DISCONNECTED
+            self.last_error: Optional[str] = None
+
             self.initialized = True
 
     async def __aenter__(self) -> "DXLinkManager":
@@ -133,8 +149,14 @@ class DXLinkManager:
             await self.start_listener()
             await self.start_router()
 
+            # Mark connection as established
+            self.connection_state = ConnectionState.CONNECTED
+            self.last_error = None
+
         except Exception as e:
             logger.error("Error while opening connection: %s", e)
+            self.connection_state = ConnectionState.ERROR
+            self.last_error = str(e)
             await self.websocket.close()
             raise e
 
@@ -200,6 +222,8 @@ class DXLinkManager:
             logger.info("Keepalive stopped")
         except Exception as e:
             logger.error("Error sending keepalive: %s", e)
+            self.trigger_reconnect(f"Keepalive error: {e}")
+            # Exit loop so reconnection can occur
 
     async def setup_connection(self) -> None:
         assert self.websocket is not None, "websocket should be initialized"
@@ -260,6 +284,8 @@ class DXLinkManager:
 
     def trigger_reconnect(self, reason: str) -> None:
         """Signal that reconnection is needed."""
+        self.connection_state = ConnectionState.ERROR
+        self.last_error = reason
         self.reconnect_reason = reason
         self.reconnect_event.set()
 
@@ -424,6 +450,9 @@ class DXLinkManager:
         if self.websocket is None:
             logger.warning("Websocket - No active connection to close")
             return
+
+        # Mark connection as disconnected
+        self.connection_state = ConnectionState.DISCONNECTED
 
         tasks_to_cancel = [
             ("Listener", self.listener_task),

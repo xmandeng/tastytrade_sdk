@@ -330,6 +330,25 @@ After creating or updating any Jira ticket, the jira-workflow agent MUST:
 
 This ensures tickets are properly documented and nothing is missed.
 
+### Plan-Ticket Alignment (MANDATORY)
+
+When planning work for a Jira ticket, you MUST ensure the ticket description includes the full implementation plan:
+
+1. **Before implementation begins**, update the Jira ticket with:
+   - Detailed implementation steps with file paths and line numbers
+   - Code snippets showing current vs proposed changes
+   - Design rationale (why this approach)
+   - Updated acceptance criteria matching the plan
+
+2. **Why this matters:**
+   - Other agents may pick up the work without context from the planning session
+   - The Jira ticket is the source of truth for what should be implemented
+   - Plans discussed in conversation are lost if not persisted to Jira
+
+3. **Verification:**
+   - After updating, re-read the ticket to confirm all plan details are present
+   - Ensure acceptance criteria match implementation plan exactly
+
 ---
 
 ## GitHub Operations Protocol - MANDATORY DELEGATION
