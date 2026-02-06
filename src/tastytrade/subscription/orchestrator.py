@@ -15,7 +15,7 @@ from typing import Any, Dict
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels
 from tastytrade.connections import Credentials
-from tastytrade.connections.sockets import DXLinkManager
+from tastytrade.connections.sockets import ConnectionState, DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
 from tastytrade.messaging.processors import (
     CandleSnapshotTracker,
@@ -45,6 +45,53 @@ def format_uptime(seconds: float) -> str:
     if hours > 0:
         return f"{hours}h {minutes}m"
     return f"{minutes}m"
+
+
+async def update_redis_connection_status(
+    store: RedisSubscriptionStore,
+    state: str,
+    reason: str | None = None,
+) -> None:
+    """Update connection status in Redis for external monitoring."""
+    status: dict[str, str] = {
+        "state": state,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if reason:
+        status["error"] = reason
+
+    await store.redis.hset("tastytrade:connection", mapping=status)  # type: ignore[arg-type]
+
+
+def log_health_status(
+    dxlink: DXLinkManager,
+    handlers_dict: dict,
+    start_time: float,
+) -> None:
+    """Log health status based on connection state."""
+    uptime = format_uptime(time.monotonic() - start_time)
+
+    if dxlink.connection_state == ConnectionState.ERROR:
+        logger.error(
+            "Health — Uptime: %s | STATE: ERROR | Reason: %s",
+            uptime,
+            dxlink.last_error,
+        )
+    elif dxlink.connection_state == ConnectionState.CONNECTED:
+        channel_count = sum(
+            1 for h in handlers_dict.values() if h.metrics.total_messages > 0
+        )
+        logger.info(
+            "Health — Uptime: %s | STATE: CONNECTED | %d channels",
+            uptime,
+            channel_count,
+        )
+    else:
+        logger.warning(
+            "Health — Uptime: %s | STATE: %s",
+            uptime,
+            dxlink.connection_state.value,
+        )
 
 
 def extract_candle_parts(symbol: str) -> tuple[str, str] | None:
@@ -284,18 +331,66 @@ async def run_subscription(
             total_candle_feeds,
         )
 
-        # === Run until interrupted — periodic health check ===
+        # === Run until interrupted — periodic health check with reconnection monitor ===
         logger.info("Subscription active - press Ctrl+C to stop")
         start_time = time.monotonic()
 
-        while True:
-            await asyncio.sleep(health_interval)
+        # Get subscription store for Redis status updates
+        subscription_store = dxlink.subscription_store
 
-            uptime = format_uptime(time.monotonic() - start_time)
-            feed_count = sum(
-                h.metrics.total_messages > 0 for h in handlers_dict.values()
-            )
-            logger.info("Health — Uptime: %s | %d channels active", uptime, feed_count)
+        async def reconnection_monitor() -> str:
+            """Wait for reconnection signal and return reason."""
+            reason = await dxlink.wait_for_reconnect_signal()
+            return reason
+
+        monitor_task = asyncio.create_task(reconnection_monitor())
+
+        try:
+            while True:
+                # Wait for either health interval or reconnection signal
+                sleep_task = asyncio.create_task(asyncio.sleep(health_interval))
+
+                done, pending = await asyncio.wait(
+                    [monitor_task, sleep_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+
+                # Check if reconnection was triggered
+                if monitor_task in done:
+                    reason = monitor_task.result()
+                    logger.warning("Reconnection triggered: %s", reason)
+
+                    # Update Redis status to reflect error state
+                    if isinstance(subscription_store, RedisSubscriptionStore):
+                        await update_redis_connection_status(
+                            subscription_store,
+                            state="error",
+                            reason=reason,
+                        )
+
+                    # Raise to trigger outer retry loop
+                    raise ConnectionError(f"Reconnection triggered: {reason}")
+
+                # Normal health check - report based on connection state
+                log_health_status(dxlink, handlers_dict, start_time)
+
+                # Recreate monitor task for next iteration
+                monitor_task = asyncio.create_task(reconnection_monitor())
+
+        finally:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
 
     finally:
         if dxlink is not None:
