@@ -273,6 +273,81 @@ Task(
 )
 ```
 
+### Code Context Requirements (MANDATORY)
+
+**CRITICAL:** When creating tickets from investigation or planning sessions, you MUST include the actual code context discovered during the conversation. Another agent picking up the ticket has no access to your conversation history.
+
+**Every ticket MUST include:**
+
+1. **Current Code Snippets** - Show the actual code that needs to change with file paths and line numbers:
+   ```python
+   # Current code (cli.py:176-183):
+   asyncio.run(
+       run_subscription(...)  # <-- Problem: wrong function
+   )
+   ```
+
+2. **Target Code Snippets** - Show what the code should look like after implementation:
+   ```python
+   # Target code (cli.py:176-183):
+   asyncio.run(
+       run_subscription(..., auto_reconnect=True)  # Fixed
+   )
+   ```
+
+3. **Investigation Findings** - Include timelines, log analysis, root cause:
+   | Time | Event |
+   |------|-------|
+   | 00:38:13 | Last healthy state |
+   | 00:41:19 | Failure occurred |
+
+4. **Files Affected** - List all files with specific line numbers:
+   - `src/module/file.py` (lines 100-150) - description of changes
+   - `src/module/other.py` (lines 50-75) - description of changes
+
+5. **Design Rationale** - Explain WHY this approach was chosen over alternatives
+
+**Why This Matters:**
+- The implementing agent has zero context from your conversation
+- Code snippets eliminate ambiguity about current vs target state
+- Line numbers enable precise navigation
+- Rationale prevents re-debating decisions already made
+
+**Example prompt with proper context:**
+```python
+Task(
+    subagent_type="jira-workflow",
+    description="Create ticket for reconnection fix",
+    prompt="""
+    Create a Bug ticket:
+
+    ## Root Cause
+    CLI calls wrong function. Current code (`cli.py:177`):
+    ```python
+    run_subscription(...)  # Missing retry wrapper
+    ```
+
+    ## Implementation
+    Merge functions with parameter. Target code:
+    ```python
+    async def run_subscription(..., auto_reconnect: bool = True):
+        if not auto_reconnect:
+            await _run_subscription_once(...)
+            return
+        # Retry logic here
+    ```
+
+    ## Files
+    - orchestrator.py (lines 270-380, 420-471) - merge functions
+    - cli.py (line 177) - update call
+
+    ## Rationale
+    Single function with parameter chosen over separate functions to prevent
+    calling wrong function (which caused this incident).
+    """
+)
+```
+
 ### Incorrect Usage (DO NOT DO THIS)
 
 ❌ **Incorrect - Using Jira operations directly:**
