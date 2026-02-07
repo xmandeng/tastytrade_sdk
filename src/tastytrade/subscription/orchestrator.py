@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from tastytrade.config import RedisConfigManager
-from tastytrade.config.enumerations import Channels
+from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.sockets import ConnectionState, DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
@@ -169,7 +169,7 @@ async def restore_subscriptions(dxlink: DXLinkManager) -> int:
     return restored
 
 
-async def run_subscription(
+async def _run_subscription_once(
     symbols: list[str],
     intervals: list[str],
     start_date: datetime,
@@ -178,12 +178,10 @@ async def run_subscription(
     health_interval: int = 300,
 ) -> None:
     """
-    Orchestrate market data subscriptions.
+    Internal: Run a single subscription session without retry logic.
 
     This function initializes connections, subscribes to market data feeds,
-    performs gap-fill operations, and runs until interrupted.
-
-    Lifted from devtools/playground_testbench.ipynb cells 2, 4, and 5.
+    performs gap-fill operations, and runs until interrupted or error.
 
     Args:
         symbols: List of symbols to subscribe to (e.g., ["AAPL", "SPY", "QQQ"])
@@ -338,7 +336,7 @@ async def run_subscription(
         # Get subscription store for Redis status updates
         subscription_store = dxlink.subscription_store
 
-        async def reconnection_monitor() -> str:
+        async def reconnection_monitor() -> ReconnectReason:
             """Wait for reconnection signal and return reason."""
             reason = await dxlink.wait_for_reconnect_signal()
             return reason
@@ -366,18 +364,18 @@ async def run_subscription(
                 # Check if reconnection was triggered
                 if monitor_task in done:
                     reason = monitor_task.result()
-                    logger.warning("Reconnection triggered: %s", reason)
+                    logger.warning("Reconnection triggered: %s", reason.value)
 
                     # Update Redis status to reflect error state
                     if isinstance(subscription_store, RedisSubscriptionStore):
                         await update_redis_connection_status(
                             subscription_store,
                             state="error",
-                            reason=reason,
+                            reason=reason.value,
                         )
 
                     # Raise to trigger outer retry loop
-                    raise ConnectionError(f"Reconnection triggered: {reason}")
+                    raise ConnectionError(f"Reconnection triggered: {reason.value}")
 
                 # Normal health check - report based on connection state
                 log_health_status(dxlink, handlers_dict, start_time)
@@ -417,38 +415,62 @@ async def run_subscription(
             logger.info("Cleanup complete")
 
 
-async def run_subscription_with_reconnect(
+async def run_subscription(
     symbols: list[str],
     intervals: list[str],
     start_date: datetime,
+    env_file: str = ".env",
+    lookback_days: int = 5,
+    health_interval: int = 300,
+    auto_reconnect: bool = True,
     max_reconnect_attempts: int = 10,
     base_delay: float = 1.0,
     max_delay: float = 300.0,
-    **kwargs: object,
 ) -> None:
     """
-    Run subscription with automatic reconnection on failure.
+    Run market data subscription with optional automatic reconnection.
 
-    Wraps run_subscription with exponential backoff reconnection logic.
+    This function initializes connections, subscribes to market data feeds,
+    performs gap-fill operations, and runs until interrupted.
 
     Args:
-        symbols: List of symbols to subscribe to
-        intervals: List of candle intervals
+        symbols: List of symbols to subscribe to (e.g., ["AAPL", "SPY", "QQQ"])
+        intervals: List of candle intervals (e.g., ["1d", "1h", "5m", "m"])
         start_date: Date to begin historical backfill
+        env_file: Path to .env file for configuration
+        lookback_days: Number of days to look back for gap-fill (default: 5)
+        health_interval: Seconds between health log entries (default: 300)
+        auto_reconnect: If True, automatically retry on connection failures
+                       with exponential backoff. If False, exit on first failure
+                       (useful for testing). Default: True
         max_reconnect_attempts: Maximum number of reconnection attempts (default: 10)
         base_delay: Initial delay in seconds between reconnection attempts (default: 1.0)
         max_delay: Maximum delay in seconds between reconnection attempts (default: 300.0)
-        **kwargs: Additional arguments passed to run_subscription
     """
+    if not auto_reconnect:
+        # Single-shot mode for testing - no retry on failure
+        await _run_subscription_once(
+            symbols=symbols,
+            intervals=intervals,
+            start_date=start_date,
+            env_file=env_file,
+            lookback_days=lookback_days,
+            health_interval=health_interval,
+        )
+        return
+
+    # Auto-reconnect mode with exponential backoff
     attempt = 0
 
     while attempt < max_reconnect_attempts:
         try:
-            await run_subscription(
-                symbols,
-                intervals,
-                start_date,
-                **kwargs,  # type: ignore[arg-type]
+            await _run_subscription_once(
+                symbols=symbols,
+                intervals=intervals,
+                start_date=start_date,
+                env_file=env_file,
+                lookback_days=lookback_days,
+                health_interval=health_interval,
             )
             break  # Clean exit
         except asyncio.CancelledError:
