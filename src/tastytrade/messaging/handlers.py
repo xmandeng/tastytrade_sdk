@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from tastytrade.common.exceptions import MessageProcessingError
 from tastytrade.config.configurations import CHANNEL_SPECS
-from tastytrade.config.enumerations import Channels
+from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
@@ -224,7 +224,7 @@ class EventHandler:
 
 class ControlHandler(EventHandler):
     def __init__(
-        self, reconnect_callback: Optional[Callable[[str], None]] = None
+        self, reconnect_callback: Optional[Callable[[ReconnectReason], None]] = None
     ) -> None:
         super().__init__(channel=Channels.Control)
         self.reconnect_callback = reconnect_callback
@@ -258,7 +258,7 @@ class ControlHandler(EventHandler):
             if self.was_authorized:
                 logger.error("DXLink AUTH_STATE: UNAUTHORIZED - triggering reconnect")
                 if self.reconnect_callback:
-                    self.reconnect_callback("AUTH_STATE: UNAUTHORIZED")
+                    self.reconnect_callback(ReconnectReason.AUTH_EXPIRED)
             else:
                 logger.debug("AUTH_STATE: UNAUTHORIZED (initial handshake, expected)")
         else:
@@ -279,11 +279,19 @@ class ControlHandler(EventHandler):
         error_type = message.headers.get("error", "UNKNOWN")
         error_msg = message.headers.get("message", "")
 
-        if error_type in ("TIMEOUT", "UNAUTHORIZED"):
+        if error_type == "TIMEOUT":
             logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
             if self.reconnect_callback:
-                self.reconnect_callback(f"{error_type}: {error_msg}")
+                self.reconnect_callback(ReconnectReason.TIMEOUT)
+        elif error_type == "UNAUTHORIZED":
+            logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
+            if self.reconnect_callback:
+                self.reconnect_callback(ReconnectReason.AUTH_EXPIRED)
         elif error_type == "UNSUPPORTED_PROTOCOL":
             logger.critical("DXLink UNSUPPORTED_PROTOCOL: %s - fatal error", error_msg)
+        elif error_type in ("INVALID_MESSAGE", "BAD_ACTION"):
+            logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
+            if self.reconnect_callback:
+                self.reconnect_callback(ReconnectReason.PROTOCOL_ERROR)
         else:
             logger.warning("DXLink %s: %s", error_type, error_msg)

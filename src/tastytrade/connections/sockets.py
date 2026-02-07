@@ -23,7 +23,7 @@ class ConnectionState(Enum):
 from websockets.asyncio.client import ClientConnection, connect
 
 from tastytrade.config.configurations import CHANNEL_SPECS, DXLinkConfig
-from tastytrade.config.enumerations import Channels
+from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.routing import MessageRouter
@@ -112,7 +112,7 @@ class DXLinkManager:
             # Reconnection state
             self.reconnect_event: asyncio.Event = asyncio.Event()
             self.should_reconnect: bool = True
-            self.reconnect_reason: Optional[str] = None
+            self.reconnect_reason: Optional[ReconnectReason] = None
 
             # Connection state tracking
             self.connection_state: ConnectionState = ConnectionState.DISCONNECTED
@@ -202,12 +202,12 @@ class DXLinkManager:
         except Exception as e:
             logger.error("Websocket listener error: %s", e)
             if self.should_reconnect:
-                self.trigger_reconnect(f"WebSocket error: {e}")
+                self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
         else:
             # Loop exited normally = server closed connection
             logger.warning("WebSocket connection closed by server")
             if self.should_reconnect:
-                self.trigger_reconnect("Connection closed by server")
+                self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
 
     async def send_keepalives(self) -> None:
         """Send keepalive messages every 30 seconds."""
@@ -222,7 +222,7 @@ class DXLinkManager:
             logger.info("Keepalive stopped")
         except Exception as e:
             logger.error("Error sending keepalive: %s", e)
-            self.trigger_reconnect(f"Keepalive error: {e}")
+            self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
             # Exit loop so reconnection can occur
 
     async def setup_connection(self) -> None:
@@ -282,18 +282,37 @@ class DXLinkManager:
         """Update last update time and metadata for a subscription."""
         await self.subscription_store.update_subscription_status(symbol, data)
 
-    def trigger_reconnect(self, reason: str) -> None:
-        """Signal that reconnection is needed."""
+    def trigger_reconnect(self, reason: ReconnectReason) -> None:
+        """Signal that reconnection is needed.
+
+        Args:
+            reason: The typed reason for reconnection
+        """
         self.connection_state = ConnectionState.ERROR
-        self.last_error = reason
+        self.last_error = reason.value
         self.reconnect_reason = reason
         self.reconnect_event.set()
 
-    async def wait_for_reconnect_signal(self) -> str:
+    async def wait_for_reconnect_signal(self) -> ReconnectReason:
         """Wait for reconnection signal, return reason."""
         await self.reconnect_event.wait()
         self.reconnect_event.clear()
-        return self.reconnect_reason or "unknown"
+        return self.reconnect_reason or ReconnectReason.MANUAL_TRIGGER
+
+    def simulate_failure(self, reason: ReconnectReason) -> None:
+        """Simulate a connection failure for testing purposes.
+
+        This triggers the full reconnection flow as if a real failure occurred,
+        allowing tests to verify recovery behavior without actual network issues.
+
+        Args:
+            reason: The type of failure to simulate
+
+        Example:
+            dxlink.simulate_failure(ReconnectReason.AUTH_EXPIRED)
+        """
+        logger.warning("Simulating failure: %s", reason.value)
+        self.trigger_reconnect(reason)
 
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.

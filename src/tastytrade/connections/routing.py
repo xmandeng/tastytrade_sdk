@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Callable, List, Optional, Protocol
 
-from tastytrade.config.enumerations import Channels
+from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.handlers import ControlHandler, EventHandler
 from tastytrade.messaging.processors.default import (
@@ -13,7 +13,7 @@ from tastytrade.messaging.processors.default import (
 logger = logging.getLogger(__name__)
 
 
-ReconnectCallback = Callable[[str], None]
+ReconnectCallback = Callable[[ReconnectReason], None]
 
 
 class Websocket(Protocol):

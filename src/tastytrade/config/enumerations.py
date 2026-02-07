@@ -59,3 +59,17 @@ class DXLinkErrorType(Enum):
 
 # Errors that should trigger reconnection
 RECONNECTABLE_ERRORS = {DXLinkErrorType.TIMEOUT, DXLinkErrorType.UNAUTHORIZED}
+
+
+class ReconnectReason(Enum):
+    """Reasons for triggering connection reconnection.
+
+    Used for typed signaling in the reconnection flow, enabling
+    both production error handling and test injection.
+    """
+
+    AUTH_EXPIRED = "auth_expired"  # Token expired mid-session
+    CONNECTION_DROPPED = "connection_dropped"  # WebSocket closed unexpectedly
+    TIMEOUT = "timeout"  # No response within threshold
+    PROTOCOL_ERROR = "protocol_error"  # Invalid message from server
+    MANUAL_TRIGGER = "manual_trigger"  # Test injection / manual trigger
