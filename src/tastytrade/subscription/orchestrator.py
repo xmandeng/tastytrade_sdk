@@ -169,6 +169,49 @@ async def restore_subscriptions(dxlink: DXLinkManager) -> int:
     return restored
 
 
+async def failure_trigger_listener(
+    redis_store: RedisSubscriptionStore,
+    dxlink: DXLinkManager,
+) -> None:
+    """Listen for failure simulation commands via Redis pub/sub.
+
+    Subscribes to 'subscription:simulate_failure' channel and triggers
+    simulate_failure() when a valid ReconnectReason value is received.
+
+    Args:
+        redis_store: Redis subscription store (provides Redis client)
+        dxlink: DXLinkManager instance to trigger failures on
+
+    Usage:
+        redis-cli PUBLISH subscription:simulate_failure "auth_expired"
+    """
+    pubsub = redis_store.redis.pubsub()
+    await pubsub.subscribe("subscription:simulate_failure")
+    logger.info(
+        "Listening for failure simulation commands on subscription:simulate_failure"
+    )
+
+    try:
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                reason_str = (
+                    message["data"].decode()
+                    if isinstance(message["data"], bytes)
+                    else message["data"]
+                )
+                try:
+                    reason = ReconnectReason(reason_str)
+                    logger.info("Received simulate_failure command: %s", reason.value)
+                    dxlink.simulate_failure(reason)
+                except ValueError:
+                    logger.warning("Invalid ReconnectReason received: %s", reason_str)
+    except asyncio.CancelledError:
+        logger.info("Failure trigger listener stopped")
+    finally:
+        await pubsub.unsubscribe("subscription:simulate_failure")
+        await pubsub.close()
+
+
 async def _run_subscription_once(
     symbols: list[str],
     intervals: list[str],
@@ -336,6 +379,13 @@ async def _run_subscription_once(
         # Get subscription store for Redis status updates
         subscription_store = dxlink.subscription_store
 
+        # Start failure trigger listener if Redis is available
+        failure_listener_task: asyncio.Task | None = None
+        if isinstance(subscription_store, RedisSubscriptionStore):
+            failure_listener_task = asyncio.create_task(
+                failure_trigger_listener(subscription_store, dxlink)
+            )
+
         async def reconnection_monitor() -> ReconnectReason:
             """Wait for reconnection signal and return reason."""
             reason = await dxlink.wait_for_reconnect_signal()
@@ -389,6 +439,14 @@ async def _run_subscription_once(
                 await monitor_task
             except asyncio.CancelledError:
                 pass
+
+            # Cleanup failure listener if running
+            if failure_listener_task is not None:
+                failure_listener_task.cancel()
+                try:
+                    await failure_listener_task
+                except asyncio.CancelledError:
+                    pass
 
     finally:
         if dxlink is not None:
