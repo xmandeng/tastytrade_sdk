@@ -590,6 +590,28 @@ git checkout -b feature/TT-XXX-description
 
 ## Pull Request Standards
 
+### Functional Testing Requirement (MANDATORY)
+
+**CRITICAL: Unit tests are NOT actual tests. You MUST functionally test all code changes before creating a PR.**
+
+Before creating any pull request, you MUST:
+
+1. **Actually run the code** in a realistic environment
+2. **Verify the feature works** by exercising it manually or via integration
+3. **Capture evidence** (logs, output, screenshots) proving it works
+4. **Document blockers** if testing is not possible (missing tools, services, etc.)
+
+**If you cannot test a feature:**
+- STOP and notify the user
+- Explain what is missing (redis-cli, API credentials, external service, etc.)
+- Do NOT create a PR with untested code
+
+**Unit tests verify code structure, not functionality.** Passing unit tests means:
+- ❌ NOT that the feature works
+- ❌ NOT that integration points function
+- ❌ NOT that the code behaves correctly in production
+- ✅ Only that the code compiles and isolated units behave as mocked
+
 ### Test Evidence Requirements
 
 **CRITICAL:** When creating PRs, you MUST provide functional evidence for each acceptance criterion.
@@ -599,7 +621,10 @@ git checkout -b feature/TT-XXX-description
 ## Test Evidence
 - ✅ test_load_json PASSED
 - ✅ All 50 unit tests pass
+- ✅ mypy passes
+- ✅ ruff passes
 ```
+These are quality gates, NOT functional evidence.
 
 #### ✅ REQUIRED: Functional evidence with production data
 ```
