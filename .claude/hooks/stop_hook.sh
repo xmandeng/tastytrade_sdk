@@ -48,6 +48,7 @@ STATE_FILE="${STATE_FILE:-/workspace/.claude/state/langsmith_state.json}"
 
 # Global variables
 CURRENT_TURN_ID=""  # Track current turn run for cleanup on exit
+TMP_JQ_FILE=$(mktemp)  # Temp file for large jq arguments (avoids ARG_MAX)
 
 # Ensure state directory exists
 mkdir -p "$(dirname "$STATE_FILE")"
@@ -131,8 +132,13 @@ cleanup_pending_turn() {
     fi
 }
 
+# Write value to temp file for jq --slurpfile (avoids "Argument list too long")
+write_tmp() {
+    printf '%s' "$1" > "$TMP_JQ_FILE"
+}
+
 # Set trap to cleanup on exit (EXIT covers normal exit, errors, and interrupts)
-trap cleanup_pending_turn EXIT
+trap 'cleanup_pending_turn; rm -f "$TMP_JQ_FILE"' EXIT
 
 # Load state
 load_state() {
@@ -742,9 +748,10 @@ create_trace() {
                 result_data=$(find_tool_result_with_timestamp "$tool_use_id" "$tool_results")
                 local result
                 result=$(echo "$result_data" | jq -r '.result')
+                write_tmp "$result"
                 all_outputs=$(echo "$all_outputs" | jq \
                     --arg id "$tool_use_id" \
-                    --arg result "$result" \
+                    --rawfile result "$TMP_JQ_FILE" \
                     '. += [{role: "tool", tool_call_id: $id, content: [{type: "text", text: $result}]}]')
             done < <(echo "$tool_uses" | jq -c '.[]')
         fi
@@ -860,15 +867,17 @@ main() {
 
         if [ "$role" = "user" ]; then
             if [ "$(is_tool_result "$line")" = "true" ]; then
-                # Add to tool results
-                current_tool_results=$(echo "$current_tool_results" | jq --argjson msg "$line" '. += [$msg]')
+                # Add to tool results (use temp file to avoid ARG_MAX)
+                write_tmp "$line"
+                current_tool_results=$(echo "$current_tool_results" | jq --slurpfile msg "$TMP_JQ_FILE" '. += $msg')
             else
                 # New turn - finalize any pending assistant message
                 if [ -n "$current_msg_id" ] && [ "$(echo "$current_assistant_parts" | jq 'length')" -gt 0 ]; then
                     # Merge parts and add to assistants array
                     local merged
                     merged=$(merge_assistant_parts "$current_assistant_parts")
-                    current_assistants=$(echo "$current_assistants" | jq --argjson msg "$merged" '. += [$msg]')
+                    write_tmp "$merged"
+                    current_assistants=$(echo "$current_assistants" | jq --slurpfile msg "$TMP_JQ_FILE" '. += $msg')
                     current_assistant_parts="[]"
                     current_msg_id=""
                 fi
@@ -894,22 +903,26 @@ main() {
 
             if [ -z "$msg_id" ]; then
                 # No message ID, treat as continuation of current message
-                current_assistant_parts=$(echo "$current_assistant_parts" | jq --argjson msg "$line" '. += [$msg]')
+                write_tmp "$line"
+                current_assistant_parts=$(echo "$current_assistant_parts" | jq --slurpfile msg "$TMP_JQ_FILE" '. += $msg')
             elif [ "$msg_id" = "$current_msg_id" ]; then
                 # Same message ID, add to current parts
-                current_assistant_parts=$(echo "$current_assistant_parts" | jq --argjson msg "$line" '. += [$msg]')
+                write_tmp "$line"
+                current_assistant_parts=$(echo "$current_assistant_parts" | jq --slurpfile msg "$TMP_JQ_FILE" '. += $msg')
             else
                 # New message ID - finalize previous message if any
                 if [ -n "$current_msg_id" ] && [ "$(echo "$current_assistant_parts" | jq 'length')" -gt 0 ]; then
                     # Merge parts and add to assistants array
                     local merged
                     merged=$(merge_assistant_parts "$current_assistant_parts")
-                    current_assistants=$(echo "$current_assistants" | jq --argjson msg "$merged" '. += [$msg]')
+                    write_tmp "$merged"
+                    current_assistants=$(echo "$current_assistants" | jq --slurpfile msg "$TMP_JQ_FILE" '. += $msg')
                 fi
 
                 # Start new assistant message
                 current_msg_id="$msg_id"
-                current_assistant_parts=$(jq -n --argjson msg "$line" '[$msg]')
+                write_tmp "$line"
+                current_assistant_parts=$(jq -n --slurpfile msg "$TMP_JQ_FILE" '$msg')
             fi
         fi
     done <<< "$new_messages"
@@ -918,7 +931,8 @@ main() {
     if [ -n "$current_msg_id" ] && [ "$(echo "$current_assistant_parts" | jq 'length')" -gt 0 ]; then
         local merged
         merged=$(merge_assistant_parts "$current_assistant_parts")
-        current_assistants=$(echo "$current_assistants" | jq --argjson msg "$merged" '. += [$msg]')
+        write_tmp "$merged"
+        current_assistants=$(echo "$current_assistants" | jq --slurpfile msg "$TMP_JQ_FILE" '. += $msg')
     fi
 
     if [ -n "$current_user" ] && [ "$(echo "$current_assistants" | jq 'length')" -gt 0 ]; then
