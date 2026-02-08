@@ -18,6 +18,7 @@ RUN apt-get install -y \
     wget \
     vim \
     redis-tools \
+    uuid-runtime \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -1,10 +1,6 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(uv --version:*)",
-      "Bash(tree:*)",
-      "Bash(env)"
-    ],
+    "allow": ["Bash(uv --version:*)", "Bash(tree:*)", "Bash(env)"],
     "deny": [
       "Skill(jira-operations)",
       "Skill(github-operations)",
@@ -14,5 +10,17 @@
     ],
     "ask": []
   },
-  "allowedMcpServers": []
+  "allowedMcpServers": [],
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/.claude/hooks/stop_hook.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
