@@ -221,7 +221,7 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace",
 
-  // Features for additional capabilities (removed Node.js since it's in Dockerfile)
+  // Features for additional capabilities
   "features": {
     "ghcr.io/devcontainers/features/git:1": {
       "ppa": false
