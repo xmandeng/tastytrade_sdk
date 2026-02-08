@@ -1,6 +1,26 @@
 {
+  "includeCoAuthoredBy": false,
   "permissions": {
-    "allow": ["Bash(uv --version:*)", "Bash(tree:*)", "Bash(env)"],
+    "allow": [
+      "Bash(uv:*)",
+      "Bash(git:*)",
+      "Bash(claude:*)",
+      "Bash(docker build:*)",
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(bash:*)",
+      "Bash(echo:*)",
+      "Bash(export:*)",
+      "Bash(env)",
+      "Bash(mount)",
+      "Bash(dpkg:*)",
+      "Bash(pip show:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ],
     "deny": [
       "Skill(jira-operations)",
       "Skill(github-operations)",
