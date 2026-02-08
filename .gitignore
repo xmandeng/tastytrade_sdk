@@ -31,6 +31,8 @@ ENV/
 .python-version
 
 .claude/*
+!.claude/hooks/
+.claude/state/
 
 # IDE
 .idea/
