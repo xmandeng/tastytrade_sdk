@@ -187,9 +187,6 @@ async def failure_trigger_listener(
     """
     pubsub = redis_store.redis.pubsub()
     await pubsub.subscribe("subscription:simulate_failure")
-    logger.info(
-        "Listening for failure simulation commands on subscription:simulate_failure"
-    )
 
     try:
         async for message in pubsub.listen():
