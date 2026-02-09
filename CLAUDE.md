@@ -273,80 +273,25 @@ Task(
 )
 ```
 
-### Code Context Requirements (MANDATORY)
+### Verbatim Content Rule (MANDATORY)
 
-**CRITICAL:** When creating tickets from investigation or planning sessions, you MUST include the actual code context discovered during the conversation. Another agent picking up the ticket has no access to your conversation history.
+**The jira-workflow agent paraphrases by default. You MUST prevent this.**
 
-**Every ticket MUST include:**
+When passing plans, code snippets, field lists, or implementation details to the jira-workflow agent, explicitly instruct it to use the content **verbatim** — not summarize, not paraphrase, not rewrite.
 
-1. **Current Code Snippets** - Show the actual code that needs to change with file paths and line numbers:
-   ```python
-   # Current code (cli.py:176-183):
-   asyncio.run(
-       run_subscription(...)  # <-- Problem: wrong function
-   )
-   ```
+**In every prompt that updates a ticket description or creates a ticket with detailed content, include this instruction:**
 
-2. **Target Code Snippets** - Show what the code should look like after implementation:
-   ```python
-   # Target code (cli.py:176-183):
-   asyncio.run(
-       run_subscription(..., auto_reconnect=True)  # Fixed
-   )
-   ```
+> Use the following content VERBATIM in the description. Do NOT paraphrase, summarize, or rewrite. Copy it exactly as provided.
 
-3. **Investigation Findings** - Include timelines, log analysis, root cause:
-   | Time | Event |
-   |------|-------|
-   | 00:38:13 | Last healthy state |
-   | 00:41:19 | Failure occurred |
+**What must be passed verbatim (when available):**
+- Code snippets with file paths and line numbers
+- Field lists, enum values, method signatures
+- Test function names, factory function specs
+- API response shapes
+- Design rationale
+- Acceptance criteria mappings
 
-4. **Files Affected** - List all files with specific line numbers:
-   - `src/module/file.py` (lines 100-150) - description of changes
-   - `src/module/other.py` (lines 50-75) - description of changes
-
-5. **Design Rationale** - Explain WHY this approach was chosen over alternatives
-
-**Why This Matters:**
-- The implementing agent has zero context from your conversation
-- Code snippets eliminate ambiguity about current vs target state
-- Line numbers enable precise navigation
-- Rationale prevents re-debating decisions already made
-
-**Example prompt with proper context:**
-```python
-Task(
-    subagent_type="jira-workflow",
-    description="Create ticket for reconnection fix",
-    prompt="""
-    Create a Bug ticket:
-
-    ## Root Cause
-    CLI calls wrong function. Current code (`cli.py:177`):
-    ```python
-    run_subscription(...)  # Missing retry wrapper
-    ```
-
-    ## Implementation
-    Merge functions with parameter. Target code:
-    ```python
-    async def run_subscription(..., auto_reconnect: bool = True):
-        if not auto_reconnect:
-            await _run_subscription_once(...)
-            return
-        # Retry logic here
-    ```
-
-    ## Files
-    - orchestrator.py (lines 270-380, 420-471) - merge functions
-    - cli.py (line 177) - update call
-
-    ## Rationale
-    Single function with parameter chosen over separate functions to prevent
-    calling wrong function (which caused this incident).
-    """
-)
-```
+**Why:** The implementing agent has zero context from your conversation. Paraphrased summaries lose the exact details (field names, line numbers, code patterns) that make a ticket actionable.
 
 ### Incorrect Usage (DO NOT DO THIS)
 
@@ -452,22 +397,12 @@ This ensures tickets are properly documented and nothing is missed.
 
 ### Plan-Ticket Alignment (MANDATORY)
 
-When planning work for a Jira ticket, you MUST ensure the ticket description includes the full implementation plan:
+Before implementation begins, persist the **full, exact** implementation plan to the Jira ticket. The ticket is the source of truth — plans discussed in conversation are lost if not persisted.
 
-1. **Before implementation begins**, update the Jira ticket with:
-   - Detailed implementation steps with file paths and line numbers
-   - Code snippets showing current vs proposed changes
-   - Design rationale (why this approach)
-   - Updated acceptance criteria matching the plan
-
-2. **Why this matters:**
-   - Other agents may pick up the work without context from the planning session
-   - The Jira ticket is the source of truth for what should be implemented
-   - Plans discussed in conversation are lost if not persisted to Jira
-
-3. **Verification:**
-   - After updating, re-read the ticket to confirm all plan details are present
-   - Ensure acceptance criteria match implementation plan exactly
+**How to persist plans:**
+1. Pass the complete plan text to the jira-workflow agent with the **Verbatim Content Rule** (see above)
+2. After the agent updates the ticket, re-read it to confirm **nothing was paraphrased or omitted**
+3. If content was summarized or truncated, re-send with explicit correction
 
 ---
 
