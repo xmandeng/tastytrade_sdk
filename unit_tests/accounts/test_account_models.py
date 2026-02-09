@@ -407,6 +407,34 @@ def test_credentials_loads_live_account() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Account validation — fail fast on misconfigured account numbers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_validate_account_number_succeeds() -> None:
+    session = mock_session({"data": {"items": [{"account": make_account_json()}]}})
+    client = AccountsClient(session)
+    await client.validate_account_number("5WT00001")  # should not raise
+
+
+@pytest.mark.asyncio
+async def test_validate_account_number_rejects_unknown() -> None:
+    session = mock_session({"data": {"items": [{"account": make_account_json()}]}})
+    client = AccountsClient(session)
+    with pytest.raises(ValueError, match="not found in authenticated session"):
+        await client.validate_account_number("WRONG123")
+
+
+@pytest.mark.asyncio
+async def test_validate_account_number_rejects_empty() -> None:
+    session = mock_session({"data": {"items": [{"account": make_account_json()}]}})
+    client = AccountsClient(session)
+    with pytest.raises(ValueError, match="must not be empty"):
+        await client.validate_account_number("")
+
+
+# ---------------------------------------------------------------------------
 # Base model sanity
 # ---------------------------------------------------------------------------
 

@@ -11,6 +11,25 @@ class AccountsClient:
     def __init__(self, session: AsyncSessionHandler) -> None:
         self.session = session
 
+    async def validate_account_number(self, account_number: str) -> None:
+        """Validate that an account number belongs to the authenticated session.
+
+        Raises ValueError if the account number is empty or not found
+        in the accounts returned by the API.
+        """
+        if not account_number:
+            raise ValueError("Account number must not be empty")
+
+        accounts = await self.get_accounts()
+        valid_numbers = [a.account_number for a in accounts]
+
+        if account_number not in valid_numbers:
+            raise ValueError(
+                f"Account {account_number!r} not found in authenticated session. "
+                f"Valid accounts: {valid_numbers}"
+            )
+        logger.info("Account %s validated", account_number)
+
     async def get_accounts(self) -> list[Account]:
         """Fetch all accounts for the authenticated customer.
 
