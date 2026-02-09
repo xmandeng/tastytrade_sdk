@@ -102,6 +102,9 @@ ignore = [
 
 fixable = ["ALL"]
 
+[tool.ruff.lint.per-file-ignores]
+"src/devtools/*.ipynb" = ["B018"]  # Bare expressions are idiomatic in notebooks
+
 [dependency-groups]
 dev = [
     "jupyter>=1.1.1",
