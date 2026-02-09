@@ -37,6 +37,12 @@ class Credentials:
             config.get("TT_SANDBOX_URL") if env == "Test" else config.get("TT_API_URL")
         )
 
+        self.account_number: str = (
+            config.get("TT_SANDBOX_ACCOUNT")
+            if env == "Test"
+            else config.get("TT_ACCOUNT")
+        )
+
         self.remember_me: bool = True
 
         self.is_sandbox: bool = True if env == "Test" else False
