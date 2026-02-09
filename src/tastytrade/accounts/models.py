@@ -351,6 +351,11 @@ class AccountBalance(TastyTradeApiModel, FloatFieldMixin):
         alias="maintenance-requirement",
         description="Maintenance requirement",
     )
+    maintenance_call_value: Optional[float] = Field(
+        default=None,
+        alias="maintenance-call-value",
+        description="Maintenance call value",
+    )
     maintenance_excess: Optional[float] = Field(
         default=None, alias="maintenance-excess", description="Maintenance excess"
     )
@@ -421,6 +426,11 @@ class AccountBalance(TastyTradeApiModel, FloatFieldMixin):
         default=None,
         alias="available-trading-funds",
         description="Available trading funds",
+    )
+    total_settle_balance: Optional[float] = Field(
+        default=None,
+        alias="total-settle-balance",
+        description="Total settle balance",
     )
 
     # Day trading
@@ -593,6 +603,7 @@ class AccountBalance(TastyTradeApiModel, FloatFieldMixin):
         "short_index_derivative_value",
         "margin_equity",
         "maintenance_requirement",
+        "maintenance_call_value",
         "maintenance_excess",
         "margin_settle_balance",
         "futures_margin_requirement",
@@ -607,6 +618,7 @@ class AccountBalance(TastyTradeApiModel, FloatFieldMixin):
         "cash_settle_balance",
         "closed_loop_available_balance",
         "available_trading_funds",
+        "total_settle_balance",
         "day_trade_excess",
         "day_trading_call_value",
         "day_equity_call_value",
