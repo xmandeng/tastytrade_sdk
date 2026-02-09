@@ -28,7 +28,9 @@ class AccountsClient:
                 f"Account {account_number!r} not found in authenticated session. "
                 f"Valid accounts: {valid_numbers}"
             )
-        logger.info("Account %s validated", account_number)
+        logger.info(
+            "Account %s validated against %d accounts", account_number, len(accounts)
+        )
 
     async def get_accounts(self) -> list[Account]:
         """Fetch all accounts for the authenticated customer.
@@ -42,7 +44,9 @@ class AccountsClient:
             validate_async_response(response)
             data = await response.json()
             items = data["data"]["items"]
-            return [Account.model_validate(item["account"]) for item in items]
+            accounts = [Account.model_validate(item["account"]) for item in items]
+            logger.info("Fetched %d accounts", len(accounts))
+            return accounts
 
     async def get_positions(self, account_number: str) -> list[Position]:
         """Fetch positions for a specific account.
@@ -56,7 +60,11 @@ class AccountsClient:
             validate_async_response(response)
             data = await response.json()
             items = data["data"]["items"]
-            return [Position.model_validate(item) for item in items]
+            positions = [Position.model_validate(item) for item in items]
+            logger.info(
+                "Fetched %d positions for account %s", len(positions), account_number
+            )
+            return positions
 
     async def get_balances(self, account_number: str) -> AccountBalance:
         """Fetch balances for a specific account.
@@ -69,4 +77,11 @@ class AccountsClient:
         ) as response:
             validate_async_response(response)
             data = await response.json()
-            return AccountBalance.model_validate(data["data"])
+            balance = AccountBalance.model_validate(data["data"])
+            logger.info(
+                "Fetched balances for account %s — net_liq=%.2f, cash=%.2f",
+                account_number,
+                balance.net_liquidating_value or 0.0,
+                balance.cash_balance or 0.0,
+            )
+            return balance
