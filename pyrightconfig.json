@@ -5,7 +5,7 @@
     "**/.venv",
     "**/.git",
     "logs",
-    "devtoools",
+    "src/devtools",
     "notebooks",
     "unit_tests"
   ],
