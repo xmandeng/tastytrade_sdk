@@ -71,6 +71,11 @@ def make_account_json(**overrides: Any) -> dict[str, Any]:
         "investment-objective": "SPECULATION",
         "suitable-options-level": "No Restrictions",
         "margin-or-cash": "Margin",
+        "ext-crm-id": "a0qTw000004X0OlIAK",
+        "external-id": "Aed8732a5-5e8b-4394-8b18-50e06d22dbdd",
+        "funding-date": "2024-12-10",
+        "futures-account-purpose": "SPECULATING",
+        "regulatory-domain": "USA",
         "opened-at": "2025-06-01T00:00:00Z",
         "created-at": "2025-06-01T00:00:00Z",
     }
