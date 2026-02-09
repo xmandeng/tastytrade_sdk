@@ -228,6 +228,23 @@ class Account(TastyTradeApiModel):
     margin_or_cash: Optional[str] = Field(
         default=None, alias="margin-or-cash", description="Margin or Cash"
     )
+    ext_crm_id: Optional[str] = Field(
+        default=None, alias="ext-crm-id", description="External CRM identifier"
+    )
+    external_id: Optional[str] = Field(
+        default=None, alias="external-id", description="External identifier"
+    )
+    funding_date: Optional[date] = Field(
+        default=None, alias="funding-date", description="Account funding date"
+    )
+    futures_account_purpose: Optional[str] = Field(
+        default=None,
+        alias="futures-account-purpose",
+        description="Futures account purpose",
+    )
+    regulatory_domain: Optional[str] = Field(
+        default=None, alias="regulatory-domain", description="Regulatory domain"
+    )
     opened_at: Optional[datetime] = Field(
         default=None, alias="opened-at", description="Account open date"
     )
