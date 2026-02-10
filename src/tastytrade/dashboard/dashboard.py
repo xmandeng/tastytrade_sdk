@@ -32,7 +32,7 @@ class DashApp:
             __name__,
             external_stylesheets=[dbc.themes.DARKLY],
             title="Live Charts",
-            update_title=None,
+            update_title="",
         )
         self.dxlink: Optional[DXLinkManager] = None
         self.subscription_queue: Queue[Tuple[str, str]] = (
@@ -473,20 +473,20 @@ class DashApp:
             showlegend=True,
             xaxis_rangeslider_visible=False,
             height=600,
-            margin=dict(l=50, r=50, t=30, b=50),
-            yaxis=dict(title=None),
-            xaxis=dict(title=None),
-            title=dict(text=f"{symbol} Loading...", x=0.5, y=0.95),
+            margin={"l": 50, "r": 50, "t": 30, "b": 50},
+            yaxis={"title": None},
+            xaxis={"title": None},
+            title={"text": f"{symbol} Loading...", "x": 0.5, "y": 0.95},
             annotations=[
-                dict(
-                    text="Loading data...",
-                    xref="paper",
-                    yref="paper",
-                    x=0.5,
-                    y=0.5,
-                    showarrow=False,
-                    font=dict(size=20, color="white"),
-                )
+                {
+                    "text": "Loading data...",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "showarrow": False,
+                    "font": {"size": 20, "color": "white"},
+                }
             ],
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -543,7 +543,7 @@ class DashApp:
                     logger.debug(f"Calculating HMA for {candle_symbol}")
                     # Pass the formatted symbol to hull() since it expects that format
                     # Calculate HMA using the existing data instead of passing df as a parameter
-                    hma_df = hull(self.dxlink, candle_symbol, length=20)
+                    hma_df = hull(self.dxlink, candle_symbol, length=20)  # type: ignore[arg-type]
                     if not hma_df.empty:
                         logger.debug(
                             f"HMA calculation successful, shape: {hma_df.shape}"
@@ -590,7 +590,7 @@ class DashApp:
                     go.Scatter(
                         x=merged_df["time"],
                         y=merged_df["HMA"],
-                        line=dict(color="purple", width=2),
+                        line={"color": "purple", "width": 2},
                         name=f"{symbol} HMA-20",
                     )
                 )
@@ -601,9 +601,9 @@ class DashApp:
                 showlegend=True,
                 xaxis_rangeslider_visible=False,
                 height=600,
-                margin=dict(l=50, r=50, t=30, b=50),
-                yaxis=dict(title=None),  # Remove y-axis label
-                xaxis=dict(title=None),  # Remove x-axis label
+                margin={"l": 50, "r": 50, "t": 30, "b": 50},
+                yaxis={"title": None},  # Remove y-axis label
+                xaxis={"title": None},  # Remove x-axis label
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
             )

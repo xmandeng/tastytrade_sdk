@@ -146,9 +146,11 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
 
         self.namespace = namespace
         self.redis_client = redis.Redis(
-            host=redis_host or env_vars.get("REDIS_HOST", "redis"),
-            port=int(redis_port or env_vars.get("REDIS_PORT", 6379)),
-            db=int(redis_db or env_vars.get("REDIS_DB", 0)),
+            host=redis_host or env_vars.get("REDIS_HOST") or "redis",
+            port=redis_port or int(env_vars.get("REDIS_PORT") or "6379"),
+            db=redis_db
+            if redis_db is not None
+            else int(env_vars.get("REDIS_DB") or "0"),
         )
         self.initialized = False
 
@@ -170,9 +172,11 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         try:
             if env_vars := dotenv_values(self.env_file):
                 hash_key = self.get_hash_key()
-                self.redis_client.hset(hash_key, mapping=env_vars)
+                # Filter out None values from dotenv_values
+                clean_vars = {k: v for k, v in env_vars.items() if v is not None}
+                self.redis_client.hset(hash_key, mapping=clean_vars)  # type: ignore[arg-type]
                 logger.info(
-                    f"Initialized {len(env_vars)} variables from .env file in Redis"
+                    f"Initialized {len(clean_vars)} variables from .env file in Redis"
                 )
             else:
                 logger.warning(f"No variables found in .env file: {self.env_file}")
@@ -203,18 +207,20 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         """
         logger.debug(f"Getting {key} from Redis")
         hash_key = self.get_hash_key()
-        value = self.redis_client.hget(hash_key, key)
+        raw_value = self.redis_client.hget(hash_key, key)
 
         # Return default if not found
-        if value is None:
+        if raw_value is None:
             return default
 
         # Decode bytes to string
-        value = value.decode("utf-8")
+        value: Any = (
+            raw_value.decode("utf-8") if isinstance(raw_value, bytes) else raw_value
+        )
 
         # Convert value type if specified
         if value_type is not None:
-            value = self.convert_value(value, value_type)
+            value = self.convert_value(str(value), value_type)
 
         return value
 
@@ -302,9 +308,11 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
 
         self.namespace = namespace
         self.redis_client = redis.asyncio.Redis(
-            host=redis_host or env_vars.get("REDIS_HOST", "redis"),
-            port=int(redis_port or env_vars.get("REDIS_PORT", 6379)),
-            db=int(redis_db or env_vars.get("REDIS_DB", 0)),
+            host=redis_host or env_vars.get("REDIS_HOST") or "redis",
+            port=redis_port or int(env_vars.get("REDIS_PORT") or "6379"),
+            db=redis_db
+            if redis_db is not None
+            else int(env_vars.get("REDIS_DB") or "0"),
         )
         self.initialized = False
 
@@ -326,9 +334,10 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         try:
             if env_vars := dotenv_values(self.env_file):
                 hash_key = self.get_hash_key()
-                await self.redis_client.hset(hash_key, mapping=env_vars)
+                clean_vars = {k: v for k, v in env_vars.items() if v is not None}
+                await self.redis_client.hset(hash_key, mapping=clean_vars)  # type: ignore[arg-type]
                 logger.info(
-                    f"Initialized {len(env_vars)} variables from .env file in Redis"
+                    f"Initialized {len(clean_vars)} variables from .env file in Redis"
                 )
             else:
                 logger.warning(f"No variables found in .env file: {self.env_file}")
@@ -359,18 +368,20 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         """
         logger.debug(f"Getting {key} from Redis")
         hash_key = self.get_hash_key()
-        value = await self.redis_client.hget(hash_key, key)
+        raw_value = await self.redis_client.hget(hash_key, key)
 
         # Return default if not found
-        if value is None:
+        if raw_value is None:
             return default
 
         # Decode bytes to string
-        value = value.decode("utf-8")
+        value: Any = (
+            raw_value.decode("utf-8") if isinstance(raw_value, bytes) else raw_value
+        )
 
         # Convert value type if specified
         if value_type is not None:
-            value = self.convert_value(value, value_type)
+            value = self.convert_value(str(value), value_type)
 
         return value
 

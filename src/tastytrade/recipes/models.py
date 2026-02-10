@@ -37,6 +37,7 @@ class TradeDecision(BaseModel):
 # Example Usage
 trade_decision = TradeDecision(
     action=TradeAction.HOLD,
+    direction=Direction.NEUTRAL,
     reason="Price needs to confirm support above 5610 before entering",
     hold_above=5610,
     hold_below=5605,

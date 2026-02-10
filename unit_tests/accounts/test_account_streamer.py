@@ -84,8 +84,8 @@ def test_connect_message_includes_account_and_token() -> None:
 
     msg = StreamerConnectMessage(
         value=["5WT00001"],
-        auth_token="tok123",
-        request_id=1,
+        auth_token="tok123",  # type: ignore[call-arg]
+        request_id=1,  # type: ignore[call-arg]
     )
     raw = msg.model_dump(by_alias=True)
     assert raw["value"] == ["5WT00001"]
@@ -99,8 +99,8 @@ def test_connect_message_uses_raw_token_no_bearer() -> None:
     token = "r8ZvXYZ...session-token"
     msg = StreamerConnectMessage(
         value=["5WT00001"],
-        auth_token=token,
-        request_id=1,
+        auth_token=token,  # type: ignore[call-arg]
+        request_id=1,  # type: ignore[call-arg]
     )
     raw = msg.model_dump(by_alias=True)
     assert not raw["auth-token"].startswith("Bearer")

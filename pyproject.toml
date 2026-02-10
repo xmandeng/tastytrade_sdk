@@ -105,6 +105,23 @@ fixable = ["ALL"]
 [tool.ruff.lint.per-file-ignores]
 "src/devtools/*.ipynb" = ["B018"]  # Bare expressions are idiomatic in notebooks
 
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_return_any = false
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "influxdb_client.*",
+    "pythonjsonlogger.*",
+    "redis.asyncio.*",
+    "dash.*",
+    "plotly.*",
+]
+ignore_missing_imports = true
+ignore_errors = true
+
 [dependency-groups]
 dev = [
     "jupyter>=1.1.1",

@@ -51,9 +51,9 @@ class RedisSubscriptionStore(SubscriptionStore):
     ):
         self.hash_key = hash_key
         self.redis = redis.Redis(
-            host=host or os.environ.get("REDIS_HOST", "redis"),
-            port=port or os.environ.get("REDIS_PORT", 6379),
-            db=db or os.environ.get("REDIS_DB", 0),
+            host=host or os.environ.get("REDIS_HOST", "redis") or "redis",
+            port=port or int(os.environ.get("REDIS_PORT", "6379")),
+            db=db if db is not None else int(os.environ.get("REDIS_DB", "0")),
         )
 
     async def add_subscription(
@@ -123,7 +123,7 @@ class RedisSubscriptionStore(SubscriptionStore):
             logger.info("Connected clients: %s", info["connected_clients"])
         except Exception as e:
             logger.error("Error initializing Redis connection: %s", e)
-            raise ConnectionError(f"Failed to establish Redis connection: {e}")
+            raise ConnectionError(f"Failed to establish Redis connection: {e}") from e
 
 
 class InMemorySubscriptionStore(SubscriptionStore):

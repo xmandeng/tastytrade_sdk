@@ -19,8 +19,8 @@ from tastytrade.accounts.messages import (
 def test_connect_message_serializes_with_hyphenated_keys() -> None:
     msg = StreamerConnectMessage(
         value=["5WT00001"],
-        auth_token="tok123",
-        request_id=1,
+        auth_token="tok123",  # type: ignore[call-arg]
+        request_id=1,  # type: ignore[call-arg]
     )
     raw = msg.model_dump(by_alias=True)
     assert raw["action"] == "connect"
@@ -46,8 +46,8 @@ def test_connect_message_rejects_extra_fields() -> None:
 
 def test_heartbeat_message_serializes_with_hyphenated_keys() -> None:
     msg = StreamerHeartbeatMessage(
-        auth_token="tok123",
-        request_id=2,
+        auth_token="tok123",  # type: ignore[call-arg]
+        request_id=2,  # type: ignore[call-arg]
     )
     raw = msg.model_dump(by_alias=True)
     assert raw["action"] == "heartbeat"

@@ -136,8 +136,8 @@ class AccountStreamer:
         self.request_id += 1
         connect_msg = StreamerConnectMessage(
             value=[account_number],
-            auth_token=session_token,
-            request_id=self.request_id,
+            auth_token=session_token,  # type: ignore[call-arg]
+            request_id=self.request_id,  # type: ignore[call-arg]
         )
         await ws.send(connect_msg.model_dump_json(by_alias=True))
 
@@ -267,8 +267,8 @@ class AccountStreamer:
                 await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
                 self.request_id += 1
                 heartbeat = StreamerHeartbeatMessage(
-                    auth_token=session_token,
-                    request_id=self.request_id,
+                    auth_token=session_token,  # type: ignore[call-arg]
+                    request_id=self.request_id,  # type: ignore[call-arg]
                 )
                 await ws.send(heartbeat.model_dump_json(by_alias=True))
                 logger.debug("Heartbeat sent (request-id=%d)", self.request_id)

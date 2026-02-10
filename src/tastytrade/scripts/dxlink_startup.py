@@ -79,7 +79,7 @@ async def main():
         ) as dxlink:
             # Add processors
             logger.info("Setting up event processors")
-            for handler_name, event_handler in dxlink.router.handler.items():
+            for handler_name, event_handler in dxlink.router.handler.items():  # type: ignore[union-attr]
                 logger.debug(f"Adding processors to {handler_name} handler")
                 event_handler.add_processor(TelegrafHTTPEventProcessor())
                 event_handler.add_processor(RedisEventProcessor())

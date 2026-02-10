@@ -45,17 +45,17 @@ class CandleChart:
         self.chart_style = {
             "plot_bgcolor": "rgb(25,25,25)",
             "paper_bgcolor": "rgb(25,25,25)",
-            "title": dict(text=symbol, x=0.5, font=dict(color="white", size=16)),
-            "yaxis": dict(
-                gridcolor="rgba(128,128,128,0.1)",
-                zerolinecolor="rgba(128,128,128,0.1)",
-                color="white",
-            ),
-            "xaxis": dict(
-                gridcolor="rgba(128,128,128,0.1)",
-                zerolinecolor="rgba(128,128,128,0.1)",
-                color="white",
-            ),
+            "title": {"text": symbol, "x": 0.5, "font": {"color": "white", "size": 16}},
+            "yaxis": {
+                "gridcolor": "rgba(128,128,128,0.1)",
+                "zerolinecolor": "rgba(128,128,128,0.1)",
+                "color": "white",
+            },
+            "xaxis": {
+                "gridcolor": "rgba(128,128,128,0.1)",
+                "zerolinecolor": "rgba(128,128,128,0.1)",
+                "color": "white",
+            },
             "showlegend": True,
             "height": 800,
             "uirevision": True,
@@ -87,7 +87,7 @@ class CandleChart:
                 go.Scatter(
                     x=df["time"],
                     y=df[study.value_column],
-                    line=dict(color=df["color"].iloc[0], width=1),
+                    line={"color": df["color"].iloc[0], "width": 1},
                     mode="lines",
                     name=study.name,
                     showlegend=True,
@@ -115,7 +115,7 @@ class CandleChart:
                 go.Scatter(
                     x=segment_df["time"],
                     y=segment_df[study.value_column],
-                    line=dict(color=color, width=1),
+                    line={"color": color, "width": 1},
                     mode="lines",
                     name=study.name,
                     showlegend=(i == 0),  # Only show in legend for first segment
@@ -158,12 +158,14 @@ class CandleChart:
                                 high=plot_df["high"],
                                 low=plot_df["low"],
                                 close=plot_df["close"],
-                                increasing=dict(
-                                    line=dict(width=1), fillcolor="#26A69A"
-                                ),
-                                decreasing=dict(
-                                    line=dict(width=1), fillcolor="#EF5350"
-                                ),
+                                increasing={
+                                    "line": {"width": 1},
+                                    "fillcolor": "#26A69A",
+                                },
+                                decreasing={
+                                    "line": {"width": 1},
+                                    "fillcolor": "#EF5350",
+                                },
                                 name="Price",
                             )
                         )

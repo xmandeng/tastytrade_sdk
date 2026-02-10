@@ -442,6 +442,9 @@ class DXLinkManager:
         ws = self.websocket
 
         symbol, interval = parse_candle_symbol(event_symbol)
+        if symbol is None or interval is None:
+            logger.warning("Invalid candle symbol: %s", event_symbol)
+            return
         request: CancelCandleSubscriptionRequest = CancelCandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,

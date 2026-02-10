@@ -73,7 +73,7 @@ def test_vertical_line_minimal() -> None:
 def test_vertical_line_accepts_time_kwarg() -> None:
     """Backward compat: VerticalLine(time=dt) remaps to start_time."""
     now = datetime.now(UTC)
-    v = VerticalLine(time=now, label="entry")
+    v = VerticalLine(time=now, label="entry")  # type: ignore[call-arg]
     assert v.start_time == now
     assert now <= v.time <= now + _MAX_JITTER
 
@@ -129,10 +129,10 @@ def test_horizontal_line_rejects_none_price() -> None:
 def test_label_is_required() -> None:
     """label must be provided — it drives the InfluxDB timestamp jitter."""
     with pytest.raises(ValidationError):
-        HorizontalLine(price=100.0, start_time=datetime.now(UTC))
+        HorizontalLine(price=100.0, start_time=datetime.now(UTC))  # type: ignore[call-arg]
 
     with pytest.raises(ValidationError):
-        VerticalLine(start_time=datetime.now(UTC))
+        VerticalLine(start_time=datetime.now(UTC))  # type: ignore[call-arg]
 
 
 def test_opacity_validation() -> None:

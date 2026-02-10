@@ -90,7 +90,7 @@ class LiveMarketChart:
         # Register for updates if we have an EventDrivenMarketDataProvider
         if hasattr(self.streamer, "register_update_callback"):
             # Register a callback for updates
-            self.update_callback = self.streamer.register_update_callback(
+            self.update_callback = self.streamer.register_update_callback(  # type: ignore[attr-defined]
                 self.event_symbol, self._on_data_update
             )
             logger.info(f"Registered update callback for {self.event_symbol}")
@@ -107,7 +107,7 @@ class LiveMarketChart:
             hasattr(self.streamer, "unregister_update_callback")
             and self.update_callback
         ):
-            self.streamer.unregister_update_callback(
+            self.streamer.unregister_update_callback(  # type: ignore[attr-defined]
                 self.event_symbol, self.update_callback
             )
             logger.info(f"Unregistered update callback for {self.event_symbol}")
@@ -119,7 +119,7 @@ class LiveMarketChart:
             self.last_update_time = datetime.now()
 
             # Get the current app context
-            app = dash.callback_context.app
+            app = dash.callback_context.app  # type: ignore[attr-defined]
 
             # Update the update-count store to trigger chart refresh
             # This uses Dash's clientside callbacks to avoid server roundtrips
@@ -355,19 +355,21 @@ class LiveMarketChart:
 
         fig.update_layout(
             template="plotly_dark",
-            title=dict(
-                text=f"{self.symbol} ({self.interval}) Loading...", x=0.5, y=0.95
-            ),
+            title={
+                "text": f"{self.symbol} ({self.interval}) Loading...",
+                "x": 0.5,
+                "y": 0.95,
+            },
             annotations=[
-                dict(
-                    text="Loading market data...",
-                    xref="paper",
-                    yref="paper",
-                    x=0.5,
-                    y=0.5,
-                    showarrow=False,
-                    font=dict(size=20, color="white"),
-                )
+                {
+                    "text": "Loading market data...",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "showarrow": False,
+                    "font": {"size": 20, "color": "white"},
+                }
             ],
             plot_bgcolor="rgb(25,25,25)",
             paper_bgcolor="rgb(25,25,25)",
@@ -466,14 +468,14 @@ class LiveMarketChart:
                             x=hma_df["time"].iloc[i - 1 : i + 1],
                             y=hma_df["HMA"].iloc[i - 1 : i + 1],
                             mode="lines",
-                            line=dict(
-                                color=(
+                            line={
+                                "color": (
                                     "#01FFFF"
                                     if hma_df["HMA_color"].iloc[i] == "Up"
                                     else "#FF66FE"
                                 ),
-                                width=0.6,
-                            ),
+                                "width": 0.6,
+                            },
                             showlegend=False,
                             name="HMA",
                         ),
@@ -490,7 +492,7 @@ class LiveMarketChart:
                         y=pdf_macd["Value"],
                         mode="lines",
                         name="MACD",
-                        line=dict(color="#01FFFF", width=1),
+                        line={"color": "#01FFFF", "width": 1},
                         showlegend=False,
                     ),
                     row=2,
@@ -504,7 +506,7 @@ class LiveMarketChart:
                         y=pdf_macd["avg"],
                         mode="lines",
                         name="Signal",
-                        line=dict(color="#F8E9A6", width=1),
+                        line={"color": "#F8E9A6", "width": 1},
                         showlegend=False,
                     ),
                     row=2,
@@ -531,7 +533,7 @@ class LiveMarketChart:
                     x1=pdf_macd["time"].max(),
                     y0=0,
                     y1=0,
-                    line=dict(color="gray", width=1, dash="dot"),
+                    line={"color": "gray", "width": 1, "dash": "dot"},
                     row=2,
                     col=1,
                 )
@@ -553,11 +555,11 @@ class LiveMarketChart:
                     x1=x1,
                     y0=h_line.price,
                     y1=h_line.price,
-                    line=dict(
-                        color=h_line.color,
-                        width=h_line.line_width,
-                        dash=h_line.line_dash,
-                    ),
+                    line={
+                        "color": h_line.color,
+                        "width": h_line.line_width,
+                        "dash": h_line.line_dash,
+                    },
                     opacity=h_line.opacity,
                     row=1,
                     col=1,
@@ -577,7 +579,7 @@ class LiveMarketChart:
                         y=h_line.price,
                         text=h_line.label,
                         showarrow=False,
-                        font=dict(color=h_line.color, size=h_line.label_font_size),
+                        font={"color": h_line.color, "size": h_line.label_font_size},
                         bgcolor="rgba(25,25,25,0.7)",
                         bordercolor=h_line.color,
                         borderwidth=1,
@@ -611,11 +613,11 @@ class LiveMarketChart:
                     x1=line_time,
                     y0=y_min,
                     y1=y_max,
-                    line=dict(
-                        color=v_line.color,
-                        width=v_line.line_width,
-                        dash=v_line.line_dash,
-                    ),
+                    line={
+                        "color": v_line.color,
+                        "width": v_line.line_width,
+                        "dash": v_line.line_dash,
+                    },
                     opacity=v_line.opacity,
                     row=1,
                     col=1,
@@ -646,11 +648,11 @@ class LiveMarketChart:
                         x1=line_time,
                         y0=macd_min,
                         y1=macd_max,
-                        line=dict(
-                            color=v_line.color,
-                            width=v_line.line_width,
-                            dash=v_line.line_dash,
-                        ),
+                        line={
+                            "color": v_line.color,
+                            "width": v_line.line_width,
+                            "dash": v_line.line_dash,
+                        },
                         opacity=v_line.opacity,
                         row=2,
                         col=1,
@@ -675,7 +677,7 @@ class LiveMarketChart:
                         y=y_pos,
                         text=v_line.label,
                         showarrow=False,
-                        font=dict(color=v_line.color, size=v_line.label_font_size),
+                        font={"color": v_line.color, "size": v_line.label_font_size},
                         bgcolor=f"rgba(25,25,25,{v_line.label_bg_opacity})",
                         bordercolor=v_line.color,
                         borderwidth=1,
@@ -694,7 +696,7 @@ class LiveMarketChart:
                 xaxis_rangeslider_visible=False,
                 plot_bgcolor="rgb(25,25,25)",
                 paper_bgcolor="rgb(25,25,25)",
-                margin=dict(l=30, r=5, t=50, b=10),
+                margin={"l": 30, "r": 5, "t": 50, "b": 10},
                 height=self.height,
                 showlegend=False,
                 uirevision="true",  # Preserve zoom level on updates
@@ -710,20 +712,20 @@ class LiveMarketChart:
                 tickwidth=1,
                 ticks="outside",
                 ticksuffix=" ",
-                tickfont=dict(size=11),
+                tickfont={"size": 11},
                 showgrid=True,
                 zeroline=False,
                 showticklabels=True,
                 dtick=10,
-                minor=dict(
-                    ticklen=2,
-                    tickwidth=1,
-                    tickcolor="rgba(150,150,150,0.5)",
-                    tickmode="linear",
-                    dtick=5,
-                    showgrid=False,
-                    ticks="outside",
-                ),
+                minor={
+                    "ticklen": 2,
+                    "tickwidth": 1,
+                    "tickcolor": "rgba(150,150,150,0.5)",
+                    "tickmode": "linear",
+                    "dtick": 5,
+                    "showgrid": False,
+                    "ticks": "outside",
+                },
                 row=1,
                 col=1,
             )
@@ -740,7 +742,7 @@ class LiveMarketChart:
                     tickwidth=1,
                     ticks="outside",
                     ticksuffix=" ",
-                    tickfont=dict(size=11),
+                    tickfont={"size": 11},
                     showgrid=True,
                     zeroline=False,
                     showticklabels=True,
@@ -762,12 +764,12 @@ class LiveMarketChart:
                     "xaxis" in current_figure["layout"]
                     and "range" in current_figure["layout"]["xaxis"]
                 ):
-                    fig.layout.xaxis.range = current_figure["layout"]["xaxis"]["range"]
+                    fig.layout.xaxis.range = current_figure["layout"]["xaxis"]["range"]  # type: ignore[attr-defined]
                 if (
                     "yaxis" in current_figure["layout"]
                     and "range" in current_figure["layout"]["yaxis"]
                 ):
-                    fig.layout.yaxis.range = current_figure["layout"]["yaxis"]["range"]
+                    fig.layout.yaxis.range = current_figure["layout"]["yaxis"]["range"]  # type: ignore[attr-defined]
 
             return fig
 

@@ -113,6 +113,10 @@ async def main():
         url=influx_user.url, token=influx_user.token, org=influx_user.org
     )
 
+    display_task: asyncio.Task | None = None  # type: ignore[type-arg]
+    subscription: RedisSubscription | None = None
+    streamer: MarketDataProvider | None = None
+
     try:
         # Set up Redis subscription and market data provider
         logger.info("Setting up Redis subscription...")
@@ -128,7 +132,6 @@ async def main():
         logger.info(f"Successfully subscribed to {args.event} for {args.symbol}")
 
         # Set up data display task if interval > 0
-        display_task = None
         if args.interval > 0:
             logger.info(
                 f"Setting up data display to refresh every {args.interval} seconds"
@@ -156,17 +159,18 @@ async def main():
         return 1
     finally:
         # Clean up
-        if "display_task" in locals() and display_task:
+        if display_task is not None:
             display_task.cancel()
             try:
                 await display_task
             except asyncio.CancelledError:
                 pass
 
-        if "subscription" in locals():
+        if subscription is not None:
             try:
                 logger.info(f"Unsubscribing from {args.event} for {args.symbol}")
-                await streamer.unsubscribe(args.event, args.symbol)
+                if streamer is not None:
+                    await streamer.unsubscribe(args.event, args.symbol)
                 logger.info("Closing Redis subscription...")
                 await subscription.close()
             except Exception as e:

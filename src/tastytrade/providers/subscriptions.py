@@ -49,7 +49,7 @@ class DataSubscription(ABC):
 
 class RedisSubscription(DataSubscription):
     redis_url: str
-    pubsub: redis.client.PubSub
+    pubsub: redis.client.PubSub  # type: ignore[name-defined]
     subscriptions: set[str]
     listener_task: asyncio.Task | None
 
@@ -141,10 +141,10 @@ class RedisSubscription(DataSubscription):
             self.listener_task = None
 
         if self.pubsub:
-            await self.pubsub.aclose()
+            await self.pubsub.aclose()  # type: ignore[attr-defined]
 
         if hasattr(self, "client"):
-            await self.client.aclose()
+            await self.client.aclose()  # type: ignore[attr-defined]
 
         logger.info("Redis connection closed")
 
