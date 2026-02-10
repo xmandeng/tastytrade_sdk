@@ -35,12 +35,7 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
                 "eventSymbol",
                 "time",
             ]:
-                if value is None:
-                    continue
-                if isinstance(value, datetime):
-                    point.field(attr, value.isoformat())
-                else:
-                    point.field(attr, value)
+                point.field(attr, value)
 
         self.write_api.write(bucket=os.environ["INFLUX_DB_BUCKET"], record=point)
 
