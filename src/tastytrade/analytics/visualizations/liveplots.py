@@ -597,7 +597,7 @@ class LiveMarketChart:
             # Add vertical lines
             for v_line in self.vertical_lines:
                 # Convert to timezone if needed
-                line_time = v_line.time
+                line_time = v_line.start_time
 
                 # Add the vertical line to appropriate panels
                 y_min, y_max = pdf["low"].min(), pdf["high"].max()

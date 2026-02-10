@@ -391,7 +391,7 @@ def plot_macd_with_hull(
     if vertical_lines:
         for v_line in vertical_lines:
             # Convert time to display timezone if it has one
-            line_time_opt = _normalize_dt(v_line.time)
+            line_time_opt = _normalize_dt(v_line.start_time)
             assert line_time_opt is not None
             line_time: datetime = line_time_opt
 
