@@ -13,7 +13,7 @@ from typing import Optional
 import pandas as pd
 
 from tastytrade.accounts.models import InstrumentType, Position, QuantityDirection
-from tastytrade.messaging.models.events import QuoteEvent
+from tastytrade.messaging.models.events import GreeksEvent, QuoteEvent
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,28 @@ class MetricsTracker:
             metrics.mid_price = round((event.bidPrice + event.askPrice) / 2, 2)
         metrics.price_updated_at = datetime.now()
 
+    def on_greeks_event(self, event: GreeksEvent) -> None:
+        """Update Greeks fields from a GreeksEvent for option positions only.
+
+        Only Equity Option and Future Option positions are updated. Delta-1
+        instruments keep their theoretical defaults. Unknown eventSymbols are
+        silently ignored.
+        """
+        metrics = self.securities.get(event.eventSymbol)
+        if metrics is None:
+            return
+
+        if metrics.instrument_type not in OPTION_TYPES:
+            return
+
+        metrics.delta = event.delta
+        metrics.gamma = event.gamma
+        metrics.theta = event.theta
+        metrics.vega = event.vega
+        metrics.rho = event.rho
+        metrics.implied_volatility = event.volatility
+        metrics.greeks_updated_at = datetime.now()
+
     def on_position_update(self, position: Position) -> None:
         """Merge position field changes while preserving market data and Greeks.
 
@@ -195,6 +217,18 @@ class MetricsTracker:
     def get_streamer_symbols(self) -> set[str]:
         """Return the set of streamer symbols being tracked."""
         return set(self.securities.keys())
+
+    def get_option_streamer_symbols(self) -> set[str]:
+        """Return streamer symbols for option positions only.
+
+        Includes Equity Option and Future Option, excludes all delta-1 types.
+        Used for subscribing to the DXLink Greeks channel.
+        """
+        return {
+            sym
+            for sym, m in self.securities.items()
+            if m.instrument_type in OPTION_TYPES
+        }
 
     @property
     def df(self) -> pd.DataFrame:

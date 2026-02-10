@@ -12,7 +12,7 @@ from tastytrade.analytics.metrics import (
     MetricsTracker,
     SecurityMetrics,
 )
-from tastytrade.messaging.models.events import QuoteEvent, TradeEvent
+from tastytrade.messaging.models.events import GreeksEvent, QuoteEvent, TradeEvent
 from tastytrade.messaging.processors.metrics import MetricsEventProcessor
 
 
@@ -69,6 +69,51 @@ def make_quote(symbol: str, bid: float, ask: float) -> QuoteEvent:
         bidSize=100.0,
         askSize=200.0,
     )
+
+
+def make_greeks(symbol: str, **overrides: Any) -> GreeksEvent:
+    """Create a GreeksEvent with realistic option Greeks values.
+
+    Note: FloatFieldMixin rounds all values to MAX_PRECISION (2 decimals),
+    so default values are chosen to survive rounding.
+    """
+    defaults: dict[str, Any] = {
+        "eventSymbol": symbol,
+        "delta": -0.35,
+        "gamma": 0.04,
+        "theta": -0.08,
+        "vega": 0.15,
+        "rho": -0.02,
+        "volatility": 0.28,
+    }
+    defaults.update(overrides)
+    return GreeksEvent(**defaults)
+
+
+def make_equity_option_position(**overrides: Any) -> Position:
+    """Create an Equity Option position from factory defaults."""
+    defaults: dict[str, Any] = {
+        "instrument-type": "Equity Option",
+        "streamer-symbol": ".MCD260320P305",
+        "underlying-symbol": "MCD",
+        "multiplier": "100",
+        "quantity-direction": "Short",
+    }
+    defaults.update(overrides)
+    return make_position(symbol="MCD   260320P00305000", **defaults)
+
+
+def make_future_option_position(**overrides: Any) -> Position:
+    """Create a Future Option position from factory defaults."""
+    defaults: dict[str, Any] = {
+        "instrument-type": "Future Option",
+        "streamer-symbol": "./EX3H26P6450:XCME",
+        "underlying-symbol": "/MESM6",
+        "multiplier": "5",
+        "quantity-direction": "Short",
+    }
+    defaults.update(overrides)
+    return make_position(symbol="./MESM6EX3H6 260320P6450", **defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +435,141 @@ def test_on_position_update_sets_position_updated_at() -> None:
 
 
 # ---------------------------------------------------------------------------
+# on_greeks_event — AC1: Equity Option Greeks populated
+# ---------------------------------------------------------------------------
+
+
+def test_greeks_event_populates_equity_option() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_equity_option_position()])
+    sec = tracker.securities[".MCD260320P305"]
+    assert sec.delta is None
+    assert sec.gamma is None
+
+    tracker.on_greeks_event(make_greeks(".MCD260320P305"))
+    assert sec.delta == -0.35
+    assert sec.gamma == 0.04
+    assert sec.theta == -0.08
+    assert sec.vega == 0.15
+    assert sec.rho == -0.02
+    assert sec.implied_volatility == 0.28
+
+
+# ---------------------------------------------------------------------------
+# on_greeks_event — AC2: Future Option Greeks populated
+# ---------------------------------------------------------------------------
+
+
+def test_greeks_event_populates_future_option() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_future_option_position()])
+    sec = tracker.securities["./EX3H26P6450:XCME"]
+    assert sec.delta is None
+
+    tracker.on_greeks_event(
+        make_greeks(
+            "./EX3H26P6450:XCME",
+            delta=-0.22,
+            gamma=0.03,
+            theta=-0.05,
+            vega=0.10,
+            rho=-0.01,
+            volatility=0.32,
+        )
+    )
+    assert sec.delta == -0.22
+    assert sec.gamma == 0.03
+    assert sec.theta == -0.05
+    assert sec.vega == 0.10
+    assert sec.rho == -0.01
+    assert sec.implied_volatility == 0.32
+
+
+# ---------------------------------------------------------------------------
+# on_greeks_event — AC3: Does NOT overwrite delta-1 defaults
+# ---------------------------------------------------------------------------
+
+
+def test_greeks_event_skips_equity_position() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_position()])  # Equity, Long
+    sec = tracker.securities["SPY"]
+    assert sec.delta == 1.0
+    assert sec.gamma == 0.0
+
+    tracker.on_greeks_event(make_greeks("SPY"))
+    # Equity should be unchanged — on_greeks_event skips non-option types
+    assert sec.delta == 1.0
+    assert sec.gamma == 0.0
+    assert sec.theta == 0.0
+    assert sec.vega == 0.0
+    assert sec.rho == 0.0
+
+
+def test_greeks_event_skips_future_position() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions(
+        [
+            make_position(
+                symbol="/MESM6",
+                **{
+                    "instrument-type": "Future",
+                    "streamer-symbol": "/MESM6",
+                    "underlying-symbol": "/MESM6",
+                    "multiplier": "5",
+                },
+            )
+        ]
+    )
+    sec = tracker.securities["/MESM6"]
+    assert sec.delta == 1.0
+
+    tracker.on_greeks_event(make_greeks("/MESM6"))
+    assert sec.delta == 1.0
+    assert sec.gamma == 0.0
+
+
+# ---------------------------------------------------------------------------
+# on_greeks_event — AC5: greeks_updated_at timestamp
+# ---------------------------------------------------------------------------
+
+
+def test_greeks_event_updates_greeks_timestamp() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_equity_option_position()])
+    sec = tracker.securities[".MCD260320P305"]
+    assert sec.greeks_updated_at is None
+
+    before = datetime.now()
+    tracker.on_greeks_event(make_greeks(".MCD260320P305"))
+    after = datetime.now()
+    assert sec.greeks_updated_at is not None
+    assert before <= sec.greeks_updated_at <= after
+
+
+def test_greeks_event_does_not_update_timestamp_for_equity() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_position()])
+    sec = tracker.securities["SPY"]
+    original_ts = sec.greeks_updated_at
+
+    tracker.on_greeks_event(make_greeks("SPY"))
+    assert sec.greeks_updated_at == original_ts
+
+
+# ---------------------------------------------------------------------------
+# on_greeks_event — edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_greeks_event_unknown_symbol_ignored() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_position()])
+    tracker.on_greeks_event(make_greeks(".UNKNOWN260320P100"))
+    assert len(tracker.securities) == 1
+
+
+# ---------------------------------------------------------------------------
 # get_streamer_symbols
 # ---------------------------------------------------------------------------
 
@@ -408,6 +588,36 @@ def test_get_streamer_symbols_returns_loaded() -> None:
         ]
     )
     assert tracker.get_streamer_symbols() == {"SPY", "QQQ"}
+
+
+# ---------------------------------------------------------------------------
+# get_option_streamer_symbols — AC6
+# ---------------------------------------------------------------------------
+
+
+def test_get_option_streamer_symbols_empty() -> None:
+    tracker = MetricsTracker()
+    assert tracker.get_option_streamer_symbols() == set()
+
+
+def test_get_option_streamer_symbols_excludes_equities() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_position()])
+    assert tracker.get_option_streamer_symbols() == set()
+
+
+def test_get_option_streamer_symbols_returns_only_options() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions(
+        [
+            make_position(symbol="SPY", **{"streamer-symbol": "SPY"}),
+            make_equity_option_position(),
+            make_future_option_position(),
+        ]
+    )
+    result = tracker.get_option_streamer_symbols()
+    assert result == {".MCD260320P305", "./EX3H26P6450:XCME"}
+    assert "SPY" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +699,17 @@ def test_processor_routes_quote_to_tracker() -> None:
     sec = tracker.securities["SPY"]
     assert sec.bid_price == 600.0
     assert sec.ask_price == 601.0
+
+
+def test_processor_routes_greeks_to_tracker() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions([make_equity_option_position()])
+    processor = MetricsEventProcessor(tracker)
+    processor.process_event(make_greeks(".MCD260320P305"))
+    sec = tracker.securities[".MCD260320P305"]
+    assert sec.delta == -0.35
+    assert sec.gamma == 0.04
+    assert sec.implied_volatility == 0.28
 
 
 def test_processor_ignores_other_event_types() -> None:
