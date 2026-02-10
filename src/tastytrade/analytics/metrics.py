@@ -100,11 +100,15 @@ class MetricsTracker:
         """
         now = datetime.now()
         for position in positions:
-            if position.streamer_symbol is None:
-                logger.debug(
-                    "Skipping position %s: no streamer_symbol", position.symbol
-                )
-                continue
+            streamer_symbol = position.streamer_symbol
+            if streamer_symbol is None:
+                if position.instrument_type == InstrumentType.EQUITY:
+                    streamer_symbol = position.symbol
+                else:
+                    logger.debug(
+                        "Skipping position %s: no streamer_symbol", position.symbol
+                    )
+                    continue
 
             if position.instrument_type in DELTA_1_TYPES:
                 if position.quantity_direction == QuantityDirection.LONG:
@@ -126,9 +130,9 @@ class MetricsTracker:
                 rho = None
                 greeks_updated_at = None
 
-            self.securities[position.streamer_symbol] = SecurityMetrics(
+            self.securities[streamer_symbol] = SecurityMetrics(
                 symbol=position.symbol,
-                streamer_symbol=position.streamer_symbol,
+                streamer_symbol=streamer_symbol,
                 instrument_type=position.instrument_type,
                 quantity=position.quantity,
                 quantity_direction=position.quantity_direction,
