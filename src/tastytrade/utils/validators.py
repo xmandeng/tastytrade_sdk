@@ -47,7 +47,7 @@ def validate_response(response: requests.Response) -> bool:
             return True
         except JSONDecodeError as e:
             logger.error("Failed to parse JSON response: %s", e)
-            raise ResponseParsingError(response)
+            raise ResponseParsingError(response) from e
 
     # Handle known error status codes
     elif error_class := error_map.get(response.status_code):

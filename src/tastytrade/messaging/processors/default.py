@@ -77,7 +77,9 @@ class CandleEventProcessor(BaseEventProcessor):
     def __init__(self) -> None:
         self.frames: dict[str, pl.DataFrame] = defaultdict(lambda: pl.DataFrame())
 
-    def process_event(self, event: CandleEvent) -> None:
+    def process_event(self, event: BaseEvent) -> None:
+        if not isinstance(event, CandleEvent):
+            return
         self.frames[event.eventSymbol] = (
             self.frames[event.eventSymbol]
             .vstack(pl.DataFrame([event]))

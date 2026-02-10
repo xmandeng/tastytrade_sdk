@@ -94,7 +94,7 @@ async def get_opening_range(
             low_value = candles["low"].min()
 
             logger.info(
-                f"Opening range for {symbol} ({range_minutes}m): High={high_value}, Low={low_value}"
+                f"Opening range for {symbol} ({range_minutes}m): High={high_value!s}, Low={low_value!s}"
             )
 
             return OpeningRange(

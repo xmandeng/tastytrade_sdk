@@ -26,7 +26,7 @@ import sys
 import threading
 from typing import Optional
 
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger import jsonlogger  # type: ignore[attr-defined]
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
@@ -175,7 +175,7 @@ def _listener_worker() -> None:
 
     # Setup stdout handler with JSON formatting
     stdout_handler = logging.StreamHandler(sys.stdout)
-    formatter = jsonlogger.JsonFormatter(
+    formatter = jsonlogger.JsonFormatter(  # type: ignore[attr-defined]
         fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )

@@ -178,7 +178,7 @@ class SubscriptionStatus(BaseModel):
 #         }
 #     except Exception as e:
 #         logger.error(f"Health check failed: {e}")
-#         raise HTTPException(status_code=500, detail=str(e))
+#         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/subscriptions")
@@ -202,7 +202,7 @@ async def get_subscriptions() -> Dict[str, SubscriptionStatus]:
         }
     except Exception as e:
         logger.error(f"Error getting subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/subscribe/feed")
@@ -221,7 +221,7 @@ async def subscribe(
         }
     except Exception as e:
         logger.error(f"Error subscribing to feed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/unsubscribe/feed")
@@ -240,7 +240,7 @@ async def unsubscribe(
         }
     except Exception as e:
         logger.error(f"Error unsubscribing from feed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/subscribe/candles")
@@ -255,9 +255,9 @@ async def subscribe_to_candles(
         from_time = subscription.from_time or datetime.now()
         background_tasks.add_task(
             dxlink_manager.subscribe_to_candles,
-            symbol=subscription.symbol,
-            interval=subscription.interval,
-            from_time=from_time,
+            subscription.symbol,
+            subscription.interval,
+            from_time,
         )
         return {
             "status": "success",
@@ -265,7 +265,7 @@ async def subscribe_to_candles(
         }
     except Exception as e:
         logger.error(f"Error subscribing to candles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/unsubscribe/candles")
@@ -277,10 +277,10 @@ async def unsubscribe_from_candles(
         raise HTTPException(status_code=503, detail="DXLink manager not initialized")
 
     try:
+        event_symbol = f"{subscription.symbol}{{={subscription.interval}}}"
         background_tasks.add_task(
             dxlink_manager.unsubscribe_to_candles,
-            symbol=subscription.symbol,
-            interval=subscription.interval,
+            event_symbol,
         )
         return {
             "status": "success",
@@ -288,7 +288,7 @@ async def unsubscribe_from_candles(
         }
     except Exception as e:
         logger.error(f"Error unsubscribing from candles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/subscriptions")
@@ -319,10 +319,10 @@ async def clear_all_subscriptions(background_tasks: BackgroundTasks):
 
         # Unsubscribe from all candles
         for sub in candle_subscriptions:
+            event_symbol = f"{sub.symbol}{{={sub.interval}}}"
             background_tasks.add_task(
                 dxlink_manager.unsubscribe_to_candles,
-                symbol=sub.symbol,
-                interval=sub.interval,
+                event_symbol,
             )
 
         return {
@@ -331,7 +331,7 @@ async def clear_all_subscriptions(background_tasks: BackgroundTasks):
         }
     except Exception as e:
         logger.error(f"Error clearing subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def start():

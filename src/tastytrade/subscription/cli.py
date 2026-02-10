@@ -77,8 +77,7 @@ def validate_log_level(_ctx: click.Context, _param: click.Parameter, value: str)
     value_upper = value.upper()
     if value_upper not in VALID_LOG_LEVELS:
         raise click.BadParameter(
-            f"Invalid log level: '{value}'. "
-            f"Valid levels: {', '.join(VALID_LOG_LEVELS)}"
+            f"Invalid log level: '{value}'. Valid levels: {', '.join(VALID_LOG_LEVELS)}"
         )
     return value_upper
 

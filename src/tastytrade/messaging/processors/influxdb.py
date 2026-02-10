@@ -3,7 +3,8 @@ import logging
 import os
 from datetime import datetime
 
-from influxdb_client import InfluxDBClient, Point
+from influxdb_client import InfluxDBClient
+from influxdb_client import Point  # type: ignore[attr-defined]
 
 from tastytrade.messaging.models.events import BaseEvent
 from tastytrade.messaging.processors.default import BaseEventProcessor
@@ -26,9 +27,10 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
         point = Point(event.__class__.__name__)
         point.tag("eventSymbol", event.eventSymbol)
 
-        if hasattr(event, "time"):
-            assert isinstance(event.time, datetime)
-            point.time(event.time)
+        event_time = getattr(event, "time", None)
+        if event_time is not None:
+            assert isinstance(event_time, datetime)
+            point.time(event_time)
 
         for attr, value in event.__dict__.items():
             if attr not in [

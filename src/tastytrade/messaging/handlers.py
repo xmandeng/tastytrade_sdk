@@ -175,7 +175,7 @@ class EventHandler:
 
                 try:
                     data = dict(zip(self.fields, chunk, strict=False))
-                    event = self.event.value(**data)
+                    event: BaseEvent = self.event.value(**data)  # type: ignore[assignment]
                     events.append(event)
 
                 except ValidationError as e:

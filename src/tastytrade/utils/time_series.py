@@ -1,7 +1,8 @@
 import logging
 import os
 import warnings
-from typing import Optional
+from datetime import datetime
+from typing import Optional, cast
 
 import pandas as pd
 from influxdb_client import InfluxDBClient
@@ -23,9 +24,11 @@ config = RedisConfigManager()
 def initialize_influx_client() -> InfluxDBClient:
     """Initialize and return an InfluxDB client."""
     return InfluxDBClient(
-        url=config.get("INFLUX_DB_URL") or os.environ.get("INFLUX_DB_URL"),
-        token=config.get("INFLUX_DB_TOKEN") or os.environ.get("INFLUX_DB_TOKEN"),
-        org=config.get("INFLUX_DB_ORG") or os.environ.get("INFLUX_DB_ORG"),
+        url=config.get("INFLUX_DB_URL") or os.environ.get("INFLUX_DB_URL") or "",
+        token=str(
+            config.get("INFLUX_DB_TOKEN") or os.environ.get("INFLUX_DB_TOKEN") or ""
+        ),
+        org=str(config.get("INFLUX_DB_ORG") or os.environ.get("INFLUX_DB_ORG") or ""),
     )
 
 
@@ -44,7 +47,10 @@ def query_candle_event_data(
       |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
     """
 
-    tables = query_api.query_data_frame(query)
+    result = query_api.query_data_frame(query)
+    if not isinstance(result, pd.DataFrame):
+        return None
+    tables: pd.DataFrame = result
     if tables.empty:
         logger.debug(
             "No CandleEvent data found for %s in the last %d days",
@@ -87,7 +93,7 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
         try:
             # Populate CandleEvent model directly
             candle_event = CandleEvent(
-                time=timestamp,
+                time=cast(datetime, timestamp),
                 eventSymbol=symbol,  # Ensure eventSymbol is passed
                 eventFlags=row.get("eventFlags"),
                 index=row.get("index"),
@@ -128,6 +134,10 @@ def forward_fill(symbol, lookback_days=1):
 
     influx_symbol = format_candle_symbol(symbol)
     _, time_interval = parse_candle_symbol(symbol)
+    if time_interval is None:
+        logger.warning("Cannot parse interval from symbol: %s", symbol)
+        client.close()
+        return
 
     # Removed field_types and allowed_fields since CandleEvent handles validation
     tables = query_candle_event_data(client, influx_symbol, lookback_days)
