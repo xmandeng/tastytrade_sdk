@@ -1,4 +1,4 @@
-"""Tests for chart annotation Pydantic models (AC1, AC5)."""
+"""Tests for chart annotation models backed by BaseEvent."""
 
 from datetime import UTC, datetime, timezone
 
@@ -6,9 +6,21 @@ import pytest
 from pydantic import ValidationError
 
 from tastytrade.analytics.visualizations.models import (
+    BaseAnnotation,
     HorizontalLine,
     VerticalLine,
 )
+from tastytrade.messaging.models.events import BaseEvent
+
+
+def test_annotations_are_base_events() -> None:
+    """Annotations must be BaseEvent subclasses for processor compatibility."""
+    h = HorizontalLine(price=100.0)
+    v = VerticalLine(time=datetime.now(UTC))
+    assert isinstance(h, BaseEvent)
+    assert isinstance(v, BaseEvent)
+    assert isinstance(h, BaseAnnotation)
+    assert isinstance(v, BaseAnnotation)
 
 
 def test_horizontal_line_minimal() -> None:
@@ -26,7 +38,7 @@ def test_horizontal_line_minimal() -> None:
     assert h.extend_to_end is False
     assert h.start_time is None
     assert h.end_time is None
-    assert h.symbol == ""
+    assert h.eventSymbol == ""
     assert h.event_type == "chart_annotation"
     assert h.created_at is not None
 
@@ -48,12 +60,12 @@ def test_vertical_line_minimal() -> None:
     assert v.label_padding == 6
     assert v.span_subplots is True
     assert v.label_bg_opacity == 0.8
-    assert v.symbol == ""
+    assert v.eventSymbol == ""
     assert v.event_type == "chart_annotation"
 
 
 def test_horizontal_line_all_fields() -> None:
-    """Construct with all fields including persistence fields."""
+    """Construct with all fields including eventSymbol and event_type."""
     ts = datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc)
     h = HorizontalLine(
         price=100.0,
@@ -68,12 +80,12 @@ def test_horizontal_line_all_fields() -> None:
         extend_to_end=True,
         start_time=ts,
         end_time=ts,
-        symbol="SPY",
+        eventSymbol="SPY",
         event_type="price_level",
         created_at=ts,
     )
     assert h.price == 100.0
-    assert h.symbol == "SPY"
+    assert h.eventSymbol == "SPY"
     assert h.event_type == "price_level"
     assert h.color == "cyan"
     assert h.line_width == 2.0
@@ -122,3 +134,14 @@ def test_opacity_validation() -> None:
     assert h_zero.opacity == 0.0
     h_one = HorizontalLine(price=100.0, opacity=1.0)
     assert h_one.opacity == 1.0
+
+
+def test_processor_compatible_dict() -> None:
+    """Annotations must expose fields via __dict__ for the InfluxDB processor."""
+    h = HorizontalLine(price=520.50, eventSymbol="SPX", event_type="support_level")
+    d = h.__dict__
+    assert d["eventSymbol"] == "SPX"
+    assert d["price"] == 520.50
+    assert d["event_type"] == "support_level"
+    assert "color" in d
+    assert "created_at" in d

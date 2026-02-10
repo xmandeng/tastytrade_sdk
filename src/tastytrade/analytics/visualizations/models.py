@@ -1,9 +1,11 @@
-"""Pydantic models for chart annotations persisted to InfluxDB."""
+"""Chart annotation models backed by BaseEvent for native InfluxDB persistence."""
 
 from datetime import UTC, datetime
 from typing import Annotated, Optional, Union
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BeforeValidator, Field
+
+from tastytrade.messaging.models.events import BaseEvent
 
 
 def _coerce_price(v: Union[float, int, None]) -> float:
@@ -13,12 +15,16 @@ def _coerce_price(v: Union[float, int, None]) -> float:
     return float(v)
 
 
-class BaseAnnotation(BaseModel):
-    """Base model for all chart annotations with shared styling and metadata fields."""
+class BaseAnnotation(BaseEvent):
+    """Base for all chart annotation events with shared styling fields.
 
-    model_config = ConfigDict(frozen=True, validate_assignment=True, extra="forbid")
+    Extends BaseEvent so annotations flow through the same InfluxDB
+    processor pipeline as CandleEvent, TradeEvent, etc.
+    """
 
-    symbol: str = ""
+    eventSymbol: str = Field(
+        default="", description="Symbol this annotation is associated with"
+    )
     event_type: str = "chart_annotation"
     label: Optional[str] = None
     color: str = "white"
