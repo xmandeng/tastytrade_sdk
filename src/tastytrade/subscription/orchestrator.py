@@ -215,7 +215,7 @@ async def _run_subscription_once(
     start_date: datetime,
     env_file: str = ".env",
     lookback_days: int = 5,
-    health_interval: int = 300,
+    health_interval: int = 3600,
 ) -> None:
     """
     Internal: Run a single subscription session without retry logic.
@@ -476,7 +476,7 @@ async def run_subscription(
     start_date: datetime,
     env_file: str = ".env",
     lookback_days: int = 5,
-    health_interval: int = 300,
+    health_interval: int = 3600,
     auto_reconnect: bool = True,
     max_reconnect_attempts: int = 10,
     base_delay: float = 1.0,
