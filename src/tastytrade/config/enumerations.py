@@ -73,3 +73,10 @@ class ReconnectReason(Enum):
     TIMEOUT = "timeout"  # No response within threshold
     PROTOCOL_ERROR = "protocol_error"  # Invalid message from server
     MANUAL_TRIGGER = "manual_trigger"  # Test injection / manual trigger
+
+
+class AccountEventType(str, Enum):
+    """Event types from the TastyTrade Account Streamer WebSocket."""
+
+    CURRENT_POSITION = "CurrentPosition"
+    ACCOUNT_BALANCE = "AccountBalance"
