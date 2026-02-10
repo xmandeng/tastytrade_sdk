@@ -126,9 +126,9 @@ def cli() -> None:
 )
 @click.option(
     "--health-interval",
-    default=300,
+    default=3600,
     type=int,
-    help="Seconds between health status log entries. Default: 300 (5 min)",
+    help="Seconds between health status log entries. Default: 3600 (1 hour)",
 )
 def run(
     start_date: datetime,
