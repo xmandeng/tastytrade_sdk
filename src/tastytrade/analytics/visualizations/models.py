@@ -1,9 +1,16 @@
 """Pydantic models for chart annotations persisted to InfluxDB."""
 
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Annotated, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def _coerce_price(v: Union[float, int, None]) -> float:
+    """Accept float, int, or None — coerce int to float, reject None."""
+    if v is None:
+        raise ValueError("price cannot be None for HorizontalLine")
+    return float(v)
 
 
 class BaseAnnotation(BaseModel):
@@ -26,7 +33,7 @@ class BaseAnnotation(BaseModel):
 class HorizontalLine(BaseAnnotation):
     """A horizontal price level line on a chart."""
 
-    price: float
+    price: Annotated[float, BeforeValidator(_coerce_price)]
     text_position: str = "left"
     extend_to_end: bool = False
     start_time: Optional[datetime] = None
