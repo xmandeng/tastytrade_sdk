@@ -278,13 +278,33 @@ def test_load_positions_future_option_greeks_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_load_positions_skips_no_streamer_symbol() -> None:
+def test_load_positions_equity_falls_back_to_symbol() -> None:
     tracker = MetricsTracker()
     tracker.load_positions(
         [
             make_position(
                 symbol="CSCO",
                 **{"streamer-symbol": None, "underlying-symbol": "CSCO"},
+            )
+        ]
+    )
+    assert len(tracker.securities) == 1
+    sec = tracker.securities["CSCO"]
+    assert sec.streamer_symbol == "CSCO"
+    assert sec.delta == 1.0
+
+
+def test_load_positions_skips_non_equity_no_streamer_symbol() -> None:
+    tracker = MetricsTracker()
+    tracker.load_positions(
+        [
+            make_position(
+                symbol="./MESM6EX3H6 260320P6450",
+                **{
+                    "instrument-type": "Future Option",
+                    "streamer-symbol": None,
+                    "underlying-symbol": "/MESM6",
+                },
             )
         ]
     )
