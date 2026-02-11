@@ -2,8 +2,11 @@
 
 import logging
 import os
-from datetime import date, datetime
-from typing import Callable, Optional, Union, overload
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Callable, Optional, Union, overload
+
+if TYPE_CHECKING:
+    from tastytrade.messaging.models.events import CandleEvent
 
 import polars as pl
 from influxdb_client import InfluxDBClient
@@ -169,6 +172,42 @@ class MarketDataProvider:
             return result
         self.frames[symbol] = result
         return result
+
+    def get_daily_candle(self, symbol: str, target_date: date) -> "CandleEvent":
+        """Fetch a single daily candle for a symbol and date.
+
+        Rewrites any interval suffix to daily ({=d}), downloads one day of
+        data from InfluxDB, and returns a CandleEvent.
+
+        Args:
+            symbol: Market symbol in any format (e.g. "SPX", "SPX{=m}", "SPX{=5m}").
+            target_date: The date to fetch the daily candle for.
+
+        Returns:
+            A CandleEvent with OHLCV fields populated.
+
+        Raises:
+            ValueError: If no candle data is found for the given symbol and date.
+        """
+        import re
+
+        from tastytrade.messaging.models.events import CandleEvent
+
+        daily_symbol = re.sub(r"\{=.*?\}", "", symbol) + "{=d}"
+
+        df = self.download(
+            symbol=daily_symbol,
+            start=target_date,
+            stop=target_date + timedelta(days=1),
+            debug_mode=True,
+        )
+
+        if df.is_empty():
+            raise ValueError(
+                f"No daily candle found for {daily_symbol} on {target_date}"
+            )
+
+        return CandleEvent(**df.to_dicts().pop())
 
     def event_listener(self):
         pass
