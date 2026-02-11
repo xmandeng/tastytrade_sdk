@@ -113,16 +113,16 @@ def plot_macd_with_hull(
 
     # Create timezone-aware copies of dataframes for plotting
     df_plot = df.clone()
-    hma_plot = hma_study.copy()
+    hma_plot = hma_study.clone()
 
     # Convert time column to target timezone
     df_plot = df_plot.with_columns(
         pl.col("time").dt.replace_time_zone("UTC").dt.convert_time_zone(timezone_name)
     )
 
-    # For pandas DataFrame (hma_study)
-    hma_plot["time"] = (
-        hma_plot["time"].dt.tz_localize("UTC").dt.tz_convert(timezone_name)
+    # Convert HMA time column to display timezone (Polars)
+    hma_plot = hma_plot.with_columns(
+        pl.col("time").dt.replace_time_zone("UTC").dt.convert_time_zone(timezone_name)
     )
 
     # Determine x-axis range - ensure non-empty and non-None for mypy
@@ -214,17 +214,17 @@ def plot_macd_with_hull(
     )
 
     # Create separate traces for each color segment of HMA
-    for i in range(1, len(hma_plot)):
+    # Convert to pandas at the visualization boundary for Plotly segment rendering
+    hma_pdf = hma_plot.to_pandas()
+    for i in range(1, len(hma_pdf)):
         fig.add_trace(
             go.Scatter(
-                x=hma_plot["time"].iloc[i - 1 : i + 1],
-                y=hma_plot["HMA"].iloc[i - 1 : i + 1],
+                x=hma_pdf["time"].iloc[i - 1 : i + 1],
+                y=hma_pdf["HMA"].iloc[i - 1 : i + 1],
                 mode="lines",
                 line={
                     "color": (
-                        "#01FFFF"
-                        if hma_plot["HMA_color"].iloc[i] == "Up"
-                        else "#FF66FE"
+                        "#01FFFF" if hma_pdf["HMA_color"].iloc[i] == "Up" else "#FF66FE"
                     ),
                     "width": 0.6,
                 },

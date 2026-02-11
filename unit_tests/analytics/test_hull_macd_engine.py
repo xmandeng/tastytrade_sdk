@@ -7,7 +7,6 @@ direction and MACD crossover state deterministically.
 from datetime import datetime, time, timedelta, timezone
 from unittest.mock import patch
 
-import pandas as pd
 import polars as pl
 
 from tastytrade.analytics.engines.hull_macd import HullMacdEngine
@@ -40,8 +39,8 @@ def make_candle(
     )
 
 
-def make_hull_result(direction: str = "Up", hma_value: float = 5000.0) -> pd.DataFrame:
-    return pd.DataFrame(
+def make_hull_result(direction: str = "Up", hma_value: float = 5000.0) -> pl.DataFrame:
+    return pl.DataFrame(
         {
             "time": [datetime(2026, 2, 10, 14, 30, tzinfo=timezone.utc)],
             "HMA": [hma_value],
