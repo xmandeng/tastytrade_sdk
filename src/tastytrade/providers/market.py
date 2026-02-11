@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Optional, Union, overload
 
@@ -189,8 +190,6 @@ class MarketDataProvider:
         Raises:
             ValueError: If no candle data is found for the given symbol and date.
         """
-        import re
-
         from tastytrade.messaging.models.events import CandleEvent
 
         daily_symbol = re.sub(r"\{=.*?\}", "", symbol) + "{=d}"
