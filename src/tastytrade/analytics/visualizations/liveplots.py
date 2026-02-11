@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import dash
-import pandas as pd
 import plotly.graph_objects as go
 import plotly.subplots
 import polars as pl
@@ -355,19 +354,21 @@ class LiveMarketChart:
 
         fig.update_layout(
             template="plotly_dark",
-            title=dict(
-                text=f"{self.symbol} ({self.interval}) Loading...", x=0.5, y=0.95
-            ),
+            title={
+                "text": f"{self.symbol} ({self.interval}) Loading...",
+                "x": 0.5,
+                "y": 0.95,
+            },
             annotations=[
-                dict(
-                    text="Loading market data...",
-                    xref="paper",
-                    yref="paper",
-                    x=0.5,
-                    y=0.5,
-                    showarrow=False,
-                    font=dict(size=20, color="white"),
-                )
+                {
+                    "text": "Loading market data...",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "showarrow": False,
+                    "font": {"size": 20, "color": "white"},
+                }
             ],
             plot_bgcolor="rgb(25,25,25)",
             paper_bgcolor="rgb(25,25,25)",
@@ -420,7 +421,7 @@ class LiveMarketChart:
                 pdf_macd = pdf.copy()
 
             # Calculate Hull MA if requested
-            hma_df = pd.DataFrame()
+            hma_df = pl.DataFrame()
             if use_hull:
                 try:
                     # Use the first close price as pad_value for Hull calculation
@@ -459,21 +460,23 @@ class LiveMarketChart:
             )
 
             # Add Hull MA if available
-            if not hma_df.empty and use_hull:
-                for i in range(1, len(hma_df)):
+            if hma_df.height > 0 and use_hull:
+                # Convert to pandas at the visualization boundary for Plotly segment rendering
+                hma_pdf = hma_df.to_pandas()
+                for i in range(1, len(hma_pdf)):
                     fig.add_trace(
                         go.Scatter(
-                            x=hma_df["time"].iloc[i - 1 : i + 1],
-                            y=hma_df["HMA"].iloc[i - 1 : i + 1],
+                            x=hma_pdf["time"].iloc[i - 1 : i + 1],
+                            y=hma_pdf["HMA"].iloc[i - 1 : i + 1],
                             mode="lines",
-                            line=dict(
-                                color=(
+                            line={
+                                "color": (
                                     "#01FFFF"
-                                    if hma_df["HMA_color"].iloc[i] == "Up"
+                                    if hma_pdf["HMA_color"].iloc[i] == "Up"
                                     else "#FF66FE"
                                 ),
-                                width=0.6,
-                            ),
+                                "width": 0.6,
+                            },
                             showlegend=False,
                             name="HMA",
                         ),
@@ -490,7 +493,7 @@ class LiveMarketChart:
                         y=pdf_macd["Value"],
                         mode="lines",
                         name="MACD",
-                        line=dict(color="#01FFFF", width=1),
+                        line={"color": "#01FFFF", "width": 1},
                         showlegend=False,
                     ),
                     row=2,
@@ -504,7 +507,7 @@ class LiveMarketChart:
                         y=pdf_macd["avg"],
                         mode="lines",
                         name="Signal",
-                        line=dict(color="#F8E9A6", width=1),
+                        line={"color": "#F8E9A6", "width": 1},
                         showlegend=False,
                     ),
                     row=2,
@@ -531,7 +534,7 @@ class LiveMarketChart:
                     x1=pdf_macd["time"].max(),
                     y0=0,
                     y1=0,
-                    line=dict(color="gray", width=1, dash="dot"),
+                    line={"color": "gray", "width": 1, "dash": "dot"},
                     row=2,
                     col=1,
                 )
@@ -553,11 +556,11 @@ class LiveMarketChart:
                     x1=x1,
                     y0=h_line.price,
                     y1=h_line.price,
-                    line=dict(
-                        color=h_line.color,
-                        width=h_line.line_width,
-                        dash=h_line.line_dash,
-                    ),
+                    line={
+                        "color": h_line.color,
+                        "width": h_line.line_width,
+                        "dash": h_line.line_dash,
+                    },
                     opacity=h_line.opacity,
                     row=1,
                     col=1,
@@ -577,7 +580,7 @@ class LiveMarketChart:
                         y=h_line.price,
                         text=h_line.label,
                         showarrow=False,
-                        font=dict(color=h_line.color, size=h_line.label_font_size),
+                        font={"color": h_line.color, "size": h_line.label_font_size},
                         bgcolor="rgba(25,25,25,0.7)",
                         bordercolor=h_line.color,
                         borderwidth=1,
@@ -611,11 +614,11 @@ class LiveMarketChart:
                     x1=line_time,
                     y0=y_min,
                     y1=y_max,
-                    line=dict(
-                        color=v_line.color,
-                        width=v_line.line_width,
-                        dash=v_line.line_dash,
-                    ),
+                    line={
+                        "color": v_line.color,
+                        "width": v_line.line_width,
+                        "dash": v_line.line_dash,
+                    },
                     opacity=v_line.opacity,
                     row=1,
                     col=1,
@@ -646,11 +649,11 @@ class LiveMarketChart:
                         x1=line_time,
                         y0=macd_min,
                         y1=macd_max,
-                        line=dict(
-                            color=v_line.color,
-                            width=v_line.line_width,
-                            dash=v_line.line_dash,
-                        ),
+                        line={
+                            "color": v_line.color,
+                            "width": v_line.line_width,
+                            "dash": v_line.line_dash,
+                        },
                         opacity=v_line.opacity,
                         row=2,
                         col=1,
@@ -675,7 +678,7 @@ class LiveMarketChart:
                         y=y_pos,
                         text=v_line.label,
                         showarrow=False,
-                        font=dict(color=v_line.color, size=v_line.label_font_size),
+                        font={"color": v_line.color, "size": v_line.label_font_size},
                         bgcolor=f"rgba(25,25,25,{v_line.label_bg_opacity})",
                         bordercolor=v_line.color,
                         borderwidth=1,
@@ -694,7 +697,7 @@ class LiveMarketChart:
                 xaxis_rangeslider_visible=False,
                 plot_bgcolor="rgb(25,25,25)",
                 paper_bgcolor="rgb(25,25,25)",
-                margin=dict(l=30, r=5, t=50, b=10),
+                margin={"l": 30, "r": 5, "t": 50, "b": 10},
                 height=self.height,
                 showlegend=False,
                 uirevision="true",  # Preserve zoom level on updates
@@ -710,20 +713,20 @@ class LiveMarketChart:
                 tickwidth=1,
                 ticks="outside",
                 ticksuffix=" ",
-                tickfont=dict(size=11),
+                tickfont={"size": 11},
                 showgrid=True,
                 zeroline=False,
                 showticklabels=True,
                 dtick=10,
-                minor=dict(
-                    ticklen=2,
-                    tickwidth=1,
-                    tickcolor="rgba(150,150,150,0.5)",
-                    tickmode="linear",
-                    dtick=5,
-                    showgrid=False,
-                    ticks="outside",
-                ),
+                minor={
+                    "ticklen": 2,
+                    "tickwidth": 1,
+                    "tickcolor": "rgba(150,150,150,0.5)",
+                    "tickmode": "linear",
+                    "dtick": 5,
+                    "showgrid": False,
+                    "ticks": "outside",
+                },
                 row=1,
                 col=1,
             )
@@ -740,7 +743,7 @@ class LiveMarketChart:
                     tickwidth=1,
                     ticks="outside",
                     ticksuffix=" ",
-                    tickfont=dict(size=11),
+                    tickfont={"size": 11},
                     showgrid=True,
                     zeroline=False,
                     showticklabels=True,

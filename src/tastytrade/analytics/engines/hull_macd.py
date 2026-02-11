@@ -152,9 +152,9 @@ class HullMacdEngine:
     def _compute_hull(self, state: TimeframeState, symbol: str) -> str | None:
         pad_value = self._prior_closes.get(symbol)
         hull_df = hull(state.candles, pad_value=pad_value)
-        if hull_df.empty:
+        if hull_df.height == 0:
             return None
-        return str(hull_df["HMA_color"].iloc[-1])
+        return str(hull_df["HMA_color"][-1])
 
     def _compute_macd(self, state: TimeframeState, symbol: str) -> str | None:
         prior_close = self._prior_closes.get(symbol)
@@ -276,7 +276,7 @@ class HullMacdEngine:
 
         pad_value = self._prior_closes.get(event.eventSymbol)
         hull_df = hull(state.candles, pad_value=pad_value)
-        hull_value = float(hull_df["HMA"].iloc[-1])
+        hull_value = float(hull_df["HMA"][-1])
 
         color = "#55A868" if direction == SignalDirection.BULLISH.value else "#8C8C8C"
         label = f"{signal_type.value} {direction}"

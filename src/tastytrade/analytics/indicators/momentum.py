@@ -2,100 +2,100 @@ import logging
 import math
 
 import numpy as np
-import pandas as pd
 import polars as pl
 
 logger = logging.getLogger(__name__)
 
 
-def padded_wma_series(series, period, pad_value):
-    """Compute a weighted moving average (WMA) on a Series over a fixed window (period) by padding the beginning of the Series with a given pad_value.
+def padded_wma(values: np.ndarray, period: int, pad_value: float) -> np.ndarray:
+    """Compute a weighted moving average (WMA) over a fixed window by padding the beginning with a given pad_value.
 
     This mimics the ThinkOrSwim behavior of seeding the calculation with a prior value.
 
     For each index i (0-indexed):
        - If i+1 < period, the window becomes:
-             [pad_value]*(period - (i+1)) concatenated with series.iloc[0:i+1]
-       - Otherwise, the window is the usual last `period` observations.
+             [pad_value]*(period - (i+1)) concatenated with values[0:i+1]
+       - Otherwise, the window is the usual last ``period`` observations.
 
     Weights are 1, 2, …, period.
 
     Args:
-        series (pd.Series): Input time series data
-        period (int): Window size for moving average calculation
-        pad_value (float): Value used to pad the beginning of the series
+        values: Input array of price data.
+        period: Window size for moving average calculation.
+        pad_value: Value used to pad the beginning of the series.
 
-    Returns
-        pd.Series: Series containing weighted moving average values with same index as input
-
+    Returns:
+        Array containing weighted moving average values.
     """
     weights = np.arange(1, period + 1)
     weight_sum = weights.sum()
-    result = []
-    vals = series.values
-    for i in range(len(vals)):
+    result = np.empty(len(values))
+    for i in range(len(values)):
         if (i + 1) < period:
             pad_count = period - (i + 1)
-            window = np.concatenate((np.full(pad_count, pad_value), vals[: i + 1]))
+            window = np.concatenate((np.full(pad_count, pad_value), values[: i + 1]))
         else:
-            window = vals[i - period + 1 : i + 1]
-        result.append(np.dot(window, weights) / weight_sum)
-    return pd.Series(result, index=series.index)
+            window = values[i - period + 1 : i + 1]
+        result[i] = np.dot(window, weights) / weight_sum
+    return result
 
 
 def hull(
     input_df: pl.DataFrame,
-    price_col="close",
-    length=20,
-    displace=0,
-    pad_value=None,
-):
+    price_col: str = "close",
+    length: int = 20,
+    displace: int = 0,
+    pad_value: float | None = None,
+) -> pl.DataFrame:
     """Compute the Hull Moving Average (HMA) for a DataFrame.
 
     The HMA is defined as:
     HMA = WMA(2 * WMA(price, length/2) - WMA(price, length), sqrt(length))
 
     Args:
-        dxlink (DXLinkManager): DXLink manager instance for data access
-        symbol (str): Symbol to compute HMA for (e.g. "SPX{=5m}")
-        price_col (str, optional): Name of the column containing price data. Defaults to "close".
-        length (int, optional): Period for HMA calculation. Defaults to 20.
-        displace (int, optional): Number of bars to shift the final HMA. Defaults to 0.
-        pad_value (float, optional): Value to pad beginning of series. If None, uses previous day's close. Defaults to None.
-        input_df (pd.DataFrame, optional): Pre-filtered DataFrame to use instead of fetching data. Defaults to None.
+        input_df: Polars DataFrame containing OHLC data.
+        price_col: Name of the column containing price data.
+        length: Period for HMA calculation.
+        displace: Number of bars to shift the final HMA.
+        pad_value: Value to pad beginning of series. If None, uses first close.
 
-    Returns
-        pd.DataFrame: DataFrame with added columns:
-            - HMA: Hull Moving Average values
-            - HMA_color: "Up" when current HMA > previous HMA, "Down" otherwise
+    Returns:
+        Polars DataFrame with columns: time, HMA, HMA_color.
     """
-    df = input_df.to_pandas().copy()
-
-    if df.empty:
+    if input_df.height == 0:
         logger.warning("Can't calculate Hull Moving Average: Input DataFrame is empty")
-        return pd.DataFrame()
+        return pl.DataFrame()
+
+    close_values = input_df[price_col].to_numpy().astype(float)
 
     if pad_value is None:
-        pad_value = df[price_col].iloc[0]
+        pad_value = float(close_values[0])
 
     half_length = int(round(length / 2))
     sqrt_length = int(round(math.sqrt(length)))
 
-    # Use the provided pad_value for the entire series
-    price = df[price_col]
-    wma_half = padded_wma_series(price, half_length, pad_value)
-    wma_full = padded_wma_series(price, length, pad_value)
+    wma_half = padded_wma(close_values, half_length, pad_value)
+    wma_full = padded_wma(close_values, length, pad_value)
     diff = 2 * wma_half - wma_full
-    hma = padded_wma_series(diff, sqrt_length, pad_value)
+    hma = padded_wma(diff, sqrt_length, pad_value)
 
     if displace:
-        hma = hma.shift(-displace)
-    df["HMA"] = hma
+        hma = np.roll(hma, -displace)
+        hma[-displace:] = np.nan
 
     # Color assignment: "Up" if current HMA > previous HMA, else "Down"
-    df["HMA_color"] = np.where(df["HMA"] > df["HMA"].shift(1), "Up", "Down")
+    hma_prev = np.empty_like(hma)
+    hma_prev[0] = np.nan
+    hma_prev[1:] = hma[:-1]
+    hma_color = np.where(hma > hma_prev, "Up", "Down")
 
-    return df[["time", "HMA", "HMA_color"]]
+    return pl.DataFrame(
+        {
+            "time": input_df["time"],
+            "HMA": hma,
+            "HMA_color": hma_color,
+        }
+    )
 
 
 def ema_with_seed(values: np.ndarray, length: int, seed: float) -> np.ndarray:
