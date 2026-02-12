@@ -240,7 +240,10 @@ async def _run_subscription_once(
         config = RedisConfigManager(env_file=env_file)
         config.initialize(force=True)
 
-        credentials = Credentials(config=config, env="Live")
+        env_setting = config.get("ENVIRONMENT", "LIVE").upper()
+        env = "Live" if env_setting == "LIVE" else "Test"
+        credentials = Credentials(config=config, env=env)
+        logger.info("Using %s environment (%s)", env, credentials.base_url)
 
         logger.info("Opening DXLink connection")
         dxlink = DXLinkManager(subscription_store=RedisSubscriptionStore())
