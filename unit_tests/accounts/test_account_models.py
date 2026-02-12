@@ -380,15 +380,17 @@ def test_credentials_loads_sandbox_account() -> None:
         side_effect=lambda key: {
             "TT_SANDBOX_URL": "https://sandbox.tastyworks.com",
             "TT_SANDBOX_ACCOUNT": "5WT00001",
-            "TT_OAUTH_CLIENT_ID": "test-client-id",
-            "TT_OAUTH_CLIENT_SECRET": "test-client-secret",
-            "TT_OAUTH_REFRESH_TOKEN": "test-refresh-token",
+            "TT_SANDBOX_USER": "sandbox_user",
+            "TT_SANDBOX_PASS": "sandbox_pass",
         }[key]
     )
     from tastytrade.connections import Credentials
 
     creds = Credentials(config=config, env="Test")
     assert creds.account_number == "5WT00001"
+    assert creds.login == "sandbox_user"
+    assert creds.password == "sandbox_pass"
+    assert creds.oauth_client_id is None
 
 
 def test_credentials_loads_live_account() -> None:

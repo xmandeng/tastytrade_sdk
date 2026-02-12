@@ -1,21 +1,34 @@
+from typing import Optional
+
 from tastytrade.config import ConfigurationManager
 
 
 class Credentials:
     base_url: str
+    account_number: str
     is_sandbox: bool
-    oauth_client_id: str
-    oauth_client_secret: str
-    oauth_refresh_token: str
+
+    # OAuth2 fields (Live environment)
+    oauth_client_id: Optional[str]
+    oauth_client_secret: Optional[str]
+    oauth_refresh_token: Optional[str]
+
+    # Legacy fields (Sandbox environment)
+    login: Optional[str]
+    password: Optional[str]
 
     @property
     def as_dict(self) -> dict:
         return vars(self)
 
     def __init__(self, config: ConfigurationManager, env: str = "Test"):
-        """Tastytrade OAuth2 credentials read from environment variables.
+        """TastyTrade credentials with environment-aware auth field loading.
+
+        Live environment loads OAuth2 credentials (client_id, client_secret,
+        refresh_token). Sandbox loads legacy credentials (login, password).
 
         Args:
+            config: Configuration manager for reading env vars.
             env: Environment is either "Test" or "Live". Defaults to "Test".
 
         Raises:
@@ -24,21 +37,33 @@ class Credentials:
         if env not in ["Test", "Live"]:
             raise ValueError("Environment must be either 'Test' or 'Live'")
 
+        self.is_sandbox: bool = env == "Test"
+
         self.base_url: str = (
-            config.get("TT_SANDBOX_URL") if env == "Test" else config.get("TT_API_URL")
+            config.get("TT_SANDBOX_URL")
+            if self.is_sandbox
+            else config.get("TT_API_URL")
         )
 
         self.account_number: str = (
             config.get("TT_SANDBOX_ACCOUNT")
-            if env == "Test"
+            if self.is_sandbox
             else config.get("TT_ACCOUNT")
         )
 
-        self.oauth_client_id: str = config.get("TT_OAUTH_CLIENT_ID")
-        self.oauth_client_secret: str = config.get("TT_OAUTH_CLIENT_SECRET")
-        self.oauth_refresh_token: str = config.get("TT_OAUTH_REFRESH_TOKEN")
-
-        self.is_sandbox: bool = env == "Test"
+        # Load environment-specific auth credentials
+        if self.is_sandbox:
+            self.login: Optional[str] = config.get("TT_SANDBOX_USER")
+            self.password: Optional[str] = config.get("TT_SANDBOX_PASS")
+            self.oauth_client_id: Optional[str] = None
+            self.oauth_client_secret: Optional[str] = None
+            self.oauth_refresh_token: Optional[str] = None
+        else:
+            self.login = None
+            self.password = None
+            self.oauth_client_id = config.get("TT_OAUTH_CLIENT_ID")
+            self.oauth_client_secret = config.get("TT_OAUTH_CLIENT_SECRET")
+            self.oauth_refresh_token = config.get("TT_OAUTH_REFRESH_TOKEN")
 
 
 class InfluxCredentials:
