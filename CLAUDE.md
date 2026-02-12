@@ -1,623 +1,165 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Core Principles
 
-1. **Evidence-Based Development**: Features must be demonstrated with real production data, not just test results
-2. **Protocol-Based Design**: Use protocols (abstract interfaces) over concrete implementations
-3. **Type Safety**: Maintain strict type checking with MyPy/Pyright
-4. **Immutability**: Use frozen Pydantic models where possible
-5. **Observability**: Add instrumentation for key operations
+1. **Evidence-Based Development** — demonstrate with real production data, not just tests
+2. **Protocol-Based Design** — use protocols (abstract interfaces) over concrete implementations
+3. **Type Safety** — strict type checking with MyPy/Pyright
+4. **Immutability** — frozen Pydantic models where possible
+5. **Observability** — instrument key operations
 
 ---
 
-## ⚠️ CRITICAL: Mandatory Agent Usage - READ THIS FIRST
+## CRITICAL: Mandatory Agent Usage — READ THIS FIRST
 
 **STOP: Before starting ANY task, check which agent to use.**
 
 This project enforces strict agent workflows. Direct Skill/Bash calls for Jira and GitHub operations are **intentionally blocked**.
 
-### Quick Reference
-
-**ALL Jira operations → jira-workflow agent**
-**ALL GitHub operations → github-workflow agent**
+**ALL Jira operations → `Task(subagent_type="jira-workflow", ...)`**
+**ALL GitHub operations → `Task(subagent_type="github-workflow", ...)`**
 
 ### Recognition Patterns
 
-**Start your workflow correctly:**
-
-1. **User says: "Work on TT-XXX"**
-   - First action: Use `Task(subagent_type="jira-workflow", ...)` to get issue details
-   - After understanding the task: Use appropriate agent (often github-workflow for implementation)
-
-2. **User says: "Create a PR"**
-   - Use `Task(subagent_type="github-workflow", ...)`
-
-3. **User says: "Update Jira ticket status"**
-   - Use `Task(subagent_type="jira-workflow", ...)`
+- **"Work on TT-XXX"** → jira-workflow to get details, then github-workflow for implementation
+- **"Create a PR"** → github-workflow agent
+- **"Update Jira ticket"** → jira-workflow agent
 
 ### No Exceptions
 
-Direct calls are **intentionally blocked** to enforce proper workflow. If you get "Skill execution blocked by permission rules", you violated this requirement.
+Direct calls are **intentionally blocked**. If you get "Skill execution blocked by permission rules", you violated this requirement.
+
+See [docs/jira_workflow.md](docs/jira_workflow.md) and [docs/github_workflow.md](docs/github_workflow.md) for detailed examples.
 
 ---
 
-## Development Environment
+## Development Environment & Commands
 
-This project uses UV for fast dependency management and is designed to run in a development container with pre-configured services. The Dockerfile includes UV, Node.js, and Claude Code pre-installed for optimal performance.
+This project uses **UV** for dependency management in a dev container with pre-configured services.
 
-## Common Commands
-
-### Environment Setup
-- `uv sync --dev` - Install all dependencies including dev dependencies
-- `uv sync` - Install only production dependencies
-- `docker-compose up -d` - Start infrastructure services (InfluxDB, Redis, Telegraf, Grafana)
-- `cp .env.example .env` - Copy environment template (edit with credentials)
+### Setup
+- `uv sync --dev` — install all dependencies (including dev)
+- `docker-compose up -d` — start infrastructure services
+- `cp .env.example .env` — copy environment template
 
 ### Code Quality
-- `uv run ruff check .` - Lint code with Ruff
-- `uv run ruff format .` - Format code with Ruff (replaces Black/isort)
-- `uv run mypy .` - Type checking with MyPy
+- `uv run ruff check .` — lint
+- `uv run ruff format .` — format
+- `uv run mypy .` — type check
 
 ### Testing
-- `uv run pytest` - Run all tests
-- `uv run pytest unit_tests/` - Run specific test directory
-- `uv run pytest -v` - Run tests with verbose output
-- `uv run pytest --cov` - Run tests with coverage
+- `uv run pytest` — run all tests
+- `uv run pytest --cov` — with coverage
+- `uv run pytest -v` — verbose
 
 ### Application
-- `uv run api` - Start the FastAPI server
-- `uv run tasty-subscription` - Market data subscription CLI (see below)
-- Script entry points available in `src/tastytrade/scripts/`
+- `uv run api` — start FastAPI server
+- `uv run tasty-subscription run --start-date 2026-01-20 --symbols SPY,AAPL --intervals 1d,5m` — market data CLI
 
-### Market Data Subscription CLI (`tasty-subscription`)
+See [docs/subscription_cli.md](docs/subscription_cli.md) for full CLI reference.
 
-The `tasty-subscription` CLI manages market data subscriptions including historical backfill, live streaming, and operational monitoring.
-
-**Commands:**
-
-```bash
-# Start subscription with historical backfill and live streaming
-uv run tasty-subscription run \
-  --start-date 2026-01-15 \
-  --symbols AAPL,SPY,QQQ \
-  --intervals 1d,1h,5m \
-  --log-level INFO
-
-# Query status of active subscriptions
-uv run tasty-subscription status
-uv run tasty-subscription status --json
-```
-
-**Run Command Options:**
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--start-date` | Yes | Historical backfill start date (YYYY-MM-DD) |
-| `--symbols` | Yes | Comma-separated symbols (e.g., `AAPL,SPY,QQQ`) |
-| `--intervals` | Yes | Comma-separated intervals: `1d`, `1h`, `30m`, `15m`, `5m`, `m` |
-| `--log-level` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`) |
-| `--health-interval` | No | Seconds between health logs (default: `300`) |
-
-**Full Production Example:**
-```bash
-uv run tasty-subscription run \
-  --start-date 2026-01-20 \
-  --symbols BTC/USD:CXTALP,NVDA,AAPL,QQQ,SPY,SPX \
-  --intervals 1d,1h,30m,15m,5m,m \
-  --log-level INFO
-```
-
-**Expected Output:**
-```
-TastyTrade Market Data Subscription - Starting
-Configuration:
-  Start Date:  2026-01-20
-  Symbols:     BTC/USD:CXTALP, NVDA, AAPL, QQQ, SPY, SPX
-  Intervals:   1d, 1h, 30m, 15m, 5m, m
-  Feed Count:  36 candle feeds
-Subscribing to ticker feeds for 6 symbols
-Subscribing to 36 candle feeds from 2026-01-20
-Subscription and back-fill complete for 36/36 subscriptions
-Subscription active - press Ctrl+C to stop
-Health — Uptime: 5m | 6 channels active
-```
-
-**Graceful Shutdown:** Press `Ctrl+C` for clean shutdown (flushes data, closes connections).
+---
 
 ## Architecture Overview
 
-This is a high-performance Python SDK for TastyTrade's Open API with real-time market data processing capabilities.
+High-performance Python SDK for TastyTrade's Open API with real-time market data processing.
 
-### Core Components
+### Data Flow Pipeline
 
-**Data Flow Pipeline:**
-1. **DXLinkManager** (`src/tastytrade/connections/sockets.py`) - WebSocket connection management and real-time market data streaming
-2. **MessageRouter** (`src/tastytrade/messaging/`) - Event parsing, routing, and processing with multiple processors (Telegraf, Redis, Default)
-3. **Data Storage** - InfluxDB for time-series data, Redis for pub/sub distribution
-4. **Analytics Engine** (`src/tastytrade/analytics/`) - Technical indicators, visualizations, and interactive charts
+1. **DXLinkManager** (`src/tastytrade/connections/sockets.py`) — WebSocket connection management
+2. **MessageRouter** (`src/tastytrade/messaging/`) — event parsing, routing, processing
+3. **Data Storage** — InfluxDB (time-series), Redis (pub/sub)
+4. **Analytics Engine** (`src/tastytrade/analytics/`) — indicators, visualizations, charts
 
-**Key Modules:**
-- `src/tastytrade/connections/` - API connections, WebSocket management, subscriptions
-- `src/tastytrade/messaging/` - Event models, message processing, and routing
-- `src/tastytrade/providers/` - Market data providers and subscription management
-- `src/tastytrade/analytics/` - Technical indicators, charting, and visualizations
-- `src/tastytrade/dashboard/` - Interactive dashboards using Dash/Plotly
-- `src/tastytrade/config/` - Configuration management and enumerations
+### Key Modules
 
-### Infrastructure Services
+- `src/tastytrade/connections/` — API connections, WebSocket management, subscriptions
+- `src/tastytrade/messaging/` — event models, message processing, routing
+- `src/tastytrade/providers/` — market data providers, subscription management
+- `src/tastytrade/analytics/` — technical indicators, charting, visualizations
+- `src/tastytrade/dashboard/` — interactive dashboards (Dash/Plotly)
+- `src/tastytrade/config/` — configuration management, enumerations
+- `src/tastytrade/common/observability.py` — non-blocking logging (JSON stdout + OTLP to Grafana Cloud)
 
-Required services (managed via docker-compose):
-- **InfluxDB** (port 8086) - Time-series database for market data storage
-- **Redis** (port 6379) - Message queue and caching
-- **Telegraf** (port 8186) - Data collection and routing
-- **Grafana** (port 3000) - Monitoring and visualization dashboards
-- **Redis-Commander** (port 8081) - Redis management interface
+### Architecture Docs
 
-### Observability & Logging
+- [docs/trading_observability_spec_FINAL.md](docs/trading_observability_spec_FINAL.md) — observability design
+- [docs/GITHUB_WORKFLOW_SPEC.md](docs/GITHUB_WORKFLOW_SPEC.md) — GitHub workflow spec
+- [docs/ISSUES_SPEC.md](docs/ISSUES_SPEC.md) — issue management spec
 
-The project uses a non-blocking observability module (`src/tastytrade/common/observability.py`) that provides:
+### Infrastructure Services (docker-compose)
 
-1. **Dual output**: JSON logs to stdout + OTLP export to Grafana Cloud
-2. **Trading-safe design**: Queue-based, never blocks the event loop
-3. **Zero code changes**: Works with existing `logging.getLogger()` calls
+- **InfluxDB** (8086) — time-series storage
+- **Redis** (6379) — message queue / caching
+- **Telegraf** (8186) — data collection / routing
+- **Grafana** (3000) — monitoring dashboards
+- **Redis-Commander** (8081) — Redis management UI
 
-**How it works:**
-- `init_observability()` replaces root logger handlers with a queue-based handler
-- All child loggers automatically inherit and flow through the observability pipeline
-- Background thread handles stdout JSON formatting + OTLP batched export
+### Observability
 
-**Environment Variables (required for Grafana Cloud):**
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-<region>.grafana.net/otlp
-GRAFANA_CLOUD_INSTANCE_ID=<your-instance-id>
-GRAFANA_CLOUD_TOKEN=<your-api-token>
-OTEL_SERVICE_NAME=tastytrade-subscription
-APP_ENV=dev
-APP_VERSION=1.0.0
-LOG_LEVEL=INFO
-```
-
-**Usage:**
-```bash
-# Load env vars and run (Grafana Cloud logging auto-enables when token present)
-set -a && source .env && set +a
-uv run tasty-subscription run --start-date 2026-02-01 --symbols SPY --intervals 1d
-```
-
-**Existing logging code works unchanged:**
-```python
-logger = logging.getLogger(__name__)
-logger.info("Starting subscription")  # Automatically goes to stdout + Grafana Cloud
-```
-
-**Grafana Cloud queries:**
-```
-{service_name="tastytrade-subscription"}
-{service_name="tastytrade-subscription"} |= "ERROR"
-```
-
-See `docs/trading_observability_spec_FINAL.md` for complete architecture and design decisions.
+Non-blocking queue-based logging: JSON to stdout + OTLP export to Grafana Cloud. Works with standard `logging.getLogger()` — no code changes needed. See [docs/trading_observability_spec_FINAL.md](docs/trading_observability_spec_FINAL.md).
 
 ---
 
-## Jira Operations Protocol - MANDATORY DELEGATION
-
-**CRITICAL:** You MUST delegate ALL Jira operations to the jira-workflow agent. This is not optional.
-
-### Why This Matters
-
-The jira-workflow agent is the **mandatory gatekeeper** for all Jira operations. It enforces:
-- **Intelligent type selection** (Story/Task/Bug/Sub-task based on request analysis)
-- **Quality standards** (Test Evidence Requirements embedded in all templates)
-- **Epic governance** (can link to Epics, cannot create Epics)
-- **Validation rules** (ensures tickets meet project standards)
-- **Type-agnostic workflow** (dispatcher processes any ticket type)
-
-### What Operations Require Delegation
-
-**ALWAYS use jira-workflow agent for:**
-- Creating tickets (Story, Task, Bug, Sub-task - NOT Epic)
-- Updating tickets (fields, descriptions, priorities)
-- Linking tickets (to Epics, to parent issues)
-- Searching tickets (JQL queries)
-- Adding comments to tickets
-- Getting ticket details
-- Managing sprints (when applicable)
-
-**When to use:**
-- User mentions a Jira ticket (TT-XXX)
-- User asks to "work on TT-XXX" or "start TT-XXX"
-- Need to get issue details, update status, add comments
-- Need to create new issues or search existing ones
-
-**NEVER use Jira operations directly.** Always delegate to jira-workflow agent via the Task tool.
-
-### Correct Usage Pattern
-
-✅ **Correct - Delegate to jira-workflow agent:**
-```python
-# When you need to create a Jira ticket
-Task(
-    subagent_type="jira-workflow",
-    description="Create Jira ticket for feature",
-    prompt="""
-    Create a ticket for the following work:
-
-    Feature: Add WebSocket reconnection logic
-    Context: Users need automatic reconnection when market data streams disconnect
-    Priority: High
-
-    Please create the appropriate ticket type (Story/Task/Bug) based on this request
-    and link it to the relevant Epic if obvious from context.
-    """
-)
-```
-
-✅ **Correct - Let agent determine type:**
-```python
-# Agent will analyze "fix bug" and create Bug ticket
-Task(
-    subagent_type="jira-workflow",
-    description="Create ticket for bug fix",
-    prompt="Create ticket: Fix message routing failure on malformed events"
-)
-```
-
-✅ **Correct - Searching tickets:**
-```python
-Task(
-    subagent_type="jira-workflow",
-    description="Find tickets in epic",
-    prompt="Find all Stories in Market Data epic (TT-1) that are in To Do status"
-)
-```
-
-### Verbatim Content Rule (MANDATORY)
-
-**The jira-workflow agent paraphrases by default. You MUST prevent this.**
-
-When passing plans, code snippets, field lists, or implementation details to the jira-workflow agent, explicitly instruct it to use the content **verbatim** — not summarize, not paraphrase, not rewrite.
-
-**In every prompt that updates a ticket description or creates a ticket with detailed content, include this instruction:**
-
-> Use the following content VERBATIM in the description. Do NOT paraphrase, summarize, or rewrite. Copy it exactly as provided.
-
-**What must be passed verbatim (when available):**
-- Code snippets with file paths and line numbers
-- Field lists, enum values, method signatures
-- Test function names, factory function specs
-- API response shapes
-- Design rationale
-- Acceptance criteria mappings
-
-**Why:** The implementing agent has zero context from your conversation. Paraphrased summaries lose the exact details (field names, line numbers, code patterns) that make a ticket actionable.
-
-### Incorrect Usage (DO NOT DO THIS)
-
-❌ **Incorrect - Using Jira operations directly:**
-```python
-# NEVER DO THIS - These are BLOCKED:
-Skill(command="jira-operations")  # Will fail with permission error
-Bash("jira-cli ...")              # Blocked
-bash .claude/skills/jira-operations/scripts/create-issue.sh "..." "..." "Story"
-```
+## Workflow Rules
 
-❌ **Incorrect - Trying to create Epics:**
-```python
-# NEVER DO THIS - Epics are team-managed strategic tools
-Task(
-    subagent_type="jira-workflow",
-    prompt="Create Epic for Q2 Roadmap"
-)
-# jira-workflow agent will correctly decline this request
-```
+### Jira Operations — MANDATORY DELEGATION
 
-### Type-Agnostic Approach
+You MUST delegate ALL Jira operations to the jira-workflow agent. No exceptions.
 
-The jira-workflow agent uses **intelligent type selection**:
-- Analyzes your request and keywords
-- Automatically selects Story/Task/Bug/Sub-task
-- Asks for clarification if ambiguous
-- Refuses to create Epics (team governance)
+**Operations:** create/update/search/comment on tickets, get details, link to Epics.
 
-**You don't need to specify the type** - just describe what needs to be done, and the agent will select appropriately:
+**Verbatim Content Rule:** When passing plans or implementation details to jira-workflow, include:
+> "Use the following content VERBATIM. Do NOT paraphrase, summarize, or rewrite."
 
-```python
-# These requests automatically get correct type
-"Add real-time quote streaming" → Story (user-facing feature)
-"Refactor message router logic" → Task (technical work)
-"Fix WebSocket connection drops" → Bug (defect)
-"Create API endpoint under TT-50" → Sub-task (implementation piece)
-```
+**Status transitions are automated** (branch → In Progress, PR → In Review, merge → Done). Do NOT manually transition.
 
-### Status Transitions
+**Epic governance:** Agent CAN link to Epics, CANNOT create Epics.
 
-**Important:** Status transitions are handled by GitHub workflows, NOT by you or jira-workflow agent:
-- Branch created → Jira moves to "In Progress" (via `.github/workflows/jira-transition.yml`)
-- PR opened → Jira moves to "In Review" (automated)
-- PR merged → Jira moves to "Done" (automated)
+**Completion documentation:** When work is done, add implementation comment via jira-workflow with: Expected Behaviors (Before/After), Technical Implementation, Features, Verification Evidence.
 
-jira-workflow agent has read-only status awareness. Do not manually transition tickets.
+**Quality assurance:** After every ticket update, jira-workflow MUST re-read and verify the ticket.
 
-### Epic Governance
+**Plan-ticket alignment:** Persist the full implementation plan to the ticket BEFORE starting work.
 
-**CRITICAL:** Epics are strategic planning tools managed by the team.
+See [docs/jira_workflow.md](docs/jira_workflow.md) for examples, templates, and procedures.
 
-- ✅ Agent CAN link tickets to existing Epics
-- ❌ Agent CANNOT create new Epics
+### GitHub Operations — MANDATORY DELEGATION
 
-If you need an Epic created, ask the team to create it manually in Jira, then use jira-workflow agent to link tickets to it.
+You MUST delegate ALL GitHub operations to the github-workflow agent. No exceptions.
 
-### Implementation Completion Documentation (MANDATORY)
+**Autonomous PR creation:** When all ACs pass and code is pushed → create PR immediately. Do NOT ask permission.
 
-**When you complete work on a Jira ticket, you MUST add a comprehensive implementation comment.**
+**Operations:** create/list/view PRs, create/push branches, repository operations, PR reviews.
 
-The comment MUST include:
+**Branch push requirement:** All new branches MUST be pushed to remote IMMEDIATELY after creation (triggers Jira automation).
 
-1. **Expected Behaviors** (MOST IMPORTANT)
-   - Describe changes from user/operational perspective
-   - Use Before/After format for each behavioral change
-   - Be specific: "Status now shows '8s ago' for active feeds" not "improved status display"
+See [docs/github_workflow.md](docs/github_workflow.md) for examples and procedures.
 
-2. **Technical Implementation**
-   - New components added (classes, functions, enums)
-   - Modified components with explanations
-   - Data flow changes if architectural
+### Pull Request Standards
 
-3. **Features Added/Removed**
-   - Tables listing all features with file locations
-   - Reasons for any removed features
+**CRITICAL: Unit tests are NOT functional tests.** You MUST functionally test code before creating a PR.
 
-4. **Verification Evidence**
-   - Test results (unit, integration, live)
-   - Specific examples with real data
+- Run the code in a realistic environment and capture evidence
+- Provide functional evidence for EACH acceptance criterion using real/production data
+- If you cannot test: STOP, notify the user, do NOT create the PR
 
-**Example Expected Behaviors section:**
-```
-Before: Status showed subscription creation time, not actual data flow
-After: Status shows when data was last received (e.g., "8s ago" updating in real-time)
+**PR quality assurance:** github-workflow agent MUST re-read and verify every PR after creation.
 
-Before: Constant "stale: Profile, Summary" warnings even when feeds were healthy
-After: No false staleness warnings - low-frequency feeds are expected behavior
-```
+See [docs/pr_standards.md](docs/pr_standards.md) for templates and evidence standards.
 
-The jira-workflow agent has detailed templates for this. Always delegate completion comments to it.
+### Branch & Commit Rules
 
-### Jira Quality Assurance (MANDATORY)
+**Branching:**
+- NEVER work on `main` — github-workflow agent will REJECT operations
+- ALWAYS create feature branch with Jira ticket: `feature/TT-XXX-description`
+- MUST push immediately after creation: `git push -u origin <branch>`
 
-After creating or updating any Jira ticket, the jira-workflow agent MUST:
-
-1. **Re-read the ticket** to verify it was created correctly
-2. **Check completeness** against quality standards
-3. **Fix any deficiencies** before reporting back
-4. **Report confidence level** to you (✅ complete or ⚠️ needs attention)
-
-This ensures tickets are properly documented and nothing is missed.
-
-### Plan-Ticket Alignment (MANDATORY)
-
-Before implementation begins, persist the **full, exact** implementation plan to the Jira ticket. The ticket is the source of truth — plans discussed in conversation are lost if not persisted.
-
-**How to persist plans:**
-1. Pass the complete plan text to the jira-workflow agent with the **Verbatim Content Rule** (see above)
-2. After the agent updates the ticket, re-read it to confirm **nothing was paraphrased or omitted**
-3. If content was summarized or truncated, re-send with explicit correction
-
----
-
-## GitHub Operations Protocol - MANDATORY DELEGATION
-
-**CRITICAL:** You MUST delegate ALL GitHub operations to the github-workflow agent. This is not optional.
-
-### 🤖 Autonomous PR Creation (MANDATORY)
-
-**When all ACs pass and code is pushed → Create PR immediately. Do NOT ask permission.**
-
-```
-Branch created → Jira: In Progress
-Code pushed + ACs pass → Create PR → Jira: In Review
-PR merged (human) → Jira: Done
-```
-
-### Why This Matters
-
-The github-workflow agent is the **mandatory gatekeeper** for all GitHub operations. It enforces:
-- **PR title format** (TT-XXX: Description)
-- **PR body structure** (Summary, Related Jira Issue, Acceptance Criteria, Evidence, Test Evidence, Changes Made)
-- **Branch naming conventions** (type/TT-XXX-description)
-- **Commit message format** (TT-XXX: Description)
-- **Functional evidence requirements** (mandatory for each AC)
-- **Quality gates** (tests, type checking, linting)
-- **CRITICAL: Immediate branch push** after creation to trigger Jira automation
-
-### What Operations Require Delegation
-
-**ALWAYS use github-workflow agent for:**
-- Creating pull requests
-- Getting PR status and details
-- Listing pull requests
-- Viewing PR file changes
-- Creating and pushing branches (CRITICAL: must push immediately after creation)
-- Repository operations (commits, git operations)
-
-**When to use:**
-- Creating, listing, or viewing pull requests
-- Any gh CLI operations
-- Modifying files in `.claude/skills/github-operations/`
-- Repository operations (branches, commits, tags)
-- PR reviews, comments, status checks
-
-**NEVER use GitHub operations directly.** Always delegate to github-workflow agent via the Task tool.
-
-### Correct Usage Pattern
-
-✅ **Correct - Delegate to github-workflow agent:**
-```python
-# When you need to create a PR
-Task(
-    subagent_type="github-workflow",
-    description="Create PR for feature",
-    prompt="""
-    Create a pull request for the completed work:
-
-    Branch: feature/TT-XXX-description
-    Base: main
-    Title: TT-XXX: Brief description
-
-    Summary: [what was done]
-    Changes: [list of changes]
-    Evidence: [functional evidence for each AC from Jira ticket]
-    """
-)
-```
-
-✅ **Correct - Creating and pushing a branch:**
-```python
-# Agent will create branch and IMMEDIATELY push to trigger Jira automation
-Task(
-    subagent_type="github-workflow",
-    description="Create and push feature branch",
-    prompt="Create branch feature/TT-XXX-add-feature and push immediately to remote"
-)
-```
-
-✅ **Correct - Getting PR status:**
-```python
-Task(
-    subagent_type="github-workflow",
-    description="Check PR status",
-    prompt="Get status for PR #45 - are checks passing and is it ready to merge?"
-)
-```
-
-### Incorrect Usage (DO NOT DO THIS)
-
-❌ **Incorrect - Using GitHub operations directly:**
-```python
-# NEVER DO THIS - These are BLOCKED:
-Skill(command="github-operations")              # Will fail with permission error
-Bash("gh pr create ...")                        # Blocked
-Edit(".claude/skills/github-operations/...")    # Blocked - use agent
-bash .claude/skills/github-operations/scripts/create-pr.sh "..." "..." "main" "..."
-```
-
-❌ **Incorrect - Creating branch without immediate push:**
-```python
-# NEVER DO THIS - Jira automation won't trigger
-git checkout -b feature/TT-XXX-description
-# ... then work on it later without pushing
-```
-
-### Branch Push Requirement
-
-**CRITICAL:** All new branches MUST be pushed to remote **immediately** after creation.
-
-**Why:** Triggers Jira automation (To Do → In Progress) and signals work has started.
-
-**The github-workflow agent automatically enforces:**
-1. Update main branch
-2. Create feature branch
-3. **IMMEDIATELY push to remote** (even if empty)
-4. Then proceed with work
-
----
-
-## Pull Request Standards
-
-### Functional Testing Requirement (MANDATORY)
-
-**CRITICAL: Unit tests are NOT actual tests. You MUST functionally test all code changes before creating a PR.**
-
-Before creating any pull request, you MUST:
-
-1. **Actually run the code** in a realistic environment
-2. **Verify the feature works** by exercising it manually or via integration
-3. **Capture evidence** (logs, output, screenshots) proving it works
-4. **Document blockers** if testing is not possible (missing tools, services, etc.)
-
-**If you cannot test a feature:**
-- STOP and notify the user
-- Explain what is missing (redis-cli, API credentials, external service, etc.)
-- Do NOT create a PR with untested code
-
-**Unit tests verify code structure, not functionality.** Passing unit tests means:
-- ❌ NOT that the feature works
-- ❌ NOT that integration points function
-- ❌ NOT that the code behaves correctly in production
-- ✅ Only that the code compiles and isolated units behave as mocked
-
-### Test Evidence Requirements
-
-**CRITICAL:** When creating PRs, you MUST provide functional evidence for each acceptance criterion.
-
-#### ❌ INSUFFICIENT: Test-only evidence
-```
-## Test Evidence
-- ✅ test_load_json PASSED
-- ✅ All 50 unit tests pass
-- ✅ mypy passes
-- ✅ ruff passes
-```
-These are quality gates, NOT functional evidence.
-
-#### ✅ REQUIRED: Functional evidence with production data
-```
-## Functional Evidence
-
-### AC1: [Specific acceptance criterion from the Jira ticket]
-
-**Real Example: [Demonstrating the feature with realistic data]**
-```python
-# Code showing feature working with production/realistic data
-# Include concrete, measurable results
-```
-
-**Results:**
-- ✓ [Specific outcome 1 with concrete details]
-- ✓ [Specific outcome 2 with measurable results]
-```
-
-### Evidence Standards
-
-For EVERY acceptance criterion, provide:
-
-1. **Real Production/Realistic Data**
-   - Use actual production data or realistic files (NOT test fixtures from `unit_tests/fixtures/`)
-   - For file-based features: show file names, sizes, and processing results
-   - For API/service features: show realistic requests/responses
-   - For UI features: show actual user workflows with real data
-
-2. **Actual Usage Workflows**
-   - Demonstrate the feature working as specified in acceptance criteria
-   - Show integration with existing systems works
-   - Prove end-to-end workflows function correctly
-
-3. **Concrete, Measurable Results**
-   - Specific file names, sizes, or identifiers
-   - Quantifiable outcomes (counts, durations, sizes)
-   - Sample output data relevant to the feature
-
-4. **End-to-End Verification**
-   - Show feature works in application context
-   - Verify dependencies actually work (import and use them)
-   - Demonstrate configuration settings function
-
-### PR Quality Assurance (MANDATORY)
-
-After creating or updating any pull request, the github-workflow agent MUST:
-
-1. **Re-read the PR** to verify it was created correctly
-2. **Check completeness** against required sections:
-   - Summary section present and meaningful
-   - Related Jira Issue with clickable link
-   - Acceptance Criteria with evidence for EACH AC
-   - Test Evidence section
-   - Changes Made section
-3. **Fix any deficiencies** before reporting back
-4. **Report confidence level** (✅ Complete or ⚠️ Needs attention)
-
-This ensures PRs are properly documented and nothing is missed.
+**Commit format:** `TT-XXX: Brief description`
+- Imperative mood ("Add" not "Added"), capitalize first word
+- Jira ticket required in every commit
+- No emojis, no generated signatures, no "Co-Authored-By: Claude"
+- Examples: `TT-142: Refactor WebSocket connection handling`, `TT-87: Fix message routing for malformed events`
 
 ---
 
@@ -625,23 +167,22 @@ This ensures PRs are properly documented and nothing is missed.
 
 ### Type Checking
 - All code must pass type checking with zero errors
-- Use strict type hints on all functions
-- No `type: ignore` comments without justification
+- Strict type hints on all functions
+- No `type: ignore` without justification
 
 ### Linting
-- All code must pass `ruff check src/ unit_tests/`
-- Follow project-specific ruff configuration
-- No disabling of rules without documented reason
+- Must pass `ruff check src/ unit_tests/`
+- No disabling rules without documented reason
 
 ### Testing
-- Unit tests are required but NOT sufficient for PR approval
+- Unit tests required but NOT sufficient for PR approval
 - Tests must pass: `uv run pytest`
 - Coverage target: 80%+ for new code
 - Integration tests required for end-to-end features
 
 ### Pydantic Models
 - Prefer `frozen=True` for immutable models
-- Use `Field()` with descriptions for all fields
+- Use `Field()` with descriptions
 - Validate inputs with Pydantic validators where appropriate
 
 ---
@@ -650,168 +191,31 @@ This ensures PRs are properly documented and nothing is missed.
 
 ### Code Style
 - Line length: 88 characters (Ruff)
-- Use descriptive variable and function names without underscore prefixes for private methods
-- Type hints required (MyPy configured with relaxed settings for dynamic patterns)
-- Universal tooling: Ruff handles linting, formatting, and import sorting
+- Descriptive names, no underscore prefixes for private methods
+- Type hints required (MyPy with relaxed settings for dynamic patterns)
+- Ruff handles linting, formatting, and import sorting
 
 ### Module Structure
 - Models in dedicated files (Pydantic models in `messaging/models/`)
 - Services separated by responsibility (`connections/`, `providers/`, `messaging/`)
-- Configuration managed via environment variables and Pydantic Settings
-- Analytics and visualization components in `analytics/` subdirectories
+- Configuration via environment variables and Pydantic Settings
+- Analytics/visualization in `analytics/` subdirectories
 
 ### Key Patterns
 - Async/await for WebSocket connections and data processing
-- Dependency injection using the `injector` library
+- Dependency injection using `injector` library
 - Event-driven architecture with typed message routing
 - Polars DataFrames for high-performance data processing
-- Context managers for resource management (connections, subscriptions)
+- Context managers for resource management
 
-### Testing
-- Tests located in `unit_tests/` directory
-- Use **functional pytest style** (plain `def test_*` functions, NOT class-based `TestFoo`)
-- Use pytest with async support (`pytest-asyncio`)
-- Mock external dependencies (`pytest-mock`)
-- Coverage reporting available (`pytest-cov`)
+### Testing Style
+- Tests in `unit_tests/` directory
+- **Functional pytest style** (plain `def test_*`, NOT class-based `TestFoo`)
+- pytest with async support (`pytest-asyncio`), mocking (`pytest-mock`), coverage (`pytest-cov`)
 
 ---
 
-## Development Workflow
+## Dev Container
 
-### When Implementing Features
-
-1. **Read the acceptance criteria carefully**
-   - Understand what "done" means
-   - Identify what production data to use for verification
-
-2. **Implement the feature**
-   - Follow protocol-based design
-   - Add type hints
-   - Write unit tests
-
-3. **Verify with production data**
-   - Run actual workflows
-   - Document concrete results
-
-4. **Create PR with functional evidence**
-   - Show each AC met with real examples
-   - Provide file names, sizes, counts
-   - Demonstrate downstream workflows work
-
-### Branch-Based Development (Enforced)
-
-- ❌ NEVER work on `main` branch - github-workflow agent will REJECT operations
-- ✅ ALWAYS create feature branch: `git checkout -b feature/TT-XXX-description`
-- ✅ MUST include Jira ticket (TT-XXX) in branch name - enforced by agent
-- ✅ Push immediately after branch creation: `git push -u origin <branch>`
-
-**Why Enforcement**: Rules are enforced in code (github-workflow agent), not documentation. Violations are impossible - the agent blocks them with clear error messages guiding you to the correct workflow.
-
-### Git Commit Messages
-
-- **Format**: `TT-XXX: Brief description of changes`
-- **Capitalize first word**: Use imperative mood ("Add" not "Added")
-- **Jira ticket required**: Every commit must reference a Jira ticket
-- **Multiline allowed**: First line (summary) + optional detailed body
-- **No generated signatures**: Don't add "Generated with Claude Code" or similar
-- **No emojis** in commit messages
-- **No "Co-Authored-By: Claude"** lines
-- **Examples**:
-  - `TT-142: Refactor WebSocket connection handling`
-  - `TT-149: Add automatic reconnection logic`
-  - `TT-87: Fix message routing for malformed events`
-
-**Detailed format** (when needed):
-```
-TT-XXX: Brief description (max 72 chars)
-
-Detailed explanation of what changed and why.
-
-- Bullet point for specific change 1
-- Bullet point for specific change 2
-```
-
----
-
-## Issue Resolution
-
-### When You Encounter Issues
-
-1. **Run tests first**
-   ```bash
-   uv run pytest
-   uv run mypy .
-   uv run ruff check .
-   ```
-
-2. **Test with realistic data appropriate to the feature**
-   ```python
-   # Use realistic data relevant to what the feature does
-   result = await feature.process(realistic_input)
-   ```
-
-3. **Document the issue**
-   - What file/data caused it?
-   - What was expected vs actual?
-   - Can it be reproduced?
-
-4. **Report with evidence**
-   - Show actual error messages
-   - Provide file names and sizes
-   - Include steps to reproduce
-
----
-
-## Working with Claude Code
-
-### Agent Workflow
-
-**See "⚠️ CRITICAL: Mandatory Agent Usage" section at the top of this file for complete requirements.**
-
-Quick reference:
-- **Jira operations** → `Task(subagent_type="jira-workflow", ...)`
-- **GitHub operations** → `Task(subagent_type="github-workflow", ...)`
-
-### Essential Context Files
-1. **This file** - Project context and decisions
-2. **`pyproject.toml`** - Project configuration
-3. **`docs/`** - Additional documentation if present
-
-### Development Commands
-```bash
-# Code Quality
-uv run mypy .
-uv run ruff check .
-uv run ruff format .
-
-# Testing
-uv run pytest
-uv run pytest --cov
-
-# Setup (if needed)
-uv sync --dev
-```
-
-### Common Prompts
-```bash
-# Example effective prompts:
-"Implement the feature described in TT-XXX"
-"Create unit tests for the MessageRouter"
-"Add error handling for malformed WebSocket messages as specified in the Jira ticket"
-```
-
----
-
-## Development Container Guidelines
-
-- Anything you do in this environment must be reflected in the dev container.
-- If you need to run Python code locally please use `uv venv` along with the appropriate python version.
-
----
-
-## Questions?
-
-If unclear about evidence requirements:
-1. Ask the user for clarification
-
-**Remember:** Test evidence ≠ Functional evidence. Show the feature working with real production data.
+- All environment changes must be reflected in the dev container
+- Use `uv venv` with the appropriate Python version for local execution
