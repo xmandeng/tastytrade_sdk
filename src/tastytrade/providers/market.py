@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Optional, Union, overload
 
 if TYPE_CHECKING:
+    from tastytrade.analytics.engines.models import TradeSignal
     from tastytrade.messaging.models.events import CandleEvent
 
 import polars as pl
@@ -207,6 +208,111 @@ class MarketDataProvider:
             )
 
         return CandleEvent(**df.to_dicts().pop())
+
+    def download_signals(
+        self,
+        symbol: str,
+        start: Union[datetime, date],
+        stop: Optional[Union[datetime, date]] = None,
+        measurement: str = "TradeSignal",
+    ) -> list["TradeSignal"]:
+        """Query persisted trade signals from InfluxDB.
+
+        Args:
+            symbol: Market symbol to filter signals for.
+            start: Start time for the query range.
+            stop: Optional end time for the query range.
+            measurement: InfluxDB measurement name (default ``"TradeSignal"``).
+
+        Returns:
+            List of TradeSignal objects sorted by start_time, or ``[]`` if
+            no signals are found.
+        """
+        from tastytrade.analytics.engines.models import TradeSignal
+
+        def coerce(dt: Union[datetime, date]) -> datetime:
+            if isinstance(dt, datetime):
+                return dt
+            return datetime(dt.year, dt.month, dt.day)
+
+        start_dt = coerce(start)
+        stop_dt = coerce(stop) if stop else None
+
+        if stop_dt and stop_dt <= start_dt:
+            raise ValueError("Stop time must be greater than start time")
+
+        if stop_dt:
+            date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
+        else:
+            date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
+
+        pivot_query = f"""
+            from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ["INFLUX_DB_BUCKET"]}")
+            |> range(start: {date_range}
+            |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+            |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
+            |> pivot(
+                rowKey: ["_time"],
+                columnKey: ["_field"],
+                valueColumn: "_value"
+                )
+            """
+
+        logger.debug("Signal query:\n%s", pivot_query)
+
+        try:
+            import pandas as _pd
+
+            raw = self.influx.query_api().query_data_frame(pivot_query)
+
+            if isinstance(raw, list):
+                raw = _pd.concat(raw, ignore_index=True) if raw else _pd.DataFrame()
+
+            if raw.empty:
+                return []
+
+            df = raw.drop(
+                columns=[
+                    col
+                    for col in [
+                        "result",
+                        "table",
+                        "_start",
+                        "_stop",
+                        "_time",
+                        "_measurement",
+                    ]
+                    if col in raw
+                ]
+            )
+
+        except Exception as e:
+            logger.error(
+                "Error querying InfluxDB signals for %s (%s): %s",
+                symbol,
+                measurement,
+                e,
+            )
+            raise ValueError(
+                f"Error querying InfluxDB signals for {symbol} ({measurement}): {e}"
+            ) from e
+
+        df_pl = pl.from_pandas(df)
+
+        # Parse start_time from ISO string back to datetime
+        if "start_time" in df_pl.columns:
+            df_pl = df_pl.with_columns(
+                pl.col("start_time").str.to_datetime().alias("start_time")
+            )
+
+        # Filter to only fields accepted by TradeSignal (extra="forbid")
+        valid_fields = set(TradeSignal.model_fields.keys())
+        keep_cols = [c for c in df_pl.columns if c in valid_fields]
+        df_pl = df_pl.select(keep_cols)
+
+        signals = [TradeSignal(**row) for row in df_pl.to_dicts()]
+        signals.sort(key=lambda s: s.start_time)
+        return signals
 
     def event_listener(self):
         pass

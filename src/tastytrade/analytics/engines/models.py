@@ -5,10 +5,14 @@ extends BaseAnnotation for native InfluxDB persistence and chart rendering.
 """
 
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 
 from tastytrade.analytics.visualizations.models import BaseAnnotation
+
+if TYPE_CHECKING:
+    from tastytrade.analytics.visualizations.models import VerticalLine
 
 
 class SignalDirection(str, Enum):
@@ -45,3 +49,19 @@ class TradeSignal(BaseAnnotation):
     trigger: str = Field(
         description="Indicator that triggered: hull, macd, or confluence"
     )
+
+    def to_vertical_line(self) -> "VerticalLine":
+        """Convert this TradeSignal to a VerticalLine for chart rendering."""
+        from tastytrade.analytics.visualizations.models import VerticalLine
+
+        return VerticalLine(
+            eventSymbol=self.eventSymbol,
+            start_time=self.start_time,
+            label=self.label,
+            color=self.color,
+            line_width=self.line_width,
+            line_dash=self.line_dash,
+            opacity=self.opacity,
+            show_label=self.show_label,
+            label_font_size=self.label_font_size,
+        )
