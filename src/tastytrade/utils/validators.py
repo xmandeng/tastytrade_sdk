@@ -5,6 +5,10 @@ import requests
 from requests import JSONDecodeError
 
 from tastytrade.common.exceptions import (
+    AsyncBadRequestError,
+    AsyncServerError,
+    AsyncUnauthorizedError,
+    AsyncUnknownError,
     BadRequestError,
     ResponseParsingError,
     ServerError,
@@ -47,7 +51,7 @@ def validate_response(response: requests.Response) -> bool:
             return True
         except JSONDecodeError as e:
             logger.error("Failed to parse JSON response: %s", e)
-            raise ResponseParsingError(response)
+            raise ResponseParsingError(response) from e
 
     # Handle known error status codes
     elif error_class := error_map.get(response.status_code):
@@ -59,16 +63,43 @@ def validate_response(response: requests.Response) -> bool:
     raise UnknownError(response)
 
 
-def validate_async_response(response: aiohttp.ClientResponse) -> bool:
-    """Validate the response from the API.
+async def validate_async_response(response: aiohttp.ClientResponse) -> bool:
+    """Validate the response from the async API.
 
     Args:
         response: The aiohttp response object
+
+    Raises:
+        Various AsyncTastytradeSdkError subclasses based on the error condition
     """
-    if response.status not in range(200, 300):
-        error_message = "Unknown error"
-        if response.headers.get("content-type") == "application/json":
-            raise Exception(
-                f"Request failed with status {response.status}: {error_message}"
-            )
-    return True
+    error_map = {
+        400: AsyncBadRequestError,
+        401: AsyncUnauthorizedError,
+        403: AsyncUnauthorizedError,
+        404: AsyncBadRequestError,
+        429: AsyncServerError,
+        500: AsyncServerError,
+        502: AsyncServerError,
+        503: AsyncServerError,
+        504: AsyncServerError,
+    }
+
+    if response.status == 204:
+        return True
+
+    if response.status in range(200, 300):
+        return True
+
+    # Read body for error details and attach to exception
+    error_text = await response.text()
+
+    if error_class := error_map.get(response.status):
+        logger.error("API error: %s - %s", response.status, error_text)
+        exc = error_class(response)
+        exc._error_message = error_text
+        raise exc
+
+    logger.error("Unknown error: %s - %s", response.status, error_text)
+    exc = AsyncUnknownError(response)
+    exc._error_message = error_text
+    raise exc

@@ -147,7 +147,7 @@ class AsyncSessionHandler:
         ) as response:
             response_data = await response.json()
 
-            if validate_async_response(response):
+            if await validate_async_response(response):
                 logger.debug("Retrieved dxlink token")
 
             self.session.headers.update(
@@ -158,6 +158,18 @@ class AsyncSessionHandler:
     async def close(self) -> None:
         """Close the session and cleanup resources."""
         if self.session:
+            if self.is_active:
+                try:
+                    async with self.session.delete(f"{self.base_url}/sessions") as resp:
+                        if resp.status in range(200, 300):
+                            logger.info("Server-side session terminated")
+                        else:
+                            logger.warning(
+                                "Failed to terminate session: HTTP %s",
+                                resp.status,
+                            )
+                except Exception as e:
+                    logger.warning("Error terminating server-side session: %s", e)
             await self.session.close()
             self.is_active = False
             logger.info("Session closed")
