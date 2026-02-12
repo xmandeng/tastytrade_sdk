@@ -75,7 +75,7 @@ class OAuth2AuthStrategy:
                 "refresh_token": self.refresh_token,
             },
         ) as response:
-            validate_async_response(response)
+            await validate_async_response(response)
             data = await response.json()
 
         access_token = data["access_token"]
@@ -115,7 +115,7 @@ class LegacyAuthStrategy:
                 "remember-me": True,
             },
         ) as response:
-            validate_async_response(response)
+            await validate_async_response(response)
             data = await response.json()
 
         session_token = data["data"]["session-token"]

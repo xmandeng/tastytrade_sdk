@@ -41,7 +41,7 @@ class AccountsClient:
         async with self.session.session.get(
             f"{self.session.base_url}/customers/me/accounts"
         ) as response:
-            validate_async_response(response)
+            await validate_async_response(response)
             data = await response.json()
             items = data["data"]["items"]
             accounts = [Account.model_validate(item["account"]) for item in items]
@@ -57,7 +57,7 @@ class AccountsClient:
         async with self.session.session.get(
             f"{self.session.base_url}/accounts/{account_number}/positions"
         ) as response:
-            validate_async_response(response)
+            await validate_async_response(response)
             data = await response.json()
             items = data["data"]["items"]
             positions = [Position.model_validate(item) for item in items]
@@ -75,7 +75,7 @@ class AccountsClient:
         async with self.session.session.get(
             f"{self.session.base_url}/accounts/{account_number}/balances"
         ) as response:
-            validate_async_response(response)
+            await validate_async_response(response)
             data = await response.json()
             balance = AccountBalance.model_validate(data["data"])
             logger.info(

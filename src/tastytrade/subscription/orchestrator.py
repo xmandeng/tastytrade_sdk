@@ -27,11 +27,22 @@ from tastytrade.utils.time_series import forward_fill
 
 logger = logging.getLogger(__name__)
 
+# Minimum seconds a connection must be alive before failure resets retry counter
+HEALTHY_CONNECTION_THRESHOLD = 60
+
 # Backfill buffer for candle restoration after reconnect
 BACKFILL_BUFFER = timedelta(hours=1)
 
 # Regex pattern to extract symbol and interval from candle symbol like "AAPL{=1d}"
 CANDLE_SYMBOL_PATTERN = re.compile(r"^(.+)\{=(.+)\}$")
+
+
+class SubscriptionError(Exception):
+    """Wraps subscription failures with health context for retry logic."""
+
+    def __init__(self, message: str, was_healthy: bool = False) -> None:
+        super().__init__(message)
+        self.was_healthy = was_healthy
 
 
 def format_uptime(seconds: float) -> str:
@@ -233,6 +244,7 @@ async def _run_subscription_once(
     """
     dxlink: DXLinkManager | None = None
     session_symbols: set[str] = set()
+    connection_established_at: float | None = None
 
     try:
         # === Service Connections (notebook cell-2) ===
@@ -374,7 +386,8 @@ async def _run_subscription_once(
 
         # === Run until interrupted — periodic health check with reconnection monitor ===
         logger.info("Subscription active - press Ctrl+C to stop")
-        start_time = time.monotonic()
+        connection_established_at = time.monotonic()
+        start_time = connection_established_at
 
         # Get subscription store for Redis status updates
         subscription_store = dxlink.subscription_store
@@ -448,6 +461,15 @@ async def _run_subscription_once(
                 except asyncio.CancelledError:
                     pass
 
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        was_healthy = (
+            connection_established_at is not None
+            and (time.monotonic() - connection_established_at)
+            > HEALTHY_CONNECTION_THRESHOLD
+        )
+        raise SubscriptionError(str(e), was_healthy=was_healthy) from e
     finally:
         if dxlink is not None:
             # Mark this session's subscriptions as inactive in Redis
@@ -534,6 +556,23 @@ async def run_subscription(
         except asyncio.CancelledError:
             logger.info("Subscription cancelled by user")
             raise  # User interrupt - don't reconnect
+        except SubscriptionError as e:
+            if e.was_healthy:
+                logger.info(
+                    "Connection was healthy before failure, resetting retry counter"
+                )
+                attempt = 0
+            else:
+                attempt += 1
+            delay = min(base_delay * (2**attempt), max_delay)
+            logger.warning(
+                "Connection failed (attempt %d/%d): %s. Reconnecting in %.1fs",
+                attempt,
+                max_reconnect_attempts,
+                e,
+                delay,
+            )
+            await asyncio.sleep(delay)
         except Exception as e:
             attempt += 1
             delay = min(base_delay * (2**attempt), max_delay)

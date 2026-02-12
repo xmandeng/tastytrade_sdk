@@ -137,6 +137,9 @@ class DXLinkManager:
         asyncio.create_task(self.open(credentials))
 
     async def open(self, credentials: Credentials) -> None:
+        if self.session is not None:
+            await self.session.close()
+            self.session = None
         self.session = await AsyncSessionHandler.create(credentials)
         self.websocket = await connect(self.session.session.headers["dxlink-url"])
 
