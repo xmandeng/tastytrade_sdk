@@ -378,10 +378,11 @@ def test_credentials_loads_sandbox_account() -> None:
     config = MagicMock()
     config.get = MagicMock(
         side_effect=lambda key: {
-            "TT_SANDBOX_USER": "user",
-            "TT_SANDBOX_PASS": "pass",
             "TT_SANDBOX_URL": "https://sandbox.tastyworks.com",
             "TT_SANDBOX_ACCOUNT": "5WT00001",
+            "TT_OAUTH_CLIENT_ID": "test-client-id",
+            "TT_OAUTH_CLIENT_SECRET": "test-client-secret",
+            "TT_OAUTH_REFRESH_TOKEN": "test-refresh-token",
         }[key]
     )
     from tastytrade.connections import Credentials
@@ -394,10 +395,11 @@ def test_credentials_loads_live_account() -> None:
     config = MagicMock()
     config.get = MagicMock(
         side_effect=lambda key: {
-            "TT_USER": "user",
-            "TT_PASS": "pass",
             "TT_API_URL": "https://api.tastyworks.com",
             "TT_ACCOUNT": "ABC12345",
+            "TT_OAUTH_CLIENT_ID": "test-client-id",
+            "TT_OAUTH_CLIENT_SECRET": "test-client-secret",
+            "TT_OAUTH_REFRESH_TOKEN": "test-refresh-token",
         }[key]
     )
     from tastytrade.connections import Credentials

@@ -1,5 +1,5 @@
-import json
 import logging
+import time
 from typing import Any, Optional
 
 import aiohttp
@@ -14,9 +14,12 @@ QueryParams = Optional[dict[str, Any]]
 
 logger = logging.getLogger(__name__)
 
+# Refresh the token 60 seconds before it expires
+TOKEN_REFRESH_BUFFER_SECONDS = 60
+
 
 class SessionHandler:
-    """Tastytrade session."""
+    """Tastytrade session using OAuth2 authentication."""
 
     session = Session()
     is_active: bool = False
@@ -32,6 +35,8 @@ class SessionHandler:
     @inject
     def __init__(self, credentials: Credentials) -> None:
         self.base_url = credentials.base_url
+        self.credentials = credentials
+        self.token_expires_at: float = 0.0
 
         self.session.headers.update(
             {
@@ -44,7 +49,6 @@ class SessionHandler:
     def request(
         self, method: str, url: str, params: QueryParams = None, **kwargs
     ) -> requests.Response:
-        # TODO Add URL params
         response = self.session.request(
             method, url, headers=self.session.headers, params=params, **kwargs
         )
@@ -54,40 +58,49 @@ class SessionHandler:
         return response
 
     def create_session(self, credentials: Credentials) -> None:
-        """Login to the Tastytrade API."""
+        """Authenticate with TastyTrade via OAuth2 refresh_token grant."""
         if self.is_session_active():
             logger.warning("Session already active")
             return
 
-        response = self.request(
-            method="POST",
-            url=self.base_url + "/sessions",
-            data=json.dumps(
-                {
-                    "login": credentials.login,
-                    "password": credentials.password,
-                    "remember-me": credentials.remember_me,
-                }
-            ),
-        )
-
-        self.session.headers.update(
-            {"Authorization": response.json()["data"]["session-token"]}
-        )
-
-        logger.info("Session created")
+        self._obtain_access_token(credentials)
+        logger.info("Session created via OAuth2")
         self.is_active = True
 
-    def close(self) -> None:
-        """Close the Tastytrade session."""
-        response = self.session.request("DELETE", self.base_url + "/sessions")
+    def _obtain_access_token(self, credentials: Credentials) -> None:
+        """Exchange refresh token for an access token."""
+        response = self.session.post(
+            url=f"{self.base_url}/oauth/token",
+            json={
+                "grant_type": "refresh_token",
+                "client_id": credentials.oauth_client_id,
+                "client_secret": credentials.oauth_client_secret,
+                "refresh_token": credentials.oauth_refresh_token,
+            },
+        )
 
-        if validate_response(response):
-            logger.info("Session closed")
-            self.is_active = False
-        else:
-            logger.error("Failed to close session [%s]", response.status_code)
-            raise Exception("Failed to close session [%s]", response.status_code)
+        validate_response(response)
+
+        data = response.json()
+        access_token = data["access_token"]
+        expires_in = data.get("expires_in", 900)
+
+        self.session.headers.update({"Authorization": f"Bearer {access_token}"})
+        self.token_expires_at = (
+            time.monotonic() + expires_in - TOKEN_REFRESH_BUFFER_SECONDS
+        )
+
+    def refresh_token_if_needed(self) -> None:
+        """Refresh the access token if it is near expiry."""
+        if time.monotonic() >= self.token_expires_at:
+            logger.info("Access token near expiry, refreshing")
+            self._obtain_access_token(self.credentials)
+
+    def close(self) -> None:
+        """Close the session."""
+        self.session.close()
+        self.is_active = False
+        logger.info("Session closed")
 
     def is_session_active(self) -> bool:
         """Check if the session is active."""
@@ -95,10 +108,14 @@ class SessionHandler:
 
     def get_dxlink_token(self) -> None:
         """Get the quote token."""
+        self.refresh_token_if_needed()
+
         response = self.session.request(
             method="GET",
             url=self.base_url + "/api-quote-tokens",
         )
+
+        validate_response(response)
 
         self.session.headers.update(
             {"dxlink-url": response.json()["data"]["dxlink-url"]}
@@ -108,7 +125,7 @@ class SessionHandler:
 
 @inject
 class AsyncSessionHandler:
-    """Tastytrade session handler for API interactions."""
+    """Tastytrade async session handler using OAuth2 authentication."""
 
     @classmethod
     async def create(cls, credentials: Credentials) -> "AsyncSessionHandler":
@@ -119,6 +136,8 @@ class AsyncSessionHandler:
 
     def __init__(self, credentials: Credentials) -> None:
         self.base_url: str = credentials.base_url
+        self.credentials: Credentials = credentials
+        self.token_expires_at: float = 0.0
         self.session: aiohttp.ClientSession = aiohttp.ClientSession(
             headers={
                 "User-Agent": "my_tastytrader_sdk",
@@ -129,31 +148,47 @@ class AsyncSessionHandler:
         self.is_active: bool = False
 
     async def create_session(self, credentials: Credentials) -> None:
-        """Create and authenticate a session with Tastytrade API."""
+        """Authenticate with TastyTrade via OAuth2 refresh_token grant."""
         if self.is_active:
             logger.warning("Session already active")
             return
 
+        await self._obtain_access_token(credentials)
+        logger.info("Session created via OAuth2")
+        self.is_active = True
+
+    async def _obtain_access_token(self, credentials: Credentials) -> None:
+        """Exchange refresh token for an access token."""
         async with self.session.post(
-            url=f"{self.base_url}/sessions",
+            url=f"{self.base_url}/oauth/token",
             json={
-                "login": credentials.login,
-                "password": credentials.password,
-                "remember-me": credentials.remember_me,
+                "grant_type": "refresh_token",
+                "client_id": credentials.oauth_client_id,
+                "client_secret": credentials.oauth_client_secret,
+                "refresh_token": credentials.oauth_refresh_token,
             },
         ) as response:
-            response_data = await response.json()
+            validate_async_response(response)
+            data = await response.json()
 
-            if validate_async_response(response):
-                logger.info("Session created successfully")
+        access_token = data["access_token"]
+        expires_in = data.get("expires_in", 900)
 
-            self.session.headers.update(
-                {"Authorization": response_data["data"]["session-token"]}
-            )
-            self.is_active = True
+        self.session.headers.update({"Authorization": f"Bearer {access_token}"})
+        self.token_expires_at = (
+            time.monotonic() + expires_in - TOKEN_REFRESH_BUFFER_SECONDS
+        )
+
+    async def refresh_token_if_needed(self) -> None:
+        """Refresh the access token if it is near expiry."""
+        if time.monotonic() >= self.token_expires_at:
+            logger.info("Access token near expiry, refreshing")
+            await self._obtain_access_token(self.credentials)
 
     async def get_dxlink_token(self) -> None:
         """Get the dxlink token."""
+        await self.refresh_token_if_needed()
+
         async with self.session.get(
             url=f"{self.base_url}/api-quote-tokens"
         ) as response:
