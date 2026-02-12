@@ -30,8 +30,6 @@ venv/
 ENV/
 .python-version
 
-# .claude/*
-# !.claude/hooks/
 .claude/state/
 
 # IDE
