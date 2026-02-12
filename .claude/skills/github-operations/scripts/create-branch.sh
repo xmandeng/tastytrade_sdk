@@ -83,5 +83,12 @@ fi
 # Create worktree
 git worktree add "$WORKTREE_PATH" "origin/$BRANCH_NAME" >&2
 
+# Symlink .env so worktree has access to the same configuration
+MAIN_WORKSPACE=$(git rev-parse --show-toplevel)
+if [ -f "$MAIN_WORKSPACE/.env" ]; then
+    ln -sf "$MAIN_WORKSPACE/.env" "$WORKTREE_PATH/.env"
+    echo "Symlinked .env into worktree" >&2
+fi
+
 # Output result as JSON for easy parsing
 echo "{\"branch\": \"$BRANCH_NAME\", \"worktree\": \"$WORKTREE_PATH\", \"ticket\": \"$TICKET_ID\"}"
