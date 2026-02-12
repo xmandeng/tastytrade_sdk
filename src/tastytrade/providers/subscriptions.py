@@ -5,13 +5,19 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Any, Callable
 
+import redis as sync_redis
 import redis.asyncio as redis  # type: ignore
 
 import tastytrade.messaging.models.events as events
+from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.config import ConfigurationManager
 from tastytrade.messaging.models.events import BaseEvent
 
 logger = logging.getLogger(__name__)
+
+_EXTRA_EVENT_TYPES: dict[str, type[BaseEvent]] = {
+    "TradeSignal": TradeSignal,
+}
 
 
 def convert_message_to_event(message: dict[str, Any]) -> BaseEvent:
@@ -20,7 +26,10 @@ def convert_message_to_event(message: dict[str, Any]) -> BaseEvent:
     event_type = channel.split(":")[1]
     if not event_type:
         logger.error("event_type is required: %s", message["channel"])
-    return vars(events)[event_type](**data)
+    cls = vars(events).get(event_type) or _EXTRA_EVENT_TYPES.get(event_type)
+    if cls is None:
+        raise ValueError(f"Unknown event type: {event_type}")
+    return cls(**data)
 
 
 class DataSubscription(ABC):
@@ -147,6 +156,25 @@ class RedisSubscription(DataSubscription):
             await self.client.aclose()
 
         logger.info("Redis connection closed")
+
+
+class RedisPublisher:
+    """Publishes BaseEvent instances to Redis pub/sub channels.
+
+    Channel format: market:{class_name}:{eventSymbol}
+    Same format as RedisEventProcessor, but decoupled from the
+    BaseEventProcessor protocol.
+    """
+
+    def __init__(self, redis_host: str = "redis", redis_port: int = 6379) -> None:
+        self.redis = sync_redis.Redis(host=redis_host, port=redis_port)
+
+    def publish(self, event: BaseEvent) -> None:
+        channel = f"market:{event.__class__.__name__}:{event.eventSymbol}"
+        self.redis.publish(channel=channel, message=event.model_dump_json())
+
+    def close(self) -> None:
+        self.redis.close()
 
 
 def handle_task_exception(task: asyncio.Task):
