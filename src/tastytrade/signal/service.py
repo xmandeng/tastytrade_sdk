@@ -9,10 +9,13 @@ Usage: tasty-signal run --symbols SPX --intervals 5m
 
 import asyncio
 import logging
+import os
 
 import click
 
 from tastytrade.analytics.engines.hull_macd import HullMacdEngine
+from tastytrade.common.logging import setup_logging
+from tastytrade.common.observability import init_observability
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.messaging.models.events import CandleEvent
 from tastytrade.providers import RedisPublisher
@@ -74,7 +77,15 @@ def cli():
 @click.option("--log-level", default="INFO", help="Log level")
 def run(symbols: str, intervals: str, log_level: str):
     """Run the signal detection service."""
-    logging.basicConfig(level=getattr(logging, log_level.upper()))
+    os.environ["LOG_LEVEL"] = log_level
+    if os.getenv("GRAFANA_CLOUD_TOKEN"):
+        init_observability()
+        logger.info("Grafana Cloud logging enabled")
+    else:
+        setup_logging(
+            level=getattr(logging, log_level.upper()), console=True, file=False
+        )
+
     symbol_list = [s.strip() for s in symbols.split(",")]
     interval_list = [i.strip() for i in intervals.split(",")]
     asyncio.run(run_signal_service(symbol_list, interval_list))
