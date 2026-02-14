@@ -112,17 +112,17 @@ def test_engine_publish_to_redis_via_on_signal(mock_redis_cls: MagicMock) -> Non
     assert call_kwargs.kwargs["channel"] == "market:TradeSignal:SPX{=5m}"
 
 
-def test_convert_message_to_event_trade_signal() -> None:
-    """TradeSignal published to Redis can be deserialized by convert_message_to_event."""
-    signal = make_trade_signal()
+def test_convert_message_to_event_quote() -> None:
+    """QuoteEvent published to Redis can be deserialized by convert_message_to_event."""
+    quote = make_quote()
     message = {
-        "channel": f"market:TradeSignal:{signal.eventSymbol}".encode(),
-        "data": signal.model_dump_json().encode(),
+        "channel": f"market:QuoteEvent:{quote.eventSymbol}".encode(),
+        "data": quote.model_dump_json().encode(),
     }
     result = convert_message_to_event(message)
-    assert isinstance(result, TradeSignal)
-    assert result.eventSymbol == signal.eventSymbol
-    assert result.direction == "BULLISH"
+    assert isinstance(result, QuoteEvent)
+    assert result.eventSymbol == quote.eventSymbol
+    assert result.bidPrice == 500.0
 
 
 def test_convert_message_to_event_unknown_type_raises() -> None:
