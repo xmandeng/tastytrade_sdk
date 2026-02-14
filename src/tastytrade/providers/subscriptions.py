@@ -3,28 +3,15 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Callable
 
 import redis as sync_redis
 import redis.asyncio as redis  # type: ignore
 
-import tastytrade.messaging.models.events as events
 from tastytrade.config import ConfigurationManager
 from tastytrade.messaging.models.events import BaseEvent
 
 logger = logging.getLogger(__name__)
-
-
-def convert_message_to_event(message: dict[str, Any]) -> BaseEvent:
-    channel = message["channel"].decode()
-    data = json.loads(message["data"])
-    event_type = channel.split(":")[1]
-    if not event_type:
-        raise ValueError(f"Missing event type in channel: {channel}")
-    cls = vars(events).get(event_type)
-    if cls is None:
-        raise ValueError(f"Unknown event type: {event_type}")
-    return cls(**data)
 
 
 class DataSubscription(ABC):
@@ -38,7 +25,7 @@ class DataSubscription(ABC):
     async def subscribe(
         self,
         channel_pattern: str,
-        event_type: type[BaseEvent] | None = None,
+        event_type: type[BaseEvent],
         on_update: Callable = lambda x: None,
     ) -> None:
         pass
@@ -80,21 +67,19 @@ class RedisSubscription(DataSubscription):
     async def subscribe(
         self,
         channel_pattern: str,
-        event_type: type[BaseEvent] | None = None,
+        event_type: type[BaseEvent],
         on_update: Callable = lambda x: None,
     ) -> None:
         """Subscribe to a channel or pattern and process messages.
 
         Args:
-            channel_pattern: Channel pattern to subscribe to (e.g., "market:*" or "market:QuoteEvent:SPY")
-            event_type: Optional event type for typed deserialization. When provided,
-                incoming messages are deserialized directly into this type instead of
-                inferring the type from the channel name.
+            channel_pattern: Channel pattern to subscribe to (e.g., "market:CandleEvent:SPX{=5m}")
+            event_type: The expected event type for this channel. Messages are
+                deserialized directly into this type. Contract violations are
+                logged as errors.
         """
-        logger.info("Subscribed to %s", channel_pattern)
-
-        if event_type is not None:
-            self._event_types[channel_pattern] = event_type
+        logger.info("Subscribed to %s (type=%s)", channel_pattern, event_type.__name__)
+        self._event_types[channel_pattern] = event_type
 
         if channel_pattern not in self.subscriptions:
             await self.pubsub.psubscribe(channel_pattern)
@@ -114,34 +99,32 @@ class RedisSubscription(DataSubscription):
                 ):
                     continue
 
+                channel = message["channel"].decode()
+                pattern = message["pattern"].decode()
+                event_type = self._event_types.get(pattern)
+                if event_type is None:
+                    logger.error("No event type registered for pattern: %s", pattern)
+                    continue
+
                 try:
-                    channel = message["channel"].decode()
                     data = json.loads(message["data"])
-                    event_type = self._event_types.get(message["pattern"].decode())
-                    if event_type is not None:
-                        try:
-                            event: BaseEvent = event_type(**data)
-                        except Exception as e:
-                            logger.error(
-                                "Contract violation on %s: expected %s, got error: %s",
-                                channel,
-                                event_type.__name__,
-                                e,
-                            )
-                            continue
-                    else:
-                        event = convert_message_to_event(message)
-
-                    self.queue[
-                        f"{event.__class__.__name__}:{event.eventSymbol}"
-                    ].put_nowait(event)
-                    logger.debug(f"Received message: {event}")
-
+                    event: BaseEvent = event_type(**data)
                 except json.JSONDecodeError:
-                    logger.error(f"Invalid JSON in message: {message['data']}")
-
+                    logger.error("Invalid JSON on %s: %s", channel, message["data"])
+                    continue
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                    logger.error(
+                        "Contract violation on %s: expected %s, got: %s",
+                        channel,
+                        event_type.__name__,
+                        e,
+                    )
+                    continue
+
+                self.queue[
+                    f"{event.__class__.__name__}:{event.eventSymbol}"
+                ].put_nowait(event)
+                logger.debug("Received %s on %s", event_type.__name__, channel)
 
         except asyncio.CancelledError:
             logger.error("Redis pub/sub subscriptions cancelled")
