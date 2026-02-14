@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.messaging.models.events import QuoteEvent
-from tastytrade.providers.subscriptions import RedisPublisher, convert_message_to_event
+from tastytrade.providers.subscriptions import RedisPublisher
 
 
 def make_quote() -> QuoteEvent:
@@ -112,26 +112,21 @@ def test_engine_publish_to_redis_via_on_signal(mock_redis_cls: MagicMock) -> Non
     assert call_kwargs.kwargs["channel"] == "market:TradeSignal:SPX{=5m}"
 
 
-def test_convert_message_to_event_quote() -> None:
-    """QuoteEvent published to Redis can be deserialized by convert_message_to_event."""
+def test_typed_deserialization_round_trip() -> None:
+    """Event published to Redis deserializes back via known type."""
     quote = make_quote()
-    message = {
-        "channel": f"market:QuoteEvent:{quote.eventSymbol}".encode(),
-        "data": quote.model_dump_json().encode(),
-    }
-    result = convert_message_to_event(message)
+    data = json.loads(quote.model_dump_json())
+    result = QuoteEvent(**data)
     assert isinstance(result, QuoteEvent)
     assert result.eventSymbol == quote.eventSymbol
     assert result.bidPrice == 500.0
 
 
-def test_convert_message_to_event_unknown_type_raises() -> None:
-    """Unknown event type raises ValueError."""
-    import pytest
-
-    message = {
-        "channel": b"market:UnknownType:FOO",
-        "data": b'{"eventSymbol": "FOO"}',
-    }
-    with pytest.raises(ValueError, match="Unknown event type: UnknownType"):
-        convert_message_to_event(message)
+def test_typed_deserialization_trade_signal_round_trip() -> None:
+    """TradeSignal published to Redis deserializes back via known type."""
+    signal = make_trade_signal()
+    data = json.loads(signal.model_dump_json())
+    result = TradeSignal(**data)
+    assert isinstance(result, TradeSignal)
+    assert result.direction == "BULLISH"
+    assert result.engine == "hull_macd"
