@@ -66,6 +66,7 @@ dev = [
 [project.scripts]
 api = "tastytrade.api.main:start"
 tasty-subscription = "tastytrade.subscription.cli:main"
+tasty-signal = "tastytrade.signal.service:main"
 
 [build-system]
 requires = ["hatchling"]
