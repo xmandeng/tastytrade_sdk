@@ -145,10 +145,10 @@ class AsyncSessionHandler:
         async with self.session.get(
             url=f"{self.base_url}/api-quote-tokens"
         ) as response:
-            response_data = await response.json()
+            await validate_async_response(response)
 
-            if await validate_async_response(response):
-                logger.debug("Retrieved dxlink token")
+            response_data = await response.json()
+            logger.debug("Retrieved dxlink token")
 
             self.session.headers.update(
                 {"dxlink-url": response_data["data"]["dxlink-url"]}

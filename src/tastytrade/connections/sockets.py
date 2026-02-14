@@ -440,11 +440,15 @@ class DXLinkManager:
         await self.track_subscription(request.formatted)
 
     async def unsubscribe_to_candles(self, event_symbol: str) -> None:
-        """Subscribe to candle data for a symbol."""
+        """Unsubscribe from candle data for a symbol."""
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
 
         symbol, interval = parse_candle_symbol(event_symbol)
+        if symbol is None or interval is None:
+            logger.warning("Failed to parse candle symbol: %s", event_symbol)
+            return
+
         request: CancelCandleSubscriptionRequest = CancelCandleSubscriptionRequest(
             symbol=symbol,
             interval=interval,
