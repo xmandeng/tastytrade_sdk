@@ -79,10 +79,15 @@ class UnknownError(TastytradeSdkError):
 class AsyncTastytradeSdkError(Exception, ABC):
     """Base exception for Async Tastytrade SDK."""
 
-    def __init__(self, message: str, response: Optional[aiohttp.ClientResponse] = None):
+    def __init__(
+        self,
+        message: str,
+        response: Optional[aiohttp.ClientResponse] = None,
+        error_message: Optional[str] = None,
+    ):
         super().__init__(message)
         self.response = response
-        self._error_message: Optional[str] = None
+        self._error_message = error_message
 
     def __str__(self) -> str:
         base_message = super().__str__()
@@ -94,22 +99,46 @@ class AsyncTastytradeSdkError(Exception, ABC):
 class AsyncUnauthorizedError(AsyncTastytradeSdkError):
     """Raised on 401 authentication errors in async context."""
 
-    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
-        super().__init__("UnauthorizedError - Please check your credentials", response)
+    def __init__(
+        self,
+        response: Optional[aiohttp.ClientResponse] = None,
+        error_message: Optional[str] = None,
+    ):
+        super().__init__(
+            "UnauthorizedError - Please check your credentials",
+            response,
+            error_message,
+        )
 
 
 class AsyncBadRequestError(AsyncTastytradeSdkError):
     """Raised on 400 bad request errors in async context."""
 
-    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
-        super().__init__("Bad request - Please check your input parameters", response)
+    def __init__(
+        self,
+        response: Optional[aiohttp.ClientResponse] = None,
+        error_message: Optional[str] = None,
+    ):
+        super().__init__(
+            "Bad request - Please check your input parameters",
+            response,
+            error_message,
+        )
 
 
 class AsyncServerError(AsyncTastytradeSdkError):
     """Raised on 5XX server errors in async context."""
 
-    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
-        super().__init__("Server error - Please try again later", response)
+    def __init__(
+        self,
+        response: Optional[aiohttp.ClientResponse] = None,
+        error_message: Optional[str] = None,
+    ):
+        super().__init__(
+            "Server error - Please try again later",
+            response,
+            error_message,
+        )
 
 
 class AsyncResponseParsingError(AsyncTastytradeSdkError):
@@ -122,8 +151,16 @@ class AsyncResponseParsingError(AsyncTastytradeSdkError):
 class AsyncUnknownError(AsyncTastytradeSdkError):
     """Raised for unexpected errors in async context."""
 
-    def __init__(self, response: Optional[aiohttp.ClientResponse] = None):
-        super().__init__("An unexpected error occurred", response)
+    def __init__(
+        self,
+        response: Optional[aiohttp.ClientResponse] = None,
+        error_message: Optional[str] = None,
+    ):
+        super().__init__(
+            "An unexpected error occurred",
+            response,
+            error_message,
+        )
 
 
 class MessageProcessingError(Exception):

@@ -95,11 +95,7 @@ async def validate_async_response(response: aiohttp.ClientResponse) -> bool:
 
     if error_class := error_map.get(response.status):
         logger.error("API error: %s - %s", response.status, error_text)
-        exc = error_class(response)
-        exc._error_message = error_text
-        raise exc
+        raise error_class(response, error_message=error_text)
 
     logger.error("Unknown error: %s - %s", response.status, error_text)
-    exc = AsyncUnknownError(response)
-    exc._error_message = error_text
-    raise exc
+    raise AsyncUnknownError(response, error_message=error_text)
