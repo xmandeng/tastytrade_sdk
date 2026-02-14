@@ -13,7 +13,6 @@ from datetime import datetime
 
 import click
 
-from tastytrade.common.logging import setup_logging
 from tastytrade.common.observability import init_observability, shutdown_observability
 from tastytrade.subscription.orchestrator import run_subscription
 from tastytrade.subscription.status import format_status, query_status
@@ -155,7 +154,11 @@ def run(
         logger.info("Grafana Cloud logging enabled")
     else:
         log_level_int = getattr(logging, log_level)
-        setup_logging(level=log_level_int, console=True, file=False)
+        logging.basicConfig(
+            level=log_level_int,
+            format="%(asctime)s - %(levelname)s:%(name)s:%(lineno)d:%(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
         logger = logging.getLogger(__name__)
 
     # Display startup banner
