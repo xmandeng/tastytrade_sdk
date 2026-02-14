@@ -17,12 +17,7 @@ dependencies = [
     "pydantic>=2.10.1",
     "polars[numpy,pandas,pyarrow]>=1.16.0",
     "plotly>=6.0.0",
-    "dash>=2.18.2",
-    "dash-bootstrap-components>=1.7.1",
     "influxdb-client>=1.48.0",
-    "uvicorn>=0.34.0",
-    "fastapi>=0.115.8",
-    "pydantic-settings>=2.7.1",
     "redis>=5.2.1",
     "hiredis>=3.1.0",
     "kaleido==0.1.0",
@@ -46,7 +41,6 @@ dev = [
     "types-requests>=2.32.0.20241016",
     "types-redis>=4.6.0.20241004",
     "types-Pillow>=10.0.0",
-    "types-Flask>=1.1.6",
     "jupyter>=1.1.1",
     "ipython>=8.29.0",
     "matplotlib>=3.9.2",
@@ -57,7 +51,6 @@ dev = [
 # Note: 'uv sync --dev' must be run inside the devcontainer to install optional 'dev' deps including pytest.
 
 [project.scripts]
-api = "tastytrade.api.main:start"
 tasty-subscription = "tastytrade.subscription.cli:main"
 
 [build-system]
