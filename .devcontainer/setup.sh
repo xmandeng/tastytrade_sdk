@@ -105,7 +105,7 @@ fi
 sudo chown -R vscode:vscode /workspace/.claude
 
 echo "Initializing quber-workflow configuration..."
-/workspace/.venv/bin/quber-workflow init --config /workspace/.claude/.quber-workflow.yaml
+/workspace/.venv/bin/quber-workflow init --config /workspace/.devcontainer/quber-workflow.yaml
 
 # Step 4: Install pre-commit hooks for automated code quality checks
 echo "Installing pre-commit hooks..."

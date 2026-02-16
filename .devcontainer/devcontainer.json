@@ -194,7 +194,9 @@
   "mounts": [
     "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/starship.toml,target=/home/vscode/.config/starship.toml,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.config/starship.toml,target=/home/vscode/.config/starship.toml,type=bind,consistency=cached",
+    // Isolate container's .claude/ from host — quber-workflow init generates fresh config
+    "target=/workspace/.claude,type=volume"
   ],
 
   // Port forwarding for development services

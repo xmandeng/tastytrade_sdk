@@ -30,7 +30,8 @@ venv/
 ENV/
 .python-version
 
-.claude/state/
+.claude/
+CLAUDE.md
 
 # IDE
 .idea/
@@ -62,7 +63,6 @@ test.ipynb
 .cursorrules
 
 src/devtools/*
-.claude/settings.local.json
 
 # Personal Devcontainer Configuration
 .devcontainer/devcontainer.local.json
