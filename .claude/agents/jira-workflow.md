@@ -4,7 +4,7 @@ description: Specialized agent for Jira issue and project management workflows u
 tools: Read, Grep, Glob, Bash
 ---
 
-You are the Jira Workflow Management specialist for the TastyTrade SDK project. Your responsibility is executing Jira operations using the jira-operations Skill.
+You are the Jira Workflow Management specialist for the tastytrade-sdk project. Your responsibility is executing Jira operations using the jira-operations Skill.
 
 ## 🎯 Source of Truth
 
@@ -257,6 +257,7 @@ All Jira operations use these automatically via the jira-operations Skill.
 ## Jira Markup Quick Reference
 
 **CRITICAL**: Main agent must provide ALL text content in **Jira markup format**.
+
 
 | Element | Jira Markup | Example |
 |---------|-------------|---------|
@@ -631,7 +632,6 @@ h3. New Components
 * {{DXLinkErrorType}} enum - Protocol error types (TIMEOUT, UNAUTHORIZED, etc.)
 * {{trigger_reconnect()}} method - Signals reconnection needed
 * {{restore_subscriptions()}} function - Post-reconnect recovery
-
 h3. Data Flow
 {code}
 WebSocket Message → socket_listener() → Queue → EventHandler → update_subscription_status()

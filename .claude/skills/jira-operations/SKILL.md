@@ -15,7 +15,7 @@ This Skill provides Jira issue management capabilities using the Jira REST API.
   - `ATLASSIAN_USER_EMAIL` - Your Jira email
   - `ATLASSIAN_API_TOKEN` - Your Jira API token
   - `JIRA_PROJECT_PREFIX` - Project key (e.g., TT)
-  - `JIRA_PROJECT_LABEL` - Project label automatically applied to all created issues (e.g., quber-excel)
+  - `JIRA_PROJECT_LABEL` - Project label automatically applied to all created issues (e.g., tastytrade-sdk)
 - `curl` and `jq` must be installed
 - Default project: `TT`
 
@@ -40,7 +40,7 @@ bash .claude/skills/jira-operations/scripts/search-issues.sh \
 
 **Examples**:
 ```bash
-# Search recent TT issues
+# Search recent issues
 bash .claude/skills/jira-operations/scripts/search-issues.sh \
   "project = TT ORDER BY created DESC" \
   "summary,status,assignee" \
@@ -86,37 +86,37 @@ bash .claude/skills/jira-operations/scripts/create-issue.sh \
 
 **Arguments**:
 - `summary`: Issue title
-- `description`: Issue description (markdown supported)
+- `description`: Issue description (Jira markup supported)
 - `issue-type`: Optional (default: Task) - Task, Bug, Story, Epic, Subtask
 - `priority`: Optional (default: Medium) - Highest, High, Medium, Low, Lowest
 - `project-key`: Optional (default: TT)
 - `parent-key`: Optional - Parent issue key for subtasks or epic linking
-- `labels`: Optional (default: $JIRA_PROJECT_LABEL) - Comma-separated labels (e.g., "quber-excel,urgent")
+- `labels`: Optional (default: $JIRA_PROJECT_LABEL) - Comma-separated labels (e.g., "tastytrade-sdk,urgent")
 
 **Examples**:
 ```bash
 # Create standalone task
 bash .claude/skills/jira-operations/scripts/create-issue.sh \
-  "Add unit tests for spatial grid" \
+  "Add unit tests for module" \
   "## Description
-Need comprehensive unit tests for the spatial grid module.
+Need comprehensive unit tests.
 
 ## Acceptance Criteria
-- Test empty grid handling
-- Test merged cell scenarios" \
+- Test edge case handling
+- Test error scenarios" \
   "Task" \
   "High"
 
 # Create subtask under TT-122
 bash .claude/skills/jira-operations/scripts/create-issue.sh \
-  "Test spatial grid edge cases" \
+  "Test edge cases" \
   "Verify edge case handling" \
   "Subtask" \
   "Medium" \
   "TT" \
   "TT-122"
 
-# Create task linked to epic TT-89
+# Create task linked to epic
 bash .claude/skills/jira-operations/scripts/create-issue.sh \
   "Implement feature X" \
   "Feature X implementation" \
@@ -151,7 +151,7 @@ bash .claude/skills/jira-operations/scripts/update-issue.sh \
   summary \
   "Updated task summary"
 
-# Link to epic TT-89
+# Link to epic
 bash .claude/skills/jira-operations/scripts/update-issue.sh \
   TT-122 \
   parent \
@@ -177,7 +177,7 @@ bash .claude/skills/jira-operations/scripts/add-comment.sh \
 
 **Arguments**:
 - `issue-key`: Jira issue key
-- `comment`: Comment text (markdown supported)
+- `comment`: Comment text (Jira markup supported)
 
 **Example**:
 ```bash
@@ -324,7 +324,7 @@ This Skill is designed for use by the `jira-workflow` agent. When the agent need
 
 ## Project Configuration
 
-**Default Project**: TT (Quberai)
+**Default Project**: TT (tastytrade-sdk)
 **Site**: https://mandeng.atlassian.net
 
 All scripts automatically use the TT project key unless otherwise specified.

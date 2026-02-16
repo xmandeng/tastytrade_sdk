@@ -1,6 +1,6 @@
 ---
 name: github-operations
-description: GitHub pull request and repository operations using gh CLI for the quber_excel repository (xmandeng/tastytrade_sdk). Use when creating PRs, listing PRs, getting PR status, viewing PR files, or performing git operations. Automatically detects repository from git remote.
+description: GitHub pull request and repository operations using gh CLI for the tastytrade-sdk repository (xmandeng/tastytrade_sdk). Use when creating PRs, listing PRs, getting PR status, viewing PR files, or performing git operations. Automatically detects repository from git remote.
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
@@ -104,7 +104,27 @@ bash .claude/skills/github-operations/scripts/get-pr-files.sh <pr-number>
 bash .claude/skills/github-operations/scripts/get-pr-files.sh 45
 ```
 
-### 5. List Workflow Runs
+### 5. Edit Pull Request
+
+**Script**: `scripts/edit-pr.sh`
+
+**Usage**:
+```bash
+bash .claude/skills/github-operations/scripts/edit-pr.sh <pr-number> <new-body> [new-title]
+```
+
+**Arguments**:
+- `pr-number`: Pull request number
+- `new-body`: New PR body content
+- `new-title`: Optional new PR title
+
+**Example**:
+```bash
+bash .claude/skills/github-operations/scripts/edit-pr.sh 45 "## Updated Summary
+Updated PR body content"
+```
+
+### 6. List Workflow Runs
 
 **Script**: `scripts/list-workflow-runs.sh`
 
@@ -124,13 +144,13 @@ bash .claude/skills/github-operations/scripts/list-workflow-runs.sh [workflow] [
 bash .claude/skills/github-operations/scripts/list-workflow-runs.sh jira-transition.yml 5
 
 # List runs for a specific branch
-bash .claude/skills/github-operations/scripts/list-workflow-runs.sh jira-transition.yml 5 feature/TT-6-cli-scaffold
+bash .claude/skills/github-operations/scripts/list-workflow-runs.sh jira-transition.yml 5 feature/TT-6-description
 
 # List all recent workflow runs
 bash .claude/skills/github-operations/scripts/list-workflow-runs.sh "" 10
 ```
 
-### 6. Create Branch + Worktree
+### 7. Create Branch + Worktree
 
 **Script**: `scripts/create-branch.sh`
 
@@ -157,7 +177,7 @@ bash .claude/skills/github-operations/scripts/create-branch.sh feature/TT-123-ad
 # Work in: /tmp/worktrees/TT-123
 ```
 
-### 7. Get Workflow Run Details
+### 8. Get Workflow Run Details
 
 **Script**: `scripts/get-workflow-run.sh`
 
@@ -174,7 +194,7 @@ bash .claude/skills/github-operations/scripts/get-workflow-run.sh <run-id>
 bash .claude/skills/github-operations/scripts/get-workflow-run.sh 12345678
 ```
 
-### 8. Add PR Comment
+### 9. Add PR Comment
 
 **Script**: `scripts/add-pr-comment.sh`
 
@@ -192,7 +212,7 @@ bash .claude/skills/github-operations/scripts/add-pr-comment.sh <pr-number> <com
 bash .claude/skills/github-operations/scripts/add-pr-comment.sh 45 "LGTM! Ready for review."
 ```
 
-### 9. Delete Branch
+### 10. Delete Branch
 
 **Script**: `scripts/delete-branch.sh`
 
@@ -216,7 +236,7 @@ bash .claude/skills/github-operations/scripts/delete-branch.sh feature/TT-123-ad
 bash .claude/skills/github-operations/scripts/delete-branch.sh feature/TT-123-add-feature --force
 ```
 
-### 10. List Branches
+### 11. List Branches
 
 **Script**: `scripts/list-branches.sh`
 
@@ -237,11 +257,11 @@ bash .claude/skills/github-operations/scripts/list-branches.sh
 # List feature branches
 bash .claude/skills/github-operations/scripts/list-branches.sh "feature/"
 
-# List TT-6 related branches
+# List branches for a specific ticket
 bash .claude/skills/github-operations/scripts/list-branches.sh "TT-6"
 ```
 
-### 11. Re-run Workflow
+### 12. Re-run Workflow
 
 **Script**: `scripts/rerun-workflow.sh`
 
@@ -263,18 +283,18 @@ bash .claude/skills/github-operations/scripts/rerun-workflow.sh 12345678
 bash .claude/skills/github-operations/scripts/rerun-workflow.sh 12345678 --failed-only
 ```
 
-## PR Conventions for quber_excel
+## PR Conventions
 
 **IMPORTANT**: All PR standards are defined in `docs/GITHUB_WORKFLOW_SPEC.md`. This Skill follows those specifications.
 
 ### Quick Reference
 
 **Title Format**: `TT-XXX: Brief description of changes`
-- Example: `TT-149: Refactor github-workflow agent to reference GITHUB_WORKFLOW_SPEC.md`
+- Example: `TT-149: Refactor github-workflow agent`
 
 **Branch Naming**: `<type>/TT-XXX-brief-description`
-- Example: `feature/TT-149-refactor-github-agent-specs`
-- Example: `bugfix/TT-131-fix-jira-exit-error`
+- Example: `feature/TT-149-refactor-github-agent`
+- Example: `bugfix/TT-131-fix-exit-error`
 
 **PR Body**: Must include Summary, Related Jira Issue, Acceptance Criteria with Functional Evidence, Test Evidence, Changes Made
 
@@ -304,5 +324,3 @@ To verify repository:
 ```bash
 git remote -v
 ```
-
-Should show: `origin  git@github.com:xmandeng/tastytrade_sdk.git`

@@ -7,7 +7,16 @@
 set -e
 
 # Config (needed early for logging)
-LOG_FILE="/workspace/.claude/state/hook.log"
+# Use project-specific state directory if available, otherwise use global
+if [ -d "$PWD/.claude/state" ]; then
+    STATE_DIR="$PWD/.claude/state"
+elif [ -d "$HOME/.claude/state" ]; then
+    STATE_DIR="$HOME/.claude/state"
+else
+    STATE_DIR="$HOME/.claude/state"
+    mkdir -p "$STATE_DIR"
+fi
+LOG_FILE="$STATE_DIR/hook.log"
 DEBUG="$(echo "$CC_LANGSMITH_DEBUG" | tr '[:upper:]' '[:lower:]')"
 
 # Logging functions
@@ -43,8 +52,30 @@ done
 # Config (continued)
 API_KEY="${CC_LANGSMITH_API_KEY:-$LANGSMITH_API_KEY}"
 PROJECT="${CC_LANGSMITH_PROJECT:-claude-code}"
+
+# Determine run name: use env var if set, otherwise try git repo name, finally default to "Claude Code"
+if [ -n "$CC_LANGSMITH_RUN_NAME" ]; then
+    RUN_NAME="$CC_LANGSMITH_RUN_NAME"
+else
+    # Try to get git project name from remote URL
+    if command -v git &> /dev/null && git rev-parse --git-dir &> /dev/null 2>&1; then
+        # Get the remote URL and extract the project name
+        GIT_REMOTE=$(git config --get remote.origin.url 2>/dev/null || echo "")
+        if [ -n "$GIT_REMOTE" ]; then
+            # Extract project name from URL (handles both SSH and HTTPS formats)
+            # Examples:
+            #   git@github.com:user/repo.git -> repo
+            #   https://github.com/user/repo.git -> repo
+            #   https://github.com/user/repo -> repo
+            RUN_NAME=$(echo "$GIT_REMOTE" | sed -e 's/.*[:/]\([^/]*\/[^/]*\)\.git$/\1/' -e 's/.*[:/]\([^/]*\/[^/]*\)$/\1/' | sed 's/.*\///')
+        fi
+    fi
+    # Fall back to default if we couldn't determine a git project name
+    RUN_NAME="${RUN_NAME:-Claude Code}"
+fi
+
 API_BASE="https://api.smith.langchain.com"
-STATE_FILE="${STATE_FILE:-/workspace/.claude/state/langsmith_state.json}"
+STATE_FILE="${STATE_FILE:-$STATE_DIR/langsmith_state.json}"
 
 # Global variables
 CURRENT_TURN_ID=""  # Track current turn run for cleanup on exit
@@ -335,29 +366,29 @@ serialize_for_multipart() {
     local main_data
     main_data=$(echo "$run_json" | jq -c 'del(.inputs, .outputs)')
 
-    # Part 1: Main run data with Content-Length header
+    # Part 1: Main run data with per-part Content-Length header
     local main_file="$temp_dir/${operation}_${run_id}_main.json"
     echo "$main_data" > "$main_file"
     local main_size=$(get_file_size "$main_file")
     echo "-F"
-    echo "${operation}.${run_id}=<${main_file};type=application/json;headers=Content-Length:${main_size}"
+    echo "${operation}.${run_id}=<${main_file};type=application/json;headers=\"Content-Length: ${main_size}\""
 
-    # Part 2: Inputs (if present) with Content-Length header
+    # Part 2: Inputs (if present) with per-part Content-Length header
     if [ "$inputs" != "null" ] && [ -n "$inputs" ]; then
         local inputs_file="$temp_dir/${operation}_${run_id}_inputs.json"
         echo "$inputs" > "$inputs_file"
         local inputs_size=$(get_file_size "$inputs_file")
         echo "-F"
-        echo "${operation}.${run_id}.inputs=<${inputs_file};type=application/json;headers=Content-Length:${inputs_size}"
+        echo "${operation}.${run_id}.inputs=<${inputs_file};type=application/json;headers=\"Content-Length: ${inputs_size}\""
     fi
 
-    # Part 3: Outputs (if present) with Content-Length header
+    # Part 3: Outputs (if present) with per-part Content-Length header
     if [ "$outputs" != "null" ] && [ -n "$outputs" ]; then
         local outputs_file="$temp_dir/${operation}_${run_id}_outputs.json"
         echo "$outputs" > "$outputs_file"
         local outputs_size=$(get_file_size "$outputs_file")
         echo "-F"
-        echo "${operation}.${run_id}.outputs=<${outputs_file};type=application/json;headers=Content-Length:${outputs_size}"
+        echo "${operation}.${run_id}.outputs=<${outputs_file};type=application/json;headers=\"Content-Length: ${outputs_size}\""
     fi
 }
 
@@ -446,38 +477,43 @@ create_trace() {
     # Create top-level turn run with dotted_order and trace_id
     # For top-level run: trace_id = run_id
     local turn_dotted_order="${dotted_timestamp}${turn_id}"
+    write_tmp "$user_content"
     local turn_data
     turn_data=$(jq -n \
         --arg id "$turn_id" \
         --arg trace_id "$turn_id" \
-        --arg name "Claude Code" \
+        --arg name "$RUN_NAME" \
         --arg project "$PROJECT" \
         --arg session "$session_id" \
         --arg time "$now" \
-        --argjson content "$user_content" \
+        --slurpfile content "$TMP_JQ_FILE" \
         --arg turn "$turn_num" \
         --arg dotted_order "$turn_dotted_order" \
+        --arg parent_session "${CC_LANGSMITH_PARENT_SESSION:-}" \
+        --arg extra_tags "${CC_LANGSMITH_EXTRA_TAGS:-}" \
         '{
             id: $id,
             trace_id: $trace_id,
             name: $name,
             run_type: "chain",
-            inputs: {messages: [{role: "user", content: $content}]},
+            inputs: {messages: [{role: "user", content: $content[0]}]},
             start_time: $time,
             dotted_order: $dotted_order,
             session_name: $project,
-            extra: {metadata: {thread_id: $session}},
-            tags: ["claude-code", ("turn-" + $turn)]
+            extra: {metadata: ({thread_id: $session} + (if $parent_session != "" then {parent_session_id: $parent_session} else {} end))},
+            tags: (["claude-code", ("turn-" + $turn)] + (if $extra_tags != "" then ($extra_tags | split(",")) else [] end))
         }')
 
-    posts_batch=$(echo "$posts_batch" | jq --argjson data "$turn_data" '. += [$data]')
+    write_tmp "$turn_data"
+    posts_batch=$(echo "$posts_batch" | jq --slurpfile data "$TMP_JQ_FILE" '. += $data')
 
     # Track this turn for cleanup on early exit
     CURRENT_TURN_ID="$turn_id"
 
     # Build final outputs array (accumulates all LLM responses)
     local all_outputs
-    all_outputs=$(jq -n --argjson content "$user_content" '[{role: "user", content: $content}]')
+    write_tmp "$user_content"
+    all_outputs=$(jq -n --slurpfile content "$TMP_JQ_FILE" '[{role: "user", content: $content[0]}]')
 
     # Process each assistant message (each represents one LLM call)
     local llm_num=0
@@ -535,7 +571,8 @@ create_trace() {
 
         # Build inputs for this LLM call (includes accumulated context)
         local llm_inputs
-        llm_inputs=$(jq -n --argjson outputs "$all_outputs" '{messages: $outputs}')
+        write_tmp "$all_outputs"
+        llm_inputs=$(jq -n --slurpfile outputs "$TMP_JQ_FILE" '{messages: $outputs[0]}')
 
         # Create dotted_order for assistant (child of turn)
         # Convert ISO timestamp to dotted_order format
@@ -559,6 +596,7 @@ create_trace() {
         local trace_id
         trace_id="${turn_dotted_order#*Z}"
 
+        write_tmp "$llm_inputs"
         local assistant_data
         assistant_data=$(jq -n \
             --arg id "$assistant_id" \
@@ -567,7 +605,7 @@ create_trace() {
             --arg name "Claude" \
             --arg project "$PROJECT" \
             --arg time "$llm_start" \
-            --argjson inputs "$llm_inputs" \
+            --slurpfile inputs "$TMP_JQ_FILE" \
             --arg dotted_order "$assistant_dotted_order" \
             --arg model "$model_name" \
             '{
@@ -576,7 +614,7 @@ create_trace() {
                 parent_run_id: $parent,
                 name: $name,
                 run_type: "llm",
-                inputs: $inputs,
+                inputs: $inputs[0],
                 start_time: $time,
                 dotted_order: $dotted_order,
                 session_name: $project,
@@ -584,11 +622,13 @@ create_trace() {
                 tags: [$model]
             }')
 
-        posts_batch=$(echo "$posts_batch" | jq --argjson data "$assistant_data" '. += [$data]')
+        write_tmp "$assistant_data"
+        posts_batch=$(echo "$posts_batch" | jq --slurpfile data "$TMP_JQ_FILE" '. += $data')
 
         # Build outputs for this LLM call
         local llm_outputs
-        llm_outputs=$(jq -n --argjson content "$assistant_content" '[{role: "assistant", content: $content}]')
+        write_tmp "$assistant_content"
+        llm_outputs=$(jq -n --slurpfile content "$TMP_JQ_FILE" '[{role: "assistant", content: $content[0]}]')
 
         # Track when this LLM iteration ends (after tools complete)
         local assistant_end
@@ -657,6 +697,7 @@ create_trace() {
                 fi
 
                 # Tools are siblings of the assistant run (both children of turn run)
+                write_tmp "$tool_input"
                 local tool_data
                 tool_data=$(jq -n \
                     --arg id "$tool_id" \
@@ -665,7 +706,7 @@ create_trace() {
                     --arg name "$tool_name" \
                     --arg project "$PROJECT" \
                     --arg time "$tool_start" \
-                    --argjson input "$tool_input" \
+                    --slurpfile input "$TMP_JQ_FILE" \
                     --arg dotted_order "$tool_dotted_order" \
                     '{
                         id: $id,
@@ -673,14 +714,15 @@ create_trace() {
                         parent_run_id: $parent,
                         name: $name,
                         run_type: "tool",
-                        inputs: {input: $input},
+                        inputs: {input: $input[0]},
                         start_time: $time,
                         dotted_order: $dotted_order,
                         session_name: $project,
                         tags: ["tool"]
                     }')
 
-                posts_batch=$(echo "$posts_batch" | jq --argjson data "$tool_data" '. += [$data]')
+                write_tmp "$tool_data"
+                posts_batch=$(echo "$posts_batch" | jq --slurpfile data "$TMP_JQ_FILE" '. += $data')
 
                 local tool_update
                 tool_update=$(echo "$result" | jq -Rs \
@@ -698,7 +740,8 @@ create_trace() {
                         end_time: $time
                     }')
 
-                patches_batch=$(echo "$patches_batch" | jq --argjson data "$tool_update" '. += [$data]')
+                write_tmp "$tool_update"
+                patches_batch=$(echo "$patches_batch" | jq --slurpfile data "$TMP_JQ_FILE" '. += $data')
 
                 # Next tool starts after this one ends
                 tool_start="$tool_end"
@@ -713,6 +756,7 @@ create_trace() {
         fi
 
         # Now complete the assistant run
+        write_tmp "$llm_outputs"
         local assistant_update
         assistant_update=$(jq -n \
             --arg time "$assistant_end" \
@@ -720,24 +764,26 @@ create_trace() {
             --arg trace_id "$trace_id" \
             --arg parent "$turn_id" \
             --arg dotted_order "$assistant_dotted_order" \
-            --argjson outputs "$llm_outputs" \
+            --slurpfile outputs "$TMP_JQ_FILE" \
             --argjson usage_metadata "$usage_metadata" \
             '{
                 id: $id,
                 trace_id: $trace_id,
                 parent_run_id: $parent,
                 dotted_order: $dotted_order,
-                outputs: ({messages: $outputs} + (if $usage_metadata != null then {usage_metadata: $usage_metadata} else {} end)),
+                outputs: ({messages: $outputs[0]} + (if $usage_metadata != null then {usage_metadata: $usage_metadata} else {} end)),
                 end_time: $time
             }')
 
-        patches_batch=$(echo "$patches_batch" | jq --argjson data "$assistant_update" '. += [$data]')
+        write_tmp "$assistant_update"
+        patches_batch=$(echo "$patches_batch" | jq --slurpfile data "$TMP_JQ_FILE" '. += $data')
 
         # Save end time for next LLM start
         last_llm_end="$assistant_end"
 
         # Add to overall outputs
-        all_outputs=$(echo "$all_outputs" | jq --argjson new "$llm_outputs" '. += $new')
+        write_tmp "$llm_outputs"
+        all_outputs=$(echo "$all_outputs" | jq --slurpfile new "$TMP_JQ_FILE" '. += $new[0]')
 
         # Add tool results to accumulated context (for next LLM's inputs)
         if [ "$(echo "$tool_uses" | jq 'length')" -gt 0 ]; then
@@ -766,22 +812,24 @@ create_trace() {
     # Use the last LLM's end time as the turn end time
     local turn_end="$last_llm_end"
 
+    write_tmp "$turn_outputs"
     local turn_update
     turn_update=$(jq -n \
         --arg time "$turn_end" \
         --arg id "$turn_id" \
         --arg trace_id "$turn_id" \
         --arg dotted_order "$turn_dotted_order" \
-        --argjson outputs "$turn_outputs" \
+        --slurpfile outputs "$TMP_JQ_FILE" \
         '{
             id: $id,
             trace_id: $trace_id,
             dotted_order: $dotted_order,
-            outputs: {messages: $outputs},
+            outputs: {messages: $outputs[0]},
             end_time: $time
         }')
 
-    patches_batch=$(echo "$patches_batch" | jq --argjson data "$turn_update" '. += [$data]')
+    write_tmp "$turn_update"
+    patches_batch=$(echo "$patches_batch" | jq --slurpfile data "$TMP_JQ_FILE" '. += $data')
 
     # Send both batches
     send_multipart_batch "post" "$posts_batch" || true

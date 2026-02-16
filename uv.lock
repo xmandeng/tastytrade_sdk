@@ -2947,16 +2947,17 @@ wheels = [
 
 [[package]]
 name = "quber-workflow"
-version = "0.1.2"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "jinja2" },
+    { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/5b/23b09e372b83e358b782b5ef787dc4787805aacfcb7617044d98f5739b59/quber_workflow-0.1.2.tar.gz", hash = "sha256:55edd526eaeef799494b6072765612b5aed7034c509325fb09afcb4d0d7ce30a", size = 44956, upload-time = "2025-11-22T00:31:04.862Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/a6/b39c38510464fc9ab86cd14022e303cdddbf4edbe541e050c208f99de230/quber_workflow-0.2.0.tar.gz", hash = "sha256:f815f2513e95a638916e98e0fbaf8af6750dfac8e5bea061b2921a24f5383f2f", size = 68805, upload-time = "2026-02-16T07:25:45.381Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/1c/276395bd7c79e02914f85b6039df6ba9b6ed1a018fc408ebc962d9a283fa/quber_workflow-0.1.2-py3-none-any.whl", hash = "sha256:68aba64a3c012f93c3ccaeb7cefb73d82a0d49c8cde859f5d9a1b17695b8d132", size = 64321, upload-time = "2025-11-22T00:31:03.569Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/17/ae438d2fa5bdb9852dd2dfda88b401132ee1489993b0d16bf3f5f5cf7cf3/quber_workflow-0.2.0-py3-none-any.whl", hash = "sha256:0dcbeec78e9a5a1a4afcc81f22b95e1dec43f4aa3a1e664521a3cca03adb4473", size = 95524, upload-time = "2026-02-16T07:25:43.887Z" },
 ]
 
 [[package]]
@@ -3422,7 +3423,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "pytest-mock", specifier = ">=3.14.1" },
-    { name = "quber-workflow", specifier = ">=0.1.2" },
+    { name = "quber-workflow", specifier = ">=0.2.0" },
     { name = "ruff", specifier = ">=0.12.5" },
     { name = "types-pytz", specifier = ">=2025.2.0.20250516" },
     { name = "types-redis", specifier = ">=4.6.0.20241004" },

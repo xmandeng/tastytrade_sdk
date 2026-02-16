@@ -1,25 +1,12 @@
 {
-  "includeCoAuthoredBy": false,
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "allow": [
-      "Bash(uv:*)",
-      "Bash(git:*)",
-      "Bash(claude:*)",
-      "Bash(docker build:*)",
+      "Bash(uv --version:*)",
       "Bash(tree:*)",
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(python3:*)",
-      "Bash(bash:*)",
-      "Bash(echo:*)",
-      "Bash(export:*)",
-      "Bash(env)",
-      "Bash(mount)",
-      "Bash(dpkg:*)",
-      "Bash(pip show:*)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "Bash(env)"
     ],
     "deny": [
       "Skill(jira-operations)",
@@ -28,19 +15,30 @@
       "Bash(curl:*atlassian:*)",
       "Bash(curl:*github.com/api:*)"
     ],
-    "ask": []
+    "ask": [
+    ]
   },
-  "allowedMcpServers": [],
   "hooks": {
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bash /workspace/.claude/hooks/stop_hook.sh"
+            "command": "bash -l .claude/hooks/stop_hook.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -l .claude/hooks/subagent_stop_hook.sh"
           }
         ]
       }
     ]
-  }
+  },
+  "allowedMcpServers": []
 }
