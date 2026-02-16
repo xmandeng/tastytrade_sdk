@@ -6,7 +6,6 @@ from typing import Optional
 import pandas as pd
 from influxdb_client import InfluxDBClient
 
-from tastytrade.common.logging import setup_logging
 from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import CandleEvent
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
@@ -154,9 +153,10 @@ def forward_fill(symbol, lookback_days=1):
 
 # Example Usage
 if __name__ == "__main__":
-    setup_logging(
+    logging.basicConfig(
         level=logging.INFO,
-        console=True,
+        format="%(asctime)s - %(levelname)s:%(name)s:%(lineno)d:%(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     # forward_fill(symbol="SPX{=1m}", lookback_days=365 * 25)
