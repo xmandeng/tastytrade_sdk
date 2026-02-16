@@ -2947,7 +2947,7 @@ wheels = [
 
 [[package]]
 name = "quber-workflow"
-version = "0.2.0"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -2955,9 +2955,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/a6/b39c38510464fc9ab86cd14022e303cdddbf4edbe541e050c208f99de230/quber_workflow-0.2.0.tar.gz", hash = "sha256:f815f2513e95a638916e98e0fbaf8af6750dfac8e5bea061b2921a24f5383f2f", size = 68805, upload-time = "2026-02-16T07:25:45.381Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/b3/e96331de66d00390d649d12b3e369b20850a380469981219c71c4a3a433a/quber_workflow-0.2.2.tar.gz", hash = "sha256:c2222872549ae25ce9d8ee02f1094edf8a70ea3780a5bb374719cf4f77275f42", size = 69273, upload-time = "2026-02-16T17:04:46.045Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/17/ae438d2fa5bdb9852dd2dfda88b401132ee1489993b0d16bf3f5f5cf7cf3/quber_workflow-0.2.0-py3-none-any.whl", hash = "sha256:0dcbeec78e9a5a1a4afcc81f22b95e1dec43f4aa3a1e664521a3cca03adb4473", size = 95524, upload-time = "2026-02-16T07:25:43.887Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/05/1d9b81e4f3845395b3185b03cf39a14bd860612931ab3928d5de00ac905f/quber_workflow-0.2.2-py3-none-any.whl", hash = "sha256:8ee555f23b770f2efff972bf3aeee209a3aa79f347394a1346dce4088fd8ab5e", size = 95919, upload-time = "2026-02-16T17:04:44.564Z" },
 ]
 
 [[package]]
@@ -3319,29 +3319,10 @@ dependencies = [
     { name = "websockets" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "altair" },
     { name = "ipython" },
-    { name = "jupyter" },
-    { name = "matplotlib" },
-    { name = "mypy" },
-    { name = "pandas-stubs" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-    { name = "ruff" },
-    { name = "seaborn" },
-    { name = "types-flask" },
-    { name = "types-pillow" },
-    { name = "types-redis" },
-    { name = "types-requests" },
-]
-
-[package.dev-dependencies]
-dev = [
     { name = "jupyter" },
     { name = "jupyterlab" },
     { name = "mypy" },
@@ -3353,6 +3334,7 @@ dev = [
     { name = "pytest-mock" },
     { name = "quber-workflow" },
     { name = "ruff" },
+    { name = "types-pillow" },
     { name = "types-pytz" },
     { name = "types-redis" },
     { name = "types-requests" },
@@ -3361,7 +3343,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.2" },
-    { name = "altair", marker = "extra == 'dev'", specifier = ">=5.5.0" },
     { name = "anywidget", specifier = ">=0.9.18" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "dash", specifier = ">=2.18.2" },
@@ -3371,49 +3352,34 @@ requires-dist = [
     { name = "influxdb-client", specifier = ">=1.48.0" },
     { name = "injector", specifier = ">=0.22.0" },
     { name = "ipykernel", specifier = ">=6.30.0" },
-    { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.29.0" },
     { name = "ipywidgets", specifier = ">=8.1.7" },
-    { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.1.1" },
     { name = "kaleido", specifier = "==0.1.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "matplotlib", specifier = ">=3.10.3" },
-    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.9.2" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.15.0" },
     { name = "nbformat", specifier = ">=4.2.0" },
     { name = "numpy", specifier = ">=2.1.3" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.20.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.20.0" },
     { name = "pandas", specifier = ">=2.2.3" },
-    { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=2.2.3.241009" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "plotly", specifier = ">=6.0.0" },
     { name = "polars", extras = ["numpy", "pandas", "pyarrow"], specifier = ">=1.16.0" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0.1" },
     { name = "pydantic", specifier = ">=2.10.1" },
     { name = "pydantic-settings", specifier = ">=2.7.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.3" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
-    { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.14.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-json-logger", specifier = ">=2.0.0" },
     { name = "redis", specifier = ">=5.2.1" },
     { name = "requests", specifier = ">=2.32.3" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7.3" },
     { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "seaborn", marker = "extra == 'dev'", specifier = ">=0.13.2" },
-    { name = "types-flask", marker = "extra == 'dev'", specifier = ">=1.1.6" },
-    { name = "types-pillow", marker = "extra == 'dev'", specifier = ">=10.0.0" },
-    { name = "types-redis", marker = "extra == 'dev'", specifier = ">=4.6.0.20241004" },
-    { name = "types-requests", marker = "extra == 'dev'", specifier = ">=2.32.0.20241016" },
     { name = "uvicorn", specifier = ">=0.34.0" },
     { name = "websocket", specifier = ">=0.2.1" },
     { name = "websockets", specifier = ">=14.1" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "altair", specifier = ">=5.5.0" },
+    { name = "ipython", specifier = ">=8.29.0" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "jupyterlab", specifier = ">=4.4.5" },
     { name = "mypy", specifier = ">=1.17.0" },
@@ -3423,8 +3389,9 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "pytest-mock", specifier = ">=3.14.1" },
-    { name = "quber-workflow", specifier = ">=0.2.0" },
+    { name = "quber-workflow" },
     { name = "ruff", specifier = ">=0.12.5" },
+    { name = "types-pillow", specifier = ">=10.0.0" },
     { name = "types-pytz", specifier = ">=2025.2.0.20250516" },
     { name = "types-redis", specifier = ">=4.6.0.20241004" },
     { name = "types-requests", specifier = ">=2.32.4.20250611" },
@@ -3536,50 +3503,6 @@ wheels = [
 ]
 
 [[package]]
-name = "types-click"
-version = "7.1.8"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/00/ff/0e6a56108d45c80c61cdd4743312d0304d8192482aea4cce96c554aaa90d/types-click-7.1.8.tar.gz", hash = "sha256:b6604968be6401dc516311ca50708a0a28baa7a0cb840efd7412f0dbbff4e092", size = 10015, upload-time = "2021-11-23T12:28:01.701Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/ad/607454a5f991c5b3e14693a7113926758f889138371058a5f72f567fa131/types_click-7.1.8-py3-none-any.whl", hash = "sha256:8cb030a669e2e927461be9827375f83c16b8178c365852c060a34e24871e7e81", size = 12929, upload-time = "2021-11-23T12:27:59.493Z" },
-]
-
-[[package]]
-name = "types-flask"
-version = "1.1.6"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "types-click" },
-    { name = "types-jinja2" },
-    { name = "types-werkzeug" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/79/65/728a104973133a45fba50f3d1e1ee832287666ac74cfd47004cea8402ea3/types-Flask-1.1.6.tar.gz", hash = "sha256:aac777b3abfff9436e6b01f6d08171cf23ea6e5be71cbf773aaabb1c5763e9cf", size = 9829, upload-time = "2021-11-26T06:21:31.199Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/6c/a98a0c29c39d8a6283ac704f3d36f0d570d8dee931e9d46d6cc60d436bec/types_Flask-1.1.6-py3-none-any.whl", hash = "sha256:6ab8a9a5e258b76539d652f6341408867298550b19b81f0e41e916825fc39087", size = 13733, upload-time = "2021-11-26T06:21:30.365Z" },
-]
-
-[[package]]
-name = "types-jinja2"
-version = "2.11.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "types-markupsafe" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/46/c4/b82309bfed8195de7997672deac301bd6f5bd5cbb6a3e392b7fe780d7852/types-Jinja2-2.11.9.tar.gz", hash = "sha256:dbdc74a40aba7aed520b7e4d89e8f0fe4286518494208b35123bcf084d4b8c81", size = 13302, upload-time = "2021-11-26T06:21:17.496Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/b0/e79d84748f1d34304f13191424348a719c3febaa3493835370fe9528e1e6/types_Jinja2-2.11.9-py3-none-any.whl", hash = "sha256:60a1e21e8296979db32f9374d8a239af4cb541ff66447bb915d8ad398f9c63b2", size = 18190, upload-time = "2021-11-26T06:21:16.18Z" },
-]
-
-[[package]]
-name = "types-markupsafe"
-version = "1.1.10"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/39/31/b5f059142d058aec41e913d8e0eff0a967e7bc46f9a2ba2f31bc11cff059/types-MarkupSafe-1.1.10.tar.gz", hash = "sha256:85b3a872683d02aea3a5ac2a8ef590193c344092032f58457287fbf8e06711b1", size = 2986, upload-time = "2021-11-27T03:18:07.558Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/d6/b8effb1c48539260a5eb4196afc55efac4ea1684a4991977555eb266b2ef/types_MarkupSafe-1.1.10-py3-none-any.whl", hash = "sha256:ca2bee0f4faafc45250602567ef38d533e877d2ddca13003b319c551ff5b3cc5", size = 3998, upload-time = "2021-11-27T03:18:06.398Z" },
-]
-
-[[package]]
 name = "types-pillow"
 version = "10.2.0.20240822"
 source = { registry = "https://pypi.org/simple" }
@@ -3651,15 +3574,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/79/66/1b276526aad4696a9519919e637801f2c103419d2c248a6feb2729e034d1/types_setuptools-80.9.0.20250529.tar.gz", hash = "sha256:79e088ba0cba2186c8d6499cbd3e143abb142d28a44b042c28d3148b1e353c91", size = 41337, upload-time = "2025-05-29T03:07:34.487Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1b/d8/83790d67ec771bf029a45ff1bd1aedbb738d8aa58c09dd0cc3033eea0e69/types_setuptools-80.9.0.20250529-py3-none-any.whl", hash = "sha256:00dfcedd73e333a430e10db096e4d46af93faf9314f832f13b6bbe3d6757e95f", size = 63263, upload-time = "2025-05-29T03:07:33.064Z" },
-]
-
-[[package]]
-name = "types-werkzeug"
-version = "1.0.9"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/eb/43/161261d2ac1fc20e944aa108e48a98ff0d994e19b498d6fb19d6637caf05/types-Werkzeug-1.0.9.tar.gz", hash = "sha256:5cc269604c400133d452a40cee6397655f878fc460e03fde291b9e3a5eaa518c", size = 23909, upload-time = "2021-11-26T06:21:28.33Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/c1/eaf8426126eafa46d649afb2fddede327043fbc2e84021b8b09a7fa15115/types_Werkzeug-1.0.9-py3-none-any.whl", hash = "sha256:194bd5715a13c598f05c63e8a739328657590943bce941e8a3619a6b5d4a54ec", size = 36186, upload-time = "2021-11-26T06:21:27.37Z" },
 ]
 
 [[package]]
