@@ -14,13 +14,20 @@ logger = logging.getLogger(__name__)
 class TelegrafHTTPEventProcessor(BaseEventProcessor):
     name = "telegraf_http"
 
-    def __init__(self):
+    def __init__(
+        self,
+        url: str = "http://influxdb:8086",
+        token: str | None = None,
+        org: str | None = None,
+        bucket: str | None = None,
+    ):
         self.client = InfluxDBClient(
-            url="http://influxdb:8086",
-            token=os.environ["INFLUX_DB_TOKEN"],
-            org=os.environ["INFLUX_DB_ORG"],
+            url=url,
+            token=token or os.environ.get("INFLUX_DB_TOKEN", ""),
+            org=org or os.environ.get("INFLUX_DB_ORG", ""),
         )
         self.write_api = self.client.write_api()
+        self.bucket = bucket or os.environ.get("INFLUX_DB_BUCKET", "")
 
     def process_event(self, event: BaseEvent) -> None:
         point = Point(event.__class__.__name__)
@@ -37,7 +44,7 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
             ]:
                 point.field(attr, value)
 
-        self.write_api.write(bucket=os.environ["INFLUX_DB_BUCKET"], record=point)
+        self.write_api.write(bucket=self.bucket, record=point)
 
     def close(self) -> None:
         """Flush pending writes and close the InfluxDB client."""
