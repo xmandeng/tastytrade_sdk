@@ -6,13 +6,11 @@
 #
 # Steps performed:
 # 1. Install Python dependencies using UV package manager
-# 2. Add pre-commit development dependency
-# 3. Configure shell environment to use project virtual environment
-# 4. Configure shell aliases for development workflow
-# 5. Install pre-commit git hooks for code quality checks
-# 6. Install Pyright language server via UV
-# 7. Configure Claude Code plugin marketplaces
-# 8. Install Python LSP plugin for Claude Code
+# 2. Configure shell environment and aliases
+# 3. Initialize quber-workflow (generates .claude/ and CLAUDE.md)
+# 4. Install pre-commit git hooks
+# 5. Install Pyright language server via UV
+# 6. Run personal configuration setup (if present)
 
 set -e
 
@@ -20,18 +18,6 @@ echo "Starting workspace setup..."
 
 # Ensure UV is available in PATH
 export PATH="$HOME/.local/bin:$PATH"
-
-# Ensure Claude Code configuration directory exists and has proper permissions
-if [ -d "/home/vscode/.claude" ]; then
-    echo "Claude Code configuration directory found, ensuring proper permissions..."
-    chmod 700 /home/vscode/.claude
-    # Ensure credentials file has proper permissions if it exists
-    if [ -f "/home/vscode/.claude/.credentials.json" ]; then
-        chmod 600 /home/vscode/.claude/.credentials.json
-    fi
-else
-    echo "Note: Claude Code configuration directory will be created on first login"
-fi
 
 # Step 1: Install all project dependencies including development tools
 echo "Installing dependencies with UV (including dev extras)..."
@@ -45,7 +31,26 @@ uv add --dev pytest pytest-cov pytest-asyncio pytest-mock ruff mypy pre-commit |
 # Only add if not already present to avoid duplicates
 if ! grep -q 'export PATH="/workspace/.venv/bin:$PATH"' /home/vscode/.bashrc; then
     echo "Adding virtual environment to PATH..."
-    echo 'export PATH="/workspace/.venv/bin:$PATH"' >> /home/vscode/.bashrc
+    cat >> /home/vscode/.bashrc << 'EOF'
+
+# Activate virtual environment
+export VIRTUAL_ENV="/workspace/.venv"
+export PATH="/workspace/.venv/bin:$PATH"
+EOF
+fi
+
+# Step 2a: Source .env file for environment variables (LangSmith, API keys, etc.)
+if ! grep -q 'source /workspace/.env' /home/vscode/.bashrc; then
+    echo "Adding .env sourcing to bashrc..."
+    cat >> /home/vscode/.bashrc << 'EOF'
+
+# Load environment variables from .env file
+if [ -f /workspace/.env ]; then
+    set -a
+    source /workspace/.env
+    set +a
+fi
+EOF
 fi
 
 # Step 2b: Configure shell aliases
@@ -95,28 +100,24 @@ alias tkill="tmux kill-server"
 EOF
 fi
 
-# Step 3: Install pre-commit hooks for automated code quality checks
+# Step 3: Initialize Claude Code workflow configuration (quber-workflow)
+# The .claude/ volume mount is created as root — fix ownership for vscode user
+sudo chown -R vscode:vscode /workspace/.claude
+
+echo "Initializing quber-workflow configuration..."
+/workspace/.venv/bin/quber-workflow init --config /workspace/.claude/.quber-workflow.yaml
+
+# Step 4: Install pre-commit hooks for automated code quality checks
 echo "Installing pre-commit hooks..."
 /workspace/.venv/bin/pre-commit install
 
-# Step 4: Install Pyright language server via UV
+# Step 5: Install Pyright language server via UV
 echo "Installing Pyright language server..."
 uv tool install pyright || echo "Pyright already installed"
 
-# Step 5: Configure Claude Code plugin marketplaces
-echo "Configuring Claude Code plugin marketplaces..."
-# Add official Anthropic plugin marketplace
-claude plugin marketplace add anthropics/claude-plugins-official 2>/dev/null || echo "Official marketplace already added or Claude not authenticated"
-# Add demo marketplace with examples
-claude plugin marketplace add anthropics/claude-code 2>/dev/null || echo "Demo marketplace already added or Claude not authenticated"
-
-# Step 6: Install Python LSP plugin (requires authentication)
-echo "Installing Python LSP plugin (pyright-lsp)..."
-claude plugin install pyright-lsp 2>/dev/null || echo "Python LSP plugin install skipped (requires Claude authentication)"
-
 echo "Workspace setup completed. All dependencies installed and pre-commit hooks configured."
 
-# Step 4: Run personal configuration setup if enabled
+# Step 6: Run personal configuration setup if enabled
 if [ -f "/workspace/.devcontainer/personal-setup.sh" ]; then
     echo "Checking for personal development environment setup..."
     /workspace/.devcontainer/personal-setup.sh
