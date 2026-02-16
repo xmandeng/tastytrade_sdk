@@ -1,7 +1,6 @@
 """Market data provider implementation."""
 
 import logging
-import os
 import re
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Optional, Union, overload
@@ -117,13 +116,19 @@ class MarketDataProvider:
         if stop_dt and stop_dt <= start_dt:
             raise ValueError("Stop time must be greater than start time")
 
+        bucket = config.get("INFLUX_DB_BUCKET")
+        if not bucket:
+            raise ValueError(
+                "INFLUX_DB_BUCKET is required. Ensure it is set in Redis configuration."
+            )
+
         if stop_dt:
             date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
         else:
             date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
         pivot_query = f"""
-            from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ["INFLUX_DB_BUCKET"]}")
+            from(bucket: "{bucket}")
             |> range(start: {date_range}
             |> filter(fn: (r) => r["_measurement"] == "{self.event_type}")
             |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
@@ -241,13 +246,19 @@ class MarketDataProvider:
         if stop_dt and stop_dt <= start_dt:
             raise ValueError("Stop time must be greater than start time")
 
+        bucket = config.get("INFLUX_DB_BUCKET")
+        if not bucket:
+            raise ValueError(
+                "INFLUX_DB_BUCKET is required. Ensure it is set in Redis configuration."
+            )
+
         if stop_dt:
             date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}, stop: {stop_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
         else:
             date_range = f"{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')})"
 
         pivot_query = f"""
-            from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ["INFLUX_DB_BUCKET"]}")
+            from(bucket: "{bucket}")
             |> range(start: {date_range}
             |> filter(fn: (r) => r["_measurement"] == "{measurement}")
             |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")

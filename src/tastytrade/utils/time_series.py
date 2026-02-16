@@ -1,5 +1,4 @@
 import logging
-import os
 import warnings
 from typing import Optional
 
@@ -22,11 +21,20 @@ config = RedisConfigManager()
 
 def initialize_influx_client() -> InfluxDBClient:
     """Initialize and return an InfluxDB client."""
-    return InfluxDBClient(
-        url=config.get("INFLUX_DB_URL") or os.environ.get("INFLUX_DB_URL"),
-        token=config.get("INFLUX_DB_TOKEN") or os.environ.get("INFLUX_DB_TOKEN"),
-        org=config.get("INFLUX_DB_ORG") or os.environ.get("INFLUX_DB_ORG"),
-    )
+    token = config.get("INFLUX_DB_TOKEN")
+    org = config.get("INFLUX_DB_ORG")
+    url = config.get("INFLUX_DB_URL", "http://influxdb:8086")
+
+    if not token:
+        raise ValueError(
+            "INFLUX_DB_TOKEN is required. Ensure it is set in Redis configuration."
+        )
+    if not org:
+        raise ValueError(
+            "INFLUX_DB_ORG is required. Ensure it is set in Redis configuration."
+        )
+
+    return InfluxDBClient(url=url, token=token, org=org)
 
 
 def query_candle_event_data(
@@ -34,9 +42,14 @@ def query_candle_event_data(
 ) -> Optional[pd.DataFrame]:
     """Query existing CandleEvent data for the symbol."""
     query_api = client.query_api()
+    bucket = config.get("INFLUX_DB_BUCKET")
+    if not bucket:
+        raise ValueError(
+            "INFLUX_DB_BUCKET is required. Ensure it is set in Redis configuration."
+        )
 
     query = f"""
-    from(bucket: "{config.get("INFLUX_DB_BUCKET") or os.environ.get("INFLUX_DB_BUCKET")}")
+    from(bucket: "{bucket}")
       |> range(start: -{lookback_days}d)
       |> filter(fn: (r) => r["_measurement"] == "CandleEvent")
       |> filter(fn: (r) => r["eventSymbol"] == "{symbol}")
@@ -79,7 +92,15 @@ def prepare_and_fill_data(tables: pd.DataFrame, time_interval: str) -> pd.DataFr
 
 def write_candle_events(missing_df: pd.DataFrame, symbol: str):
     """Use TelegrafHTTPEventProcessor to process and write CandleEvent data."""
-    processor = TelegrafHTTPEventProcessor()
+    from tastytrade.config import RedisConfigManager
+
+    config = RedisConfigManager()
+    processor = TelegrafHTTPEventProcessor(
+        url=config.get("INFLUX_DB_URL", "http://influxdb:8086"),
+        token=config.get("INFLUX_DB_TOKEN"),
+        org=config.get("INFLUX_DB_ORG"),
+        bucket=config.get("INFLUX_DB_BUCKET"),
+    )
 
     logger.debug("Processing and writing CandleEvent data via Telegraf for %s", symbol)
 

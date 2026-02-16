@@ -102,7 +102,14 @@ async def lifespan(app: FastAPI):
                     event_handler,
                 ) in dxlink_manager.router.handler.items():
                     logger.info(f"Adding processors to {handler_name} handler")
-                    event_handler.add_processor(TelegrafHTTPEventProcessor())
+                    event_handler.add_processor(
+                        TelegrafHTTPEventProcessor(
+                            url=config.get("INFLUX_DB_URL", "http://influxdb:8086"),
+                            token=config.get("INFLUX_DB_TOKEN"),
+                            org=config.get("INFLUX_DB_ORG"),
+                            bucket=config.get("INFLUX_DB_BUCKET"),
+                        )
+                    )
                     event_handler.add_processor(RedisEventProcessor())
 
                 logger.info(

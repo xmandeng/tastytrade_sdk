@@ -1,6 +1,5 @@
 # ! NEEDS ERROR HANDLING - WHEN INFLUXDB IS DOWN, THE PROCESSOR SHOULD ALERT
 import logging
-import os
 from datetime import datetime
 
 from influxdb_client import InfluxDBClient, Point
@@ -21,13 +20,22 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
         org: str | None = None,
         bucket: str | None = None,
     ):
-        self.client = InfluxDBClient(
-            url=url,
-            token=token or os.environ.get("INFLUX_DB_TOKEN", ""),
-            org=org or os.environ.get("INFLUX_DB_ORG", ""),
-        )
+        if not token:
+            raise ValueError(
+                "INFLUX_DB_TOKEN is required. Ensure it is set in Redis configuration."
+            )
+        if not org:
+            raise ValueError(
+                "INFLUX_DB_ORG is required. Ensure it is set in Redis configuration."
+            )
+        if not bucket:
+            raise ValueError(
+                "INFLUX_DB_BUCKET is required. Ensure it is set in Redis configuration."
+            )
+
+        self.client = InfluxDBClient(url=url, token=token, org=org)
         self.write_api = self.client.write_api()
-        self.bucket = bucket or os.environ.get("INFLUX_DB_BUCKET", "")
+        self.bucket = bucket
 
     def process_event(self, event: BaseEvent) -> None:
         point = Point(event.__class__.__name__)

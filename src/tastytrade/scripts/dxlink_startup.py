@@ -81,7 +81,14 @@ async def main():
             logger.info("Setting up event processors")
             for handler_name, event_handler in dxlink.router.handler.items():
                 logger.debug(f"Adding processors to {handler_name} handler")
-                event_handler.add_processor(TelegrafHTTPEventProcessor())
+                event_handler.add_processor(
+                    TelegrafHTTPEventProcessor(
+                        url=config.get("INFLUX_DB_URL", "http://influxdb:8086"),
+                        token=config.get("INFLUX_DB_TOKEN"),
+                        org=config.get("INFLUX_DB_ORG"),
+                        bucket=config.get("INFLUX_DB_BUCKET"),
+                    )
+                )
                 event_handler.add_processor(RedisEventProcessor())
 
             # Subscribe to candles
