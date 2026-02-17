@@ -4,8 +4,8 @@
   "service": "tastytrade-sdk-dev",
   "workspaceFolder": "/workspace",
 
-  // Forward ports from the container to the host
-  "forwardPorts": [8000],
+  // Use 'forwardPorts' to make a list of ports inside the container available locally
+  "forwardPorts": [],
 
   // Configure tool-specific properties
   "customizations": {
@@ -56,6 +56,12 @@
     "PYTHONPATH": "/workspace/src",
     "PYTHONUNBUFFERED": "1"
   },
+
+  // Run arguments to pass environment variables from .env file
+  "runArgs": [
+    "--env-file",
+    "${localWorkspaceFolder}/.env"
+  ],
 
   "remoteUser": "developer"
 }

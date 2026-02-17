@@ -25,22 +25,7 @@ services:
     stdin_open: true
     tty: true
     user: developer
-    env_file:
-      - ../.env
-    environment:
-      # Infrastructure service discovery — Docker DNS resolves these on the
-      # bridge network, overriding any localhost values from .env
-      REDIS_HOST: redis
-      INFLUX_DB_URL: http://influxdb:8086
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - infra
+    network_mode: host
 
 volumes:
   uv-cache:
-
-networks:
-  infra:
-    external: true
-    name: tastytrade_sdk_internal_net

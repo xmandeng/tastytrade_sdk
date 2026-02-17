@@ -40,14 +40,9 @@ load_env_file() {
         value="${value%\'}"
         value="${value#\'}"
 
-        # Only export if not already set (preserves Docker Compose overrides)
-        # This allows docker-compose.yml to override .env values for service discovery
-        if [ -z "${!key}" ]; then
-            export "$key=$value"
-            echo "  Loaded: $key"
-        else
-            echo "  Skipped: $key (already set)"
-        fi
+        # Export the variable to current environment
+        export "$key=$value"
+        echo "  Loaded: $key"
     done < "$env_file"
 
     return 0
