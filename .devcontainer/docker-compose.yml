@@ -1,0 +1,46 @@
+services:
+  tastytrade-sdk-dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      target: final
+      args:
+        USERNAME: developer
+        USER_UID: 1000
+        USER_GID: 1000
+    container_name: tastytrade-sdk-devcontainer
+    volumes:
+      - ..:/workspace:cached
+      - ~/.gitconfig:/home/developer/.gitconfig-host:ro
+      - ~/.ssh:/home/developer/.ssh:ro
+      # Persist uv cache between container rebuilds
+      - uv-cache:/home/developer/.cache/uv
+      # Share Claude authentication (read-write so CLI can refresh tokens)
+      - ~/.claude/.credentials.json:/home/developer/.claude/.credentials.json
+      - ~/.claude.json:/home/developer/.claude.json
+      # Docker-from-Docker: mount host Docker socket
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspace
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+    user: developer
+    env_file:
+      - ../.env
+    environment:
+      # Infrastructure service discovery — Docker DNS resolves these on the
+      # bridge network, overriding any localhost values from .env
+      REDIS_HOST: redis
+      INFLUX_DB_URL: http://influxdb:8086
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - infra
+
+volumes:
+  uv-cache:
+
+networks:
+  infra:
+    external: true
+    name: tastytrade_sdk_internal_net
