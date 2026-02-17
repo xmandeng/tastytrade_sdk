@@ -99,7 +99,7 @@ async def query_status(
     """Query Redis for current subscription status.
 
     Args:
-        host: Redis host (defaults to REDIS_HOST env var or "redis").
+        host: Redis host (defaults to REDIS_HOST env var or "localhost").
         port: Redis port (defaults to REDIS_PORT env var or 6379).
         hash_key: Redis hash key for subscriptions.
 
@@ -107,7 +107,7 @@ async def query_status(
         StatusResult with connection info and subscription data.
     """
     result = StatusResult()
-    redis_host = host or os.environ.get("REDIS_HOST", "redis")
+    redis_host = host or os.environ.get("REDIS_HOST", "localhost")
     redis_port = port or int(os.environ.get("REDIS_PORT", "6379"))
 
     client = aioredis.Redis(host=str(redis_host), port=int(redis_port), db=0)

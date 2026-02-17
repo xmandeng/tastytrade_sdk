@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type, TypeVar, cast
 
@@ -130,7 +131,7 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         """Initialize the configuration manager.
 
         Args:
-            redis_host: Redis host (defaults to env var REDIS_HOST or 'redis')
+            redis_host: Redis host (defaults to env var REDIS_HOST or 'localhost')
             redis_port: Redis port (defaults to env var REDIS_PORT or 6379)
             redis_db: Redis DB (defaults to env var REDIS_DB or 0)
             namespace: Namespace prefix for all configuration keys
@@ -144,11 +145,21 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         self.env_file = env_file or ".env"
         env_vars = dotenv_values(self.env_file)
 
+        # Bootstrap: os.environ (set by Docker compose or `source .env`)
+        # takes precedence over .env file values for service discovery
         self.namespace = namespace
         self.redis_client = redis.Redis(
-            host=redis_host or env_vars.get("REDIS_HOST", "redis"),
-            port=int(redis_port or env_vars.get("REDIS_PORT", 6379)),
-            db=int(redis_db or env_vars.get("REDIS_DB", 0)),
+            host=redis_host
+            or os.environ.get("REDIS_HOST")
+            or env_vars.get("REDIS_HOST", "localhost"),
+            port=int(
+                redis_port
+                or os.environ.get("REDIS_PORT")
+                or env_vars.get("REDIS_PORT", 6379)
+            ),
+            db=int(
+                redis_db or os.environ.get("REDIS_DB") or env_vars.get("REDIS_DB", 0)
+            ),
         )
         self.initialized = False
 
@@ -159,7 +170,9 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
     def initialize(self, force: bool = False) -> None:
         """Initialize configuration from .env file.
 
-        This loads environment variables from .env into Redis.
+        Loads environment variables from .env into Redis, then applies
+        os.environ overrides so Docker compose ``environment`` values
+        take precedence over .env file values.
 
         Args:
             force: Force reinitialization even if values already exist
@@ -169,6 +182,12 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
 
         try:
             if env_vars := dotenv_values(self.env_file):
+                # Runtime environment overrides .env file values
+                # (Docker compose `environment` section takes precedence)
+                for key in env_vars:
+                    if key in os.environ:
+                        env_vars[key] = os.environ[key]
+
                 hash_key = self.get_hash_key()
                 self.redis_client.hset(hash_key, mapping=env_vars)
                 logger.info(
@@ -193,6 +212,9 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
     ) -> Any:
         """Get a configuration value.
 
+        Resolution order: os.environ (Docker compose overrides) → Redis
+        (.env file) → default.
+
         Args:
             key: Configuration key
             default: Default value if key doesn't exist
@@ -201,6 +223,13 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         Returns:
             The configuration value
         """
+        # Runtime environment takes precedence (Docker compose overrides)
+        env_value = os.environ.get(key)
+        if env_value is not None:
+            if value_type is not None:
+                return self.convert_value(env_value, value_type)
+            return env_value
+
         logger.debug(f"Getting {key} from Redis")
         hash_key = self.get_hash_key()
         value = self.redis_client.hget(hash_key, key)
@@ -286,7 +315,7 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         """Initialize the configuration manager.
 
         Args:
-            redis_host: Redis host (defaults to env var REDIS_HOST or 'redis')
+            redis_host: Redis host (defaults to env var REDIS_HOST or 'localhost')
             redis_port: Redis port (defaults to env var REDIS_PORT or 6379)
             redis_db: Redis DB (defaults to env var REDIS_DB or 0)
             namespace: Namespace prefix for all configuration keys
@@ -300,11 +329,21 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         self.env_file = env_file or ".env"
         env_vars = dotenv_values(self.env_file)
 
+        # Bootstrap: os.environ (set by Docker compose or `source .env`)
+        # takes precedence over .env file values for service discovery
         self.namespace = namespace
         self.redis_client = redis.asyncio.Redis(
-            host=redis_host or env_vars.get("REDIS_HOST", "redis"),
-            port=int(redis_port or env_vars.get("REDIS_PORT", 6379)),
-            db=int(redis_db or env_vars.get("REDIS_DB", 0)),
+            host=redis_host
+            or os.environ.get("REDIS_HOST")
+            or env_vars.get("REDIS_HOST", "localhost"),
+            port=int(
+                redis_port
+                or os.environ.get("REDIS_PORT")
+                or env_vars.get("REDIS_PORT", 6379)
+            ),
+            db=int(
+                redis_db or os.environ.get("REDIS_DB") or env_vars.get("REDIS_DB", 0)
+            ),
         )
         self.initialized = False
 
@@ -315,7 +354,9 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
     async def initialize(self, force: bool = False) -> None:
         """Initialize configuration from .env file.
 
-        This loads environment variables from .env into Redis.
+        Loads environment variables from .env into Redis, then applies
+        os.environ overrides so Docker compose ``environment`` values
+        take precedence over .env file values.
 
         Args:
             force: Force reinitialization even if values already exist
@@ -325,6 +366,12 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
 
         try:
             if env_vars := dotenv_values(self.env_file):
+                # Runtime environment overrides .env file values
+                # (Docker compose `environment` section takes precedence)
+                for key in env_vars:
+                    if key in os.environ:
+                        env_vars[key] = os.environ[key]
+
                 hash_key = self.get_hash_key()
                 await self.redis_client.hset(hash_key, mapping=env_vars)
                 logger.info(
@@ -349,6 +396,9 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
     ) -> Any:
         """Get a configuration value asynchronously.
 
+        Resolution order: os.environ (Docker compose overrides) → Redis
+        (.env file) → default.
+
         Args:
             key: Configuration key
             default: Default value if key doesn't exist
@@ -357,6 +407,13 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         Returns:
             The configuration value
         """
+        # Runtime environment takes precedence (Docker compose overrides)
+        env_value = os.environ.get(key)
+        if env_value is not None:
+            if value_type is not None:
+                return self.convert_value(env_value, value_type)
+            return env_value
+
         logger.debug(f"Getting {key} from Redis")
         hash_key = self.get_hash_key()
         value = await self.redis_client.hget(hash_key, key)

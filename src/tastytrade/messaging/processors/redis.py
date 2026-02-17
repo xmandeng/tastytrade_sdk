@@ -1,3 +1,5 @@
+import os
+
 import redis  # type: ignore
 
 from tastytrade.messaging.models.events import BaseEvent
@@ -7,9 +9,15 @@ from tastytrade.messaging.processors.default import BaseEventProcessor
 class RedisEventProcessor(BaseEventProcessor):
     name = "redis_pubsub"
 
-    def __init__(self, redis_host="redis", redis_port=6379):
+    def __init__(self, redis_host: str | None = None, redis_port: int | None = None):
         super().__init__()
-        self.redis = redis.Redis(host=redis_host, port=redis_port)
+        host = redis_host or os.environ.get("REDIS_HOST", "localhost")
+        port = (
+            redis_port
+            if redis_port is not None
+            else int(os.environ.get("REDIS_PORT", "6379"))
+        )
+        self.redis = redis.Redis(host=host, port=port)
 
     def process_event(self, event: BaseEvent) -> None:
         """Process an event and publish it to Redis."""

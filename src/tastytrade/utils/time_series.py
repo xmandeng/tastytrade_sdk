@@ -23,7 +23,7 @@ def initialize_influx_client() -> InfluxDBClient:
     """Initialize and return an InfluxDB client."""
     token = config.get("INFLUX_DB_TOKEN")
     org = config.get("INFLUX_DB_ORG")
-    url = config.get("INFLUX_DB_URL", "http://influxdb:8086")
+    url = config.get("INFLUX_DB_URL", "http://localhost:8086")
 
     if not token:
         raise ValueError(
@@ -71,7 +71,13 @@ def query_candle_event_data(
 
 def prepare_and_fill_data(tables: pd.DataFrame, time_interval: str) -> pd.DataFrame:
     """Prepare DataFrame, identify missing time buckets using first and last records as bookends, and forward-fill."""
-    pandas_interval = time_interval.replace("m", "T").upper()
+    # pandas 3.0 removed 'T' (minutes → 'min') and deprecated 'd' (days → 'D')
+    if time_interval.endswith("m"):
+        pandas_interval = time_interval[:-1] + "min"
+    elif time_interval.endswith("d"):
+        pandas_interval = time_interval[:-1] + "D"
+    else:
+        pandas_interval = time_interval
 
     # Convert '_time' to datetime and set as index
     tables["_time"] = pd.to_datetime(tables["_time"].dt.tz_localize(None))
@@ -96,7 +102,7 @@ def write_candle_events(missing_df: pd.DataFrame, symbol: str):
 
     config = RedisConfigManager()
     processor = TelegrafHTTPEventProcessor(
-        url=config.get("INFLUX_DB_URL", "http://influxdb:8086"),
+        url=config.get("INFLUX_DB_URL", "http://localhost:8086"),
         token=config.get("INFLUX_DB_TOKEN"),
         org=config.get("INFLUX_DB_ORG"),
         bucket=config.get("INFLUX_DB_BUCKET"),
