@@ -273,7 +273,7 @@ async def _run_subscription_once(
         for handler in handlers_dict.values():
             handler.add_processor(
                 TelegrafHTTPEventProcessor(
-                    url=config.get("INFLUX_DB_URL", "http://influxdb:8086"),
+                    url=config.get("INFLUX_DB_URL", "http://localhost:8086"),
                     token=config.get("INFLUX_DB_TOKEN"),
                     org=config.get("INFLUX_DB_ORG"),
                     bucket=config.get("INFLUX_DB_BUCKET"),

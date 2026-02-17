@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
                     logger.info(f"Adding processors to {handler_name} handler")
                     event_handler.add_processor(
                         TelegrafHTTPEventProcessor(
-                            url=config.get("INFLUX_DB_URL", "http://influxdb:8086"),
+                            url=config.get("INFLUX_DB_URL", "http://localhost:8086"),
                             token=config.get("INFLUX_DB_TOKEN"),
                             org=config.get("INFLUX_DB_ORG"),
                             bucket=config.get("INFLUX_DB_BUCKET"),
@@ -185,7 +185,7 @@ class SubscriptionStatus(BaseModel):
 #         }
 #     except Exception as e:
 #         logger.error(f"Health check failed: {e}")
-#         raise HTTPException(status_code=500, detail=str(e))
+#         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/subscriptions")
@@ -209,7 +209,7 @@ async def get_subscriptions() -> Dict[str, SubscriptionStatus]:
         }
     except Exception as e:
         logger.error(f"Error getting subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/subscribe/feed")
@@ -228,7 +228,7 @@ async def subscribe(
         }
     except Exception as e:
         logger.error(f"Error subscribing to feed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/unsubscribe/feed")
@@ -247,7 +247,7 @@ async def unsubscribe(
         }
     except Exception as e:
         logger.error(f"Error unsubscribing from feed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/subscribe/candles")
@@ -272,7 +272,7 @@ async def subscribe_to_candles(
         }
     except Exception as e:
         logger.error(f"Error subscribing to candles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/unsubscribe/candles")
@@ -295,7 +295,7 @@ async def unsubscribe_from_candles(
         }
     except Exception as e:
         logger.error(f"Error unsubscribing from candles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/subscriptions")
@@ -338,7 +338,7 @@ async def clear_all_subscriptions(background_tasks: BackgroundTasks):
         }
     except Exception as e:
         logger.error(f"Error clearing subscriptions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def start():

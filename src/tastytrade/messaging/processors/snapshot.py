@@ -116,6 +116,10 @@ class CandleSnapshotTracker:
 
         return set(self.pending_symbols)
 
+    def close(self) -> None:
+        """No-op: CandleSnapshotTracker holds no external resources."""
+        pass
+
     def reset(self) -> None:
         """Clear all tracking state."""
         self.pending_symbols.clear()

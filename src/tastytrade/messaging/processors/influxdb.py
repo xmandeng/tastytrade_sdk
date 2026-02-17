@@ -1,5 +1,6 @@
 # ! NEEDS ERROR HANDLING - WHEN INFLUXDB IS DOWN, THE PROCESSOR SHOULD ALERT
 import logging
+import os
 from datetime import datetime
 
 from influxdb_client import InfluxDBClient, Point
@@ -15,11 +16,14 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
 
     def __init__(
         self,
-        url: str = "http://influxdb:8086",
+        url: str | None = None,
         token: str | None = None,
         org: str | None = None,
         bucket: str | None = None,
     ):
+        # Service discovery: os.environ (Docker Compose) → code default (host)
+        # See docs/SERVICE_DISCOVERY.md
+        url = url or os.environ.get("INFLUX_DB_URL", "http://localhost:8086")
         if not token:
             raise ValueError(
                 "INFLUX_DB_TOKEN is required. Ensure it is set in Redis configuration."
