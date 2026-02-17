@@ -64,8 +64,4 @@ test.ipynb
 
 src/devtools/*
 
-# Personal Devcontainer Configuration
-.devcontainer/devcontainer.local.json
-.devcontainer/personal/
-
-.github/workflows/jira-transition.yml
+.claude*tar.gz
