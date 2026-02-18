@@ -55,12 +55,68 @@ def test_get_daily_candle_returns_candle_event(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_get_daily_candle_empty_result_raises(monkeypatch: pytest.MonkeyPatch):
-    """Mock empty DataFrame, assert ValueError raised."""
+    """Mock empty DataFrame for all lookback days, assert ValueError raised."""
     provider = _make_provider()
     monkeypatch.setattr(provider, "download", MagicMock(return_value=pl.DataFrame()))
 
-    with pytest.raises(ValueError, match="No daily candle found"):
+    with pytest.raises(ValueError, match="No valid daily candle found"):
         provider.get_daily_candle("SPX{=m}", date(2026, 2, 7))
+
+
+def test_get_daily_candle_walks_back_past_holidays(monkeypatch: pytest.MonkeyPatch):
+    """When target_date has no data (holiday), walk back to previous trading day."""
+    provider = _make_provider()
+    friday_row = {
+        **_CANDLE_ROW,
+        "time": [datetime(2026, 2, 13)],
+    }
+    friday_df = pl.DataFrame(friday_row)
+
+    def mock_download(symbol, start, stop, debug_mode=False):
+        # Feb 16 (Presidents' Day) → empty, Feb 13 (Friday) → data
+        if start == date(2026, 2, 16):
+            return pl.DataFrame()
+        if start == date(2026, 2, 13):
+            return friday_df
+        return pl.DataFrame()
+
+    monkeypatch.setattr(provider, "download", mock_download)
+
+    result = provider.get_daily_candle("SPX{=5m}", date(2026, 2, 16))
+
+    assert isinstance(result, CandleEvent)
+    assert result.close == 6025.0
+
+
+def test_get_daily_candle_skips_null_close(monkeypatch: pytest.MonkeyPatch):
+    """When a day returns data but close is None, keep walking back."""
+    provider = _make_provider()
+    null_close_row = {
+        "eventSymbol": ["SPX{=d}"],
+        "time": [datetime(2026, 2, 14)],
+        "open": [None],
+        "high": [None],
+        "low": [None],
+        "close": [None],
+        "volume": [None],
+    }
+    valid_row = {
+        **_CANDLE_ROW,
+        "time": [datetime(2026, 2, 13)],
+    }
+
+    def mock_download(symbol, start, stop, debug_mode=False):
+        if start == date(2026, 2, 14):
+            return pl.DataFrame(null_close_row)
+        if start == date(2026, 2, 13):
+            return pl.DataFrame(valid_row)
+        return pl.DataFrame()
+
+    monkeypatch.setattr(provider, "download", mock_download)
+
+    result = provider.get_daily_candle("SPX{=5m}", date(2026, 2, 14))
+
+    assert result.close == 6025.0
 
 
 def test_get_daily_candle_bare_symbol(monkeypatch: pytest.MonkeyPatch):

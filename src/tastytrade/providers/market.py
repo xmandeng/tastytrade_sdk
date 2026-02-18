@@ -180,39 +180,55 @@ class MarketDataProvider:
         self.frames[symbol] = result
         return result
 
-    def get_daily_candle(self, symbol: str, target_date: date) -> "CandleEvent":
+    def get_daily_candle(
+        self, symbol: str, target_date: date, max_lookback: int = 7
+    ) -> "CandleEvent":
         """Fetch a single daily candle for a symbol and date.
 
         Rewrites any interval suffix to daily ({=d}), downloads one day of
-        data from InfluxDB, and returns a CandleEvent.
+        data from InfluxDB, and returns a CandleEvent.  When no valid candle
+        is found on *target_date* (empty result or ``close is None``), walks
+        backwards up to *max_lookback* calendar days, skipping weekends, to
+        find the most recent trading day with data.
 
         Args:
             symbol: Market symbol in any format (e.g. "SPX", "SPX{=m}", "SPX{=5m}").
-            target_date: The date to fetch the daily candle for.
+            target_date: The date to start searching from.
+            max_lookback: Maximum calendar days to walk back (default 7).
 
         Returns:
             A CandleEvent with OHLCV fields populated.
 
         Raises:
-            ValueError: If no candle data is found for the given symbol and date.
+            ValueError: If no valid candle data is found within the lookback window.
         """
         from tastytrade.messaging.models.events import CandleEvent
 
         daily_symbol = re.sub(r"\{=.*?\}", "", symbol) + "{=d}"
 
-        df = self.download(
-            symbol=daily_symbol,
-            start=target_date,
-            stop=target_date + timedelta(days=1),
-            debug_mode=True,
-        )
+        check_date = target_date
+        for _ in range(max_lookback):
+            while check_date.weekday() > 4:
+                check_date -= timedelta(days=1)
 
-        if df.is_empty():
-            raise ValueError(
-                f"No daily candle found for {daily_symbol} on {target_date}"
+            df = self.download(
+                symbol=daily_symbol,
+                start=check_date,
+                stop=check_date + timedelta(days=1),
+                debug_mode=True,
             )
 
-        return CandleEvent(**df.to_dicts().pop())
+            if not df.is_empty():
+                candle = CandleEvent(**df.to_dicts().pop())
+                if candle.close is not None:
+                    return candle
+
+            check_date -= timedelta(days=1)
+
+        raise ValueError(
+            f"No valid daily candle found for {daily_symbol} within "
+            f"{max_lookback} days of {target_date}"
+        )
 
     def download_signals(
         self,
