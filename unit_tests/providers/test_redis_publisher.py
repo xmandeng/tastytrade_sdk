@@ -112,6 +112,26 @@ def test_engine_publish_to_redis_via_on_signal(mock_redis_cls: MagicMock) -> Non
     assert call_kwargs.kwargs["channel"] == "market:TradeSignal:SPX{=5m}"
 
 
+@patch.dict("os.environ", {"REDIS_HOST": "redis-prod", "REDIS_PORT": "6380"})
+@patch("tastytrade.providers.subscriptions.sync_redis.Redis")
+def test_publisher_uses_env_vars_for_service_discovery(
+    mock_redis_cls: MagicMock,
+) -> None:
+    """RedisPublisher respects REDIS_HOST/REDIS_PORT environment variables."""
+    RedisPublisher()
+    mock_redis_cls.assert_called_once_with(host="redis-prod", port=6380)
+
+
+@patch.dict(
+    "os.environ", {"REDIS_HOST": "redis-prod", "REDIS_PORT": "6380"}, clear=False
+)
+@patch("tastytrade.providers.subscriptions.sync_redis.Redis")
+def test_publisher_explicit_host_overrides_env(mock_redis_cls: MagicMock) -> None:
+    """Explicit host/port parameters take precedence over env vars."""
+    RedisPublisher(redis_host="custom-host", redis_port=9999)
+    mock_redis_cls.assert_called_once_with(host="custom-host", port=9999)
+
+
 def test_typed_deserialization_round_trip() -> None:
     """Event published to Redis deserializes back via known type."""
     quote = make_quote()

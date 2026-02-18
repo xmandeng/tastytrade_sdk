@@ -148,19 +148,22 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
         # Bootstrap: os.environ (set by Docker compose or `source .env`)
         # takes precedence over .env file values for service discovery
         self.namespace = namespace
-        self.redis_client = redis.Redis(
-            host=redis_host
+        host = (
+            redis_host
             or os.environ.get("REDIS_HOST")
-            or env_vars.get("REDIS_HOST", "localhost"),
-            port=int(
-                redis_port
-                or os.environ.get("REDIS_PORT")
-                or env_vars.get("REDIS_PORT", 6379)
-            ),
-            db=int(
-                redis_db or os.environ.get("REDIS_DB") or env_vars.get("REDIS_DB", 0)
-            ),
+            or env_vars.get("REDIS_HOST")
+            or "localhost"
         )
+        port = int(
+            redis_port
+            or os.environ.get("REDIS_PORT")
+            or env_vars.get("REDIS_PORT")
+            or 6379
+        )
+        db = int(
+            redis_db or os.environ.get("REDIS_DB") or env_vars.get("REDIS_DB") or 0
+        )
+        self.redis_client = redis.Redis(host=host, port=port, db=db)
         self.initialized = False
 
     def get_hash_key(self) -> str:
@@ -189,7 +192,10 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
                         env_vars[key] = os.environ[key]
 
                 hash_key = self.get_hash_key()
-                self.redis_client.hset(hash_key, mapping=env_vars)
+                clean: dict[str, str] = {
+                    k: v for k, v in env_vars.items() if v is not None
+                }
+                self.redis_client.hset(hash_key, mapping=clean)  # type: ignore[arg-type]
                 logger.info(
                     f"Initialized {len(env_vars)} variables from .env file in Redis"
                 )
@@ -239,13 +245,13 @@ class RedisConfigManager(ConfigManagerBase, ConfigurationManager):
             return default
 
         # Decode bytes to string
-        value = value.decode("utf-8")
+        decoded = value.decode("utf-8")
 
         # Convert value type if specified
         if value_type is not None:
-            value = self.convert_value(value, value_type)
+            return self.convert_value(decoded, value_type)
 
-        return value
+        return decoded
 
     def set(self, key: str, value: Any) -> None:
         """Set a configuration value.
@@ -332,19 +338,22 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
         # Bootstrap: os.environ (set by Docker compose or `source .env`)
         # takes precedence over .env file values for service discovery
         self.namespace = namespace
-        self.redis_client = redis.asyncio.Redis(
-            host=redis_host
+        host = (
+            redis_host
             or os.environ.get("REDIS_HOST")
-            or env_vars.get("REDIS_HOST", "localhost"),
-            port=int(
-                redis_port
-                or os.environ.get("REDIS_PORT")
-                or env_vars.get("REDIS_PORT", 6379)
-            ),
-            db=int(
-                redis_db or os.environ.get("REDIS_DB") or env_vars.get("REDIS_DB", 0)
-            ),
+            or env_vars.get("REDIS_HOST")
+            or "localhost"
         )
+        port = int(
+            redis_port
+            or os.environ.get("REDIS_PORT")
+            or env_vars.get("REDIS_PORT")
+            or 6379
+        )
+        db = int(
+            redis_db or os.environ.get("REDIS_DB") or env_vars.get("REDIS_DB") or 0
+        )
+        self.redis_client = redis.asyncio.Redis(host=host, port=port, db=db)
         self.initialized = False
 
     def get_hash_key(self) -> str:
@@ -373,7 +382,10 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
                         env_vars[key] = os.environ[key]
 
                 hash_key = self.get_hash_key()
-                await self.redis_client.hset(hash_key, mapping=env_vars)
+                clean: dict[str, str] = {
+                    k: v for k, v in env_vars.items() if v is not None
+                }
+                await self.redis_client.hset(hash_key, mapping=clean)  # type: ignore[arg-type]
                 logger.info(
                     f"Initialized {len(env_vars)} variables from .env file in Redis"
                 )
@@ -423,13 +435,13 @@ class AsyncRedisConfigManager(ConfigManagerBase, AsyncConfigurationManager):
             return default
 
         # Decode bytes to string
-        value = value.decode("utf-8")
+        decoded = value.decode("utf-8")
 
         # Convert value type if specified
         if value_type is not None:
-            value = self.convert_value(value, value_type)
+            return self.convert_value(decoded, value_type)
 
-        return value
+        return decoded
 
     async def set(self, key: str, value: Any) -> None:
         """Set a configuration value asynchronously.

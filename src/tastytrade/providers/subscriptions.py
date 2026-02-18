@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Callable
@@ -8,6 +9,7 @@ from typing import Callable
 import redis as sync_redis
 import redis.asyncio as redis  # type: ignore
 
+import tastytrade.messaging.models.events as events
 from tastytrade.config import ConfigurationManager
 from tastytrade.messaging.models.events import BaseEvent
 
@@ -25,7 +27,7 @@ class DataSubscription(ABC):
     async def subscribe(
         self,
         channel_pattern: str,
-        event_type: type[BaseEvent],
+        event_type: type[BaseEvent] | None = None,
         on_update: Callable = lambda x: None,
     ) -> None:
         pass
@@ -49,11 +51,13 @@ class RedisSubscription(DataSubscription):
         """Initialize Redis subscriber.
 
         Args:
-            host: Redis host
-            port: Redis port
-            db: Redis database number
+            config: Configuration manager for Redis connection settings.
         """
-        self.redis_url: str = f"redis://{config.get('host', 'redis')}:{config.get('port', 6379)}/{config.get('db', 0)}"
+        self.redis_url: str = (
+            f"redis://{config.get('host', 'localhost')}"
+            f":{config.get('port', 6379)}"
+            f"/{config.get('db', 0)}"
+        )
         self.subscriptions = set()
         self.listener_task = None
         self._event_types: dict[str, type[BaseEvent]] = {}
@@ -67,19 +71,29 @@ class RedisSubscription(DataSubscription):
     async def subscribe(
         self,
         channel_pattern: str,
-        event_type: type[BaseEvent],
+        event_type: type[BaseEvent] | None = None,
         on_update: Callable = lambda x: None,
     ) -> None:
         """Subscribe to a channel or pattern and process messages.
 
         Args:
-            channel_pattern: Channel pattern to subscribe to (e.g., "market:CandleEvent:SPX{=5m}")
-            event_type: The expected event type for this channel. Messages are
-                deserialized directly into this type. Contract violations are
-                logged as errors.
+            channel_pattern: Channel pattern to subscribe to
+                (e.g., "market:CandleEvent:SPX{=5m}")
+            event_type: The expected event type for this channel. When provided,
+                messages are deserialized directly into this type and contract
+                violations are logged as errors. When ``None``, the type is
+                inferred from the channel name (backward-compatible fallback).
+            on_update: Optional callback for incoming events.
         """
-        logger.info("Subscribed to %s (type=%s)", channel_pattern, event_type.__name__)
-        self._event_types[channel_pattern] = event_type
+        if event_type is not None:
+            logger.info(
+                "Subscribed to %s (type=%s)",
+                channel_pattern,
+                event_type.__name__,
+            )
+            self._event_types[channel_pattern] = event_type
+        else:
+            logger.info("Subscribed to %s", channel_pattern)
 
         if channel_pattern not in self.subscriptions:
             await self.pubsub.psubscribe(channel_pattern)
@@ -101,30 +115,51 @@ class RedisSubscription(DataSubscription):
 
                 channel = message["channel"].decode()
                 pattern = message["pattern"].decode()
-                event_type = self._event_types.get(pattern)
-                if event_type is None:
-                    logger.error("No event type registered for pattern: %s", pattern)
-                    continue
 
                 try:
                     data = json.loads(message["data"])
-                    event: BaseEvent = event_type(**data)
                 except json.JSONDecodeError:
                     logger.error("Invalid JSON on %s: %s", channel, message["data"])
                     continue
-                except Exception as e:
-                    logger.error(
-                        "Contract violation on %s: expected %s, got: %s",
-                        channel,
-                        event_type.__name__,
-                        e,
-                    )
-                    continue
+
+                # Typed deserialization when event_type was declared
+                event_type = self._event_types.get(pattern)
+                if event_type is not None:
+                    try:
+                        event: BaseEvent = event_type(**data)
+                    except Exception as e:
+                        logger.error(
+                            "Contract violation on %s: expected %s, got: %s",
+                            channel,
+                            event_type.__name__,
+                            e,
+                        )
+                        continue
+                else:
+                    # Fallback: infer type from channel name
+                    type_name = channel.split(":")[1] if ":" in channel else ""
+                    event_cls = getattr(events, type_name, None)
+                    if event_cls is None:
+                        logger.error(
+                            "Unknown event type '%s' on channel: %s",
+                            type_name,
+                            channel,
+                        )
+                        continue
+                    try:
+                        event = event_cls(**data)
+                    except Exception as e:
+                        logger.error("Error deserializing %s: %s", channel, e)
+                        continue
 
                 self.queue[
                     f"{event.__class__.__name__}:{event.eventSymbol}"
                 ].put_nowait(event)
-                logger.debug("Received %s on %s", event_type.__name__, channel)
+                logger.debug(
+                    "Received %s on %s",
+                    event.__class__.__name__,
+                    channel,
+                )
 
         except asyncio.CancelledError:
             logger.error("Redis pub/sub subscriptions cancelled")
@@ -169,8 +204,22 @@ class RedisPublisher:
     BaseEventProcessor protocol.
     """
 
-    def __init__(self, redis_host: str = "redis", redis_port: int = 6379) -> None:
-        self.redis = sync_redis.Redis(host=redis_host, port=redis_port)
+    def __init__(
+        self,
+        redis_host: str | None = None,
+        redis_port: int | None = None,
+    ) -> None:
+        host = (
+            redis_host
+            if redis_host is not None
+            else os.environ.get("REDIS_HOST", "localhost")
+        )
+        port = (
+            redis_port
+            if redis_port is not None
+            else int(os.environ.get("REDIS_PORT", "6379"))
+        )
+        self.redis = sync_redis.Redis(host=host, port=port)
 
     def publish(self, event: BaseEvent) -> None:
         channel = f"market:{event.__class__.__name__}:{event.eventSymbol}"
@@ -180,6 +229,6 @@ class RedisPublisher:
         self.redis.close()
 
 
-def handle_task_exception(task: asyncio.Task):
+def handle_task_exception(task: asyncio.Task) -> None:
     if task.exception():
-        logger.error(f"Task failed with exception: {task.exception()}")
+        logger.error("Task failed with exception: %s", task.exception())
