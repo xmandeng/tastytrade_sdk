@@ -30,8 +30,10 @@ venv/
 ENV/
 .python-version
 
-.claude/
-CLAUDE.md
+# Claude Code — track workflow config, ignore transient state
+.claude/state/
+.claude/worktrees/
+.claude/settings.local.json
 
 # IDE
 .idea/
