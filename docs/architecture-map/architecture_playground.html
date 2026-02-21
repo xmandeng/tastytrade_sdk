@@ -1148,7 +1148,7 @@ const nodes = [
     label: 'Redis', type: 'Pub/Sub + Hash Store',
     badge: 'TCP :6379',
     desc: 'Dual role: pub/sub for real-time event distribution AND hash store for subscription tracking.',
-    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{symbol}\n\nHash store:\n• HSET subscriptions {symbol} JSON({active, last_update, metadata})`,
+    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{engine}:{symbol} (TT-56 engine-aware)\n  → market:TradeSignal:hull_macd:SPX{=5m}\n  → market:TradeSignal:rsi:SPX{=5m}\n\nPSUBSCRIBE patterns (server-side filtering):\n• market:TradeSignal:hull_macd:* — one engine\n• market:TradeSignal:*:SPX{=5m} — one symbol\n• market:TradeSignal:* — all signals\n\nHash store:\n• HSET subscriptions {symbol} JSON({active, last_update, metadata})`,
     insights: [
       { author: 'claude', text: 'Redis serves two unrelated roles here: (1) pub/sub for real-time event fan-out to decoupled services, (2) hash store for subscription state persistence. These could theoretically be separate Redis instances, but sharing one simplifies the deployment.' },
     ],
@@ -1168,35 +1168,57 @@ const nodes = [
     label: 'Signal Service', type: 'Standalone Service',
     badge: 'decoupled',
     file: 'signal/service.py',
-    desc: 'Runs as a separate process/container. Consumes CandleEvents from Redis, feeds to signal engine, publishes TradeSignals back to Redis.',
+    desc: 'Runs as a separate process/container. Consumes CandleEvents from Redis, feeds to signal engine, publishes TradeSignals back to Redis. Each service is a self-contained unit: Redis in → process → Redis out.',
     insights: [
       { author: 'xmandeng', text: 'Decoupled by design — the signal service can crash, restart, or be replaced without affecting the main data pipeline. The main process continues writing to InfluxDB regardless.' },
       { author: 'claude', text: 'There are TWO paths to the signal engine: (1) in-process via SignalEventProcessor (low latency, same process), (2) decoupled via Redis→SignalService (independent lifecycle). Both can run simultaneously.' },
+      { author: 'claude', text: 'TT-56: Engine now owns its publisher via constructor injection — no external callback wiring needed. The service just passes publisher=RedisPublisher() to the engine constructor.' },
     ],
-    details: `Decoupled architecture:\n1. Subscribe to Redis: market:CandleEvent:{symbol}{=interval}\n2. Wire engine: HullMacdEngine\n3. Set callback: engine.on_signal = publisher.publish\n4. Consume loop:\n   for queue in subscription.queues:\n     event = queue.get_nowait()\n     engine.on_candle_event(event)`,
-    code: `async def run_signal_service(symbols, intervals):\n  sub = RedisSubscription(config)\n  await sub.subscribe(\n    pattern=f"market:CandleEvent:{sym}{{={interval}}}",\n    event_type=CandleEvent\n  )\n  engine = HullMacdEngine()\n  publisher = RedisPublisher()\n  engine.on_signal = publisher.publish\n  while True:\n    for key, q in sub.queue.items():\n      if not q.empty():\n        event = q.get_nowait()\n        engine.on_candle_event(event)\n    await asyncio.sleep(0.01)`,
+    details: `Decoupled architecture (TT-56 Redis-as-bus):\n1. Subscribe to Redis: market:CandleEvent:{symbol}{=interval}\n2. Create engine with publisher: HullMacdEngine(publisher=RedisPublisher())\n3. Engine owns its own Redis I/O — no callback wiring needed\n4. Consume loop:\n   for queue in subscription.queues:\n     event = queue.get_nowait()\n     engine.on_candle_event(event)\n5. Signals auto-publish to market:TradeSignal:hull_macd:{symbol}`,
+    code: `async def run_signal_service(symbols, intervals):\n  sub = RedisSubscription(config)\n  await sub.subscribe(\n    pattern=f"market:CandleEvent:{sym}{{={interval}}}",\n    event_type=CandleEvent\n  )\n  publisher = RedisPublisher()\n  engine = HullMacdEngine(publisher=publisher)\n  # Engine owns its publisher — no callback wiring\n  while True:\n    for key, q in sub.queue.items():\n      if not q.empty():\n        event = q.get_nowait()\n        engine.on_candle_event(event)\n    await asyncio.sleep(0.01)`,
     connections: ['hull-macd']
   },
   { id: 'hull-macd', x: 680, y: 1490, layer: 'signal',
     label: 'HullMacdEngine', type: 'Signal Engine',
     file: 'analytics/engines/hull_macd.py',
-    desc: 'Confluence-based signal engine. Requires both Hull MA direction change AND MACD crossover for entry signals. Single indicator flip for exits.',
-    details: `Per-symbol TimeframeState:\n• hull_direction: Up | Down | None\n• macd_position: Above | Below | Zero Crossing\n• hull/macd_armed_direction: re-entry guard\n• bullish_open / bearish_open: position state\n• candles: pl.DataFrame (up to 500)\n\nEntry logic (OPEN): Hull flip + MACD crossover = confluence\nExit logic (CLOSE): Hull flip OR MACD crossover = single indicator`,
-    code: `class SignalEngine(Protocol):\n  name: str\n  signals: list[TradeSignal]\n  on_signal: Callable[[TradeSignal], None] | None\n  def on_candle_event(self, event: CandleEvent): ...\n\nclass TradeSignal:\n  signal_type: str  # OPEN | CLOSE\n  direction: str    # BULLISH | BEARISH\n  engine: str       # "hull_macd"\n  hull_direction, hull_value: ...\n  macd_value, macd_signal, macd_histogram: ...\n  close_price: float\n  trigger: str  # "hull" | "macd" | "confluence"`,
+    desc: 'Confluence-based signal engine. Requires both Hull MA direction change AND MACD crossover for entry signals. Single indicator flip for exits. Owns its publisher for direct Redis output.',
+    details: `Per-symbol TimeframeState:\n• hull_direction: Up | Down | None\n• macd_position: Above | Below | Zero Crossing\n• hull/macd_armed_direction: re-entry guard\n• bullish_open / bearish_open: position state\n• candles: pl.DataFrame (up to 500)\n\nEntry logic (OPEN): Hull flip + MACD crossover = confluence\nExit logic (CLOSE): Hull flip OR MACD crossover = single indicator\n\nTT-56: Engine owns its EventPublisher via constructor injection.\nSignals are published directly — no external callback wiring.`,
+    code: `class SignalEngine(Protocol):\n  name: str\n  signals: list[TradeSignal]\n  publisher: EventPublisher | None  # TT-56: replaces on_signal callback\n  def on_candle_event(self, event: CandleEvent): ...\n\nclass HullMacdEngine:\n  def __init__(self, publisher: EventPublisher | None = None):\n    self._publisher = publisher\n    ...\n\n  def _emit_signal(self, signal: TradeSignal):\n    self._signals.append(signal)\n    if self._publisher:\n      self._publisher.publish(signal)  # direct Redis I/O`,
     insights: [
       { author: 'xmandeng', text: 'Asymmetric entry/exit is deliberate: entries require confluence (both indicators agree) to avoid false signals, but exits are more aggressive (single indicator) to protect capital. This is a risk management philosophy baked into the engine.' },
       { author: 'claude', text: 'SignalEngine is a Protocol (structural typing), not an ABC. Any class with the right methods works — no inheritance needed. This makes it trivial to swap in a different engine without touching the signal service or processor wiring.' },
+      { author: 'claude', text: 'TT-56 replaced the on_signal callback with an EventPublisher protocol property. The engine now owns its own Redis I/O — localized proximity instead of cross-service callback wiring.' },
       { author: 'claude', text: 'The armed_direction fields are re-entry guards — they prevent the engine from emitting duplicate OPEN signals if an indicator oscillates near a threshold. Once armed, it must fully reverse before re-arming.' },
     ],
-    connections: ['redis-pub']
+    connections: ['redis-pub', 'event-publisher']
   },
   { id: 'redis-pub', x: 920, y: 1490, layer: 'signal',
     label: 'RedisPublisher', type: 'Publisher Class',
+    badge: 'EventPublisher',
     file: 'providers/subscriptions.py',
-    desc: 'Publishes TradeSignal events back to Redis for downstream consumers (dashboards, order execution).',
-    details: `channel: market:TradeSignal:{symbol}\ndata: signal.model_dump_json()\n\nDownstream consumers can subscribe to trade signals for automated execution or alerting.`,
-    code: `def publish(self, signal: TradeSignal):\n  channel = (\n    f"market:TradeSignal"\n    f":{signal.eventSymbol}"\n  )\n  self.redis.publish(\n    channel, signal.model_dump_json()\n  )`,
+    desc: 'Publishes BaseEvent instances to Redis pub/sub channels. Satisfies the EventPublisher protocol. Engine-aware channel naming routes TradeSignals by engine name.',
+    details: `TT-56 engine-aware channel format:\n• Events WITH engine attr: market:{Type}:{engine}:{symbol}\n  → market:TradeSignal:hull_macd:SPX{=5m}\n• Events WITHOUT engine: market:{Type}:{symbol}\n  → market:CandleEvent:SPX{=5m}\n\nConsumers use PSUBSCRIBE for server-side filtering:\n• market:TradeSignal:hull_macd:* — only HullMACD signals\n• market:TradeSignal:*:SPX{=5m} — all engines for SPX 5m\n• market:TradeSignal:* — everything`,
+    code: `def publish(self, event: BaseEvent) -> None:\n  engine = getattr(event, "engine", None)\n  if engine:\n    channel = (\n      f"market:{event.__class__.__name__}"\n      f":{engine}:{event.eventSymbol}"\n    )\n  else:\n    channel = (\n      f"market:{event.__class__.__name__}"\n      f":{event.eventSymbol}"\n    )\n  self.redis.publish(\n    channel, event.model_dump_json()\n  )`,
+    insights: [
+      { author: 'claude', text: 'TT-56: Uses getattr(event, "engine", None) — no isinstance checks, no coupling to TradeSignal specifically. Any future event type that carries an engine field automatically gets engine-specific channels.' },
+      { author: 'claude', text: 'Satisfies EventPublisher protocol via structural subtyping (runtime_checkable). No inheritance needed — just having publish(event: BaseEvent) -> None is enough.' },
+    ],
     connections: ['redis']
+  },
+
+  // ── EVENT PUBLISHER PROTOCOL (TT-56) ──
+  { id: 'event-publisher', x: 820, y: 1400, layer: 'signal',
+    label: 'EventPublisher', type: 'Protocol (structural)',
+    badge: 'TT-56',
+    file: 'messaging/publisher.py',
+    desc: 'Structural protocol for event publishers. Any class with publish(event: BaseEvent) → None satisfies this protocol — no inheritance required. Replaces the on_signal callback pattern.',
+    details: `@runtime_checkable Protocol:\n• publish(event: BaseEvent) -> None\n\nConcrete implementations:\n• RedisPublisher — publishes to Redis pub/sub\n\nUsed by:\n• HullMacdEngine.publisher property\n• SignalEngine protocol definition\n\nDesign principle: engines own their own Redis I/O.\nNo external callback wiring across service boundaries.`,
+    code: `@runtime_checkable\nclass EventPublisher(Protocol):\n  def publish(self, event: BaseEvent) -> None: ...\n\n# Usage — constructor injection:\nengine = HullMacdEngine(\n  publisher=RedisPublisher()\n)\n# Engine publishes signals directly\n# No: engine.on_signal = publisher.publish`,
+    insights: [
+      { author: 'claude', text: 'TT-56 introduced this protocol to replace callback wiring (engine.on_signal = publisher.publish). Callbacks create invisible coupling across service boundaries and violate localized proximity — each service should own its own Redis I/O.' },
+      { author: 'claude', text: 'Uses @runtime_checkable so issubclass(RedisPublisher, EventPublisher) works at runtime — useful for protocol conformance tests.' },
+    ],
+    connections: ['redis-pub']
   },
 
   // ── CONFIG / SUBSCRIPTION ──
@@ -1360,12 +1382,13 @@ const edges = [
   // InfluxDB → Provider
   { from: 'influxdb', to: 'mkt-provider', label: 'Flux query', style: 'dashed' },
 
-  // Redis signal path
+  // Redis signal path (TT-56: engine owns publisher, engine-aware channels)
   { from: 'redis', to: 'redis-sub', label: 'psubscribe' },
   { from: 'redis-sub', to: 'signal-svc', label: 'typed events' },
   { from: 'signal-svc', to: 'hull-macd', label: 'on_candle_event()' },
-  { from: 'hull-macd', to: 'redis-pub', label: 'TradeSignal' },
-  { from: 'redis-pub', to: 'redis', label: 'publish' },
+  { from: 'hull-macd', to: 'event-publisher', label: 'publisher.publish(signal)', style: 'dashed' },
+  { from: 'event-publisher', to: 'redis-pub', label: 'satisfies protocol', style: 'dashed' },
+  { from: 'redis-pub', to: 'redis', label: 'market:TradeSignal:hull_macd:*' },
 
   // Subscription store
   { from: 'dxlink-mgr', to: 'sub-store', label: 'track subs', style: 'dashed' },
@@ -1433,6 +1456,7 @@ const FUNCTIONAL_VIEWS = {
       'queue-candle', 'msg-router', 'evt-handler',
       'proc-signal', 'proc-redis',
       'redis', 'redis-sub', 'signal-svc', 'hull-macd', 'redis-pub',
+      'event-publisher',
     ]),
   },
   'Metrics & Accounts': {
