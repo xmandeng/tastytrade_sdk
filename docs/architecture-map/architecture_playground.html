@@ -1,0 +1,1842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TastyTrade SDK — Architecture Concept Map</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --accent-blue: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-orange: #d29922;
+    --accent-red: #f85149;
+    --accent-purple: #bc8cff;
+    --accent-cyan: #39d2c0;
+    --accent-pink: #f778ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* Top bar */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 48px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 16px;
+    z-index: 100;
+    gap: 16px;
+  }
+  .topbar h1 { font-size: 14px; font-weight: 600; color: var(--accent-blue); white-space: nowrap; }
+  .topbar .control-group {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px;
+    border-left: 1px solid var(--border);
+    height: 28px;
+  }
+  .topbar .control-group:first-of-type { border-left: none; }
+  .topbar .control-group-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    white-space: nowrap;
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar button {
+    background: var(--border);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .topbar button:hover { background: #484f58; }
+  .topbar button.active { background: var(--accent-blue); color: #0d1117; border-color: var(--accent-blue); }
+  .topbar button:disabled { opacity: 0.3; cursor: default; }
+  .topbar button:disabled:hover { background: var(--border); }
+  .topbar button.icon-btn {
+    padding: 4px 8px;
+    font-size: 14px;
+    line-height: 1;
+    min-width: 28px;
+    text-align: center;
+  }
+  .topbar select {
+    background: var(--border);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    max-width: 120px;
+  }
+  .topbar select:hover { background: #484f58; }
+
+  .layer-toggles { display: flex; gap: 4px; }
+  .layer-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .layer-toggle.on { border-color: var(--accent-blue); color: var(--accent-blue); background: rgba(88,166,255,0.1); }
+
+  /* Canvas area */
+  #canvas-wrap {
+    position: fixed;
+    top: 48px; left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #canvas-wrap.dragging { cursor: grabbing; }
+  #canvas {
+    position: absolute;
+    transform-origin: 0 0;
+    width: 3000px;
+    height: 2400px;
+  }
+
+  /* Nodes */
+  .node {
+    position: absolute;
+    border-radius: 10px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    padding: 12px 16px;
+    cursor: grab;
+    transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;
+    min-width: 160px;
+    user-select: none;
+  }
+  .node:hover {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 20px rgba(88,166,255,0.15);
+    transform: translateY(-1px);
+    cursor: grab;
+  }
+  .node:active { cursor: grabbing; }
+  .node.selected {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 30px rgba(88,166,255,0.25);
+  }
+  .node.group-selected {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 20px rgba(57,210,192,0.3);
+  }
+  .node.group-selected .node-label { color: var(--accent-cyan) !important; }
+  .node.highlighted {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 24px rgba(63,185,80,0.3);
+  }
+
+  /* Lasso selection rectangle */
+  #lasso {
+    position: absolute;
+    border: 1.5px dashed var(--accent-cyan);
+    background: rgba(57,210,192,0.06);
+    pointer-events: none;
+    display: none;
+    z-index: 60;
+  }
+  .node-label {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    white-space: nowrap;
+  }
+  .node-type {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .node-badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-top: 4px;
+    font-weight: 500;
+  }
+
+  /* Layer colors */
+  .layer-websocket { border-left: 3px solid var(--accent-blue); }
+  .layer-websocket .node-label { color: var(--accent-blue); }
+  .layer-websocket .node-badge { background: rgba(88,166,255,0.15); color: var(--accent-blue); }
+
+  .layer-queue { border-left: 3px solid var(--accent-orange); }
+  .layer-queue .node-label { color: var(--accent-orange); }
+  .layer-queue .node-badge { background: rgba(210,153,34,0.15); color: var(--accent-orange); }
+
+  .layer-routing { border-left: 3px solid var(--accent-purple); }
+  .layer-routing .node-label { color: var(--accent-purple); }
+  .layer-routing .node-badge { background: rgba(188,140,255,0.15); color: var(--accent-purple); }
+
+  .layer-processor { border-left: 3px solid var(--accent-green); }
+  .layer-processor .node-label { color: var(--accent-green); }
+  .layer-processor .node-badge { background: rgba(63,185,80,0.15); color: var(--accent-green); }
+
+  .layer-persistence { border-left: 3px solid var(--accent-red); }
+  .layer-persistence .node-label { color: var(--accent-red); }
+  .layer-persistence .node-badge { background: rgba(248,81,73,0.15); color: var(--accent-red); }
+
+  .layer-signal { border-left: 3px solid var(--accent-cyan); }
+  .layer-signal .node-label { color: var(--accent-cyan); }
+  .layer-signal .node-badge { background: rgba(57,210,192,0.15); color: var(--accent-cyan); }
+
+  .layer-config { border-left: 3px solid var(--accent-pink); }
+  .layer-config .node-label { color: var(--accent-pink); }
+  .layer-config .node-badge { background: rgba(247,120,186,0.15); color: var(--accent-pink); }
+
+  /* Zone labels */
+  .zone {
+    position: absolute;
+    border: 1px dashed;
+    border-radius: 14px;
+    padding: 12px 16px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .zone-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    position: absolute;
+    top: -10px;
+    left: 16px;
+    padding: 0 6px;
+    background: var(--bg);
+  }
+
+  /* SVG edges */
+  #edges {
+    position: absolute;
+    top: 0; left: 0;
+    width: 3000px;
+    height: 2400px;
+    pointer-events: none;
+  }
+  .edge {
+    stroke: var(--border);
+    stroke-width: 1.5;
+    fill: none;
+    transition: stroke 0.2s, stroke-width 0.2s;
+  }
+  .edge.highlighted {
+    stroke: var(--accent-green);
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 4px rgba(63,185,80,0.4));
+  }
+  .edge-label {
+    font-size: 10px;
+    fill: var(--text-dim);
+    font-family: inherit;
+  }
+  .edge-label.highlighted { fill: var(--accent-green); }
+  marker#arrowhead path { fill: var(--border); }
+  marker#arrowhead-hl path { fill: var(--accent-green); }
+
+  /* Detail panel */
+  .detail-panel {
+    position: fixed;
+    top: 48px; right: 0; bottom: 0;
+    width: 380px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    z-index: 90;
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    padding: 20px;
+  }
+  .detail-panel.open { transform: translateX(0); }
+  .detail-panel h2 { font-size: 16px; margin-bottom: 4px; }
+  .detail-panel .detail-type { font-size: 11px; color: var(--text-dim); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .detail-panel .detail-file {
+    font-size: 11px;
+    color: var(--accent-blue);
+    background: rgba(88,166,255,0.1);
+    padding: 4px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-bottom: 12px;
+    word-break: break-all;
+  }
+  .detail-panel .detail-section { margin-bottom: 16px; }
+  .detail-panel .detail-section h3 {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .detail-panel .detail-section p { font-size: 13px; line-height: 1.6; }
+  .detail-panel .detail-section code {
+    background: rgba(110,118,129,0.15);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--accent-orange);
+  }
+  .detail-panel pre {
+    background: var(--bg);
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    margin-top: 6px;
+  }
+  .detail-panel .connections-list {
+    list-style: none;
+    padding: 0;
+  }
+  .detail-panel .connections-list li {
+    font-size: 12px;
+    padding: 4px 0;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .detail-panel .connections-list li .arrow { color: var(--accent-green); font-weight: bold; }
+  .detail-panel .insight {
+    border-left: 2px solid var(--accent-cyan);
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: rgba(57,210,192,0.05);
+    border-radius: 0 6px 6px 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .detail-panel .insight.author-xmandeng { border-left-color: var(--accent-orange); background: rgba(210,153,34,0.05); }
+  .detail-panel .insight.author-claude { border-left-color: var(--accent-purple); background: rgba(188,140,255,0.05); }
+  .detail-panel .insight-author {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .insight-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    vertical-align: middle;
+  }
+  svg.insight-avatar { color: var(--accent-purple); }
+  .insight.author-xmandeng .insight-author { color: var(--accent-orange); }
+  .insight.author-claude .insight-author { color: var(--accent-purple); }
+  .detail-panel .insight-text { color: var(--text); }
+  .node-insight-dot {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+  }
+  .detail-panel .close-btn {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 18px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  /* Legend */
+  .legend {
+    position: fixed;
+    bottom: 16px; left: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    z-index: 80;
+    font-size: 11px;
+  }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .legend-row:last-child { margin-bottom: 0; }
+  .legend-swatch { width: 12px; height: 3px; border-radius: 2px; }
+
+  /* Minimap */
+  .minimap {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    width: 200px; height: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    z-index: 80;
+    overflow: hidden;
+  }
+  .minimap canvas { width: 100%; height: 100%; }
+  .minimap-viewport {
+    position: absolute;
+    border: 1px solid var(--accent-blue);
+    background: rgba(88,166,255,0.08);
+    pointer-events: none;
+  }
+
+  /* Zoom controls */
+  .zoom-controls {
+    position: fixed;
+    bottom: 184px; right: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .zoom-controls button {
+    background: var(--border);
+    border: 1px solid transparent;
+    color: var(--text);
+    width: 24px; height: 24px;
+    border-radius: 5px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .zoom-controls button:hover { background: #484f58; }
+  .zoom-controls .zoom-pct {
+    font-size: 11px;
+    color: var(--text-dim);
+    min-width: 36px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .zoom-controls .zoom-pct:hover { color: var(--text); }
+  .zoom-controls input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 80px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .zoom-controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    cursor: pointer;
+  }
+  .zoom-controls input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    border: none;
+    cursor: pointer;
+  }
+
+  /* Data flow animation */
+  @keyframes flowPulse {
+    0% { stroke-dashoffset: 20; }
+    100% { stroke-dashoffset: 0; }
+  }
+  .edge.animated {
+    stroke-dasharray: 8 4;
+    animation: flowPulse 0.8s linear infinite;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text);
+    pointer-events: none;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.15s;
+    max-width: 300px;
+  }
+  .tooltip.visible { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>TastyTrade SDK Architecture</h1>
+
+  <div class="control-group">
+    <span class="control-group-label">Layers</span>
+    <div class="layer-toggles" id="layer-toggles"></div>
+  </div>
+
+  <div class="control-group">
+    <span class="control-group-label">View</span>
+    <button onclick="toggleFlow()" id="flow-btn">Animate</button>
+    <button onclick="fitToScreen()">Fit</button>
+    <button onclick="resetView()">Reset View</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="control-group">
+    <span class="control-group-label">Layout</span>
+    <button class="icon-btn" onclick="undo()" id="undo-btn" disabled title="Undo (Ctrl+Z)">&#8617;</button>
+    <button class="icon-btn" onclick="redo()" id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8618;</button>
+    <span id="group-count" style="display:none; font-size:10px; background:var(--accent-cyan); color:#0d1117; padding:1px 6px; border-radius:8px; font-weight:600;" title="Shift+Click to select, Shift+Drag to lasso"></span>
+    <button onclick="resetLayout()">Reset</button>
+    <button onclick="saveLayout()" id="save-btn">Save</button>
+    <select id="layout-select" onchange="loadLayout(this.value)">
+      <option value="">Load...</option>
+    </select>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <div id="lasso"></div>
+  <div id="canvas">
+    <svg id="edges">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#30363d"/>
+        </marker>
+        <marker id="arrowhead-hl" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#3fb950"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+</div>
+
+<div class="detail-panel" id="detail-panel">
+  <button class="close-btn" onclick="closeDetail()">&times;</button>
+  <div id="detail-content"></div>
+</div>
+
+<div class="legend">
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-blue)"></div> WebSocket / DXLink</div>
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-orange)"></div> Async Queues</div>
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-purple)"></div> Routing / Handlers</div>
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-green)"></div> Event Processors</div>
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-red)"></div> Persistence (InfluxDB / Redis)</div>
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-cyan)"></div> Signal Engine</div>
+  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-pink)"></div> Config / Subscriptions</div>
+</div>
+
+<div class="minimap" id="minimap">
+  <canvas id="minimap-canvas" width="200" height="160"></canvas>
+  <div class="minimap-viewport" id="minimap-vp"></div>
+</div>
+
+<div class="zoom-controls">
+  <button onclick="zoomStep(-1)" title="Zoom out">−</button>
+  <input type="range" id="zoom-slider" min="20" max="200" value="70" oninput="zoomTo(this.value / 100)">
+  <button onclick="zoomStep(1)" title="Zoom in">+</button>
+  <span class="zoom-pct" id="zoom-ind" onclick="zoomTo(1)" title="Click to reset to 100%">70%</span>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ── DATA MODEL ──────────────────────────────────────────────────────
+const LAYERS = {
+  websocket:   { label: 'WebSocket',   color: '#58a6ff' },
+  queue:       { label: 'Queues',      color: '#d29922' },
+  routing:     { label: 'Routing',     color: '#bc8cff' },
+  processor:   { label: 'Processors',  color: '#3fb950' },
+  persistence: { label: 'Persistence', color: '#f85149' },
+  signal:      { label: 'Signal',      color: '#39d2c0' },
+  config:      { label: 'Config',      color: '#f778ba' },
+};
+
+const nodes = [
+  // ── WEBSOCKET LAYER ──
+  { id: 'tastytrade-api', x: 120, y: 80, layer: 'websocket',
+    label: 'TastyTrade API', type: 'External Service',
+    file: 'connections/requests.py',
+    desc: 'REST API for authentication. Returns session token and DXLink WebSocket URL.',
+    details: `AsyncSessionHandler.create(credentials) calls POST /sessions to get auth token, then GET /quote-streamer-tokens for the DXLink URL.`,
+    code: `Credentials(username, password)\n→ POST /sessions → session_token\n→ GET /quote-streamer-tokens → dxlink_url`,
+    insights: [
+      { author: 'xmandeng', text: 'The two-step auth (session token → streamer token) is a TastyTrade API requirement. The streamer token is short-lived and scoped to DXLink only.' },
+    ],
+    connections: ['dxlink-mgr']
+  },
+  { id: 'dxlink-mgr', x: 120, y: 230, layer: 'websocket',
+    label: 'DXLinkManager', type: 'Singleton Class',
+    badge: 'singleton',
+    file: 'connections/sockets.py',
+    desc: 'Central manager for the DXLink WebSocket connection lifecycle. Manages connection, channels, subscriptions, keepalives, and reconnection.',
+    details: `Orchestrates:\n• websockets.asyncio.client connection\n• 7 asyncio.Queue instances (one per channel)\n• socket_listener() — async loop reading from WS\n• send_keepalives() — heartbeat every 30s\n• subscribe(symbols) — sends FEED_SUBSCRIPTION\n• trigger_reconnect(reason) — reconnection workflow`,
+    code: `open():\n  AsyncSessionHandler.create(creds)\n  connect(dxlink_url)\n  setup_connection()    # SETUP msg\n  authorize_connection() # AUTH token\n  open_channels()       # 7 channels\n  setup_feeds()         # field specs\n  start_listener()      # WS→queues\n  start_router()        # queues→handlers`,
+    insights: [
+      { author: 'xmandeng', text: 'Singleton is intentional — there should only ever be one DXLink connection per process. Multiple connections would duplicate market data and waste bandwidth.' },
+      { author: 'claude', text: 'The open() method is a carefully ordered protocol sequence. Each step depends on the prior completing. setup_feeds() must come after open_channels() because DXLink requires channel IDs in the feed setup message.' },
+    ],
+    connections: ['queue-control','queue-profile','queue-summary','queue-trade','queue-quote','queue-candle','queue-greeks','sub-store']
+  },
+  { id: 'ws-listener', x: 430, y: 100, layer: 'websocket',
+    label: 'socket_listener()', type: 'Async Task',
+    file: 'connections/sockets.py:194',
+    desc: 'Long-running async task that reads raw JSON from the WebSocket and dispatches to per-channel asyncio queues.',
+    details: `Runs forever in asyncio.Task:\n1. async for message in websocket\n2. Parse JSON → EventReceivedModel\n3. Route to self.queues[channel] via await queue.put(event.fields)\n4. On disconnect → trigger_reconnect()`,
+    code: `async def socket_listener():\n  async for raw in self.websocket:\n    msg = EventReceivedModel.parse(raw)\n    ch = msg.channel\n    await self.queues[ch].put(msg.fields)`,
+    insights: [
+      { author: 'claude', text: 'This is the single hottest path in the system — every market data event passes through here. The put() is non-blocking on unbounded queues, so backpressure only manifests as memory growth, not as dropped messages.' },
+    ],
+    connections: ['dxlink-mgr']
+  },
+  { id: 'keepalive', x: 430, y: 210, layer: 'websocket',
+    label: 'send_keepalives()', type: 'Async Task',
+    file: 'connections/sockets.py',
+    desc: 'Sends KEEPALIVE messages every 30 seconds to maintain the WebSocket connection.',
+    details: `Simple heartbeat loop:\n• await asyncio.sleep(30)\n• await websocket.send(keepalive_msg)\n• Runs until connection closes`,
+    insights: [
+      { author: 'claude', text: 'DXLink will drop idle connections after ~60s. The 30s interval gives a comfortable 2x safety margin.' },
+    ],
+    connections: ['dxlink-mgr']
+  },
+
+  // ── QUEUE LAYER ──
+  { id: 'queue-control', x: 120, y: 430, layer: 'queue',
+    label: 'Queue[0] Control', type: 'asyncio.Queue[dict]',
+    badge: 'ch 0',
+    desc: 'Unbounded asyncio queue for DXLink control plane messages (auth state, errors, keepalive acks).',
+    insights: [
+      { author: 'claude', text: 'Control messages are separated from data channels so auth failures and errors are never blocked behind a flood of market data.' },
+    ],
+    connections: ['ctrl-handler']
+  },
+  { id: 'queue-profile', x: 310, y: 430, layer: 'queue',
+    label: 'Queue[1] Profile', type: 'asyncio.Queue[dict]',
+    badge: 'ch 1',
+    desc: 'Instrument metadata events (description, status, trading hours).',
+    connections: ['msg-router']
+  },
+  { id: 'queue-summary', x: 500, y: 430, layer: 'queue',
+    label: 'Queue[3] Summary', type: 'asyncio.Queue[dict]',
+    badge: 'ch 3',
+    desc: 'Session summary events (daily highs, lows, opens, previous close).',
+    connections: ['msg-router']
+  },
+  { id: 'queue-trade', x: 690, y: 430, layer: 'queue',
+    label: 'Queue[5] Trade', type: 'asyncio.Queue[dict]',
+    badge: 'ch 5',
+    desc: 'Tick-level trade events (price, size, dayVolume). Every executed trade.',
+    connections: ['msg-router']
+  },
+  { id: 'queue-quote', x: 880, y: 430, layer: 'queue',
+    label: 'Queue[7] Quote', type: 'asyncio.Queue[dict]',
+    badge: 'ch 7',
+    desc: 'Bid/ask quote events (bidPrice, askPrice, bidSize, askSize). Real-time order book top.',
+    connections: ['msg-router']
+  },
+  { id: 'queue-candle', x: 1070, y: 430, layer: 'queue',
+    label: 'Queue[9] Candle', type: 'asyncio.Queue[dict]',
+    badge: 'ch 9',
+    desc: 'OHLCV candle events with configurable intervals. Used for technical analysis and signal generation.',
+    insights: [
+      { author: 'claude', text: 'Candle channel is special — it supports both live streaming AND historical backfill (snapshot delivery). The CandleSnapshotTracker processor detects when backfill completes via eventFlags.' },
+    ],
+    connections: ['msg-router']
+  },
+  { id: 'queue-greeks', x: 1260, y: 430, layer: 'queue',
+    label: 'Queue[11] Greeks', type: 'asyncio.Queue[dict]',
+    badge: 'ch 11',
+    desc: 'Option greeks events (IV, delta, gamma, theta, vega, rho). Options analytics.',
+    connections: ['msg-router']
+  },
+
+  // ── ROUTING LAYER ──
+  { id: 'ctrl-handler', x: 80, y: 610, layer: 'routing',
+    label: 'ControlHandler', type: 'Event Handler',
+    file: 'messaging/handlers.py',
+    desc: 'Handles DXLink control plane messages: auth state transitions, error reporting, keepalive acknowledgements.',
+    details: `Special handler for channel 0:\n• AUTH_STATE messages → ConnectionState updates\n• ERROR messages → log and trigger reconnect\n• KEEPALIVE → no-op (confirms liveness)`,
+    connections: []
+  },
+  { id: 'msg-router', x: 640, y: 590, layer: 'routing',
+    label: 'MessageRouter', type: 'Singleton Class',
+    badge: 'singleton',
+    file: 'connections/routing.py',
+    desc: 'Creates one EventHandler per non-control channel and launches asyncio.Task queue_listener for each. Central orchestrator between queues and the processor chain.',
+    details: `On init:\n1. Create 6 EventHandler instances\n2. Each gets its channel spec + processor list\n3. Launch asyncio.Task(handler.queue_listener(queue))\n\nDefault processor assignments:\n• Profile, Summary → LatestEventProcessor\n• Trade → BaseEventProcessor\n• Quote → LatestEventProcessor + MetricsProcessor\n• Candle → CandleEventProcessor + SignalProcessor + SnapshotTracker\n• Greeks → LatestEventProcessor + MetricsProcessor`,
+    code: `MessageRouter.__init__():\n  for ch in Channels:\n    handler = EventHandler(\n      spec=CHANNEL_SPECS[ch],\n      processors=[...]\n    )\n    task = asyncio.create_task(\n      handler.queue_listener(queues[ch])\n    )`,
+    insights: [
+      { author: 'claude', text: 'The Router is where processor composition happens. Each channel gets a different processor mix — this is the "wiring" layer. Adding a new processor to a channel is a one-line change here.' },
+    ],
+    connections: ['evt-handler']
+  },
+  { id: 'evt-handler', x: 640, y: 760, layer: 'routing',
+    label: 'EventHandler', type: 'Per-Channel Instance',
+    file: 'messaging/handlers.py',
+    desc: 'Each channel gets its own EventHandler. Deserializes raw dicts into typed BaseEvent subclasses, then passes events through the processor chain.',
+    details: `handle_message(raw_dict):\n1. Filter data by type name\n2. Split data into field chunks (islice)\n3. Zip fields with CHANNEL_SPECS.fields\n4. Instantiate event class (TradeEvent, QuoteEvent, etc)\n5. Pydantic validation (FloatFieldMixin: NaN→None)\n6. For each event → call each processor.process_event(event)\n7. Update subscription_store last_update timestamp`,
+    code: `async def queue_listener(queue):\n  while True:\n    raw = await queue.get()\n    events = self.handle_message(raw)\n    for event in events:\n      for proc in self.processors:\n        proc.process_event(event)\n      self.sub_store.update(event)`,
+    insights: [
+      { author: 'claude', text: 'The deserialization uses zip(fields, values) where fields comes from CHANNEL_SPECS. DXLink sends flat arrays of values — the field names are never on the wire, only negotiated once during setup_feeds(). This is bandwidth-efficient but means field order is critical.' },
+    ],
+    connections: ['proc-latest','proc-candle','proc-base','proc-influx','proc-redis','proc-signal','proc-metrics','proc-snapshot']
+  },
+
+  // ── EVENT MODELS (conceptual) ──
+  { id: 'base-event', x: 1050, y: 610, layer: 'routing',
+    label: 'BaseEvent', type: 'Pydantic Model (frozen)',
+    file: 'messaging/models/events.py',
+    desc: 'Immutable base class for all market events. All events have eventSymbol and optional time.',
+    details: `BaseEvent (frozen=True):\n• eventSymbol: str — ticker symbol\n• time: Optional[datetime] — event timestamp\n\nSubclasses:\n• TradeEvent: price, dayVolume, size\n• QuoteEvent: bidPrice, askPrice, bidSize, askSize\n• CandleEvent: open, high, low, close, volume, eventFlags\n• GreeksEvent: volatility, delta, gamma, theta, vega, rho\n• ProfileEvent: description, status, trading hours\n• SummaryEvent: dayHigh, dayLow, dayOpen, prevClose\n\nFloatFieldMixin: Converts NaN/Inf → None in validators`,
+    code: `class BaseEvent(BaseModel, frozen=True):\n  eventSymbol: str\n  time: Optional[datetime] = None\n\nclass TradeEvent(BaseEvent):\n  price: Optional[float]\n  dayVolume: Optional[float]\n  size: Optional[float]\n\nclass CandleEvent(BaseEvent):\n  open: Optional[float]\n  high: Optional[float]\n  low: Optional[float]\n  close: Optional[float]\n  volume: Optional[float]\n  eventFlags: Optional[int]`,
+    insights: [
+      { author: 'xmandeng', text: 'frozen=True is deliberate — events are immutable value objects. Once deserialized, they flow through every processor untouched. No processor can corrupt data for another.' },
+      { author: 'claude', text: 'FloatFieldMixin is doing heavy lifting here — DXLink sends IEEE 754 NaN for missing values, which would poison any downstream math. The validator silently converts NaN/Inf to None at the boundary so processors never see invalid floats.' },
+    ],
+    connections: []
+  },
+
+  // ── PROCESSOR LAYER ──
+  { id: 'proc-latest', x: 80, y: 940, layer: 'processor',
+    label: 'LatestEventProcessor', type: 'Event Processor',
+    file: 'messaging/processors/default.py',
+    desc: 'Keeps only the latest event per symbol. Used for Quote, Greeks, Profile, Summary channels where you only need the current value.',
+    details: `Stores events in a polars DataFrame:\npl.unique(subset=["eventSymbol"], keep="last")\n\nUsed by: Quote, Greeks, Profile, Summary handlers\nPurpose: Deduplication — only retain most recent per symbol`,
+    code: `def process_event(self, event):\n  row = event.model_dump()\n  self.df = pl.concat([self.df, pl.DataFrame([row])])\n  self.df = self.df.unique(\n    subset=["eventSymbol"], keep="last"\n  )`,
+    connections: []
+  },
+  { id: 'proc-base', x: 280, y: 940, layer: 'processor',
+    label: 'BaseEventProcessor', type: 'Event Processor',
+    file: 'messaging/processors/default.py',
+    desc: 'Stores ALL events (no deduplication). Used for Trade channel where every tick matters.',
+    details: `Appends every event to a polars DataFrame.\nNo dedup — preserves complete tick history.\nUsed by: Trade handler`,
+    connections: []
+  },
+  { id: 'proc-candle', x: 480, y: 940, layer: 'processor',
+    label: 'CandleEventProcessor', type: 'Event Processor',
+    file: 'messaging/processors/default.py',
+    desc: 'Per-symbol candle tracking with dedup by (eventSymbol, time). Max 100k rows, keeps last 50k when exceeded.',
+    details: `dict[str, pl.DataFrame] — one DataFrame per symbol\nDedup: unique(subset=["eventSymbol", "time"], keep="last")\nMax: 100k rows → trim to 50k\nUsed for: Technical analysis, signal detection`,
+    code: `def process_event(self, event: CandleEvent):\n  sym = event.eventSymbol\n  row = event.model_dump()\n  self.frames[sym] = pl.concat([\n    self.frames.get(sym, pl.DataFrame()),\n    pl.DataFrame([row])\n  ]).unique(\n    subset=["eventSymbol","time"],\n    keep="last"\n  )\n  if len(self.frames[sym]) > 100_000:\n    self.frames[sym] = self.frames[sym].tail(50_000)`,
+    connections: []
+  },
+  { id: 'proc-influx', x: 680, y: 940, layer: 'processor',
+    label: 'TelegrafHTTPEventProcessor', type: 'Event Processor',
+    badge: 'InfluxDB',
+    file: 'messaging/processors/influxdb.py',
+    desc: 'Converts events to InfluxDB Line Protocol points and writes via batched HTTP API.',
+    details: `For each event:\n1. Point(event.__class__.__name__) → measurement name\n2. tag("eventSymbol", symbol) → indexed for queries\n3. time(event.time) → microsecond precision\n4. All other attrs → fields (price, volume, etc)\n5. write_api.write(bucket, point) → batched HTTP POST\n\nBatching: 1000 points or 1 second (InfluxDB client default)`,
+    code: `def process_event(self, event: BaseEvent):\n  point = Point(event.__class__.__name__)\n  point.tag("eventSymbol", event.eventSymbol)\n  if hasattr(event, "time"):\n    point.time(event.time)\n  for attr, val in event.__dict__.items():\n    if attr not in ["eventSymbol", "time"]:\n      point.field(attr, val)\n  self.write_api.write(\n    bucket=self.bucket, record=point\n  )`,
+    insights: [
+      { author: 'claude', text: 'Uses __class__.__name__ as the measurement name — so the InfluxDB schema is automatically derived from the Python class hierarchy. Adding a new event type creates a new measurement with zero config.' },
+      { author: 'claude', text: 'The write_api batches internally (1000 points or 1s). On close(), the EventHandler calls processor.close() which flushes the remaining batch — critical for not losing the final seconds of data on shutdown.' },
+    ],
+    connections: ['influxdb']
+  },
+  { id: 'proc-redis', x: 880, y: 940, layer: 'processor',
+    label: 'RedisEventProcessor', type: 'Event Processor',
+    badge: 'Pub/Sub',
+    file: 'messaging/processors/redis.py',
+    desc: 'Publishes every event as JSON to a Redis pub/sub channel. Enables decoupled consumers (signal service, dashboards).',
+    details: `Channel format: market:{EventType}:{Symbol}\nExample: market:TradeEvent:AAPL\nData: event.model_dump_json()\n\nSubscribers:\n• Signal Service (reads CandleEvent)\n• Dashboards (reads QuoteEvent, TradeEvent)`,
+    code: `def process_event(self, event: BaseEvent):\n  channel = (\n    f"market:{event.__class__.__name__}"\n    f":{event.eventSymbol}"\n  )\n  self.redis.publish(\n    channel=channel,\n    message=event.model_dump_json()\n  )`,
+    insights: [
+      { author: 'claude', text: 'Redis pub/sub is fire-and-forget — if no subscriber is listening, the message is lost. This is by design: the Signal Service is the primary consumer, and it can tolerate missed messages since it rebuilds state from candle history.' },
+      { author: 'xmandeng', text: 'The channel naming convention market:{Type}:{Symbol} is the contract between the main process and the decoupled signal service. Both sides must agree on this format.' },
+    ],
+    connections: ['redis']
+  },
+  { id: 'proc-signal', x: 1080, y: 940, layer: 'processor',
+    label: 'SignalEventProcessor', type: 'Event Processor',
+    badge: 'Candle only',
+    file: 'messaging/processors/signal.py',
+    desc: 'Routes CandleEvents to the signal engine for technical analysis and trade signal generation (in-process path).',
+    details: `Filters for CandleEvent only:\nif isinstance(event, CandleEvent):\n  engine.on_candle_event(event)\n\nAttached to: Candle EventHandler\nEngine: HullMacdEngine (or any SignalEngine protocol impl)`,
+    connections: ['hull-macd']
+  },
+  { id: 'proc-metrics', x: 1280, y: 940, layer: 'processor',
+    label: 'MetricsEventProcessor', type: 'Event Processor',
+    file: 'messaging/processors/metrics.py',
+    desc: 'Routes Quote and Greeks events to MetricsTracker for spread analysis and IV change tracking.',
+    details: `if isinstance(event, QuoteEvent):\n  tracker.on_quote_event(event)\nelif isinstance(event, GreeksEvent):\n  tracker.on_greeks_event(event)\n\nMetrics computed: bid/ask spreads, IV percentile, IV changes`,
+    connections: []
+  },
+  { id: 'proc-snapshot', x: 1460, y: 940, layer: 'processor',
+    label: 'CandleSnapshotTracker', type: 'Event Processor',
+    badge: 'Candle only',
+    file: 'messaging/processors/snapshot.py',
+    desc: 'Detects when DXLink finishes delivering a candle snapshot (backfill) by monitoring eventFlags.',
+    details: `Monitors eventFlags bitmask:\n• 0x04 SNAPSHOT_BEGIN — first event\n• 0x08 SNAPSHOT_END — last event\n• 0x10 SNAPSHOT_SNIP — snapshot truncated\n\nOn END/SNIP: completions.put_nowait(symbol)\nUsed for: Coordinating gap-fill after reconnect`,
+    code: `def process_event(self, event: BaseEvent):\n  if isinstance(event, CandleEvent):\n    flags = event.eventFlags\n    if flags & (SNAPSHOT_END | SNAPSHOT_SNIP):\n      self.completions.put_nowait(\n        event.eventSymbol\n      )\n      self._all_complete.set()`,
+    connections: []
+  },
+
+  // ── PERSISTENCE LAYER ──
+  { id: 'influxdb', x: 620, y: 1140, layer: 'persistence',
+    label: 'InfluxDB', type: 'Time-Series Database',
+    badge: 'HTTP :8086',
+    desc: 'Stores all market events as time-series data. Queried by MarketDataProvider for historical data and backtesting.',
+    details: `Schema:\n• Measurement: EventTypeName (TradeEvent, CandleEvent, etc)\n• Tags: eventSymbol (indexed)\n• Timestamp: event.time (microsecond precision)\n• Fields: price, volume, open, close, high, low, ...\n\nQuery (Flux):\nfrom(bucket: "market-data")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == "CandleEvent")\n  |> filter(fn: (r) => r.eventSymbol == "AAPL")\n  |> pivot(rowKey:["_time"], ...)`,
+    code: `# Environment config:\nINFLUX_DB_URL=http://localhost:8086\nINFLUX_DB_TOKEN=<token>\nINFLUX_DB_ORG=<org>\nINFLUX_DB_BUCKET=market-data`,
+    insights: [
+      { author: 'claude', text: 'InfluxDB is the system of record — the durable store that outlives any process restart. Redis is ephemeral (pub/sub messages are fire-and-forget). If you need to reconstruct history, it comes from InfluxDB via MarketDataProvider.' },
+    ],
+    connections: ['mkt-provider']
+  },
+  { id: 'redis', x: 920, y: 1140, layer: 'persistence',
+    label: 'Redis', type: 'Pub/Sub + Hash Store',
+    badge: 'TCP :6379',
+    desc: 'Dual role: pub/sub for real-time event distribution AND hash store for subscription tracking.',
+    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{symbol}\n\nHash store:\n• HSET subscriptions {symbol} JSON({active, last_update, metadata})`,
+    insights: [
+      { author: 'claude', text: 'Redis serves two unrelated roles here: (1) pub/sub for real-time event fan-out to decoupled services, (2) hash store for subscription state persistence. These could theoretically be separate Redis instances, but sharing one simplifies the deployment.' },
+    ],
+    connections: ['redis-sub','sub-store']
+  },
+
+  // ── SIGNAL LAYER ──
+  { id: 'redis-sub', x: 920, y: 1320, layer: 'signal',
+    label: 'RedisSubscription', type: 'Consumer Class',
+    file: 'providers/subscriptions.py',
+    desc: 'Subscribes to Redis pub/sub patterns and deserializes JSON into typed events. Used by the standalone signal service.',
+    details: `Pattern subscribe: market:CandleEvent:{symbol}{=interval}\n\nListener loop:\n• async for message in pubsub.listen()\n• Deserialize JSON → CandleEvent (typed validation)\n• Put into self.queue[f"CandleEvent:{symbol}"]\n\nQueue: dict[str, asyncio.Queue[BaseEvent]]`,
+    code: `async def listener():\n  async for msg in self.pubsub.listen():\n    if msg["type"] == "pmessage":\n      data = json.loads(msg["data"])\n      event = self.event_type(**data)\n      key = f"{type(event).__name__}:{event.eventSymbol}"\n      self.queue[key].put_nowait(event)`,
+    connections: ['signal-svc']
+  },
+  { id: 'signal-svc', x: 680, y: 1320, layer: 'signal',
+    label: 'Signal Service', type: 'Standalone Service',
+    badge: 'decoupled',
+    file: 'signal/service.py',
+    desc: 'Runs as a separate process/container. Consumes CandleEvents from Redis, feeds to signal engine, publishes TradeSignals back to Redis.',
+    insights: [
+      { author: 'xmandeng', text: 'Decoupled by design — the signal service can crash, restart, or be replaced without affecting the main data pipeline. The main process continues writing to InfluxDB regardless.' },
+      { author: 'claude', text: 'There are TWO paths to the signal engine: (1) in-process via SignalEventProcessor (low latency, same process), (2) decoupled via Redis→SignalService (independent lifecycle). Both can run simultaneously.' },
+    ],
+    details: `Decoupled architecture:\n1. Subscribe to Redis: market:CandleEvent:{symbol}{=interval}\n2. Wire engine: HullMacdEngine\n3. Set callback: engine.on_signal = publisher.publish\n4. Consume loop:\n   for queue in subscription.queues:\n     event = queue.get_nowait()\n     engine.on_candle_event(event)`,
+    code: `async def run_signal_service(symbols, intervals):\n  sub = RedisSubscription(config)\n  await sub.subscribe(\n    pattern=f"market:CandleEvent:{sym}{{={interval}}}",\n    event_type=CandleEvent\n  )\n  engine = HullMacdEngine()\n  publisher = RedisPublisher()\n  engine.on_signal = publisher.publish\n  while True:\n    for key, q in sub.queue.items():\n      if not q.empty():\n        event = q.get_nowait()\n        engine.on_candle_event(event)\n    await asyncio.sleep(0.01)`,
+    connections: ['hull-macd']
+  },
+  { id: 'hull-macd', x: 680, y: 1490, layer: 'signal',
+    label: 'HullMacdEngine', type: 'Signal Engine',
+    file: 'analytics/engines/hull_macd.py',
+    desc: 'Confluence-based signal engine. Requires both Hull MA direction change AND MACD crossover for entry signals. Single indicator flip for exits.',
+    details: `Per-symbol TimeframeState:\n• hull_direction: Up | Down | None\n• macd_position: Above | Below | Zero Crossing\n• hull/macd_armed_direction: re-entry guard\n• bullish_open / bearish_open: position state\n• candles: pl.DataFrame (up to 500)\n\nEntry logic (OPEN): Hull flip + MACD crossover = confluence\nExit logic (CLOSE): Hull flip OR MACD crossover = single indicator`,
+    code: `class SignalEngine(Protocol):\n  name: str\n  signals: list[TradeSignal]\n  on_signal: Callable[[TradeSignal], None] | None\n  def on_candle_event(self, event: CandleEvent): ...\n\nclass TradeSignal:\n  signal_type: str  # OPEN | CLOSE\n  direction: str    # BULLISH | BEARISH\n  engine: str       # "hull_macd"\n  hull_direction, hull_value: ...\n  macd_value, macd_signal, macd_histogram: ...\n  close_price: float\n  trigger: str  # "hull" | "macd" | "confluence"`,
+    insights: [
+      { author: 'xmandeng', text: 'Asymmetric entry/exit is deliberate: entries require confluence (both indicators agree) to avoid false signals, but exits are more aggressive (single indicator) to protect capital. This is a risk management philosophy baked into the engine.' },
+      { author: 'claude', text: 'SignalEngine is a Protocol (structural typing), not an ABC. Any class with the right methods works — no inheritance needed. This makes it trivial to swap in a different engine without touching the signal service or processor wiring.' },
+      { author: 'claude', text: 'The armed_direction fields are re-entry guards — they prevent the engine from emitting duplicate OPEN signals if an indicator oscillates near a threshold. Once armed, it must fully reverse before re-arming.' },
+    ],
+    connections: ['redis-pub']
+  },
+  { id: 'redis-pub', x: 920, y: 1490, layer: 'signal',
+    label: 'RedisPublisher', type: 'Publisher Class',
+    file: 'providers/subscriptions.py',
+    desc: 'Publishes TradeSignal events back to Redis for downstream consumers (dashboards, order execution).',
+    details: `channel: market:TradeSignal:{symbol}\ndata: signal.model_dump_json()\n\nDownstream consumers can subscribe to trade signals for automated execution or alerting.`,
+    code: `def publish(self, signal: TradeSignal):\n  channel = (\n    f"market:TradeSignal"\n    f":{signal.eventSymbol}"\n  )\n  self.redis.publish(\n    channel, signal.model_dump_json()\n  )`,
+    connections: ['redis']
+  },
+
+  // ── CONFIG / SUBSCRIPTION ──
+  { id: 'sub-store', x: 1300, y: 230, layer: 'config',
+    label: 'SubscriptionStore', type: 'ABC Interface',
+    file: 'connections/subscription.py',
+    desc: 'Abstract interface for tracking active symbol subscriptions. Enables reconnect/restore after disconnects.',
+    details: `Implementations:\n• RedisSubscriptionStore — Hash-based, shared across processes\n• InMemorySubscriptionStore — Singleton, single process\n\nInterface:\n• add_subscription(symbol, metadata)\n• remove_subscription(symbol)\n• get_active_subscriptions() → dict\n• update_subscription_status(symbol, data)`,
+    code: `# Redis implementation:\nHSET subscriptions {symbol} JSON({\n  "active": true,\n  "last_update": "2025-02-20T...",\n  "metadata": {...}\n})`,
+    insights: [
+      { author: 'claude', text: 'Primary purpose is reconnection recovery — when the WS drops, the orchestrator reads get_active_subscriptions() to know what to re-subscribe. Without this, a reconnect would come back with zero subscriptions.' },
+      { author: 'claude', text: 'Every processed event bumps last_update via the EventHandler. This acts as a per-symbol heartbeat — if a symbol stops updating, monitoring can detect a stale subscription.' },
+      { author: 'claude', text: 'InMemorySubscriptionStore has a known alignment issue (line 169: "FIX THIS") — its update_subscription_status uses a key-matching heuristic for candle intervals that differs from the Redis implementation.' },
+    ],
+    connections: []
+  },
+  { id: 'channel-specs', x: 1300, y: 430, layer: 'config',
+    label: 'CHANNEL_SPECS', type: 'Configuration Dict',
+    file: 'config/configurations.py',
+    desc: 'Maps each Channel enum to its ChannelSpecification: event type, field names, and defaults. Drives deserialization.',
+    details: `Dict[Channels → ChannelSpecification]\n\nChannelSpecification:\n• channel: Channels enum\n• event_type: Type[BaseEvent]\n• fields: list[str] — ordered field names for deserialization\n\nUsed by EventHandler to know which fields to zip with raw data chunks.`,
+    insights: [
+      { author: 'xmandeng', text: 'The fields property (line 40-43) introspects the Pydantic model via model_fields.keys(). This means the field list is derived from the event model itself — single source of truth. Add a field to TradeEvent and it automatically propagates to WS feed setup AND deserialization.' },
+      { author: 'claude', text: 'Used in 3 places: (1) DXLinkManager.setup_feeds() negotiates WS fields, (2) DXLinkManager.subscribe() builds per-channel subscription requests, (3) EventHandler.__init__() gets event_type and fields for deserialization. All three stay in sync automatically.' },
+    ],
+    connections: []
+  },
+  { id: 'mkt-provider', x: 380, y: 1140, layer: 'config',
+    label: 'MarketDataProvider', type: 'Data Access Class',
+    file: 'providers/market.py',
+    desc: 'Queries InfluxDB for historical data. Returns polars DataFrames for backtesting, charting, and analysis.',
+    details: `download(symbol, start, stop):\n→ Flux query to InfluxDB\n→ pivot(rowKey=["_time"])\n→ polars DataFrame\n\nAlso: EventDrivenProvider extends with live callbacks`,
+    code: `def download(self, symbol, start, stop):\n  query = f\"\"\"\n  from(bucket: "{self.bucket}")\n  |> range(start: {start}, stop: {stop})\n  |> filter(fn: (r) =>\n    r._measurement == "CandleEvent")\n  |> filter(fn: (r) =>\n    r.eventSymbol == "{symbol}")\n  |> pivot(rowKey:["_time"],\n    columnKey:["_field"],\n    valueColumn:"_value")\n  \"\"\"\n  return self.client.query_api()\\\n    .query_data_frame(query)`,
+    connections: []
+  },
+];
+
+const edges = [
+  // WS → DXLink
+  { from: 'tastytrade-api', to: 'dxlink-mgr', label: 'auth + url' },
+  { from: 'ws-listener', to: 'dxlink-mgr', label: 'async task', style: 'dashed' },
+  { from: 'keepalive', to: 'dxlink-mgr', label: 'heartbeat', style: 'dashed' },
+
+  // DXLink → Queues
+  { from: 'dxlink-mgr', to: 'queue-control', label: 'put()' },
+  { from: 'dxlink-mgr', to: 'queue-profile', label: 'put()' },
+  { from: 'dxlink-mgr', to: 'queue-summary', label: 'put()' },
+  { from: 'dxlink-mgr', to: 'queue-trade', label: 'put()' },
+  { from: 'dxlink-mgr', to: 'queue-quote', label: 'put()' },
+  { from: 'dxlink-mgr', to: 'queue-candle', label: 'put()' },
+  { from: 'dxlink-mgr', to: 'queue-greeks', label: 'put()' },
+
+  // Queues → Handlers
+  { from: 'queue-control', to: 'ctrl-handler', label: 'get()' },
+  { from: 'queue-profile', to: 'msg-router', label: 'get()' },
+  { from: 'queue-summary', to: 'msg-router', label: 'get()' },
+  { from: 'queue-trade', to: 'msg-router', label: 'get()' },
+  { from: 'queue-quote', to: 'msg-router', label: 'get()' },
+  { from: 'queue-candle', to: 'msg-router', label: 'get()' },
+  { from: 'queue-greeks', to: 'msg-router', label: 'get()' },
+
+  // Router → Handler
+  { from: 'msg-router', to: 'evt-handler', label: 'dispatch' },
+  { from: 'evt-handler', to: 'base-event', label: 'deserialize', style: 'dashed' },
+
+  // Handler → Processors
+  { from: 'evt-handler', to: 'proc-latest', label: 'Quote/Greeks/Profile/Summary' },
+  { from: 'evt-handler', to: 'proc-base', label: 'Trade' },
+  { from: 'evt-handler', to: 'proc-candle', label: 'Candle' },
+  { from: 'evt-handler', to: 'proc-influx', label: 'all events' },
+  { from: 'evt-handler', to: 'proc-redis', label: 'all events' },
+  { from: 'evt-handler', to: 'proc-signal', label: 'Candle' },
+  { from: 'evt-handler', to: 'proc-metrics', label: 'Quote/Greeks' },
+  { from: 'evt-handler', to: 'proc-snapshot', label: 'Candle' },
+
+  // Processors → Persistence
+  { from: 'proc-influx', to: 'influxdb', label: 'batch write' },
+  { from: 'proc-redis', to: 'redis', label: 'publish' },
+
+  // In-process signal path
+  { from: 'proc-signal', to: 'hull-macd', label: 'on_candle_event()' },
+
+  // InfluxDB → Provider
+  { from: 'influxdb', to: 'mkt-provider', label: 'Flux query', style: 'dashed' },
+
+  // Redis signal path
+  { from: 'redis', to: 'redis-sub', label: 'psubscribe' },
+  { from: 'redis-sub', to: 'signal-svc', label: 'typed events' },
+  { from: 'signal-svc', to: 'hull-macd', label: 'on_candle_event()' },
+  { from: 'hull-macd', to: 'redis-pub', label: 'TradeSignal' },
+  { from: 'redis-pub', to: 'redis', label: 'publish' },
+
+  // Subscription store
+  { from: 'dxlink-mgr', to: 'sub-store', label: 'track subs', style: 'dashed' },
+];
+
+// ── RENDER ───────────────────────────────────────────────────────────
+let scale = 0.7, panX = 50, panY = 10;
+let isDragging = false, dragStartX, dragStartY;
+let selectedNode = null;
+let flowAnimated = false;
+
+// Node dragging state
+let draggingNode = null;
+let nodeDragStartX, nodeDragStartY, nodeOrigX, nodeOrigY;
+let nodeDragMoved = false;
+let groupDragOrigins = null; // { nodeId: {x, y} } when dragging a group
+const NODE_DRAG_THRESHOLD = 5; // px before considered a drag
+const layerVisibility = {};
+Object.keys(LAYERS).forEach(k => layerVisibility[k] = true);
+
+// ── UNDO / REDO ─────────────────────────────────────────────────────
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 50;
+
+function snapshotPositions() {
+  const snap = {};
+  nodes.forEach(n => { snap[n.id] = { x: n.x, y: n.y }; });
+  return snap;
+}
+
+function pushUndo(snapshot) {
+  undoStack.push(snapshot);
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0; // clear redo on new action
+  updateUndoRedoButtons();
+}
+
+function applySnapshot(snap) {
+  nodes.forEach(n => {
+    if (snap[n.id]) {
+      n.x = snap[n.id].x;
+      n.y = snap[n.id].y;
+      const el = document.getElementById(`node-${n.id}`);
+      if (el) {
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+      }
+    }
+  });
+  renderEdges();
+  updateMinimap();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(snapshotPositions());
+  applySnapshot(undoStack.pop());
+  updateUndoRedoButtons();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(snapshotPositions());
+  applySnapshot(redoStack.pop());
+  updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  document.getElementById('undo-btn').disabled = undoStack.length === 0;
+  document.getElementById('redo-btn').disabled = redoStack.length === 0;
+}
+
+// ── GROUP SELECTION ──────────────────────────────────────────────────
+const groupSelected = new Set(); // node IDs
+
+function toggleGroupSelect(nodeId) {
+  if (groupSelected.has(nodeId)) {
+    groupSelected.delete(nodeId);
+  } else {
+    groupSelected.add(nodeId);
+  }
+  updateGroupVisuals();
+}
+
+function clearGroupSelection() {
+  groupSelected.clear();
+  updateGroupVisuals();
+}
+
+function updateGroupVisuals() {
+  nodes.forEach(n => {
+    const el = document.getElementById(`node-${n.id}`);
+    if (el) el.classList.toggle('group-selected', groupSelected.has(n.id));
+  });
+  // Update count indicator
+  const badge = document.getElementById('group-count');
+  if (groupSelected.size > 0) {
+    badge.textContent = groupSelected.size;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// Lasso state
+let isLassoing = false;
+let lassoStartX, lassoStartY; // screen coords
+const lassoEl = document.getElementById('lasso');
+
+// ── DEFAULT POSITIONS (for reset) ───────────────────────────────────
+const DEFAULT_POSITIONS = {};
+nodes.forEach(n => { DEFAULT_POSITIONS[n.id] = { x: n.x, y: n.y }; });
+
+// ── LAYOUT PERSISTENCE ───────────────────────────────────────────────
+// Saved layouts live in architecture_layouts.json (version-controlled).
+// When served via devserver, saves write to the file via a tiny PUT endpoint.
+// Falls back to localStorage when opened directly (file:// or no server).
+const LAYOUTS_FILE = 'architecture_layouts.json';
+const STORAGE_KEY = 'tastytrade-arch-layouts';
+let savedLayouts = {};
+let canWriteToFile = false;
+
+async function initLayouts() {
+  // Try loading from the JSON file first (served alongside the HTML)
+  try {
+    const resp = await fetch(LAYOUTS_FILE);
+    if (resp.ok) {
+      savedLayouts = await resp.json();
+      canWriteToFile = true;
+    }
+  } catch { /* file not available */ }
+
+  // Merge any localStorage entries (migration / offline edits)
+  try {
+    const local = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    Object.keys(local).forEach(k => {
+      if (!savedLayouts[k]) savedLayouts[k] = local[k];
+    });
+  } catch { /* ignore */ }
+
+  refreshLayoutSelect();
+}
+
+function getSavedLayouts() {
+  return savedLayouts;
+}
+
+async function persistLayouts() {
+  // Always sync to localStorage as backup
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(savedLayouts));
+
+  // Try writing to the JSON file via devserver
+  if (canWriteToFile) {
+    try {
+      await fetch(LAYOUTS_FILE, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(savedLayouts, null, 2),
+      });
+    } catch {
+      // PUT not supported (plain http.server) — export instead
+      canWriteToFile = false;
+    }
+  }
+}
+
+function saveLayout() {
+  const name = prompt('Layout name:');
+  if (!name || !name.trim()) return;
+  savedLayouts[name.trim()] = snapshotPositions();
+  persistLayouts();
+  refreshLayoutSelect();
+
+  // If PUT isn't available, offer a download so user can save the file manually
+  if (!canWriteToFile) {
+    downloadLayoutsFile();
+  }
+}
+
+function downloadLayoutsFile() {
+  const blob = new Blob([JSON.stringify(savedLayouts, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = LAYOUTS_FILE;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function loadLayout(name) {
+  if (!name) return;
+  if (!savedLayouts[name]) return;
+  pushUndo(snapshotPositions());
+  applySnapshot(savedLayouts[name]);
+  document.getElementById('layout-select').value = '';
+}
+
+function deleteLayout(name) {
+  delete savedLayouts[name];
+  persistLayouts();
+  refreshLayoutSelect();
+}
+
+function resetLayout() {
+  pushUndo(snapshotPositions());
+  applySnapshot(DEFAULT_POSITIONS);
+}
+
+function refreshLayoutSelect() {
+  const sel = document.getElementById('layout-select');
+  const names = Object.keys(savedLayouts);
+  sel.innerHTML = `<option value="">Load${names.length ? ` (${names.length})` : ''}...</option>`;
+  names.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+}
+
+const canvas = document.getElementById('canvas');
+const canvasWrap = document.getElementById('canvas-wrap');
+const edgeSvg = document.getElementById('edges');
+const tooltip = document.getElementById('tooltip');
+
+async function init() {
+  renderLayerToggles();
+  renderNodes();
+  renderEdges();
+  updateTransform();
+  updateMinimap();
+  await initLayouts();
+}
+
+function renderLayerToggles() {
+  const container = document.getElementById('layer-toggles');
+  container.innerHTML = '';
+  Object.entries(LAYERS).forEach(([key, layer]) => {
+    const btn = document.createElement('button');
+    btn.className = `layer-toggle ${layerVisibility[key] ? 'on' : ''}`;
+    btn.textContent = layer.label;
+    btn.style.borderColor = layerVisibility[key] ? layer.color : '';
+    btn.style.color = layerVisibility[key] ? layer.color : '';
+    btn.style.background = layerVisibility[key] ? `${layer.color}15` : '';
+    btn.onclick = () => {
+      layerVisibility[key] = !layerVisibility[key];
+      renderLayerToggles();
+      updateVisibility();
+    };
+    container.appendChild(btn);
+  });
+}
+
+function renderNodes() {
+  nodes.forEach(node => {
+    const el = document.createElement('div');
+    el.className = `node layer-${node.layer}`;
+    el.id = `node-${node.id}`;
+    el.style.left = node.x + 'px';
+    el.style.top = node.y + 'px';
+    el.dataset.id = node.id;
+
+    let html = '';
+    if (node.insights && node.insights.length > 0) {
+      html += `<div class="node-insight-dot" title="${node.insights.length} insight(s)"></div>`;
+    }
+    html += `<div class="node-label">${node.label}</div>`;
+    html += `<div class="node-type">${node.type}</div>`;
+    if (node.badge) {
+      html += `<div class="node-badge">${node.badge}</div>`;
+    }
+    el.innerHTML = html;
+
+    // Mousedown starts potential drag (or Shift+Click for group toggle)
+    el.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      e.preventDefault(); // prevent Safari Shift+Click text selection
+      draggingNode = node;
+      nodeDragMoved = false;
+      nodeDragStartX = e.clientX;
+      nodeDragStartY = e.clientY;
+      nodeOrigX = node.x;
+      nodeOrigY = node.y;
+      preDragSnapshot = snapshotPositions(); // capture before any move
+
+      // If this node is part of group, record all group members' origins
+      if (groupSelected.has(node.id) && groupSelected.size > 1) {
+        groupDragOrigins = {};
+        groupSelected.forEach(id => {
+          const n = nodes.find(nd => nd.id === id);
+          if (n) groupDragOrigins[id] = { x: n.x, y: n.y };
+        });
+      } else {
+        groupDragOrigins = null;
+      }
+
+      el.style.zIndex = 50;
+      el.style.transition = 'box-shadow 0.2s, border-color 0.2s'; // disable transform transition while dragging
+      hideTooltip();
+    });
+
+    el.addEventListener('mouseenter', (e) => { if (!draggingNode) showTooltip(e, node); });
+    el.addEventListener('mouseleave', hideTooltip);
+
+    canvas.appendChild(el);
+  });
+}
+
+// Global mousemove for node dragging
+window.addEventListener('mousemove', (e) => {
+  // Lasso selection
+  if (isLassoing) {
+    const curX = e.clientX;
+    const curY = e.clientY;
+    const rect = canvasWrap.getBoundingClientRect();
+    const l = Math.min(lassoStartX, curX) - rect.left;
+    const t = Math.min(lassoStartY, curY) - rect.top;
+    const w = Math.abs(curX - lassoStartX);
+    const h = Math.abs(curY - lassoStartY);
+    lassoEl.style.left = l + 'px';
+    lassoEl.style.top = t + 'px';
+    lassoEl.style.width = w + 'px';
+    lassoEl.style.height = h + 'px';
+    lassoEl.style.display = 'block';
+    return;
+  }
+
+  if (!draggingNode) return;
+
+  const dx = (e.clientX - nodeDragStartX) / scale;
+  const dy = (e.clientY - nodeDragStartY) / scale;
+
+  if (!nodeDragMoved && (Math.abs(dx) > NODE_DRAG_THRESHOLD || Math.abs(dy) > NODE_DRAG_THRESHOLD)) {
+    nodeDragMoved = true;
+    canvasWrap.classList.add('dragging');
+  }
+
+  if (nodeDragMoved) {
+    // Move the primary dragged node
+    draggingNode.x = nodeOrigX + dx;
+    draggingNode.y = nodeOrigY + dy;
+    const el = document.getElementById(`node-${draggingNode.id}`);
+    if (el) {
+      el.style.left = draggingNode.x + 'px';
+      el.style.top = draggingNode.y + 'px';
+    }
+
+    // Move all other group members by the same delta
+    if (groupDragOrigins) {
+      groupSelected.forEach(id => {
+        if (id === draggingNode.id) return;
+        const n = nodes.find(nd => nd.id === id);
+        const orig = groupDragOrigins[id];
+        if (!n || !orig) return;
+        n.x = orig.x + dx;
+        n.y = orig.y + dy;
+        const nel = document.getElementById(`node-${id}`);
+        if (nel) {
+          nel.style.left = n.x + 'px';
+          nel.style.top = n.y + 'px';
+        }
+      });
+    }
+
+    renderEdges();
+    updateMinimap();
+  }
+});
+
+// Snapshot taken on drag start (before move)
+let preDragSnapshot = null;
+
+// Global mouseup for node dragging + lasso + group
+window.addEventListener('mouseup', (e) => {
+  // Finalize lasso selection
+  if (isLassoing) {
+    isLassoing = false;
+    lassoEl.style.display = 'none';
+    canvasWrap.classList.remove('dragging');
+
+    // Determine which nodes are inside the lasso rect (in screen coords)
+    const rect = canvasWrap.getBoundingClientRect();
+    const lx1 = (Math.min(lassoStartX, e.clientX) - rect.left - panX) / scale;
+    const ly1 = (Math.min(lassoStartY, e.clientY) - rect.top - panY) / scale;
+    const lx2 = (Math.max(lassoStartX, e.clientX) - rect.left - panX) / scale;
+    const ly2 = (Math.max(lassoStartY, e.clientY) - rect.top - panY) / scale;
+
+    nodes.forEach(n => {
+      if (!layerVisibility[n.layer]) return;
+      const el = document.getElementById(`node-${n.id}`);
+      if (!el) return;
+      const cx = n.x + el.offsetWidth / 2;
+      const cy = n.y + el.offsetHeight / 2;
+      if (cx >= lx1 && cx <= lx2 && cy >= ly1 && cy <= ly2) {
+        groupSelected.add(n.id);
+      }
+    });
+    updateGroupVisuals();
+    return;
+  }
+
+  if (draggingNode) {
+    const el = document.getElementById(`node-${draggingNode.id}`);
+    if (el) {
+      el.style.zIndex = '';
+      el.style.transition = '';
+    }
+
+    // If we actually dragged, push the pre-drag snapshot to undo stack
+    if (nodeDragMoved && preDragSnapshot) {
+      pushUndo(preDragSnapshot);
+    }
+
+    // If we didn't drag past threshold, treat as click
+    if (!nodeDragMoved) {
+      if (e.shiftKey) {
+        // Shift+Click: toggle group membership, close detail panel
+        closeDetail();
+        toggleGroupSelect(draggingNode.id);
+      } else {
+        // Normal click: open detail, clear group
+        clearGroupSelection();
+        selectNode(draggingNode);
+      }
+    }
+
+    draggingNode = null;
+    nodeDragMoved = false;
+    preDragSnapshot = null;
+    groupDragOrigins = null;
+    canvasWrap.classList.remove('dragging');
+    return;
+  }
+});
+
+function getNodeCenter(id) {
+  const el = document.getElementById(`node-${id}`);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  // Use the actual position from the node data
+  const node = nodes.find(n => n.id === id);
+  if (!node) return null;
+  return {
+    x: node.x + el.offsetWidth / 2,
+    y: node.y + el.offsetHeight / 2,
+    w: el.offsetWidth,
+    h: el.offsetHeight,
+    top: node.y,
+    bottom: node.y + el.offsetHeight,
+    left: node.x,
+    right: node.x + el.offsetWidth
+  };
+}
+
+function renderEdges() {
+  // Clear existing edges (preserve defs)
+  const defs = edgeSvg.querySelector('defs');
+  edgeSvg.innerHTML = '';
+  edgeSvg.appendChild(defs);
+
+  // Wait a tick for DOM to layout
+  requestAnimationFrame(() => {
+    edges.forEach((edge, i) => {
+      const from = getNodeCenter(edge.from);
+      const to = getNodeCenter(edge.to);
+      if (!from || !to) return;
+
+      // Calculate connection points
+      let x1, y1, x2, y2;
+
+      // Determine best exit/entry sides
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+
+      if (Math.abs(dy) > Math.abs(dx) * 0.5) {
+        // More vertical
+        if (dy > 0) {
+          x1 = from.x; y1 = from.bottom;
+          x2 = to.x; y2 = to.top;
+        } else {
+          x1 = from.x; y1 = from.top;
+          x2 = to.x; y2 = to.bottom;
+        }
+      } else {
+        // More horizontal
+        if (dx > 0) {
+          x1 = from.right; y1 = from.y;
+          x2 = to.left; y2 = to.y;
+        } else {
+          x1 = from.left; y1 = from.y;
+          x2 = to.right; y2 = to.y;
+        }
+      }
+
+      const midY = (y1 + y2) / 2;
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const d = Math.abs(y2 - y1) > 30
+        ? `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`
+        : `M${x1},${y1} L${x2},${y2}`;
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'edge');
+      path.setAttribute('marker-end', 'url(#arrowhead)');
+      path.dataset.from = edge.from;
+      path.dataset.to = edge.to;
+      path.dataset.index = i;
+      if (edge.style === 'dashed') {
+        path.setAttribute('stroke-dasharray', '6 3');
+      }
+      edgeSvg.appendChild(path);
+
+      // Label
+      if (edge.label) {
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', (x1 + x2) / 2);
+        text.setAttribute('y', (y1 + y2) / 2 - 6);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('class', 'edge-label');
+        text.dataset.from = edge.from;
+        text.dataset.to = edge.to;
+        text.textContent = edge.label;
+        edgeSvg.appendChild(text);
+      }
+    });
+  });
+}
+
+function selectNode(node) {
+  // Deselect previous
+  document.querySelectorAll('.node.selected, .node.highlighted').forEach(el => {
+    el.classList.remove('selected', 'highlighted');
+  });
+  document.querySelectorAll('.edge.highlighted, .edge.animated').forEach(el => {
+    el.classList.remove('highlighted', 'animated');
+    el.setAttribute('marker-end', 'url(#arrowhead)');
+  });
+  document.querySelectorAll('.edge-label.highlighted').forEach(el => {
+    el.classList.remove('highlighted');
+  });
+
+  if (selectedNode === node.id) {
+    selectedNode = null;
+    closeDetail();
+    return;
+  }
+
+  selectedNode = node.id;
+
+  // Highlight selected
+  const el = document.getElementById(`node-${node.id}`);
+  if (el) el.classList.add('selected');
+
+  // Highlight connected nodes and edges
+  const connectedNodes = new Set();
+  edges.forEach((edge, i) => {
+    if (edge.from === node.id || edge.to === node.id) {
+      const otherId = edge.from === node.id ? edge.to : edge.from;
+      connectedNodes.add(otherId);
+
+      // Highlight edges
+      document.querySelectorAll(`.edge[data-from="${edge.from}"][data-to="${edge.to}"]`).forEach(path => {
+        path.classList.add('highlighted');
+        if (flowAnimated) path.classList.add('animated');
+        path.setAttribute('marker-end', 'url(#arrowhead-hl)');
+      });
+      document.querySelectorAll(`.edge-label[data-from="${edge.from}"][data-to="${edge.to}"]`).forEach(lbl => {
+        lbl.classList.add('highlighted');
+      });
+    }
+  });
+
+  connectedNodes.forEach(id => {
+    const connEl = document.getElementById(`node-${id}`);
+    if (connEl) connEl.classList.add('highlighted');
+  });
+
+  // Show detail panel
+  showDetail(node, connectedNodes);
+}
+
+function showDetail(node, connectedNodes) {
+  const panel = document.getElementById('detail-panel');
+  const content = document.getElementById('detail-content');
+
+  const incoming = edges.filter(e => e.to === node.id).map(e => {
+    const src = nodes.find(n => n.id === e.from);
+    return `<li><span class="arrow">&larr;</span> ${src ? src.label : e.from} <code>${e.label || ''}</code></li>`;
+  }).join('');
+
+  const outgoing = edges.filter(e => e.from === node.id).map(e => {
+    const tgt = nodes.find(n => n.id === e.to);
+    return `<li><span class="arrow">&rarr;</span> ${tgt ? tgt.label : e.to} <code>${e.label || ''}</code></li>`;
+  }).join('');
+
+  const insightsHtml = (node.insights && node.insights.length > 0)
+    ? `<div class="detail-section"><h3>Insights</h3>${
+        node.insights.map(i =>
+          `<div class="insight author-${i.author}"><div class="insight-author">${{xmandeng: '<img class="insight-avatar" src="https://avatars.githubusercontent.com/u/44256405?v=4&s=32" alt="">Mandeng', claude: '<svg class="insight-avatar" viewBox="0 0 24 24" fill="none"><path d="M16.1 11.5L12.7 3.3C12.5 2.9 12 2.9 11.8 3.3L8.4 11.5L3.3 8.4C2.9 8.2 2.5 8.6 2.7 9L7.5 18.5C7.6 18.8 7.9 19 8.2 19H16.3C16.6 19 16.9 18.8 17 18.5L21.8 9C22 8.6 21.6 8.2 21.2 8.4L16.1 11.5Z" fill="currentColor"/></svg>Claude'}[i.author] || i.author}</div><div class="insight-text">${i.text}</div></div>`
+        ).join('')
+      }</div>`
+    : '';
+
+  content.innerHTML = `
+    <h2>${node.label}</h2>
+    <div class="detail-type">${node.type}</div>
+    ${node.file ? `<div class="detail-file">${node.file}</div>` : ''}
+    <div class="detail-section">
+      <h3>Description</h3>
+      <p>${node.desc}</p>
+    </div>
+    ${insightsHtml}
+    ${node.details ? `<div class="detail-section"><h3>Implementation Details</h3><pre>${node.details}</pre></div>` : ''}
+    ${node.code ? `<div class="detail-section"><h3>Code Pattern</h3><pre>${node.code}</pre></div>` : ''}
+    ${incoming ? `<div class="detail-section"><h3>Incoming</h3><ul class="connections-list">${incoming}</ul></div>` : ''}
+    ${outgoing ? `<div class="detail-section"><h3>Outgoing</h3><ul class="connections-list">${outgoing}</ul></div>` : ''}
+  `;
+
+  panel.classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  document.querySelectorAll('.node.selected, .node.highlighted').forEach(el => {
+    el.classList.remove('selected', 'highlighted');
+  });
+  document.querySelectorAll('.edge.highlighted, .edge.animated').forEach(el => {
+    el.classList.remove('highlighted', 'animated');
+    el.setAttribute('marker-end', 'url(#arrowhead)');
+  });
+  document.querySelectorAll('.edge-label.highlighted').forEach(el => {
+    el.classList.remove('highlighted');
+  });
+  selectedNode = null;
+}
+
+function showTooltip(e, node) {
+  if (selectedNode) return;
+  tooltip.textContent = node.desc.substring(0, 120) + (node.desc.length > 120 ? '...' : '');
+  tooltip.style.left = (e.clientX + 12) + 'px';
+  tooltip.style.top = (e.clientY + 12) + 'px';
+  tooltip.classList.add('visible');
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('visible');
+}
+
+function updateVisibility() {
+  nodes.forEach(node => {
+    const el = document.getElementById(`node-${node.id}`);
+    if (el) {
+      el.style.display = layerVisibility[node.layer] ? '' : 'none';
+    }
+  });
+  // Re-render edges to reflect visibility
+  document.querySelectorAll('.edge, .edge-label').forEach(el => {
+    const fromNode = nodes.find(n => n.id === el.dataset.from);
+    const toNode = nodes.find(n => n.id === el.dataset.to);
+    if (fromNode && toNode) {
+      const visible = layerVisibility[fromNode.layer] && layerVisibility[toNode.layer];
+      el.style.display = visible ? '' : 'none';
+    }
+  });
+}
+
+function toggleFlow() {
+  flowAnimated = !flowAnimated;
+  const btn = document.getElementById('flow-btn');
+  btn.classList.toggle('active', flowAnimated);
+
+  if (flowAnimated) {
+    document.querySelectorAll('.edge').forEach(el => {
+      if (!el.getAttribute('stroke-dasharray')) {
+        el.classList.add('animated');
+      }
+    });
+  } else {
+    document.querySelectorAll('.edge.animated').forEach(el => {
+      el.classList.remove('animated');
+    });
+  }
+}
+
+// ── PAN & ZOOM ──────────────────────────────────────────────────────
+function updateTransform() {
+  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  document.getElementById('zoom-ind').textContent = Math.round(scale * 100) + '%';
+  document.getElementById('zoom-slider').value = Math.round(scale * 100);
+  updateMinimap();
+}
+
+function zoomTo(newScale) {
+  // Zoom toward center of viewport
+  const rect = canvasWrap.getBoundingClientRect();
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  const prev = scale;
+  scale = Math.max(0.2, Math.min(2, newScale));
+  panX = cx - (cx - panX) * (scale / prev);
+  panY = cy - (cy - panY) * (scale / prev);
+  updateTransform();
+}
+
+function zoomStep(dir) {
+  // 10% increments, snap to nearest 10
+  const current = Math.round(scale * 100);
+  const target = dir > 0
+    ? Math.min(200, Math.ceil((current + 1) / 10) * 10)
+    : Math.max(20, Math.floor((current - 1) / 10) * 10);
+  zoomTo(target / 100);
+}
+
+canvasWrap.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.node')) return; // node drag handles this
+
+  // Shift+drag on empty canvas = lasso select
+  if (e.shiftKey) {
+    e.preventDefault(); // prevent Safari Shift+Click text selection
+    isLassoing = true;
+    lassoStartX = e.clientX;
+    lassoStartY = e.clientY;
+    lassoEl.style.display = 'none';
+    canvasWrap.classList.add('dragging');
+    return;
+  }
+
+  isDragging = true;
+  dragStartX = e.clientX - panX;
+  dragStartY = e.clientY - panY;
+  canvasWrap.classList.add('dragging');
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (draggingNode) return; // node drag takes priority
+  if (!isDragging) return;
+  panX = e.clientX - dragStartX;
+  panY = e.clientY - dragStartY;
+  updateTransform();
+});
+
+window.addEventListener('mouseup', () => {
+  if (isDragging) {
+    isDragging = false;
+    canvasWrap.classList.remove('dragging');
+  }
+});
+
+canvasWrap.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = canvasWrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const prevScale = scale;
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  scale = Math.max(0.2, Math.min(2, scale * delta));
+
+  // Zoom toward cursor
+  panX = mx - (mx - panX) * (scale / prevScale);
+  panY = my - (my - panY) * (scale / prevScale);
+  updateTransform();
+}, { passive: false });
+
+canvasWrap.addEventListener('click', (e) => {
+  if (!e.target.closest('.node')) {
+    if (!e.shiftKey) clearGroupSelection();
+    closeDetail();
+  }
+});
+
+function resetView() {
+  scale = 0.7; panX = 50; panY = 10;
+  updateTransform();
+}
+
+function fitToScreen() {
+  const wrap = canvasWrap.getBoundingClientRect();
+  // Find bounding box of all visible nodes
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    if (!layerVisibility[n.layer]) return;
+    const el = document.getElementById(`node-${n.id}`);
+    if (!el) return;
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + el.offsetWidth);
+    maxY = Math.max(maxY, n.y + el.offsetHeight);
+  });
+
+  const contentW = maxX - minX + 80;
+  const contentH = maxY - minY + 80;
+  const panelW = document.getElementById('detail-panel').classList.contains('open') ? 380 : 0;
+  const availW = wrap.width - panelW - 40;
+  const availH = wrap.height - 40;
+
+  scale = Math.min(availW / contentW, availH / contentH, 1.2);
+  panX = (availW - contentW * scale) / 2 - minX * scale + 20;
+  panY = (availH - contentH * scale) / 2 - minY * scale + 20;
+  updateTransform();
+}
+
+// ── MINIMAP ─────────────────────────────────────────────────────────
+function updateMinimap() {
+  const mc = document.getElementById('minimap-canvas');
+  const ctx = mc.getContext('2d');
+  const mw = mc.width, mh = mc.height;
+  ctx.clearRect(0, 0, mw, mh);
+
+  // Find bounds
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + 180);
+    maxY = Math.max(maxY, n.y + 60);
+  });
+
+  const cw = maxX - minX + 60;
+  const ch = maxY - minY + 60;
+  const ms = Math.min(mw / cw, mh / ch);
+
+  // Draw nodes
+  nodes.forEach(n => {
+    if (!layerVisibility[n.layer]) return;
+    const color = LAYERS[n.layer].color;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(
+      (n.x - minX + 30) * ms,
+      (n.y - minY + 30) * ms,
+      8, 4
+    );
+  });
+  ctx.globalAlpha = 1;
+
+  // Draw viewport
+  const wrap = canvasWrap.getBoundingClientRect();
+  const vp = document.getElementById('minimap-vp');
+  const vpLeft = (-panX / scale - minX + 30) * ms;
+  const vpTop = (-panY / scale - minY + 30) * ms;
+  const vpW = (wrap.width / scale) * ms;
+  const vpH = ((wrap.height - 48) / scale) * ms;
+  vp.style.left = Math.max(0, vpLeft) + 'px';
+  vp.style.top = Math.max(0, vpTop) + 'px';
+  vp.style.width = Math.min(mw, vpW) + 'px';
+  vp.style.height = Math.min(mh, vpH) + 'px';
+}
+
+// ── KEYBOARD ────────────────────────────────────────────────────────
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { clearGroupSelection(); closeDetail(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault();
+    closeDetail();
+    nodes.forEach(n => { if (layerVisibility[n.layer]) groupSelected.add(n.id); });
+    updateGroupVisuals();
+    return;
+  }
+  // Ctrl+Z / Cmd+Z = undo, Ctrl+Shift+Z / Cmd+Shift+Z = redo
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'Z' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); return; }
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; // don't intercept typing
+  if (e.key === 'f') fitToScreen();
+  if (e.key === 'r') resetView();
+  if (e.key === ' ') { e.preventDefault(); toggleFlow(); }
+});
+
+// ── INIT ────────────────────────────────────────────────────────────
+init();
+// Re-render edges after layout settles
+setTimeout(renderEdges, 100);
+setTimeout(renderEdges, 300);
+</script>
+</body>
+</html>
