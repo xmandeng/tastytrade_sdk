@@ -188,6 +188,90 @@
   }
   .rail-select:hover { background: #484f58; }
 
+  /* Custom layout dropdown */
+  .layout-dropdown-wrap { position: relative; margin-top: 4px; }
+  .layout-dropdown-trigger {
+    width: 100%;
+    background: var(--border);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .layout-dropdown-trigger:hover { background: #484f58; }
+  .layout-dropdown-trigger.open { border-color: var(--accent-blue); }
+  .layout-dropdown-trigger .dd-arrow {
+    font-size: 8px;
+    color: var(--text-dim);
+    transition: transform 0.15s;
+  }
+  .layout-dropdown-trigger.open .dd-arrow { transform: rotate(180deg); }
+  .layout-dropdown-menu {
+    position: absolute;
+    left: 0; right: 0;
+    top: calc(100% + 3px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+    z-index: 120;
+    max-height: 180px;
+    overflow-y: auto;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+    display: none;
+  }
+  .layout-dropdown-menu.open { display: block; }
+  .layout-dropdown-empty {
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 6px 8px;
+    text-align: center;
+    font-style: italic;
+  }
+  .layout-dd-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 11px;
+    color: var(--text);
+  }
+  .layout-dd-item:hover { background: rgba(255,255,255,0.06); }
+  .layout-dd-item.active {
+    color: var(--accent-blue);
+    background: rgba(88,166,255,0.08);
+  }
+  .layout-dd-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .layout-dd-item-del {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s;
+  }
+  .layout-dd-item:hover .layout-dd-item-del { opacity: 1; }
+  .layout-dd-item-del:hover { color: var(--accent-red); }
+
   /* Canvas area */
   #canvas-wrap {
     position: fixed;
@@ -781,9 +865,13 @@
     <button class="rail-btn" onclick="saveLayout()">
       <span class="rail-icon">&#9733;</span><span>Save</span>
     </button>
-    <select class="rail-select" id="layout-select" onchange="loadLayout(this.value)">
-      <option value="">Load...</option>
-    </select>
+    <div class="layout-dropdown-wrap" id="layout-dropdown-wrap">
+      <div class="layout-dropdown-trigger" id="layout-dropdown-trigger" onclick="toggleLayoutDropdown()">
+        <span id="layout-dd-label">Load...</span>
+        <span class="dd-arrow">&#9662;</span>
+      </div>
+      <div class="layout-dropdown-menu" id="layout-dropdown-menu"></div>
+    </div>
   </div>
 </div>
 
@@ -1680,7 +1768,7 @@ function loadLayout(name) {
   if (!savedLayouts[name]) return;
   pushUndo(snapshotPositions());
   applySnapshot(savedLayouts[name]);
-  document.getElementById('layout-select').value = '';
+  refreshLayoutSelect();
   activeLayoutName = name;
   savedLayoutSnapshot = JSON.stringify(savedLayouts[name]);
   updateActiveLayoutDisplay();
@@ -1703,15 +1791,48 @@ function resetLayout() {
 }
 
 function refreshLayoutSelect() {
-  const sel = document.getElementById('layout-select');
+  const label = document.getElementById('layout-dd-label');
+  const menu = document.getElementById('layout-dropdown-menu');
   const names = Object.keys(savedLayouts);
-  sel.innerHTML = `<option value="">Load${names.length ? ` (${names.length})` : ''}...</option>`;
+  label.textContent = names.length ? `Load (${names.length})` : 'No layouts';
+  if (!names.length) {
+    menu.innerHTML = '<div class="layout-dropdown-empty">No saved layouts</div>';
+    return;
+  }
+  menu.innerHTML = '';
   names.forEach(name => {
-    const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = name;
-    sel.appendChild(opt);
+    const item = document.createElement('div');
+    item.className = 'layout-dd-item' + (name === activeLayoutName ? ' active' : '');
+    item.innerHTML = `<span class="layout-dd-item-name" title="${escHtml(name)}">${escHtml(name)}</span>
+      <button class="layout-dd-item-del" title="Delete">&times;</button>`;
+    item.querySelector('.layout-dd-item-name').addEventListener('click', () => {
+      loadLayout(name);
+      closeLayoutDropdown();
+    });
+    item.querySelector('.layout-dd-item-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteLayout(name);
+    });
+    menu.appendChild(item);
   });
+}
+
+function toggleLayoutDropdown() {
+  const trigger = document.getElementById('layout-dropdown-trigger');
+  const menu = document.getElementById('layout-dropdown-menu');
+  const isOpen = menu.classList.contains('open');
+  if (isOpen) {
+    closeLayoutDropdown();
+  } else {
+    refreshLayoutSelect(); // refresh before showing
+    trigger.classList.add('open');
+    menu.classList.add('open');
+  }
+}
+
+function closeLayoutDropdown() {
+  document.getElementById('layout-dropdown-trigger').classList.remove('open');
+  document.getElementById('layout-dropdown-menu').classList.remove('open');
 }
 
 const canvas = document.getElementById('canvas');
@@ -2464,10 +2585,16 @@ function updateMinimap() {
   vp.style.height = Math.max(0, clampedH) + 'px';
 }
 
+// Close layout dropdown on outside click
+window.addEventListener('click', (e) => {
+  if (!e.target.closest('#layout-dropdown-wrap')) closeLayoutDropdown();
+});
+
 // ── KEYBOARD ────────────────────────────────────────────────────────
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (document.getElementById('save-modal-backdrop')) { closeSaveModal(); return; }
+    closeLayoutDropdown();
     clearGroupSelection(); closeDetail();
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
