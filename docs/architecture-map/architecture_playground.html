@@ -337,8 +337,8 @@
     font-size: 12px;
     line-height: 1.5;
   }
-  .detail-panel .insight.author-xmandeng { border-left-color: var(--accent-orange); background: rgba(210,153,34,0.05); }
-  .detail-panel .insight.author-claude { border-left-color: var(--accent-purple); background: rgba(188,140,255,0.05); }
+  .detail-panel .insight.author-xmandeng { border-left-color: #4aafd7; background: rgba(74,175,215,0.05); }
+  .detail-panel .insight.author-claude { border-left-color: #da7756; background: rgba(218,119,86,0.05); }
   .detail-panel .insight-author {
     font-size: 10px;
     font-weight: 600;
@@ -355,9 +355,9 @@
     border-radius: 50%;
     vertical-align: middle;
   }
-  svg.insight-avatar { color: var(--accent-purple); }
-  .insight.author-xmandeng .insight-author { color: var(--accent-orange); }
-  .insight.author-claude .insight-author { color: var(--accent-purple); }
+  svg.insight-avatar { color: #da7756; }
+  .insight.author-xmandeng .insight-author { color: #4aafd7; }
+  .insight.author-claude .insight-author { color: #da7756; }
   .detail-panel .insight-text { color: var(--text); }
   .node-insight-dot {
     position: absolute;
@@ -377,31 +377,45 @@
     font-family: inherit;
   }
 
-  /* Legend */
-  .legend {
+  /* Floating draggable panels */
+  .floating-panel {
     position: fixed;
-    bottom: 16px; left: 16px;
+    z-index: 80;
     background: var(--surface);
     border: 1px solid var(--border);
+    cursor: grab;
+  }
+  .floating-panel.fp-dragging { cursor: grabbing; box-shadow: 0 0 16px rgba(88,166,255,0.2); }
+
+  /* Legend */
+  .legend {
+    bottom: 16px; left: 16px;
     border-radius: 10px;
     padding: 12px 16px;
-    z-index: 80;
     font-size: 11px;
   }
   .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .legend-row:last-child { margin-bottom: 0; }
   .legend-swatch { width: 12px; height: 3px; border-radius: 2px; }
 
+  /* Nav panel (minimap + zoom grouped) */
+  .nav-panel {
+    bottom: 16px; right: 16px;
+    border: none;
+    background: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
   /* Minimap */
   .minimap {
-    position: fixed;
-    bottom: 16px; right: 16px;
     width: 200px; height: 160px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
-    z-index: 80;
     overflow: hidden;
+    position: relative;
   }
   .minimap canvas { width: 100%; height: 100%; }
   .minimap-viewport {
@@ -413,13 +427,10 @@
 
   /* Zoom controls */
   .zoom-controls {
-    position: fixed;
-    bottom: 184px; right: 16px;
+    padding: 6px 10px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 6px 10px;
-    z-index: 80;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -554,7 +565,7 @@
   <div id="detail-content"></div>
 </div>
 
-<div class="legend">
+<div class="floating-panel legend">
   <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-blue)"></div> WebSocket / DXLink</div>
   <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-orange)"></div> Async Queues</div>
   <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-purple)"></div> Routing / Handlers</div>
@@ -564,16 +575,17 @@
   <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-pink)"></div> Config / Subscriptions</div>
 </div>
 
-<div class="minimap" id="minimap">
-  <canvas id="minimap-canvas" width="200" height="160"></canvas>
-  <div class="minimap-viewport" id="minimap-vp"></div>
-</div>
-
-<div class="zoom-controls">
-  <button onclick="zoomStep(-1)" title="Zoom out">−</button>
-  <input type="range" id="zoom-slider" min="20" max="200" value="70" oninput="zoomTo(this.value / 100)">
-  <button onclick="zoomStep(1)" title="Zoom in">+</button>
-  <span class="zoom-pct" id="zoom-ind" onclick="zoomTo(1)" title="Click to reset to 100%">70%</span>
+<div class="floating-panel nav-panel">
+  <div class="zoom-controls">
+    <button onclick="zoomStep(-1)" title="Zoom out">−</button>
+    <input type="range" id="zoom-slider" min="20" max="200" value="70" oninput="zoomTo(this.value / 100)">
+    <button onclick="zoomStep(1)" title="Zoom in">+</button>
+    <span class="zoom-pct" id="zoom-ind" onclick="zoomTo(1)" title="Click to reset to 100%">70%</span>
+  </div>
+  <div class="minimap" id="minimap">
+    <canvas id="minimap-canvas" width="200" height="160"></canvas>
+    <div class="minimap-viewport" id="minimap-vp"></div>
+  </div>
 </div>
 <div class="tooltip" id="tooltip"></div>
 
@@ -1023,6 +1035,7 @@ function undo() {
   redoStack.push(snapshotPositions());
   applySnapshot(undoStack.pop());
   updateUndoRedoButtons();
+  autosave();
 }
 
 function redo() {
@@ -1030,6 +1043,7 @@ function redo() {
   undoStack.push(snapshotPositions());
   applySnapshot(redoStack.pop());
   updateUndoRedoButtons();
+  autosave();
 }
 
 function updateUndoRedoButtons() {
@@ -1159,6 +1173,7 @@ function loadLayout(name) {
   pushUndo(snapshotPositions());
   applySnapshot(savedLayouts[name]);
   document.getElementById('layout-select').value = '';
+  autosave();
 }
 
 function deleteLayout(name) {
@@ -1170,6 +1185,7 @@ function deleteLayout(name) {
 function resetLayout() {
   pushUndo(snapshotPositions());
   applySnapshot(DEFAULT_POSITIONS);
+  autosave();
 }
 
 function refreshLayoutSelect() {
@@ -1189,13 +1205,41 @@ const canvasWrap = document.getElementById('canvas-wrap');
 const edgeSvg = document.getElementById('edges');
 const tooltip = document.getElementById('tooltip');
 
+const AUTOSAVE_KEY = 'tastytrade-arch-autosave';
+let autosaveTimer = null;
+function debouncedAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(autosave, 500);
+}
+
+function autosave() {
+  localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+    positions: snapshotPositions(),
+    pan: { x: panX, y: panY },
+    scale: scale,
+  }));
+}
+
+function restoreAutosave() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY));
+    if (!saved) return false;
+    if (saved.positions) applySnapshot(saved.positions);
+    if (saved.pan) { panX = saved.pan.x; panY = saved.pan.y; }
+    if (saved.scale) scale = saved.scale;
+    updateTransform();
+    return true;
+  } catch { return false; }
+}
+
 async function init() {
   renderLayerToggles();
   renderNodes();
+  await initLayouts();
+  restoreAutosave();
   renderEdges();
   updateTransform();
   updateMinimap();
-  await initLayouts();
 }
 
 function renderLayerToggles() {
@@ -1375,6 +1419,7 @@ window.addEventListener('mouseup', (e) => {
     // If we actually dragged, push the pre-drag snapshot to undo stack
     if (nodeDragMoved && preDragSnapshot) {
       pushUndo(preDragSnapshot);
+      autosave();
     }
 
     // If we didn't drag past threshold, treat as click
@@ -1561,7 +1606,7 @@ function showDetail(node, connectedNodes) {
   const insightsHtml = (node.insights && node.insights.length > 0)
     ? `<div class="detail-section"><h3>Insights</h3>${
         node.insights.map(i =>
-          `<div class="insight author-${i.author}"><div class="insight-author">${{xmandeng: '<img class="insight-avatar" src="https://avatars.githubusercontent.com/u/44256405?v=4&s=32" alt="">Mandeng', claude: '<svg class="insight-avatar" viewBox="0 0 24 24" fill="none"><path d="M16.1 11.5L12.7 3.3C12.5 2.9 12 2.9 11.8 3.3L8.4 11.5L3.3 8.4C2.9 8.2 2.5 8.6 2.7 9L7.5 18.5C7.6 18.8 7.9 19 8.2 19H16.3C16.6 19 16.9 18.8 17 18.5L21.8 9C22 8.6 21.6 8.2 21.2 8.4L16.1 11.5Z" fill="currentColor"/></svg>Claude'}[i.author] || i.author}</div><div class="insight-text">${i.text}</div></div>`
+          `<div class="insight author-${i.author}"><div class="insight-author">${{xmandeng: '<img class="insight-avatar" src="https://avatars.githubusercontent.com/u/44256405?v=4&s=32" alt="">Mandeng', claude: '<svg class="insight-avatar" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M5 2H19V7H21V16H17V21H14V16H10V21H7V16H3V7H5Z M8 9H11V12H8Z M13 9H16V12H13Z"/></svg>Claude'}[i.author] || i.author}</div><div class="insight-text">${i.text}</div></div>`
         ).join('')
       }</div>`
     : '';
@@ -1653,6 +1698,7 @@ function updateTransform() {
   document.getElementById('zoom-ind').textContent = Math.round(scale * 100) + '%';
   document.getElementById('zoom-slider').value = Math.round(scale * 100);
   updateMinimap();
+  debouncedAutosave();
 }
 
 function zoomTo(newScale) {
@@ -1806,10 +1852,14 @@ function updateMinimap() {
   const vpTop = (-panY / scale - minY + 30) * ms;
   const vpW = (wrap.width / scale) * ms;
   const vpH = ((wrap.height - 48) / scale) * ms;
-  vp.style.left = Math.max(0, vpLeft) + 'px';
-  vp.style.top = Math.max(0, vpTop) + 'px';
-  vp.style.width = Math.min(mw, vpW) + 'px';
-  vp.style.height = Math.min(mh, vpH) + 'px';
+  const clampedL = Math.max(0, Math.min(vpLeft, mw));
+  const clampedT = Math.max(0, Math.min(vpTop, mh));
+  const clampedW = Math.min(vpW, mw - clampedL);
+  const clampedH = Math.min(vpH, mh - clampedT);
+  vp.style.left = clampedL + 'px';
+  vp.style.top = clampedT + 'px';
+  vp.style.width = Math.max(0, clampedW) + 'px';
+  vp.style.height = Math.max(0, clampedH) + 'px';
 }
 
 // ── KEYBOARD ────────────────────────────────────────────────────────
@@ -1830,6 +1880,88 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'f') fitToScreen();
   if (e.key === 'r') resetView();
   if (e.key === ' ') { e.preventDefault(); toggleFlow(); }
+});
+
+// ── MINIMAP CLICK-TO-PAN ─────────────────────────────────────────────
+(function() {
+  const mm = document.getElementById('minimap');
+  let mmDragging = false;
+
+  function minimapPan(e) {
+    const mc = document.getElementById('minimap-canvas');
+    const mw = mc.width, mh = mc.height;
+    const rect = mc.getBoundingClientRect();
+    // Mouse position in minimap pixel space
+    const mx = (e.clientX - rect.left) / rect.width * mw;
+    const my = (e.clientY - rect.top) / rect.height * mh;
+
+    // Recompute the same bounds as updateMinimap
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + 180);
+      maxY = Math.max(maxY, n.y + 60);
+    });
+    const cw = maxX - minX + 60;
+    const ch = maxY - minY + 60;
+    const ms = Math.min(mw / cw, mh / ch);
+
+    // Convert minimap coords back to canvas coords
+    const canvasX = mx / ms + minX - 30;
+    const canvasY = my / ms + minY - 30;
+
+    // Center the viewport on that point
+    const wrap = canvasWrap.getBoundingClientRect();
+    panX = -(canvasX * scale) + wrap.width / 2;
+    panY = -(canvasY * scale) + wrap.height / 2;
+    updateTransform();
+  }
+
+  mm.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    mmDragging = true;
+    minimapPan(e);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (mmDragging) minimapPan(e);
+  });
+
+  window.addEventListener('mouseup', () => {
+    mmDragging = false;
+  });
+})();
+
+// ── DRAGGABLE FLOATING PANELS ────────────────────────────────────────
+document.querySelectorAll('.floating-panel').forEach(panel => {
+  let px, py, startL, startT;
+  panel.addEventListener('mousedown', (e) => {
+    // Don't drag if clicking interactive children (buttons, inputs, selects)
+    if (e.target.closest('button, input, select, a, .minimap')) return;
+    e.preventDefault();
+    px = e.clientX; py = e.clientY;
+    const rect = panel.getBoundingClientRect();
+    startL = rect.left; startT = rect.top;
+    panel.classList.add('fp-dragging');
+
+    function onMove(ev) {
+      const dx = ev.clientX - px;
+      const dy = ev.clientY - py;
+      panel.style.left = (startL + dx) + 'px';
+      panel.style.top = (startT + dy) + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    }
+    function onUp() {
+      panel.classList.remove('fp-dragging');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
 });
 
 // ── INIT ────────────────────────────────────────────────────────────
