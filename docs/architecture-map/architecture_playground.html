@@ -29,32 +29,18 @@
     width: 100vw;
   }
 
-  /* Top bar */
+  /* ── TOP BAR (slim: title + focus pills + view actions) ── */
   .topbar {
     position: fixed; top: 0; left: 0; right: 0;
-    height: 48px;
+    height: 44px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center;
     padding: 0 16px;
     z-index: 100;
-    gap: 16px;
+    gap: 12px;
   }
-  .topbar h1 { font-size: 14px; font-weight: 600; color: var(--accent-blue); white-space: nowrap; }
-  .topbar .control-group {
-    display: flex; align-items: center; gap: 6px;
-    padding: 0 10px;
-    border-left: 1px solid var(--border);
-    height: 28px;
-  }
-  .topbar .control-group:first-of-type { border-left: none; }
-  .topbar .control-group-label {
-    font-size: 9px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    white-space: nowrap;
-  }
+  .topbar h1 { font-size: 12px; font-weight: 600; color: var(--accent-blue); white-space: nowrap; letter-spacing: 0.5px; }
   .topbar .spacer { flex: 1; }
   .topbar button {
     background: var(--border);
@@ -69,46 +55,143 @@
   }
   .topbar button:hover { background: #484f58; }
   .topbar button.active { background: var(--accent-blue); color: #0d1117; border-color: var(--accent-blue); }
-  .topbar button:disabled { opacity: 0.3; cursor: default; }
-  .topbar button:disabled:hover { background: var(--border); }
-  .topbar button.icon-btn {
-    padding: 4px 8px;
-    font-size: 14px;
-    line-height: 1;
-    min-width: 28px;
-    text-align: center;
+
+  /* Focus view pills — primary navigation */
+  .focus-pills { display: flex; gap: 4px; margin-left: 8px; }
+  .focus-pill {
+    background: transparent;
+    border: 1.5px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 14px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+    white-space: nowrap;
   }
-  .topbar select {
+  .focus-pill:hover { border-color: var(--text-dim); color: var(--text); }
+  .focus-pill.on {
+    font-weight: 600;
+  }
+
+  /* ── LEFT RAIL ── */
+  .left-rail {
+    position: fixed;
+    top: 44px; left: 0; bottom: 0;
+    width: 160px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    z-index: 95;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+    transition: width 0.2s;
+    overflow: hidden;
+  }
+  .left-rail.collapsed { width: 52px; }
+  .left-rail .rail-toggle {
+    align-self: flex-end;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    margin: 0 6px 6px;
+    border-radius: 4px;
+    font-family: inherit;
+    transition: color 0.15s;
+  }
+  .left-rail .rail-toggle:hover { color: var(--text); }
+  .left-rail .rail-section {
+    padding: 6px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .left-rail .rail-section:first-of-type { border-top: none; }
+  .left-rail .rail-section-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  /* Layer checkboxes in rail */
+  .layer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 2px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s;
+  }
+  .layer-row:hover { background: rgba(255,255,255,0.04); }
+  .layer-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  .layer-dot.off { opacity: 0.2; }
+  .layer-row-label {
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    transition: opacity 0.15s;
+  }
+  .layer-row.off .layer-row-label { color: var(--text-dim); opacity: 0.4; }
+
+  /* Rail buttons */
+  .rail-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 2px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .rail-btn:hover { background: rgba(255,255,255,0.04); }
+  .rail-btn:disabled { opacity: 0.3; cursor: default; }
+  .rail-btn:disabled:hover { background: none; }
+  .rail-btn .rail-icon {
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+    font-size: 13px;
+  }
+  .rail-select {
+    width: 100%;
     background: var(--border);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 11px;
+    padding: 3px 4px;
+    border-radius: 4px;
+    font-size: 10px;
     font-family: inherit;
     cursor: pointer;
-    max-width: 120px;
+    margin-top: 4px;
   }
-  .topbar select:hover { background: #484f58; }
-
-  .layer-toggles { display: flex; gap: 4px; }
-  .layer-toggle {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    padding: 3px 10px;
-    border-radius: 12px;
-    font-size: 11px;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.15s;
-  }
-  .layer-toggle.on { border-color: var(--accent-blue); color: var(--accent-blue); background: rgba(88,166,255,0.1); }
+  .rail-select:hover { background: #484f58; }
 
   /* Canvas area */
   #canvas-wrap {
     position: fixed;
-    top: 48px; left: 0; right: 0; bottom: 0;
+    top: 44px; left: 160px; right: 0; bottom: 0;
     overflow: hidden;
     cursor: grab;
     -webkit-user-select: none;
@@ -242,6 +325,7 @@
     width: 3000px;
     height: 2400px;
     pointer-events: none;
+    overflow: visible;
   }
   .edge {
     stroke: var(--border);
@@ -266,7 +350,7 @@
   /* Detail panel */
   .detail-panel {
     position: fixed;
-    top: 48px; right: 0; bottom: 0;
+    top: 44px; right: 0; bottom: 0;
     width: 380px;
     background: var(--surface);
     border-left: 1px solid var(--border);
@@ -377,7 +461,7 @@
     font-family: inherit;
   }
 
-  /* Floating draggable panels */
+  /* Floating panels (nav) */
   .floating-panel {
     position: fixed;
     z-index: 80;
@@ -386,17 +470,6 @@
     cursor: grab;
   }
   .floating-panel.fp-dragging { cursor: grabbing; box-shadow: 0 0 16px rgba(88,166,255,0.2); }
-
-  /* Legend */
-  .legend {
-    bottom: 16px; left: 16px;
-    border-radius: 10px;
-    padding: 12px 16px;
-    font-size: 11px;
-  }
-  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .legend-row:last-child { margin-bottom: 0; }
-  .legend-swatch { width: 12px; height: 3px; border-radius: 2px; }
 
   /* Nav panel (minimap + zoom grouped) */
   .nav-panel {
@@ -494,6 +567,18 @@
     animation: flowPulse 0.8s linear infinite;
   }
 
+  /* Functional view dimming */
+  .node.view-dimmed {
+    opacity: 0.12;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .edge.view-dimmed, .edge-label.view-dimmed {
+    opacity: 0.06;
+    transition: opacity 0.3s;
+  }
+  .node:not(.view-dimmed) { transition: opacity 0.3s; }
+
   /* Tooltip */
   .tooltip {
     position: fixed;
@@ -510,40 +595,199 @@
     max-width: 300px;
   }
   .tooltip.visible { opacity: 1; }
+
+  /* Active layout indicator */
+  .active-layout-name {
+    font-size: 10px;
+    color: var(--accent-blue);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 130px;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .dirty-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent-orange);
+    flex-shrink: 0;
+  }
+
+  /* Save modal */
+  .save-modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .save-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    width: 320px;
+    max-height: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .save-modal h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+  }
+  .save-modal input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+  }
+  .save-modal input[type="text"]:focus {
+    border-color: var(--accent-blue);
+  }
+  .save-modal-list {
+    max-height: 160px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .save-modal-list:empty { display: none; }
+  .save-modal-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .save-modal-row:hover { background: rgba(255,255,255,0.05); }
+  .save-modal-row-name {
+    flex: 1;
+    font-size: 11px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .save-modal-row-del {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    border-radius: 3px;
+    transition: color 0.12s;
+  }
+  .save-modal-row-del:hover { color: var(--accent-red); }
+  .save-modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .save-modal-actions button {
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 0.12s;
+  }
+  .save-modal-cancel {
+    background: var(--border);
+    color: var(--text);
+  }
+  .save-modal-cancel:hover { background: #484f58; }
+  .save-modal-confirm {
+    background: var(--accent-blue);
+    color: #0d1117;
+    border-color: var(--accent-blue);
+    font-weight: 600;
+  }
+  .save-modal-confirm:hover { filter: brightness(1.1); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: inherit;
+    z-index: 400;
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .toast.visible { opacity: 1; }
 </style>
 </head>
 <body>
 
+<!-- ── TOP BAR ── -->
 <div class="topbar">
-  <h1>TastyTrade SDK Architecture</h1>
-
-  <div class="control-group">
-    <span class="control-group-label">Layers</span>
-    <div class="layer-toggles" id="layer-toggles"></div>
-  </div>
-
-  <div class="control-group">
-    <span class="control-group-label">View</span>
-    <button onclick="toggleFlow()" id="flow-btn">Animate</button>
-    <button onclick="fitToScreen()">Fit</button>
-    <button onclick="resetView()">Reset View</button>
-  </div>
-
+  <h1>TT SDK</h1>
+  <div class="focus-pills" id="focus-pills"></div>
   <div class="spacer"></div>
+  <button onclick="toggleFlow()" id="flow-btn">Animate</button>
+  <button onclick="fitToScreen()">Fit</button>
+  <span id="group-count" style="display:none; font-size:10px; background:var(--accent-cyan); color:#0d1117; padding:1px 6px; border-radius:8px; font-weight:600;" title="Shift+Click to select, Shift+Drag to lasso"></span>
+</div>
 
-  <div class="control-group">
-    <span class="control-group-label">Layout</span>
-    <button class="icon-btn" onclick="undo()" id="undo-btn" disabled title="Undo (Ctrl+Z)">&#8617;</button>
-    <button class="icon-btn" onclick="redo()" id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8618;</button>
-    <span id="group-count" style="display:none; font-size:10px; background:var(--accent-cyan); color:#0d1117; padding:1px 6px; border-radius:8px; font-weight:600;" title="Shift+Click to select, Shift+Drag to lasso"></span>
-    <button onclick="resetLayout()">Reset</button>
-    <button onclick="saveLayout()" id="save-btn">Save</button>
-    <select id="layout-select" onchange="loadLayout(this.value)">
+<!-- ── LEFT RAIL ── -->
+<div class="left-rail" id="left-rail">
+  <button class="rail-toggle" id="rail-toggle" onclick="toggleRail()" title="Toggle sidebar">&#9776;</button>
+
+  <div class="rail-section">
+    <div class="rail-section-label">Layers</div>
+    <div id="layer-rows"></div>
+  </div>
+
+  <div class="rail-section">
+    <div class="rail-section-label">Layout</div>
+    <div class="active-layout-name" id="active-layout-display"></div>
+    <button class="rail-btn" onclick="undo()" id="undo-btn" disabled>
+      <span class="rail-icon">&#8617;</span><span>Undo</span>
+    </button>
+    <button class="rail-btn" onclick="redo()" id="redo-btn" disabled>
+      <span class="rail-icon">&#8618;</span><span>Redo</span>
+    </button>
+    <button class="rail-btn" onclick="resetLayout()">
+      <span class="rail-icon">&#8634;</span><span>Reset</span>
+    </button>
+    <button class="rail-btn" onclick="saveLayout()">
+      <span class="rail-icon">&#9733;</span><span>Save</span>
+    </button>
+    <select class="rail-select" id="layout-select" onchange="loadLayout(this.value)">
       <option value="">Load...</option>
     </select>
   </div>
 </div>
 
+<!-- ── CANVAS ── -->
 <div id="canvas-wrap">
   <div id="lasso"></div>
   <div id="canvas">
@@ -560,21 +804,13 @@
   </div>
 </div>
 
+<!-- ── DETAIL PANEL ── -->
 <div class="detail-panel" id="detail-panel">
   <button class="close-btn" onclick="closeDetail()">&times;</button>
   <div id="detail-content"></div>
 </div>
 
-<div class="floating-panel legend">
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-blue)"></div> WebSocket / DXLink</div>
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-orange)"></div> Async Queues</div>
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-purple)"></div> Routing / Handlers</div>
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-green)"></div> Event Processors</div>
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-red)"></div> Persistence (InfluxDB / Redis)</div>
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-cyan)"></div> Signal Engine</div>
-  <div class="legend-row"><div class="legend-swatch" style="background:var(--accent-pink)"></div> Config / Subscriptions</div>
-</div>
-
+<!-- ── NAV (minimap + zoom) ── -->
 <div class="floating-panel nav-panel">
   <div class="zoom-controls">
     <button onclick="zoomStep(-1)" title="Zoom out">−</button>
@@ -588,6 +824,7 @@
   </div>
 </div>
 <div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast"></div>
 
 <script>
 // ── DATA MODEL ──────────────────────────────────────────────────────
@@ -920,6 +1157,84 @@ const nodes = [
     code: `def download(self, symbol, start, stop):\n  query = f\"\"\"\n  from(bucket: "{self.bucket}")\n  |> range(start: {start}, stop: {stop})\n  |> filter(fn: (r) =>\n    r._measurement == "CandleEvent")\n  |> filter(fn: (r) =>\n    r.eventSymbol == "{symbol}")\n  |> pivot(rowKey:["_time"],\n    columnKey:["_field"],\n    valueColumn:"_value")\n  \"\"\"\n  return self.client.query_api()\\\n    .query_data_frame(query)`,
     connections: []
   },
+
+  // ── AUTH & CONFIG ──
+  { id: 'cli-entry', x: 80, y: -280, layer: 'config',
+    label: 'CLI (Click)', type: 'Entry Point',
+    badge: 'user-facing',
+    file: 'subscription/cli.py',
+    desc: 'Click-based CLI with `run` (start subscription pipeline) and `status` (query Redis for active subscriptions) commands. Primary user interface for production operation.',
+    details: `Commands:\n• run — symbols, intervals, start-date, env-file, lookback-days\n  → calls run_subscription() from orchestrator\n• status — queries Redis subscription store\n  → active counts, last update times, feed types\n\nLogging: init_observability() called before any work`,
+    code: `@click.group()\ndef cli(): ...\n\n@cli.command()\n@click.option("--symbols", ...)\n@click.option("--intervals", ...)\ndef run(symbols, intervals, ...):\n  init_observability()\n  asyncio.run(run_subscription(\n    symbols, intervals, start_date\n  ))`,
+    connections: ['sub-orchestrator', 'observability']
+  },
+  { id: 'credentials', x: 280, y: -180, layer: 'config',
+    label: 'Credentials', type: 'Auth Resolver',
+    file: 'connections/__init__.py',
+    desc: 'Environment-aware credential resolver. Selects OAuth2AuthStrategy (Live) or LegacyAuthStrategy (Sandbox) based on config.',
+    details: `Credentials(config, env):\n• Live → OAuth2AuthStrategy (refresh_token grant)\n• Sandbox → LegacyAuthStrategy (session-token login)\n\nUsed by: AsyncSessionHandler → DXLinkManager\nAlso resolves: base_url, account_number`,
+    code: `class Credentials:\n  def __init__(self, config, env):\n    self.base_url = config.get("BASE_URL")\n    if env == "Live":\n      self.auth = OAuth2AuthStrategy(...)\n    else:\n      self.auth = LegacyAuthStrategy(...)`,
+    insights: [
+      { author: 'claude', text: 'The auth strategy is a Protocol — OAuth2AuthStrategy and LegacyAuthStrategy have the same interface but completely different auth flows. The rest of the system never knows which one is active.' },
+    ],
+    connections: ['tastytrade-api']
+  },
+  { id: 'config-mgr', x: 80, y: -180, layer: 'config',
+    label: 'RedisConfigManager', type: 'Singleton',
+    badge: 'singleton',
+    file: 'config/manager.py',
+    desc: 'Redis-backed configuration manager. Bootstraps from .env file, then reads/writes config to Redis hashes with namespace support. Provides service discovery.',
+    details: `ConfigManagerBase → ConfigurationManager → RedisConfigManager\n\nInitialize:\n1. Load .env file\n2. Connect to Redis\n3. Push config to Redis namespace\n\nFeatures:\n• get(key, default) with type coercion (bool, int, float, list, dict)\n• Namespace isolation: tastytrade:{env}:{key}\n• Service discovery via Redis keys`,
+    insights: [
+      { author: 'claude', text: 'The .env → Redis bootstrap means environment variables are the single source of truth at startup, but Redis becomes the runtime config store. This enables external tools to modify config without restarting the process.' },
+    ],
+    connections: ['redis', 'credentials']
+  },
+  { id: 'observability', x: 280, y: -280, layer: 'config',
+    label: 'Observability', type: 'Logging + OTLP',
+    file: 'common/observability.py',
+    desc: 'Non-blocking logging infrastructure. Queue-based handler prevents log writes from blocking the trading event loop. Supports OTLP export to Grafana Cloud.',
+    details: `init_observability():\n1. Create asyncio-safe QueueHandler\n2. Start background worker thread\n3. Worker drains queue → stdout (JSON) + OTLP\n4. OTLP exporter sends to Grafana Cloud\n\nshutdown_observability():\n• Flush remaining logs\n• Close OTLP exporter`,
+    insights: [
+      { author: 'claude', text: 'The queue-based design is critical for a market data system — a slow log write (network OTLP export, disk I/O) must never block event processing. The background thread absorbs latency spikes from the export layer.' },
+    ],
+    connections: []
+  },
+  { id: 'acct-streamer', x: 1500, y: -80, layer: 'websocket',
+    label: 'AccountStreamer', type: 'Singleton Class',
+    badge: 'singleton',
+    file: 'accounts/streamer.py',
+    desc: 'WebSocket manager for account-level events (positions, balances). Mirrors DXLinkManager pattern with its own reconnection support. Parallel data stream to market data.',
+    details: `Connects to TastyTrade Account Streamer WS:\n• CurrentPosition events → position updates\n• AccountBalance events → NLV, buying power\n\nUses AccountsClient for REST hydration:\n• get_positions() → initial position snapshot\n• get_balances() → initial balance snapshot\n\nReconnection: independent of DXLink`,
+    code: `class AccountStreamer:\n  async def connect(self, credentials):\n    ws_url = credentials.streamer_url\n    async for msg in websocket:\n      event = parse_streamer_event(msg)\n      if isinstance(event, PositionEvent):\n        self.positions[event.symbol] = event\n      elif isinstance(event, BalanceEvent):\n        self.balance = event`,
+    insights: [
+      { author: 'claude', text: 'This is a completely separate WebSocket from DXLink — DXLink handles market data, AccountStreamer handles account data. They can reconnect independently, which means a DXLink drop does not affect position tracking and vice versa.' },
+    ],
+    connections: ['tastytrade-api']
+  },
+  { id: 'metrics-tracker', x: 1500, y: 940, layer: 'signal',
+    label: 'MetricsTracker', type: 'Analytics Engine',
+    file: 'analytics/metrics.py',
+    desc: 'Per-position metrics engine. Joins REST-fetched positions with real-time QuoteEvent/GreeksEvent for live P&L, bid-ask spread, and Greeks staleness tracking.',
+    details: `SecurityMetrics per position:\n• bid/ask/mid from QuoteEvent\n• delta/gamma/theta/vega from GreeksEvent\n• staleness tracking (time since last update)\n• Separates equity (delta-1) vs options Greeks\n\nFed by MetricsEventProcessor:\n• on_quote_event(event) → update bid/ask\n• on_greeks_event(event) → update Greeks`,
+    connections: []
+  },
+
+  // ── ORCHESTRATION LAYER ──
+  { id: 'sub-orchestrator', x: 1500, y: 230, layer: 'routing',
+    label: 'SubscriptionOrchestrator', type: 'Async Coordinator',
+    badge: 'entry point',
+    file: 'subscription/orchestrator.py',
+    desc: 'Top-level coordinator for the full subscription lifecycle: connection setup, processor wiring, subscription dispatch, snapshot-driven gap-fill, health monitoring, and reconnection with exponential backoff.',
+    details: `run_subscription() orchestrates the entire lifecycle:\n\n1. Initialize config (RedisConfigManager)\n2. Open DXLink connection + authenticate\n3. Wire processors to all EventHandlers:\n   • TelegrafHTTPEventProcessor (InfluxDB)\n   • RedisEventProcessor (pub/sub)\n4. Subscribe tickers (Quote/Trade/Greeks)\n5. Subscribe candles with historical backfill:\n   • Register symbols → CandleSnapshotTracker\n   • Attach tracker to Candle EventHandler\n   • Send subscribe_to_candles() per symbol×interval\n6. Gap-fill consumer drains tracker.completions:\n   • Each completed symbol → forward_fill()\n7. Remove snapshot tracker (temporary lifecycle)\n8. Enter health monitoring loop:\n   • Periodic log_health_status()\n   • Reconnection monitor (wait_for_reconnect_signal)\n   • Failure trigger listener (Redis pub/sub)\n9. On disconnect → SubscriptionError → retry with backoff\n10. On shutdown → deactivate subscriptions, flush processors, close`,
+    code: `async def run_subscription(symbols, intervals, ...):\n  attempt = 0\n  while attempt < max_reconnect_attempts:\n    try:\n      await _run_subscription_once(\n        symbols, intervals, start_date, ...)\n    except SubscriptionError as e:\n      if e.was_healthy:\n        attempt = 0  # reset counter\n      delay = min(base * 2**attempt, max_delay)\n      await asyncio.sleep(delay)\n\nasync def _run_subscription_once(...):\n  config = RedisConfigManager(env_file)\n  dxlink = DXLinkManager(store=RedisSubStore())\n  await dxlink.open(credentials)\n  # Wire processors to handlers\n  for handler in router.handler.values():\n    handler.add_processor(InfluxProcessor(...))\n    handler.add_processor(RedisProcessor())\n  # Subscribe + snapshot-driven gap-fill\n  tracker = CandleSnapshotTracker()\n  candle_handler.add_processor(tracker)\n  # ... subscribe, wait, gap-fill ...\n  candle_handler.remove_processor(tracker)\n  # Health loop until disconnect`,
+    insights: [
+      { author: 'claude', text: 'This is the true entry point for the data pipeline — it owns the lifecycle of every other component. DXLinkManager, MessageRouter, processors, and the snapshot tracker are all created and wired here. The CLI just calls run_subscription().' },
+      { author: 'claude', text: 'The snapshot tracker has a deliberately temporary lifecycle: attached before subscriptions, removed after gap-fill completes (line 387). This is the only processor with a transient attachment — all others persist for the session.' },
+      { author: 'claude', text: 'Reconnection uses a "healthy connection" heuristic: if the connection lasted > 60s before failing, the retry counter resets to 0. This prevents permanent death spirals from transient network blips while still giving up on fundamentally broken configs.' },
+    ],
+    connections: ['dxlink-mgr', 'proc-influx', 'proc-redis', 'proc-snapshot', 'sub-store']
+  },
 ];
 
 const edges = [
@@ -979,6 +1294,24 @@ const edges = [
 
   // Subscription store
   { from: 'dxlink-mgr', to: 'sub-store', label: 'track subs', style: 'dashed' },
+
+  // CLI → Orchestrator → Components
+  { from: 'cli-entry', to: 'sub-orchestrator', label: 'run_subscription()' },
+  { from: 'cli-entry', to: 'observability', label: 'init_observability()', style: 'dashed' },
+  { from: 'sub-orchestrator', to: 'config-mgr', label: 'initialize config' },
+  { from: 'config-mgr', to: 'credentials', label: 'env + secrets' },
+  { from: 'config-mgr', to: 'redis', label: 'namespace store', style: 'dashed' },
+  { from: 'credentials', to: 'tastytrade-api', label: 'auth strategy' },
+  { from: 'acct-streamer', to: 'tastytrade-api', label: 'streamer token', style: 'dashed' },
+  { from: 'proc-metrics', to: 'metrics-tracker', label: 'on_quote / on_greeks' },
+
+  // Orchestrator
+  { from: 'sub-orchestrator', to: 'dxlink-mgr', label: 'open / close' },
+  { from: 'sub-orchestrator', to: 'proc-influx', label: 'wire processor', style: 'dashed' },
+  { from: 'sub-orchestrator', to: 'proc-redis', label: 'wire processor', style: 'dashed' },
+  { from: 'sub-orchestrator', to: 'proc-snapshot', label: 'attach / remove' },
+  { from: 'sub-orchestrator', to: 'sub-store', label: 'restore subs' },
+  { from: 'sub-orchestrator', to: 'mkt-provider', label: 'gap-fill', style: 'dashed' },
 ];
 
 // ── RENDER ───────────────────────────────────────────────────────────
@@ -995,6 +1328,49 @@ let groupDragOrigins = null; // { nodeId: {x, y} } when dragging a group
 const NODE_DRAG_THRESHOLD = 5; // px before considered a drag
 const layerVisibility = {};
 Object.keys(LAYERS).forEach(k => layerVisibility[k] = true);
+
+// ── FUNCTIONAL VIEWS ─────────────────────────────────────────────────
+// Each view defines a subset of node IDs to highlight.
+// Non-member nodes are dimmed (not hidden) so spatial context is preserved.
+const FUNCTIONAL_VIEWS = {
+  'Connection & Subscription': {
+    color: '#58a6ff',
+    nodes: new Set([
+      'cli-entry', 'sub-orchestrator', 'config-mgr', 'credentials', 'observability',
+      'tastytrade-api', 'dxlink-mgr', 'ws-listener', 'keepalive',
+      'sub-store', 'channel-specs', 'acct-streamer',
+    ]),
+  },
+  'Data Pipeline': {
+    color: '#d29922',
+    nodes: new Set([
+      'queue-control', 'queue-profile', 'queue-summary', 'queue-trade',
+      'queue-quote', 'queue-candle', 'queue-greeks',
+      'ctrl-handler', 'msg-router', 'evt-handler', 'base-event',
+      'proc-latest', 'proc-base', 'proc-candle', 'proc-influx', 'proc-redis',
+      'proc-snapshot', 'proc-metrics', 'proc-signal',
+      'influxdb', 'redis',
+    ]),
+  },
+  'Signal Path': {
+    color: '#39d2c0',
+    nodes: new Set([
+      'queue-candle', 'msg-router', 'evt-handler',
+      'proc-signal', 'proc-redis',
+      'redis', 'redis-sub', 'signal-svc', 'hull-macd', 'redis-pub',
+    ]),
+  },
+  'Metrics & Accounts': {
+    color: '#f778ba',
+    nodes: new Set([
+      'acct-streamer', 'tastytrade-api', 'credentials',
+      'queue-quote', 'queue-greeks', 'msg-router', 'evt-handler',
+      'proc-metrics', 'metrics-tracker', 'proc-latest',
+    ]),
+  },
+};
+
+let activeView = null; // null = show all
 
 // ── UNDO / REDO ─────────────────────────────────────────────────────
 const undoStack = [];
@@ -1100,6 +1476,8 @@ const LAYOUTS_FILE = 'architecture_layouts.json';
 const STORAGE_KEY = 'tastytrade-arch-layouts';
 let savedLayouts = {};
 let canWriteToFile = false;
+let activeLayoutName = null;
+let savedLayoutSnapshot = null;
 
 async function initLayouts() {
   // Try loading from the JSON file first (served alongside the HTML)
@@ -1145,17 +1523,147 @@ async function persistLayouts() {
   }
 }
 
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('visible');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('visible'), 2000);
+}
+
+function isDirty() {
+  if (!savedLayoutSnapshot) return false;
+  return JSON.stringify(snapshotPositions()) !== savedLayoutSnapshot;
+}
+
+function updateActiveLayoutDisplay() {
+  const el = document.getElementById('active-layout-display');
+  if (!activeLayoutName) {
+    el.innerHTML = '';
+    return;
+  }
+  const dirty = isDirty();
+  el.innerHTML = (dirty ? '<span class="dirty-dot"></span>' : '') + escHtml(activeLayoutName);
+}
+
 function saveLayout() {
-  const name = prompt('Layout name:');
-  if (!name || !name.trim()) return;
-  savedLayouts[name.trim()] = snapshotPositions();
+  openSaveModal();
+}
+
+function openSaveModal() {
+  // Remove any existing modal
+  closeSaveModal();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'save-modal-backdrop';
+  backdrop.id = 'save-modal-backdrop';
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeSaveModal(); });
+
+  const names = Object.keys(savedLayouts);
+  let listHtml = '';
+  names.forEach(name => {
+    listHtml += `<div class="save-modal-row" data-name="${escHtml(name)}">
+      <span class="save-modal-row-name" title="${escHtml(name)}">${escHtml(name)}</span>
+      <button class="save-modal-row-del" title="Delete" data-del="${escHtml(name)}">&times;</button>
+    </div>`;
+  });
+
+  backdrop.innerHTML = `<div class="save-modal">
+    <h3>Save Layout</h3>
+    <input type="text" id="save-modal-input" placeholder="Layout name..." value="${escHtml(activeLayoutName || '')}">
+    <div class="save-modal-list" id="save-modal-list">${listHtml}</div>
+    <div class="save-modal-actions">
+      <button class="save-modal-cancel" onclick="closeSaveModal()">Cancel</button>
+      <button class="save-modal-confirm" id="save-modal-btn" onclick="confirmSave()">Save</button>
+    </div>
+  </div>`;
+
+  document.body.appendChild(backdrop);
+
+  const inp = document.getElementById('save-modal-input');
+  inp.focus();
+  inp.select();
+  inp.addEventListener('input', updateSaveButtonText);
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmSave(); }
+  });
+  updateSaveButtonText();
+
+  // Click row to fill input, click delete to remove
+  backdrop.querySelectorAll('.save-modal-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.save-modal-row-del')) return;
+      inp.value = row.dataset.name;
+      inp.focus();
+      updateSaveButtonText();
+    });
+  });
+  backdrop.querySelectorAll('.save-modal-row-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteLayoutFromModal(btn.dataset.del);
+    });
+  });
+}
+
+function closeSaveModal() {
+  const el = document.getElementById('save-modal-backdrop');
+  if (el) el.remove();
+}
+
+function updateSaveButtonText() {
+  const inp = document.getElementById('save-modal-input');
+  const btn = document.getElementById('save-modal-btn');
+  if (!inp || !btn) return;
+  const name = inp.value.trim();
+  if (name && savedLayouts[name]) {
+    btn.textContent = `Overwrite "${name}"`;
+  } else {
+    btn.textContent = 'Save';
+  }
+}
+
+function confirmSave() {
+  const inp = document.getElementById('save-modal-input');
+  if (!inp) return;
+  const name = inp.value.trim();
+  if (!name) return;
+  savedLayouts[name] = snapshotPositions();
+  activeLayoutName = name;
+  savedLayoutSnapshot = JSON.stringify(savedLayouts[name]);
   persistLayouts();
   refreshLayoutSelect();
+  updateActiveLayoutDisplay();
+  closeSaveModal();
+  showToast(`Saved "${name}"`);
+  autosave();
 
-  // If PUT isn't available, offer a download so user can save the file manually
   if (!canWriteToFile) {
     downloadLayoutsFile();
   }
+}
+
+function deleteLayoutFromModal(name) {
+  delete savedLayouts[name];
+  if (activeLayoutName === name) {
+    activeLayoutName = null;
+    savedLayoutSnapshot = null;
+    updateActiveLayoutDisplay();
+  }
+  persistLayouts();
+  refreshLayoutSelect();
+  // Refresh the modal list
+  const list = document.getElementById('save-modal-list');
+  if (list) {
+    const row = list.querySelector(`[data-name="${CSS.escape(name)}"]`);
+    if (row) row.remove();
+  }
+  updateSaveButtonText();
 }
 
 function downloadLayoutsFile() {
@@ -1173,6 +1681,9 @@ function loadLayout(name) {
   pushUndo(snapshotPositions());
   applySnapshot(savedLayouts[name]);
   document.getElementById('layout-select').value = '';
+  activeLayoutName = name;
+  savedLayoutSnapshot = JSON.stringify(savedLayouts[name]);
+  updateActiveLayoutDisplay();
   autosave();
 }
 
@@ -1185,6 +1696,9 @@ function deleteLayout(name) {
 function resetLayout() {
   pushUndo(snapshotPositions());
   applySnapshot(DEFAULT_POSITIONS);
+  activeLayoutName = null;
+  savedLayoutSnapshot = null;
+  updateActiveLayoutDisplay();
   autosave();
 }
 
@@ -1209,7 +1723,7 @@ const AUTOSAVE_KEY = 'tastytrade-arch-autosave';
 let autosaveTimer = null;
 function debouncedAutosave() {
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(autosave, 500);
+  autosaveTimer = setTimeout(() => { autosave(); updateActiveLayoutDisplay(); }, 500);
 }
 
 function autosave() {
@@ -1217,6 +1731,7 @@ function autosave() {
     positions: snapshotPositions(),
     pan: { x: panX, y: panY },
     scale: scale,
+    activeLayoutName: activeLayoutName,
   }));
 }
 
@@ -1227,13 +1742,19 @@ function restoreAutosave() {
     if (saved.positions) applySnapshot(saved.positions);
     if (saved.pan) { panX = saved.pan.x; panY = saved.pan.y; }
     if (saved.scale) scale = saved.scale;
+    if (saved.activeLayoutName && savedLayouts[saved.activeLayoutName]) {
+      activeLayoutName = saved.activeLayoutName;
+      savedLayoutSnapshot = JSON.stringify(savedLayouts[activeLayoutName]);
+    }
     updateTransform();
+    updateActiveLayoutDisplay();
     return true;
   } catch { return false; }
 }
 
 async function init() {
-  renderLayerToggles();
+  renderFocusPills();
+  renderLayerRows();
   renderNodes();
   await initLayouts();
   restoreAutosave();
@@ -1242,22 +1763,99 @@ async function init() {
   updateMinimap();
 }
 
-function renderLayerToggles() {
-  const container = document.getElementById('layer-toggles');
+function renderLayerRows() {
+  const container = document.getElementById('layer-rows');
   container.innerHTML = '';
   Object.entries(LAYERS).forEach(([key, layer]) => {
-    const btn = document.createElement('button');
-    btn.className = `layer-toggle ${layerVisibility[key] ? 'on' : ''}`;
-    btn.textContent = layer.label;
-    btn.style.borderColor = layerVisibility[key] ? layer.color : '';
-    btn.style.color = layerVisibility[key] ? layer.color : '';
-    btn.style.background = layerVisibility[key] ? `${layer.color}15` : '';
-    btn.onclick = () => {
+    const row = document.createElement('div');
+    const isOn = layerVisibility[key];
+    row.className = `layer-row${isOn ? '' : ' off'}`;
+    row.innerHTML = `<div class="layer-dot${isOn ? '' : ' off'}" style="background:${layer.color}"></div><span class="layer-row-label">${layer.label}</span>`;
+    row.onclick = () => {
       layerVisibility[key] = !layerVisibility[key];
-      renderLayerToggles();
+      renderLayerRows();
       updateVisibility();
     };
+    container.appendChild(row);
+  });
+}
+
+function renderFocusPills() {
+  const container = document.getElementById('focus-pills');
+  container.innerHTML = '';
+  // "All" pill
+  const allBtn = document.createElement('button');
+  allBtn.className = `focus-pill${activeView === null ? ' on' : ''}`;
+  allBtn.textContent = 'All';
+  if (activeView === null) {
+    allBtn.style.borderColor = 'var(--accent-blue)';
+    allBtn.style.color = 'var(--accent-blue)';
+    allBtn.style.background = 'rgba(88,166,255,0.1)';
+  }
+  allBtn.onclick = () => {
+    activeView = null;
+    renderFocusPills();
+    applyFunctionalView();
+  };
+  container.appendChild(allBtn);
+
+  Object.entries(FUNCTIONAL_VIEWS).forEach(([name, view]) => {
+    const btn = document.createElement('button');
+    const isActive = activeView === name;
+    btn.className = `focus-pill${isActive ? ' on' : ''}`;
+    btn.textContent = name;
+    if (isActive) {
+      btn.style.borderColor = view.color;
+      btn.style.color = view.color;
+      btn.style.background = `${view.color}15`;
+    } else {
+      btn.style.borderColor = '';
+      btn.style.color = '';
+      btn.style.background = '';
+    }
+    btn.onclick = () => {
+      activeView = isActive ? null : name;
+      renderFocusPills();
+      applyFunctionalView();
+    };
     container.appendChild(btn);
+  });
+}
+
+function toggleRail() {
+  const rail = document.getElementById('left-rail');
+  const wrap = document.getElementById('canvas-wrap');
+  const collapsed = rail.classList.toggle('collapsed');
+  wrap.style.left = collapsed ? '52px' : '160px';
+  updateMinimap();
+}
+
+function applyFunctionalView() {
+  if (!activeView) {
+    // Clear all dimming
+    nodes.forEach(n => {
+      const el = document.getElementById(`node-${n.id}`);
+      if (el) el.classList.remove('view-dimmed');
+    });
+    document.querySelectorAll('.edge.view-dimmed, .edge-label.view-dimmed').forEach(el => {
+      el.classList.remove('view-dimmed');
+    });
+    return;
+  }
+
+  const viewNodes = FUNCTIONAL_VIEWS[activeView].nodes;
+
+  // Dim/undim nodes
+  nodes.forEach(n => {
+    const el = document.getElementById(`node-${n.id}`);
+    if (el) el.classList.toggle('view-dimmed', !viewNodes.has(n.id));
+  });
+
+  // Dim/undim edges — visible only if both endpoints are in the view
+  document.querySelectorAll('.edge, .edge-label').forEach(el => {
+    const fromIn = viewNodes.has(el.dataset.from);
+    const toIn = viewNodes.has(el.dataset.to);
+    el.classList.toggle('view-dimmed', !(fromIn && toIn));
   });
 }
 
@@ -1672,6 +2270,8 @@ function updateVisibility() {
       el.style.display = visible ? '' : 'none';
     }
   });
+  // Reapply functional view dimming on top of layer visibility
+  applyFunctionalView();
 }
 
 function toggleFlow() {
@@ -1789,8 +2389,10 @@ function fitToScreen() {
   const wrap = canvasWrap.getBoundingClientRect();
   // Find bounding box of all visible nodes
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const viewNodes = activeView ? FUNCTIONAL_VIEWS[activeView].nodes : null;
   nodes.forEach(n => {
     if (!layerVisibility[n.layer]) return;
+    if (viewNodes && !viewNodes.has(n.id)) return;
     const el = document.getElementById(`node-${n.id}`);
     if (!el) return;
     minX = Math.min(minX, n.x);
@@ -1864,7 +2466,25 @@ function updateMinimap() {
 
 // ── KEYBOARD ────────────────────────────────────────────────────────
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { clearGroupSelection(); closeDetail(); }
+  if (e.key === 'Escape') {
+    if (document.getElementById('save-modal-backdrop')) { closeSaveModal(); return; }
+    clearGroupSelection(); closeDetail();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    if (activeLayoutName) {
+      savedLayouts[activeLayoutName] = snapshotPositions();
+      savedLayoutSnapshot = JSON.stringify(savedLayouts[activeLayoutName]);
+      persistLayouts();
+      refreshLayoutSelect();
+      updateActiveLayoutDisplay();
+      autosave();
+      showToast(`Saved "${activeLayoutName}"`);
+    } else {
+      openSaveModal();
+    }
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
     e.preventDefault();
     closeDetail();
