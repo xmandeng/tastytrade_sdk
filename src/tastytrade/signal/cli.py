@@ -1,8 +1,7 @@
-"""
-Standalone signal detection service.
+"""Signal detection CLI — factory for EngineRunner.
 
-Subscribes to candle events from Redis, runs signal detection,
-and publishes trade signals back to Redis.
+Decides what to run: picks the engine, channels, and event type.
+Constructs an EngineRunner with the specific config and starts it.
 
 Usage: tasty-signal run --symbols SPX --intervals 5m
 """
@@ -18,46 +17,40 @@ from tastytrade.common.logging import setup_logging
 from tastytrade.common.observability import init_observability
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.messaging.models.events import CandleEvent
-from tastytrade.providers import RedisPublisher
-from tastytrade.providers.subscriptions import RedisSubscription
+from tastytrade.providers.subscriptions import RedisPublisher, RedisSubscription
+from tastytrade.signal.runner import EngineRunner
 
 logger = logging.getLogger(__name__)
 
 
 async def run_signal_service(symbols: list[str], intervals: list[str]) -> None:
-    """Run the signal detection service."""
+    """Construct and start a HullMacd EngineRunner."""
     config = RedisConfigManager()
-
-    # Set up Redis subscription for candle events
     subscription = RedisSubscription(config)
-    await subscription.connect()
-
-    # Set up signal engine with Redis publisher (engine owns its own I/O)
     publisher = RedisPublisher()
     engine = HullMacdEngine(publisher=publisher)
 
-    # Subscribe to candle channels for each symbol/interval
-    for symbol in symbols:
-        for interval in intervals:
-            pattern = f"market:CandleEvent:{symbol}{{={interval}}}"
-            await subscription.subscribe(pattern, event_type=CandleEvent)
-            logger.info("Listening for candles on %s", pattern)
+    channels = [
+        f"market:CandleEvent:{symbol}{{={interval}}}"
+        for symbol in symbols
+        for interval in intervals
+    ]
 
-    logger.info("Signal service started — %d engine(s) active", 1)
+    runner = EngineRunner(
+        name=engine.name,
+        subscription=subscription,
+        publisher=publisher,
+        channels=channels,
+        event_type=CandleEvent,
+        on_event=engine.on_candle_event,
+    )
 
     try:
-        # Process candle events from the queue
-        while True:
-            for _key, queue in subscription.queue.items():
-                if not queue.empty():
-                    event = queue.get_nowait()
-                    engine.on_candle_event(event)
-            await asyncio.sleep(0.01)
+        await runner.start()
     except asyncio.CancelledError:
-        logger.info("Signal service shutting down")
+        pass
     finally:
-        publisher.close()
-        await subscription.close()
+        await runner.stop()
 
 
 @click.group()

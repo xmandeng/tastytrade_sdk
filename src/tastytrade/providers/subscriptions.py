@@ -28,7 +28,7 @@ class DataSubscription(ABC):
         self,
         channel_pattern: str,
         event_type: type[BaseEvent] | None = None,
-        on_update: Callable = lambda x: None,
+        on_update: Callable[[BaseEvent], None] | None = None,
     ) -> None:
         pass
 
@@ -61,6 +61,7 @@ class RedisSubscription(DataSubscription):
         self.subscriptions = set()
         self.listener_task = None
         self._event_types: dict[str, type[BaseEvent]] = {}
+        self._callbacks: dict[str, Callable[[BaseEvent], None]] = {}
 
     async def connect(self) -> None:
         """Establish connection to Redis."""
@@ -72,7 +73,7 @@ class RedisSubscription(DataSubscription):
         self,
         channel_pattern: str,
         event_type: type[BaseEvent] | None = None,
-        on_update: Callable = lambda x: None,
+        on_update: Callable[[BaseEvent], None] | None = None,
     ) -> None:
         """Subscribe to a channel or pattern and process messages.
 
@@ -83,7 +84,9 @@ class RedisSubscription(DataSubscription):
                 messages are deserialized directly into this type and contract
                 violations are logged as errors. When ``None``, the type is
                 inferred from the channel name (backward-compatible fallback).
-            on_update: Optional callback for incoming events.
+            on_update: Direct callback for incoming events. When provided,
+                events fire directly into this callback — no queue, no polling.
+                When ``None``, events are queued (backward-compatible fallback).
         """
         if event_type is not None:
             logger.info(
@@ -94,6 +97,9 @@ class RedisSubscription(DataSubscription):
             self._event_types[channel_pattern] = event_type
         else:
             logger.info("Subscribed to %s", channel_pattern)
+
+        if on_update is not None:
+            self._callbacks[channel_pattern] = on_update
 
         if channel_pattern not in self.subscriptions:
             await self.pubsub.psubscribe(channel_pattern)
@@ -152,9 +158,15 @@ class RedisSubscription(DataSubscription):
                         logger.error("Error deserializing %s: %s", channel, e)
                         continue
 
-                self.queue[
-                    f"{event.__class__.__name__}:{event.eventSymbol}"
-                ].put_nowait(event)
+                # Event-driven: fire callback directly, skip queue
+                callback = self._callbacks.get(pattern)
+                if callback is not None:
+                    callback(event)
+                else:
+                    self.queue[
+                        f"{event.__class__.__name__}:{event.eventSymbol}"
+                    ].put_nowait(event)
+
                 logger.debug(
                     "Received %s on %s",
                     event.__class__.__name__,

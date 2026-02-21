@@ -1151,27 +1151,42 @@ const nodes = [
   },
 
   // ── SIGNAL LAYER ──
+  { id: 'signal-cli', x: 480, y: 1320, layer: 'signal',
+    label: 'Signal CLI', type: 'CLI Entry Point',
+    badge: 'tasty-signal',
+    file: 'signal/cli.py',
+    desc: 'Factory — decides what to run. Picks the engine, channels, and event type. Constructs EngineRunner with HullMacd-specific config and starts it.',
+    details: `Three-layer separation:\n\ncli.py    → What to run (factory)\nrunner.py → How to run (generic harness)\nengine.py → The work (pure state machine)\n\nEach layer knows nothing about the one above it.`,
+    code: `@cli.command()\ndef run(symbols, intervals, log_level):\n  asyncio.run(run_signal_service(\n    symbol_list, interval_list\n  ))\n\nasync def run_signal_service(symbols, intervals):\n  subscription = RedisSubscription(config)\n  publisher = RedisPublisher()\n  engine = HullMacdEngine(publisher=publisher)\n  channels = [\n    f"market:CandleEvent:{sym}{{={interval}}}"\n    for sym in symbols\n    for interval in intervals\n  ]\n  runner = EngineRunner(\n    engine, subscription, publisher,\n    channels, CandleEvent\n  )\n  await runner.start()`,
+    insights: [
+      { author: 'xmandeng', text: 'The CLI is configuration. The runner is plumbing. The engine is business logic.' },
+    ],
+    connections: ['signal-svc']
+  },
   { id: 'redis-sub', x: 920, y: 1320, layer: 'signal',
     label: 'RedisSubscription', type: 'Consumer Class',
     file: 'providers/subscriptions.py',
-    desc: 'Subscribes to Redis pub/sub patterns and deserializes JSON into typed events. Used by the standalone signal service.',
-    details: `Pattern subscribe: market:CandleEvent:{symbol}{=interval}\n\nListener loop:\n• async for message in pubsub.listen()\n• Deserialize JSON → CandleEvent (typed validation)\n• Put into self.queue[f"CandleEvent:{symbol}"]\n\nQueue: dict[str, asyncio.Queue[BaseEvent]]`,
-    code: `async def listener():\n  async for msg in self.pubsub.listen():\n    if msg["type"] == "pmessage":\n      data = json.loads(msg["data"])\n      event = self.event_type(**data)\n      key = f"{type(event).__name__}:{event.eventSymbol}"\n      self.queue[key].put_nowait(event)`,
-    connections: ['signal-svc']
+    desc: 'Subscribes to Redis pub/sub patterns and deserializes JSON into typed events. Supports direct on_update callback (event-driven) or queue fallback (notebooks).',
+    details: `Pattern subscribe: market:CandleEvent:{symbol}{=interval}\n\nEvent-driven mode (on_update callback):\n• async for message in pubsub.listen()\n• Deserialize JSON → typed event\n• on_update(event) fires DIRECTLY into engine\n• No queue, no polling — event triggers action\n\nQueue fallback (no callback):\n• Same deserialization\n• self.queue[key].put_nowait(event)\n• Used by notebooks and MarketDataProvider`,
+    code: `async def listener():\n  async for msg in self.pubsub.listen():\n    if msg["type"] == "pmessage":\n      data = json.loads(msg["data"])\n      event = event_type(**data)\n      # Event-driven: fire directly\n      callback = self._callbacks.get(pattern)\n      if callback:\n        callback(event)  # → engine.on_candle_event()\n      else:\n        self.queue[key].put_nowait(event)`,
+    insights: [
+      { author: 'xmandeng', text: 'This is an event-driven architecture. The event triggers the action. No polling loops checking for events.' },
+    ],
+    connections: ['hull-macd']
   },
   { id: 'signal-svc', x: 680, y: 1320, layer: 'signal',
-    label: 'Signal Service', type: 'Standalone Service',
-    badge: 'decoupled',
-    file: 'signal/service.py',
-    desc: 'Runs as a separate process/container. Consumes CandleEvents from Redis, feeds to signal engine, publishes TradeSignals back to Redis. Each service is a self-contained unit: Redis in → process → Redis out.',
+    label: 'EngineRunner', type: 'Generic Harness',
+    badge: 'event-driven',
+    file: 'signal/runner.py',
+    desc: 'Generic harness that gives each engine a dedicated RedisSubscription. Wires on_update callback so events fire directly into the engine — no queues, no polling. The subscription listener IS the event loop.',
     insights: [
-      { author: 'xmandeng', text: 'Decoupled by design — the signal service can crash, restart, or be replaced without affecting the main data pipeline. The main process continues writing to InfluxDB regardless.' },
-      { author: 'claude', text: 'TT-56 established ONE path to the signal engine: Redis → Signal Service → engine → publisher → Redis. The old in-process path via SignalEventProcessor is deprecated — it bypasses Redis and violates the service boundary principle.' },
-      { author: 'claude', text: 'TT-56: Engine now owns its publisher via constructor injection — no external callback wiring needed. The service just passes publisher=RedisPublisher() to the engine constructor.' },
+      { author: 'xmandeng', text: 'Decoupled by design — each engine runner can crash, restart, or be replaced without affecting the main data pipeline. The main process continues writing to InfluxDB regardless.' },
+      { author: 'xmandeng', text: 'This is an event-driven architecture. The event triggers the action. No polling loops. The Redis async listener fires on_update directly into the engine.' },
+      { author: 'claude', text: 'The engine stays a pure sync state machine — no async, no Redis knowledge. EngineRunner handles the async lifecycle and wiring. The engine just receives events and publishes signals.' },
     ],
-    details: `Decoupled architecture (TT-56 Redis-as-bus):\n1. Subscribe to Redis: market:CandleEvent:{symbol}{=interval}\n2. Create engine with publisher: HullMacdEngine(publisher=RedisPublisher())\n3. Engine owns its own Redis I/O — no callback wiring needed\n4. Consume loop:\n   for queue in subscription.queues:\n     event = queue.get_nowait()\n     engine.on_candle_event(event)\n5. Signals auto-publish to market:TradeSignal:hull_macd:{symbol}`,
-    code: `async def run_signal_service(symbols, intervals):\n  sub = RedisSubscription(config)\n  await sub.subscribe(\n    pattern=f"market:CandleEvent:{sym}{{={interval}}}",\n    event_type=CandleEvent\n  )\n  publisher = RedisPublisher()\n  engine = HullMacdEngine(publisher=publisher)\n  # Engine owns its publisher — no callback wiring\n  while True:\n    for key, q in sub.queue.items():\n      if not q.empty():\n        event = q.get_nowait()\n        engine.on_candle_event(event)\n    await asyncio.sleep(0.01)`,
-    connections: ['hull-macd']
+    details: `Event-driven architecture:\n1. Create dedicated subscription for this engine\n2. Create engine with publisher: HullMacdEngine(publisher=RedisPublisher())\n3. Subscribe with on_update wired to engine:\n   subscription.subscribe(\n     pattern, event_type=CandleEvent,\n     on_update=engine.on_candle_event\n   )\n4. Subscription listener fires events DIRECTLY into engine\n5. Engine publishes signals via its publisher → Redis\n\nNo polling. No queues. No sleep.\nThe Redis listener IS the event loop.`,
+    code: `class EngineRunner:\n  def __init__(self, engine, subscription, publisher, channels, event_type):\n    self.engine = engine\n    self.subscription = subscription  # dedicated!\n    ...\n\n  async def start(self):\n    await self.subscription.connect()\n    for channel in self.channels:\n      await self.subscription.subscribe(\n        channel,\n        event_type=self.event_type,\n        on_update=self.engine.on_candle_event\n        # ↑ events fire DIRECTLY into engine\n        # No queue. No polling. Event-driven.\n      )\n    await self._wait_until_cancelled()`,
+    connections: ['hull-macd', 'redis-sub']
   },
   { id: 'hull-macd', x: 680, y: 1490, layer: 'signal',
     label: 'HullMacdEngine', type: 'Signal Engine',
@@ -1374,10 +1389,11 @@ const edges = [
   // InfluxDB → Provider
   { from: 'influxdb', to: 'mkt-provider', label: 'Flux query', style: 'dashed' },
 
-  // Redis signal path (TT-56: engine owns publisher, engine-aware channels)
+  // Signal path (TT-56: three-layer — CLI → Runner → Engine)
+  { from: 'signal-cli', to: 'signal-svc', label: 'constructs + starts' },
+  { from: 'signal-svc', to: 'redis-sub', label: 'owns (dedicated)', style: 'dashed' },
   { from: 'redis', to: 'redis-sub', label: 'psubscribe' },
-  { from: 'redis-sub', to: 'signal-svc', label: 'typed events' },
-  { from: 'signal-svc', to: 'hull-macd', label: 'on_candle_event()' },
+  { from: 'redis-sub', to: 'hull-macd', label: 'on_update → on_candle_event()' },
   { from: 'hull-macd', to: 'event-publisher', label: 'publisher.publish(signal)', style: 'dashed' },
   { from: 'event-publisher', to: 'redis-pub', label: 'satisfies protocol', style: 'dashed' },
   { from: 'redis-pub', to: 'redis', label: 'market:TradeSignal:hull_macd:*' },
@@ -1447,7 +1463,7 @@ const FUNCTIONAL_VIEWS = {
     nodes: new Set([
       'queue-candle', 'msg-router', 'evt-handler',
       'proc-redis',
-      'redis', 'redis-sub', 'signal-svc', 'hull-macd', 'redis-pub',
+      'redis', 'redis-sub', 'signal-cli', 'signal-svc', 'hull-macd', 'redis-pub',
       'event-publisher',
     ]),
   },
