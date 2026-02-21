@@ -222,7 +222,11 @@ class RedisPublisher:
         self.redis = sync_redis.Redis(host=host, port=port)
 
     def publish(self, event: BaseEvent) -> None:
-        channel = f"market:{event.__class__.__name__}:{event.eventSymbol}"
+        engine = getattr(event, "engine", None)
+        if engine:
+            channel = f"market:{event.__class__.__name__}:{engine}:{event.eventSymbol}"
+        else:
+            channel = f"market:{event.__class__.__name__}:{event.eventSymbol}"
         self.redis.publish(channel=channel, message=event.model_dump_json())
 
     def close(self) -> None:

@@ -85,9 +85,9 @@ def test_engine_signals_initially_empty():
     assert engine.signals == []
 
 
-def test_engine_on_signal_initially_none():
+def test_engine_publisher_initially_none():
     engine = HullMacdEngine()
-    assert engine.on_signal is None
+    assert engine.publisher is None
 
 
 def test_set_prior_close():
@@ -247,10 +247,14 @@ def test_open_signal_has_correct_fields(mock_hull, mock_macd):
 
 @patch(MACD_PATH)
 @patch(HULL_PATH)
-def test_open_callback_invoked(mock_hull, mock_macd):
-    engine = HullMacdEngine()
-    received = []
-    engine.on_signal = lambda s: received.append(s)
+def test_open_publisher_invoked(mock_hull, mock_macd):
+    received: list[TradeSignal] = []
+
+    class Collector:
+        def publish(self, event: object) -> None:
+            received.append(event)  # type: ignore[arg-type]
+
+    engine = HullMacdEngine(publisher=Collector())
 
     mock_hull.return_value = make_hull_result("Down")
     mock_macd.return_value = make_macd_result(value=-1.0, avg=0.5, diff=-1.5)

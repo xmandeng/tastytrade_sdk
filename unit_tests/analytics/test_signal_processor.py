@@ -46,13 +46,12 @@ def test_processor_ignores_non_candle_events():
     engine.on_candle_event.assert_not_called()
 
 
-def test_processor_does_not_wire_on_signal():
-    """Processor no longer sets engine.on_signal — wiring is external."""
+def test_processor_does_not_wire_publisher():
+    """Processor does not set engine.publisher — wiring is external."""
     engine = MagicMock()
-    original_on_signal = engine.on_signal
+    original_publisher = engine.publisher
     SignalEventProcessor(engine=engine)
-    # on_signal should still be the same mock — processor didn't reassign it
-    assert engine.on_signal is original_on_signal
+    assert engine.publisher is original_publisher
 
 
 def test_processor_close_logs(caplog):

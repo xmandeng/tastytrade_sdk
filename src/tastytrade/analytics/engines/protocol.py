@@ -4,10 +4,11 @@ Uses typing.Protocol for structural subtyping — any class that implements
 these methods is a valid SignalEngine without explicit inheritance.
 """
 
-from typing import Callable, Protocol
+from typing import Protocol
 
 from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.messaging.models.events import CandleEvent
+from tastytrade.messaging.publisher import EventPublisher
 
 
 class SignalEngine(Protocol):
@@ -20,10 +21,10 @@ class SignalEngine(Protocol):
     def signals(self) -> list[TradeSignal]: ...
 
     @property
-    def on_signal(self) -> Callable[[TradeSignal], None] | None: ...
+    def publisher(self) -> EventPublisher | None: ...
 
-    @on_signal.setter
-    def on_signal(self, callback: Callable[[TradeSignal], None] | None) -> None: ...
+    @publisher.setter
+    def publisher(self, value: EventPublisher | None) -> None: ...
 
     def set_prior_close(self, event_symbol: str, price: float) -> None: ...
 
