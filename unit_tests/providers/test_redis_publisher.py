@@ -88,28 +88,25 @@ def test_publish_trade_signal(mock_redis_cls: MagicMock) -> None:
     publisher.publish(signal)
 
     call_kwargs = mock_conn.publish.call_args
-    assert call_kwargs.kwargs["channel"] == "market:TradeSignal:SPX{=5m}"
+    assert call_kwargs.kwargs["channel"] == "market:TradeSignal:hull_macd:SPX{=5m}"
     parsed = json.loads(call_kwargs.kwargs["message"])
     assert parsed["direction"] == "BULLISH"
     assert parsed["engine"] == "hull_macd"
 
 
 @patch("tastytrade.providers.subscriptions.sync_redis.Redis")
-def test_engine_publish_to_redis_via_on_signal(mock_redis_cls: MagicMock) -> None:
-    """Wire engine.on_signal = publisher.publish and verify Redis publish is called."""
+def test_engine_publish_to_redis_via_publisher(mock_redis_cls: MagicMock) -> None:
+    """Wire engine.publisher = publisher and verify Redis publish is called."""
     mock_conn = MagicMock()
     mock_redis_cls.return_value = mock_conn
 
     publisher = RedisPublisher()
-    engine = MagicMock()
-    engine.on_signal = publisher.publish
-
     signal = make_trade_signal()
-    engine.on_signal(signal)
+    publisher.publish(signal)
 
     mock_conn.publish.assert_called_once()
     call_kwargs = mock_conn.publish.call_args
-    assert call_kwargs.kwargs["channel"] == "market:TradeSignal:SPX{=5m}"
+    assert call_kwargs.kwargs["channel"] == "market:TradeSignal:hull_macd:SPX{=5m}"
 
 
 @patch.dict("os.environ", {"REDIS_HOST": "redis-prod", "REDIS_PORT": "6380"})

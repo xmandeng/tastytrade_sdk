@@ -33,10 +33,9 @@ collected.
               │                        engine.on_candle_event(event)
      engine.on_candle_event()                 │
               │                        engine.signals  ← read list
-     on_signal callback                       │
-              │                        (no callbacks needed)
-     emit → re-inject into
-     EventHandler chain
+     publisher.publish(signal)
+              │
+     Redis pub/sub: market:TradeSignal:hull_macd:SPX{=5m}
 ```
 
 ---
@@ -56,9 +55,7 @@ candle_handler.add_processor(SignalEventProcessor(engine, emit=handler.process_e
 2. `EventHandler.handle_message()` parses raw data into `CandleEvent`
 3. Loops through `self.processors`, calling `processor.process_event(event)`
 4. `SignalEventProcessor.process_event()` → `engine.on_candle_event()`
-5. Engine detects confluence → calls `on_signal` callback
-6. Callback fires `emit()` → re-injects `TradeSignal` into the handler chain
-7. Other processors (Telegraf, Redis) write the `TradeSignal` to InfluxDB / Redis
+5. Engine detects confluence → publishes `TradeSignal` via its `EventPublisher` (`RedisPublisher`)
 
 **When to use:** Automated production pipelines where signals must be
 persisted and distributed without human interaction.
@@ -109,7 +106,7 @@ active (the standard `tasty-subscription` setup from TT-31).
 |---|---|---|
 | DXLink location | Same process | Separate process |
 | Event source | WebSocket → Queue → EventHandler | Redis pub/sub → asyncio.Queue |
-| Signal delivery | Callback → emit into handler chain | Poll `engine.signals` list |
+| Signal delivery | EventPublisher → Redis pub/sub channel (engine-specific) | Poll `engine.signals` list |
 | Persistence | Automatic (Telegraf processor) | Manual or not needed |
 | Wiring complexity | Processor registration, callbacks | Zero — direct function calls |
 | Latency | Lowest (in-process) | Near-zero (Redis pub/sub hop) |
@@ -121,42 +118,78 @@ to a list. No framework required.
 
 ---
 
-## Callback Analysis
+## Service Boundary Principle
 
-The engine has an `on_signal` callback mechanism:
+This system is designed for **distributed deployment**: multiple containers,
+each subscribing to Redis for input and publishing to Redis for output.
+**Redis IS the bus.** Each service is a self-contained unit:
+Redis in → process → Redis out.
 
-```python
-# In HullMacdEngine._emit_signal():
-self._signals.append(signal)     # Always happens — signals accumulate
-if self._on_signal:
-    self._on_signal(signal)      # Only fires if callback is set
-```
+### Why callbacks are wrong at service boundaries
 
-**For Path A (Production):** The callback is how `SignalEventProcessor`
-re-injects signals into the EventHandler chain for downstream persistence.
-
-**For Path B (Notebook):** The callback is **unnecessary**. Signals are
-already in `engine.signals`. Setting `on_signal` is optional — skip it.
-
-The `SignalEventProcessor` class itself is a Path A adapter. Path B
-bypasses it entirely.
-
-### Protocol implications
-
-The `SignalEngine` protocol currently requires `on_signal` getter/setter:
+The previous pattern wired services together with callbacks:
 
 ```python
-class SignalEngine(Protocol):
-    @property
-    def on_signal(self) -> Callable[[TradeSignal], None] | None: ...
-    @on_signal.setter
-    def on_signal(self, callback: Callable[[TradeSignal], None] | None) -> None: ...
+# ANTI-PATTERN — do not use
+engine.on_signal = publisher.publish  # orchestrator reaches across services
 ```
 
-This is a Path A concern. If future engines only need Path B, the
-callback can be removed from the protocol and kept as an optional mixin.
-For now, both paths coexist without conflict — the callback is never
-invoked unless explicitly wired.
+This creates invisible coupling — the orchestrator must know about both the
+engine and the publisher, violating localized proximity. It also breaks
+distributed deployment: callbacks are in-process function calls, not
+network-addressable messages.
+
+### EventPublisher protocol
+
+Each engine owns its own publisher. Signal emission is a local concern:
+
+```python
+# Correct — engine owns its own I/O
+engine = HullMacdEngine(publisher=RedisPublisher())
+```
+
+The `EventPublisher` protocol (`messaging/publisher.py`) defines the
+structural interface:
+
+```python
+class EventPublisher(Protocol):
+    def publish(self, event: BaseEvent) -> None: ...
+```
+
+`RedisPublisher` satisfies this protocol. Any class with a matching
+`publish` method works — no inheritance required.
+
+### Engine-aware channel naming
+
+Events with an `engine` attribute get engine-specific channels:
+
+```
+market:TradeSignal:hull_macd:SPX{=5m}    ← engine-specific
+market:TradeSignal:rsi:SPX{=5m}          ← future engine
+market:CandleEvent:SPX{=5m}             ← no engine field, unchanged
+```
+
+Consumers use Redis `PSUBSCRIBE` pattern matching (server-side filtering):
+
+- `market:TradeSignal:hull_macd:*` — only HullMACD signals
+- `market:TradeSignal:*:SPX{=5m}` — all engines for SPX 5m
+- `market:TradeSignal:*` — everything
+
+### Distributed topology
+
+```
+Container A: RedisSubscription → HullMacdEngine → RedisPublisher
+                 ↑ (CandleEvent)                      ↓ (TradeSignal:hull_macd)
+                 └──────────────── Redis ──────────────────┘
+
+Container B: RedisSubscription → RSIEngine → RedisPublisher
+                 ↑ (CandleEvent)                  ↓ (TradeSignal:rsi)
+                 └──────────────── Redis ──────────────┘
+
+Container C: RedisSubscription → AlertService → RedisPublisher
+                 ↑ (TradeSignal:hull_macd)            ↓ (AlertEvent)
+                 └──────────────── Redis ──────────────┘
+```
 
 ---
 
@@ -185,7 +218,7 @@ so it can be registered with `EventHandler.add_processor()`.
 
 - Filters non-`CandleEvent` types (prevents re-entrant loops from
   `TradeSignal` being broadcast back through processors)
-- Sets up `on_signal` callback to emit signals back into the handler chain
+- Signal emission is handled by the engine's `publisher` property
 
 **Not needed for Path B.**
 

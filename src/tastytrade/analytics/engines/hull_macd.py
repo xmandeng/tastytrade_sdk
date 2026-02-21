@@ -12,7 +12,7 @@ spread and bear call spread can be open simultaneously.
 import logging
 from dataclasses import dataclass, field
 from datetime import time
-from typing import Callable
+from tastytrade.messaging.publisher import EventPublisher
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -62,9 +62,10 @@ class HullMacdEngine:
         self,
         earliest_entry: time = DEFAULT_EARLIEST_ENTRY,
         latest_entry: time = DEFAULT_LATEST_ENTRY,
+        publisher: EventPublisher | None = None,
     ) -> None:
         self._signals: list[TradeSignal] = []
-        self._on_signal: Callable[[TradeSignal], None] | None = None
+        self._publisher: EventPublisher | None = publisher
         self._states: dict[str, TimeframeState] = {}
         self._prior_closes: dict[str, float] = {}
         self._earliest_entry = earliest_entry
@@ -79,12 +80,12 @@ class HullMacdEngine:
         return self._signals
 
     @property
-    def on_signal(self) -> Callable[[TradeSignal], None] | None:
-        return self._on_signal
+    def publisher(self) -> EventPublisher | None:
+        return self._publisher
 
-    @on_signal.setter
-    def on_signal(self, callback: Callable[[TradeSignal], None] | None) -> None:
-        self._on_signal = callback
+    @publisher.setter
+    def publisher(self, value: EventPublisher | None) -> None:
+        self._publisher = value
 
     def set_prior_close(self, event_symbol: str, price: float) -> None:
         self._prior_closes[event_symbol] = price
@@ -325,8 +326,8 @@ class HullMacdEngine:
             },
         )
 
-        if self._on_signal:
-            self._on_signal(signal)
+        if self._publisher:
+            self._publisher.publish(signal)
 
     @staticmethod
     def _hull_to_signal_direction(hull_dir: str) -> str:

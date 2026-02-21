@@ -11,7 +11,11 @@ class RedisEventProcessor(BaseEventProcessor):
 
     def __init__(self, redis_host: str | None = None, redis_port: int | None = None):
         super().__init__()
-        host = redis_host or os.environ.get("REDIS_HOST", "localhost")
+        host = (
+            redis_host
+            if redis_host is not None
+            else os.environ.get("REDIS_HOST", "localhost")
+        )
         port = (
             redis_port
             if redis_port is not None
