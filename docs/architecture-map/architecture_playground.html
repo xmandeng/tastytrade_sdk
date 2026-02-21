@@ -1040,7 +1040,7 @@ const nodes = [
     insights: [
       { author: 'claude', text: 'The deserialization uses zip(fields, values) where fields comes from CHANNEL_SPECS. DXLink sends flat arrays of values — the field names are never on the wire, only negotiated once during setup_feeds(). This is bandwidth-efficient but means field order is critical.' },
     ],
-    connections: ['proc-latest','proc-candle','proc-base','proc-influx','proc-redis','proc-signal','proc-metrics','proc-snapshot']
+    connections: ['proc-latest','proc-candle','proc-base','proc-influx','proc-redis','proc-metrics','proc-snapshot']
   },
 
   // ── EVENT MODELS (conceptual) ──
@@ -1107,14 +1107,9 @@ const nodes = [
     ],
     connections: ['redis']
   },
-  { id: 'proc-signal', x: 1080, y: 940, layer: 'processor',
-    label: 'SignalEventProcessor', type: 'Event Processor',
-    badge: 'Candle only',
-    file: 'messaging/processors/signal.py',
-    desc: 'Routes CandleEvents to the signal engine for technical analysis and trade signal generation (in-process path).',
-    details: `Filters for CandleEvent only:\nif isinstance(event, CandleEvent):\n  engine.on_candle_event(event)\n\nAttached to: Candle EventHandler\nEngine: HullMacdEngine (or any SignalEngine protocol impl)`,
-    connections: ['hull-macd']
-  },
+  // proc-signal (SignalEventProcessor) REMOVED by TT-56.
+  // Violated the Redis service boundary — engine now gets candles
+  // via Signal Service (Redis → engine → publisher → Redis).
   { id: 'proc-metrics', x: 1280, y: 940, layer: 'processor',
     label: 'MetricsEventProcessor', type: 'Event Processor',
     file: 'messaging/processors/metrics.py',
@@ -1171,7 +1166,7 @@ const nodes = [
     desc: 'Runs as a separate process/container. Consumes CandleEvents from Redis, feeds to signal engine, publishes TradeSignals back to Redis. Each service is a self-contained unit: Redis in → process → Redis out.',
     insights: [
       { author: 'xmandeng', text: 'Decoupled by design — the signal service can crash, restart, or be replaced without affecting the main data pipeline. The main process continues writing to InfluxDB regardless.' },
-      { author: 'claude', text: 'There are TWO paths to the signal engine: (1) in-process via SignalEventProcessor (low latency, same process), (2) decoupled via Redis→SignalService (independent lifecycle). Both can run simultaneously.' },
+      { author: 'claude', text: 'TT-56 established ONE path to the signal engine: Redis → Signal Service → engine → publisher → Redis. The old in-process path via SignalEventProcessor is deprecated — it bypasses Redis and violates the service boundary principle.' },
       { author: 'claude', text: 'TT-56: Engine now owns its publisher via constructor injection — no external callback wiring needed. The service just passes publisher=RedisPublisher() to the engine constructor.' },
     ],
     details: `Decoupled architecture (TT-56 Redis-as-bus):\n1. Subscribe to Redis: market:CandleEvent:{symbol}{=interval}\n2. Create engine with publisher: HullMacdEngine(publisher=RedisPublisher())\n3. Engine owns its own Redis I/O — no callback wiring needed\n4. Consume loop:\n   for queue in subscription.queues:\n     event = queue.get_nowait()\n     engine.on_candle_event(event)\n5. Signals auto-publish to market:TradeSignal:hull_macd:{symbol}`,
@@ -1368,7 +1363,6 @@ const edges = [
   { from: 'evt-handler', to: 'proc-candle', label: 'Candle' },
   { from: 'evt-handler', to: 'proc-influx', label: 'all events' },
   { from: 'evt-handler', to: 'proc-redis', label: 'all events' },
-  { from: 'evt-handler', to: 'proc-signal', label: 'Candle' },
   { from: 'evt-handler', to: 'proc-metrics', label: 'Quote/Greeks' },
   { from: 'evt-handler', to: 'proc-snapshot', label: 'Candle' },
 
@@ -1376,8 +1370,6 @@ const edges = [
   { from: 'proc-influx', to: 'influxdb', label: 'batch write' },
   { from: 'proc-redis', to: 'redis', label: 'publish' },
 
-  // In-process signal path
-  { from: 'proc-signal', to: 'hull-macd', label: 'on_candle_event()' },
 
   // InfluxDB → Provider
   { from: 'influxdb', to: 'mkt-provider', label: 'Flux query', style: 'dashed' },
@@ -1446,7 +1438,7 @@ const FUNCTIONAL_VIEWS = {
       'queue-quote', 'queue-candle', 'queue-greeks',
       'ctrl-handler', 'msg-router', 'evt-handler', 'base-event',
       'proc-latest', 'proc-base', 'proc-candle', 'proc-influx', 'proc-redis',
-      'proc-snapshot', 'proc-metrics', 'proc-signal',
+      'proc-snapshot', 'proc-metrics',
       'influxdb', 'redis',
     ]),
   },
@@ -1454,7 +1446,7 @@ const FUNCTIONAL_VIEWS = {
     color: '#39d2c0',
     nodes: new Set([
       'queue-candle', 'msg-router', 'evt-handler',
-      'proc-signal', 'proc-redis',
+      'proc-redis',
       'redis', 'redis-sub', 'signal-svc', 'hull-macd', 'redis-pub',
       'event-publisher',
     ]),
