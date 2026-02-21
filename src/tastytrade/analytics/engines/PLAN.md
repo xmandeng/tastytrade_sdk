@@ -8,26 +8,26 @@ This is the Phase 1 foundation for Epic TT-44 (Algorithmic Trading Signals). TT-
 
 ## Architecture
 
-Follows the existing `MetricsEventProcessor -> MetricsTracker` pattern. All processors are registered on the Candle `EventHandler`, which broadcasts every `BaseEvent` to all processors:
+Uses the Redis-as-bus pattern (TT-56). Each service is a self-contained unit:
+Redis in → process → Redis out.
 
 ```
-CandleEvent (SPX{=5m}) arrives at EventHandler
-  -> EventHandler broadcasts to ALL registered processors:
-     -> CandleEventProcessor.process_event()        (stores candle data)
-     -> TelegrafHTTPEventProcessor.process_event()   (writes candle to InfluxDB)
-     -> SignalEventProcessor.process_event()          (routes to HullMacdEngine)
+CandleEvent arrives via Redis pub/sub
+  -> Signal Service consume loop:
+     -> engine.on_candle_event(event)
            -> HullMacdEngine detects confluence
            -> Creates TradeSignal (extends BaseAnnotation extends BaseEvent)
-           -> Emits TradeSignal back to EventHandler via emit callback
+           -> publisher.publish(signal) → Redis pub/sub
            -> logger.info() with structured fields (stdout JSON + Grafana Cloud OTLP)
 
-TradeSignal re-enters EventHandler processor chain:
-     -> TelegrafHTTPEventProcessor.process_event()   (writes signal to InfluxDB)
-     -> CandleEventProcessor.process_event()          (ignores -- not a candle)
-     -> SignalEventProcessor.process_event()           (ignores -- not a CandleEvent)
+TradeSignal published to Redis:
+     -> market:TradeSignal:hull_macd:SPX{=5m}
+     -> Downstream consumers subscribe via PSUBSCRIBE patterns
 ```
 
-**Key design**: TradeSignal extends `BaseAnnotation` which extends `BaseEvent`, so it flows naturally through the EventHandler's processor chain. The `SignalEventProcessor` accepts an `emit` callback (wired to the EventHandler) to submit generated signals back into the pipeline. This avoids hardcoded processor references -- any processor on the channel that can handle a `BaseEvent` subclass will pick it up.
+**Key design**: The engine owns its own publisher via constructor injection
+(`HullMacdEngine(publisher=RedisPublisher())`). Signal emission is a local
+concern — no external callback wiring across service boundaries.
 
 ## Core Signal Logic
 
@@ -119,17 +119,11 @@ After any CLOSE, the engine returns to FLAT and all armed states are cleared. Fr
 
 **d) Structured Grafana logging** -- On each signal, emit a structured `logger.info()` with all indicator snapshot fields as `extra` kwargs.
 
-### Step 5: Create `src/tastytrade/messaging/processors/signal.py`
+### Step 5: Signal Service (replaces SignalEventProcessor)
 
-**SignalEventProcessor** -- thin adapter wrapping any `SignalEngine` for the `EventProcessor` protocol. Follows the `MetricsEventProcessor` pattern:
-- `name = "signal"`
-- `process_event()` -- routes `CandleEvent` to `engine.on_candle_event()`, ignores other event types
-- `close()` -- logs final signal count
-- Constructor accepts an `emit` callback wired to the EventHandler
-
-### Step 6: Modify `src/tastytrade/messaging/processors/__init__.py`
-
-Add `SignalEventProcessor` to imports and `__all__`.
+The standalone Signal Service (`src/tastytrade/signal/service.py`) subscribes
+to Redis for CandleEvents, feeds them to the engine, and the engine publishes
+TradeSignals via its publisher. No in-process adapter needed.
 
 ### Step 7: Create `unit_tests/analytics/test_hull_macd_engine.py` (~34 tests)
 
@@ -153,8 +147,7 @@ Verification notebook demonstrating signals on real SPX data with chart overlay.
 | Create | `src/tastytrade/analytics/engines/models.py` | SignalDirection + TradeSignal |
 | Create | `src/tastytrade/analytics/engines/protocol.py` | SignalEngine protocol |
 | Create | `src/tastytrade/analytics/engines/hull_macd.py` | HullMacdEngine (core) |
-| Create | `src/tastytrade/messaging/processors/signal.py` | SignalEventProcessor adapter |
-| Modify | `src/tastytrade/messaging/processors/__init__.py` | Add export |
+| Create | `src/tastytrade/signal/service.py` | Standalone signal service (Redis-as-bus) |
 | Create | `unit_tests/analytics/test_hull_macd_engine.py` | ~34 engine tests |
 | Create | `unit_tests/analytics/test_signal_processor.py` | ~4 processor tests |
 | Create | `src/devtools/playground_signals.ipynb` | Verification notebook |

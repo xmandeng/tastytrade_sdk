@@ -1,16 +1,16 @@
 # Signal Detection Architecture
 
-This document describes the real-time signal detection pipeline, its two
-consumption paths, and the design rationale behind each.
+This document describes the real-time signal detection pipeline and the
+Redis-as-bus service boundary design.
 
 ---
 
 ## Overview
 
-The signal detection system has one engine (`HullMacdEngine`) and **two
-independent consumption paths**. Both receive the same `CandleEvent`
-objects; they differ in where those events come from and how signals are
-collected.
+The signal detection system has one engine (`HullMacdEngine`) and one
+consumption path: **Redis → Signal Service → Engine → Publisher → Redis**.
+
+Every service is a self-contained unit: Redis in → process → Redis out.
 
 ```
                   ┌─────────────────────────────────────────────────┐
@@ -23,48 +23,56 @@ collected.
                               │
               ┌───────────────┴───────────────┐
               │                               │
-     PATH A: Production               PATH B: Notebook / Direct
-     (EventHandler pipeline)           (Redis → Engine)
+     Signal Service                    Notebook / Direct
+     (Redis → Engine → Redis)          (Redis → Engine)
               │                               │
-     EventHandler.processors           RedisSubscription.queue
-     ├─ TelegrafHTTPProcessor                 │
-     ├─ RedisEventProcessor            await queue.get()
-     └─ SignalEventProcessor                  │
-              │                        engine.on_candle_event(event)
-     engine.on_candle_event()                 │
-              │                        engine.signals  ← read list
-     publisher.publish(signal)
+     RedisSubscription.queue           RedisSubscription.queue
+              │                               │
+     engine.on_candle_event()          engine.on_candle_event()
+              │                               │
+     publisher.publish(signal)         engine.signals  ← read list
               │
      Redis pub/sub: market:TradeSignal:hull_macd:SPX{=5m}
 ```
 
 ---
 
-## Path A: Production EventHandler Pipeline
+## Signal Service (Production)
 
-Used by: `api/main.py`, `subscription/orchestrator.py`, `scripts/dxlink_startup.py`
+Used by: `tasty-signal run --symbols SPX --intervals 5m`
 
 ```python
-candle_handler = dxlink.router.handler[Channels.Candle]
-candle_handler.add_processor(SignalEventProcessor(engine, emit=handler.process_event))
+publisher = RedisPublisher()
+engine = HullMacdEngine(publisher=publisher)
+engine.set_prior_close("SPX{=5m}", prior_close)
+
+for symbol in symbols:
+    for interval in intervals:
+        pattern = f"market:CandleEvent:{symbol}{{={interval}}}"
+        await subscription.subscribe(pattern, event_type=CandleEvent)
+
+while True:
+    for _key, queue in subscription.queue.items():
+        if not queue.empty():
+            event = queue.get_nowait()
+            engine.on_candle_event(event)
+    await asyncio.sleep(0.01)
 ```
 
 **Data flow:**
 
-1. `DXLink WebSocket` → `asyncio.Queue` → `EventHandler.queue_listener()`
-2. `EventHandler.handle_message()` parses raw data into `CandleEvent`
-3. Loops through `self.processors`, calling `processor.process_event(event)`
-4. `SignalEventProcessor.process_event()` → `engine.on_candle_event()`
-5. Engine detects confluence → publishes `TradeSignal` via its `EventPublisher` (`RedisPublisher`)
+1. DXLink (separate process) → Redis pub/sub → `RedisSubscription.listener()`
+2. Typed deserialization to `CandleEvent`
+3. Signal Service consume loop calls `engine.on_candle_event()`
+4. Engine detects confluence → `publisher.publish(signal)` → Redis
+5. Signal appears on `market:TradeSignal:hull_macd:SPX{=5m}`
 
 **When to use:** Automated production pipelines where signals must be
-persisted and distributed without human interaction.
-
-**Requires:** Direct DXLink WebSocket connection in the same process.
+distributed to downstream consumers.
 
 ---
 
-## Path B: Notebook / Direct Consumption (Preferred for Development)
+## Notebook / Direct Consumption (Development)
 
 Used by: `playground_signals.ipynb`, ad-hoc analysis, backtesting
 
@@ -76,45 +84,19 @@ await subscription.subscribe("market:CandleEvent:SPX{=5m}")
 queue = subscription.queue["CandleEvent:SPX{=5m}"]
 
 while True:
-    event = await queue.get()        # async, non-blocking to event loop
-    engine.on_candle_event(event)    # state machine processes candle
+    event = await queue.get()
+    engine.on_candle_event(event)
 
     if engine.signals:
         latest = engine.signals[-1]  # read directly from list
 ```
 
-**Data flow:**
-
-1. DXLink (separate process) → Redis pub/sub → `RedisSubscription.listener()`
-2. `convert_message_to_event()` deserializes to `CandleEvent`
-3. Event placed in `asyncio.Queue` keyed by `CandleEvent:SPX{=5m}`
-4. Notebook calls `await queue.get()` — blocks until next candle arrives
-5. Feeds `CandleEvent` directly to `engine.on_candle_event()`
-6. Reads `engine.signals` list — no callbacks, no processor chain
-
 **When to use:** Development, testing, real-time monitoring, manual
 exploration during market hours.
 
-**Requires:** DXLink running in a separate process with Redis pub/sub
-active (the standard `tasty-subscription` setup from TT-31).
-
----
-
-## Why Two Paths Exist
-
-| Concern | Path A (Production) | Path B (Notebook) |
-|---|---|---|
-| DXLink location | Same process | Separate process |
-| Event source | WebSocket → Queue → EventHandler | Redis pub/sub → asyncio.Queue |
-| Signal delivery | EventPublisher → Redis pub/sub channel (engine-specific) | Poll `engine.signals` list |
-| Persistence | Automatic (Telegraf processor) | Manual or not needed |
-| Wiring complexity | Processor registration, callbacks | Zero — direct function calls |
-| Latency | Lowest (in-process) | Near-zero (Redis pub/sub hop) |
-
-Path B is simpler because it decouples the engine from the processor
-framework. The engine is a **standalone state machine** — it accepts
-`CandleEvent` in, accumulates internal state, and appends `TradeSignal`
-to a list. No framework required.
+The engine is a **standalone state machine** — it accepts `CandleEvent`
+in, accumulates internal state, and appends `TradeSignal` to a list.
+No framework required.
 
 ---
 
@@ -208,19 +190,6 @@ the `hull()` and `macd()` indicator functions.
   position, armed indicators, and open positions
 - **Time gates:** `earliest_entry` (default 10:00 ET) and `latest_entry`
   (default 15:00 ET)
-
-### SignalEventProcessor
-
-Location: `src/tastytrade/messaging/processors/signal.py`
-
-Path A adapter. Wraps a `SignalEngine` in the `EventProcessor` interface
-so it can be registered with `EventHandler.add_processor()`.
-
-- Filters non-`CandleEvent` types (prevents re-entrant loops from
-  `TradeSignal` being broadcast back through processors)
-- Signal emission is handled by the engine's `publisher` property
-
-**Not needed for Path B.**
 
 ### RedisSubscription
 
