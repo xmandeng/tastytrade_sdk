@@ -7,10 +7,11 @@ Redis-as-bus service boundary design.
 
 ## Overview
 
-The signal detection system has one engine (`HullMacdEngine`) and one
-consumption path: **Redis → Signal Service → Engine → Publisher → Redis**.
+The signal detection system has one engine (`HullMacdEngine`) and a
+three-layer architecture: CLI → EngineRunner → Engine.
 
 Every service is a self-contained unit: Redis in → process → Redis out.
+Events fire directly into the engine — no queues, no polling.
 
 ```
                   ┌─────────────────────────────────────────────────┐
@@ -23,49 +24,61 @@ Every service is a self-contained unit: Redis in → process → Redis out.
                               │
               ┌───────────────┴───────────────┐
               │                               │
-     Signal Service                    Notebook / Direct
-     (Redis → Engine → Redis)          (Redis → Engine)
+     EngineRunner (production)         Notebook / Direct
               │                               │
-     RedisSubscription.queue           RedisSubscription.queue
-              │                               │
-     engine.on_candle_event()          engine.on_candle_event()
-              │                               │
-     publisher.publish(signal)         engine.signals  ← read list
+     RedisSubscription                 RedisSubscription.queue
+     on_update callback                       │
+              │                        engine.on_candle_event()
+     engine.on_candle_event()                 │
+       (direct, no queue)              engine.signals  ← read list
+              │
+     publisher.publish(signal)
               │
      Redis pub/sub: market:TradeSignal:hull_macd:SPX{=5m}
 ```
 
 ---
 
-## Signal Service (Production)
+## Three-Layer Architecture
+
+```
+cli.py    → What to run (factory: pick engine, channels, event type)
+runner.py → How to run (generic harness: wire subscription, manage lifecycle)
+engine    → The work (pure state machine: event in, signal out)
+```
+
+Each layer knows nothing about the one above it.
+
+## EngineRunner (Production)
 
 Used by: `tasty-signal run --symbols SPX --intervals 5m`
 
 ```python
+# cli.py — factory
+subscription = RedisSubscription(config)
 publisher = RedisPublisher()
 engine = HullMacdEngine(publisher=publisher)
-engine.set_prior_close("SPX{=5m}", prior_close)
 
-for symbol in symbols:
-    for interval in intervals:
-        pattern = f"market:CandleEvent:{symbol}{{={interval}}}"
-        await subscription.subscribe(pattern, event_type=CandleEvent)
-
-while True:
-    for _key, queue in subscription.queue.items():
-        if not queue.empty():
-            event = queue.get_nowait()
-            engine.on_candle_event(event)
-    await asyncio.sleep(0.01)
+runner = EngineRunner(
+    name=engine.name,
+    subscription=subscription,
+    publisher=publisher,
+    channels=[f"market:CandleEvent:{sym}{{={interval}}}"],
+    event_type=CandleEvent,
+    on_event=engine.on_candle_event,
+)
+await runner.start()
 ```
 
 **Data flow:**
 
 1. DXLink (separate process) → Redis pub/sub → `RedisSubscription.listener()`
 2. Typed deserialization to `CandleEvent`
-3. Signal Service consume loop calls `engine.on_candle_event()`
+3. `on_update` callback fires directly into `engine.on_candle_event()`
 4. Engine detects confluence → `publisher.publish(signal)` → Redis
 5. Signal appears on `market:TradeSignal:hull_macd:SPX{=5m}`
+
+No queues. No polling. The Redis async listener IS the event loop.
 
 **When to use:** Automated production pipelines where signals must be
 distributed to downstream consumers.
