@@ -840,6 +840,16 @@
 
   <div class="rail-section">
     <div class="rail-section-label">Layout</div>
+    <div class="layout-dropdown-wrap" id="layout-dropdown-wrap">
+      <div class="layout-dropdown-trigger" id="layout-dropdown-trigger" onclick="toggleLayoutDropdown()">
+        <span id="layout-dd-label">Select layout...</span>
+        <span class="dd-arrow">&#9662;</span>
+      </div>
+      <div class="layout-dropdown-menu" id="layout-dropdown-menu"></div>
+    </div>
+    <button class="rail-btn" onclick="saveLayout()">
+      <span class="rail-icon">&#9733;</span><span>Save</span>
+    </button>
     <button class="rail-btn" onclick="undo()" id="undo-btn" disabled>
       <span class="rail-icon">&#8617;</span><span>Undo</span>
     </button>
@@ -849,16 +859,6 @@
     <button class="rail-btn" onclick="resetLayout()">
       <span class="rail-icon">&#8634;</span><span>Reset</span>
     </button>
-    <button class="rail-btn" onclick="saveLayout()">
-      <span class="rail-icon">&#9733;</span><span>Save</span>
-    </button>
-    <div class="layout-dropdown-wrap" id="layout-dropdown-wrap">
-      <div class="layout-dropdown-trigger" id="layout-dropdown-trigger" onclick="toggleLayoutDropdown()">
-        <span id="layout-dd-label">Load...</span>
-        <span class="dd-arrow">&#9662;</span>
-      </div>
-      <div class="layout-dropdown-menu" id="layout-dropdown-menu"></div>
-    </div>
   </div>
 </div>
 
