@@ -680,19 +680,7 @@
   }
   .tooltip.visible { opacity: 1; }
 
-  /* Active layout indicator */
-  .active-layout-name {
-    font-size: 10px;
-    color: var(--accent-blue);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 130px;
-    margin-top: 2px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
+  /* Dirty dot for layout trigger */
   .dirty-dot {
     display: inline-block;
     width: 6px; height: 6px;
@@ -852,7 +840,6 @@
 
   <div class="rail-section">
     <div class="rail-section-label">Layout</div>
-    <div class="active-layout-name" id="active-layout-display"></div>
     <button class="rail-btn" onclick="undo()" id="undo-btn" disabled>
       <span class="rail-icon">&#8617;</span><span>Undo</span>
     </button>
@@ -1631,13 +1618,17 @@ function isDirty() {
 }
 
 function updateActiveLayoutDisplay() {
-  const el = document.getElementById('active-layout-display');
+  const label = document.getElementById('layout-dd-label');
+  if (!label) return;
   if (!activeLayoutName) {
-    el.innerHTML = '';
+    const count = Object.keys(savedLayouts).length;
+    label.innerHTML = count ? 'Select layout...' : 'No layouts';
+    label.style.color = '';
     return;
   }
   const dirty = isDirty();
-  el.innerHTML = (dirty ? '<span class="dirty-dot"></span>' : '') + escHtml(activeLayoutName);
+  label.innerHTML = (dirty ? '<span class="dirty-dot"></span> ' : '') + escHtml(activeLayoutName);
+  label.style.color = 'var(--accent-blue)';
 }
 
 function saveLayout() {
@@ -1791,10 +1782,9 @@ function resetLayout() {
 }
 
 function refreshLayoutSelect() {
-  const label = document.getElementById('layout-dd-label');
   const menu = document.getElementById('layout-dropdown-menu');
   const names = Object.keys(savedLayouts);
-  label.textContent = names.length ? `Load (${names.length})` : 'No layouts';
+  updateActiveLayoutDisplay();
   if (!names.length) {
     menu.innerHTML = '<div class="layout-dropdown-empty">No saved layouts</div>';
     return;
