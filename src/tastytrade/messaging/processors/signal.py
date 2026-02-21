@@ -18,8 +18,8 @@ class SignalEventProcessor:
     Implements the EventProcessor protocol (name, process_event, close).
     Should be attached to the Candle EventHandler.
 
-    Signal emission is handled externally — wire ``engine.on_signal``
-    to a ``RedisPublisher.publish`` (or any callback) before processing.
+    Signal emission is handled by the engine's publisher property —
+    wire ``engine.publisher = RedisPublisher()`` before processing.
     """
 
     name: str = "signal"

@@ -32,10 +32,9 @@ async def run_signal_service(symbols: list[str], intervals: list[str]) -> None:
     subscription = RedisSubscription(config)
     await subscription.connect()
 
-    # Set up signal engine and Redis publisher
+    # Set up signal engine with Redis publisher (engine owns its own I/O)
     publisher = RedisPublisher()
-    engine = HullMacdEngine()
-    engine.on_signal = publisher.publish
+    engine = HullMacdEngine(publisher=publisher)
 
     # Subscribe to candle channels for each symbol/interval
     for symbol in symbols:
