@@ -21,20 +21,23 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
         org: str | None = None,
         bucket: str | None = None,
     ):
-        # Service discovery: os.environ (Docker Compose) → code default (host)
+        # Service discovery: explicit param → os.environ → raise
         # See docs/SERVICE_DISCOVERY.md
         url = url or os.environ.get("INFLUX_DB_URL", "http://localhost:8086")
+        token = token or os.environ.get("INFLUX_DB_TOKEN")
+        org = org or os.environ.get("INFLUX_DB_ORG")
+        bucket = bucket or os.environ.get("INFLUX_DB_BUCKET")
         if not token:
             raise ValueError(
-                "INFLUX_DB_TOKEN is required. Ensure it is set in Redis configuration."
+                "INFLUX_DB_TOKEN is required. Set via parameter or INFLUX_DB_TOKEN env var."
             )
         if not org:
             raise ValueError(
-                "INFLUX_DB_ORG is required. Ensure it is set in Redis configuration."
+                "INFLUX_DB_ORG is required. Set via parameter or INFLUX_DB_ORG env var."
             )
         if not bucket:
             raise ValueError(
-                "INFLUX_DB_BUCKET is required. Ensure it is set in Redis configuration."
+                "INFLUX_DB_BUCKET is required. Set via parameter or INFLUX_DB_BUCKET env var."
             )
 
         self.client = InfluxDBClient(url=url, token=token, org=org)
