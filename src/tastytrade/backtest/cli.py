@@ -20,12 +20,11 @@ from datetime import datetime
 import click
 from influxdb_client import InfluxDBClient
 
-from tastytrade.backtest.models import BacktestConfig
+from tastytrade.analytics.engines.hull_macd import HullMacdEngine
+from tastytrade.backtest.models import BacktestConfig, BacktestSignal
 from tastytrade.backtest.publisher import BacktestPublisher
 from tastytrade.backtest.replay import BacktestReplay
 from tastytrade.backtest.runner import BacktestRunner
-from tastytrade.analytics.engines.hull_macd import HullMacdEngine
-from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.common.logging import setup_logging
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
@@ -86,13 +85,19 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
     )
 
     # --- Persistence setup (Redis → InfluxDB) ---
+    influx_bucket = redis_config.get("INFLUX_DB_BUCKET")
     persist_subscription = RedisSubscription(redis_config)
-    processor = TelegrafHTTPEventProcessor()
+    processor = TelegrafHTTPEventProcessor(
+        url=influx_url,
+        token=influx_token,
+        org=influx_org,
+        bucket=influx_bucket,
+    )
     persist_runner = EngineRunner(
         name="backtest_signal_feed",
         subscription=persist_subscription,
         channels=["market:BacktestSignal:*"],
-        event_type=TradeSignal,
+        event_type=BacktestSignal,
         on_event=processor.process_event,
     )
 

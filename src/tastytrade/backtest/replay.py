@@ -82,7 +82,7 @@ class BacktestReplay:
         )
 
         pricing_df: pl.DataFrame | None = None
-        if self._config.resolved_pricing_interval != self._config.signal_interval:
+        if self._config.pricing_symbol != self._config.signal_symbol:
             pricing_df = self._download_candles(
                 self._config.pricing_symbol,
                 warmup_start,

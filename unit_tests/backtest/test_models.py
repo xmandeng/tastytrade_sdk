@@ -16,6 +16,7 @@ from tastytrade.backtest.models import (
     BacktestConfig,
     BacktestSignal,
     resolve_pricing_interval,
+    to_dxlink_interval,
 )
 from tastytrade.backtest.publisher import BacktestPublisher
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
@@ -403,13 +404,15 @@ class TestResolvePricingInterval:
     @pytest.mark.parametrize(
         "signal_interval, expected_pricing",
         [
-            ("1d", "1h"),
-            ("4h", "1h"),
+            ("1d", "h"),
+            ("d", "h"),
             ("1h", "15m"),
+            ("h", "15m"),
             ("30m", "5m"),
             ("15m", "5m"),
-            ("5m", "1m"),
-            ("1m", "1m"),
+            ("5m", "m"),
+            ("1m", "m"),
+            ("m", "m"),
         ],
     )
     def test_default_mapping(self, signal_interval: str, expected_pricing: str):
@@ -422,10 +425,15 @@ class TestResolvePricingInterval:
         result = resolve_pricing_interval("5m", pricing_interval="30s")
         assert result == "30s"
 
+    def test_explicit_override_normalizes_to_dxlink(self):
+        """Explicit pricing_interval is normalized to DXLink format."""
+        result = resolve_pricing_interval("5m", pricing_interval="1m")
+        assert result == "m"
+
     def test_explicit_none_uses_default(self):
         """Passing None explicitly uses the default mapping."""
         result = resolve_pricing_interval("5m", pricing_interval=None)
-        assert result == "1m"
+        assert result == "m"
 
     def test_unknown_interval_returns_itself(self):
         """An unknown signal interval falls back to itself."""
@@ -440,14 +448,20 @@ class TestBacktestConfigProperties:
         config = make_backtest_config(symbol="SPX", signal_interval="5m")
         assert config.signal_symbol == "SPX{=5m}"
 
-    def test_signal_symbol_different_interval(self):
+    def test_signal_symbol_normalizes_1h(self):
+        """1h normalizes to h in DXLink format."""
         config = make_backtest_config(symbol="NVDA", signal_interval="1h")
-        assert config.signal_symbol == "NVDA{=1h}"
+        assert config.signal_symbol == "NVDA{=h}"
+
+    def test_signal_symbol_normalizes_1d(self):
+        """1d normalizes to d in DXLink format."""
+        config = make_backtest_config(symbol="SPX", signal_interval="1d")
+        assert config.signal_symbol == "SPX{=d}"
 
     def test_pricing_symbol_auto_resolved(self):
-        """pricing_symbol uses auto-resolved pricing interval when not explicit."""
+        """pricing_symbol uses auto-resolved pricing interval (DXLink format)."""
         config = make_backtest_config(symbol="SPX", signal_interval="5m")
-        assert config.pricing_symbol == "SPX{=1m}"
+        assert config.pricing_symbol == "SPX{=m}"
 
     def test_pricing_symbol_explicit_override(self):
         config = make_backtest_config(
@@ -455,13 +469,41 @@ class TestBacktestConfigProperties:
         )
         assert config.pricing_symbol == "SPX{=30s}"
 
+    def test_pricing_symbol_explicit_normalizes_dxlink(self):
+        """Explicit pricing_interval is normalized in symbol."""
+        config = make_backtest_config(
+            symbol="SPX", signal_interval="1d", pricing_interval="1h"
+        )
+        assert config.pricing_symbol == "SPX{=h}"
+
     def test_resolved_pricing_interval_auto(self):
         config = make_backtest_config(signal_interval="15m")
         assert config.resolved_pricing_interval == "5m"
 
     def test_resolved_pricing_interval_explicit(self):
         config = make_backtest_config(signal_interval="15m", pricing_interval="1m")
-        assert config.resolved_pricing_interval == "1m"
+        assert config.resolved_pricing_interval == "m"
+
+
+class TestToDxlinkInterval:
+    """to_dxlink_interval() normalizes user-friendly intervals to DXLink format."""
+
+    @pytest.mark.parametrize(
+        "input_interval, expected",
+        [
+            ("1m", "m"),
+            ("1h", "h"),
+            ("1d", "d"),
+            ("5m", "5m"),
+            ("15m", "15m"),
+            ("30m", "30m"),
+            ("m", "m"),
+            ("h", "h"),
+            ("d", "d"),
+        ],
+    )
+    def test_normalization(self, input_interval: str, expected: str):
+        assert to_dxlink_interval(input_interval) == expected
 
 
 class TestBacktestConfigDefaults:
@@ -568,7 +610,7 @@ class TestBacktestPublisherConversion:
         assert result.pricing_interval == "5m"
 
     def test_publish_uses_resolved_pricing_interval(self):
-        """When pricing_interval is None, the resolved value is used."""
+        """When pricing_interval is None, the resolved value is used (DXLink format)."""
         config = make_backtest_config(signal_interval="5m", pricing_interval=None)
         publisher = BacktestPublisher(config)
         signal = make_trade_signal()
@@ -576,8 +618,8 @@ class TestBacktestPublisherConversion:
         publisher.publish(signal)
         result = publisher.signals[0]
 
-        # 5m signal interval resolves to 1m pricing
-        assert result.pricing_interval == "1m"
+        # 5m signal interval resolves to "m" (DXLink format for 1-minute)
+        assert result.pricing_interval == "m"
 
 
 class TestBacktestPublisherEntryPrice:
