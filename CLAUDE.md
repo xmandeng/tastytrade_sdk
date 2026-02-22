@@ -76,6 +76,22 @@ You MUST delegate ALL GitHub operations to the github-workflow agent. No excepti
 
 See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/PR_EVIDENCE_CHECKLIST.md](docs/PR_EVIDENCE_CHECKLIST.md) for evidence standards.
 
+### Architecture Documentation — MANDATORY GATE
+
+Changes that introduce, modify, or remove architectural components MUST be reflected in the [Architecture Playground](docs/architecture-map/architecture_playground.html) before the PR is created (unless the user explicitly directs otherwise).
+
+**Why:** The playground is the visual source of truth for how concepts are organized. It serves as a gate-check — if the design cannot be clearly represented in the map, it has not been thought through.
+
+**Rules:**
+
+1. **Propose visually first.** When a change touches architectural components (new modules, renamed layers, altered data flows, added/removed services), update the playground's `nodes`, `edges`, and `insights` arrays to reflect the proposed design. Present this to the user for visual review and approval before proceeding with implementation.
+2. **Code must match the map.** At PR creation time, the architecture playground MUST precisely reflect the implemented code. What is on paper must match what is in the codebase — no stale nodes, no missing edges, no outdated layer assignments.
+3. **Commit together.** Changes to `architecture_playground.html` and `architecture_layouts.json` MUST be included in the same PR as the code they describe. Architecture and implementation ship as one unit.
+4. **Insights are required.** Every new or significantly modified node must include an insight capturing the design rationale (author: **Mandeng** for user decisions, **Claude** for implementation analysis).
+
+**Workflow:**
+- Detect architectural scope → update playground → present for review → implement code → verify map matches code → include in PR
+
 ### Branch & Commit Rules
 
 **Branching:**
@@ -169,3 +185,4 @@ Bare commands (`pytest`, `mypy`, `ruff`) only work inside an activated `.venv`. 
 - [docs/GITHUB_WORKFLOW_SPEC.md](docs/GITHUB_WORKFLOW_SPEC.md) - GitHub workflow standards
 - [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) - PR evidence standards
 - [docs/PR_EVIDENCE_CHECKLIST.md](docs/PR_EVIDENCE_CHECKLIST.md) - PR evidence checklist
+- [docs/architecture-map/](docs/architecture-map/) - Architecture playground and visual concept map
