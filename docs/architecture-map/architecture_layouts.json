@@ -163,6 +163,26 @@
     "sub-orchestrator": {
       "x": 57.570931691546775,
       "y": 88.46043916816485
+    },
+    "backtest-cli": {
+      "x": 380,
+      "y": 2200
+    },
+    "backtest-replay": {
+      "x": 100,
+      "y": 2400
+    },
+    "backtest-runner": {
+      "x": 660,
+      "y": 2400
+    },
+    "backtest-publisher": {
+      "x": 1100,
+      "y": 2400
+    },
+    "backtest-signal": {
+      "x": 1100,
+      "y": 2600
     }
   }
 }
