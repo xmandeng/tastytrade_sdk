@@ -6,7 +6,8 @@
     "allow": [
       "Bash(uv --version:*)",
       "Bash(tree:*)",
-      "Bash(env)"
+      "Bash(env)",
+      "mcp__ide__executeCode"
     ],
     "deny": [
       "Skill(jira-operations)",
