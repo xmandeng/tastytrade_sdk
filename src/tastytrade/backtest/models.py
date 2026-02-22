@@ -15,18 +15,42 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tastytrade.analytics.engines.models import TradeSignal
 
-# Mapping from signal interval to default pricing interval.
+# DXLink uses compact interval format: "m" for 1-minute, "h" for 1-hour,
+# "d" for daily.  Multi-unit intervals like "5m", "15m" stay as-is.
+_DXLINK_NORMALIZATION: dict[str, str] = {
+    "1m": "m",
+    "1h": "h",
+    "1d": "d",
+}
+
+# Mapping from signal interval (DXLink format) to default pricing interval.
 # "Lower timeframe for accuracy" — use a finer granularity for
 # precise entry/exit pricing.
 _DEFAULT_PRICING_INTERVALS: dict[str, str] = {
-    "1d": "1h",
-    "4h": "1h",
-    "1h": "15m",
+    "d": "h",
+    "h": "15m",
     "30m": "5m",
     "15m": "5m",
-    "5m": "1m",
-    "1m": "1m",  # 1m is the lowest — no finer resolution
+    "5m": "m",
+    "m": "m",  # 1m is the lowest — no finer resolution
 }
+
+
+def to_dxlink_interval(interval: str) -> str:
+    """Convert a user-friendly interval to DXLink eventSymbol format.
+
+    DXLink uses compact notation: ``m`` for 1-minute, ``h`` for 1-hour,
+    ``d`` for daily.  Multi-unit intervals (``5m``, ``15m``, ``30m``)
+    are already in DXLink format and pass through unchanged.
+
+    Examples::
+
+        to_dxlink_interval("1m") → "m"
+        to_dxlink_interval("5m") → "5m"
+        to_dxlink_interval("1h") → "h"
+        to_dxlink_interval("1d") → "d"
+    """
+    return _DXLINK_NORMALIZATION.get(interval, interval)
 
 
 def resolve_pricing_interval(
@@ -34,19 +58,22 @@ def resolve_pricing_interval(
 ) -> str:
     """Determine the pricing interval for a given signal interval.
 
-    If pricing_interval is explicitly provided, use it.  Otherwise,
-    select the next-lower granularity from the default mapping.
+    If pricing_interval is explicitly provided, normalize and return it.
+    Otherwise, select the next-lower granularity from the default mapping.
+
+    Both input and output use DXLink format (``m``, ``h``, ``d``).
 
     Args:
         signal_interval: Interval used for signal generation (e.g., "5m").
         pricing_interval: Explicit override.  When None, auto-selected.
 
     Returns:
-        The resolved pricing interval string.
+        The resolved pricing interval string in DXLink format.
     """
     if pricing_interval is not None:
-        return pricing_interval
-    return _DEFAULT_PRICING_INTERVALS.get(signal_interval, signal_interval)
+        return to_dxlink_interval(pricing_interval)
+    normalized = to_dxlink_interval(signal_interval)
+    return _DEFAULT_PRICING_INTERVALS.get(normalized, normalized)
 
 
 class BacktestSignal(TradeSignal):
@@ -106,11 +133,11 @@ class BacktestConfig(BaseModel):
 
     @property
     def signal_symbol(self) -> str:
-        """Symbol with signal interval suffix for Redis channels."""
-        return f"{self.symbol}{{={self.signal_interval}}}"
+        """Symbol with signal interval suffix for Redis channels (DXLink format)."""
+        return f"{self.symbol}{{={to_dxlink_interval(self.signal_interval)}}}"
 
     @property
     def pricing_symbol(self) -> str:
-        """Symbol with pricing interval suffix for Redis channels."""
-        interval = self.resolved_pricing_interval
+        """Symbol with pricing interval suffix for Redis channels (DXLink format)."""
+        interval = self.resolved_pricing_interval  # already DXLink-normalized
         return f"{self.symbol}{{={interval}}}"

@@ -130,7 +130,7 @@ class TestBacktestRunnerSetup:
     @pytest.mark.asyncio
     async def test_setup_subscribes_to_pricing_channel_when_different(self) -> None:
         """setup() subscribes to pricing channel when different from signal interval."""
-        # 5m signal -> 1m pricing (auto-resolved)
+        # 5m signal -> m pricing (auto-resolved, DXLink format)
         config = make_config(symbol="SPX", signal_interval="5m")
         subscription = AsyncMock()
         engine = MagicMock()
@@ -148,17 +148,17 @@ class TestBacktestRunnerSetup:
         # Should subscribe to both signal and pricing channels
         assert subscription.subscribe.await_count == 2
 
-        # Verify pricing channel subscription
+        # Verify pricing channel subscription (DXLink: "m" not "1m")
         subscription.subscribe.assert_any_await(
-            "backtest:CandleEvent:SPX{=1m}",
+            "backtest:CandleEvent:SPX{=m}",
             event_type=CandleEvent,
             on_update=publisher.buffer_pricing_candle,
         )
 
     @pytest.mark.asyncio
     async def test_setup_does_not_subscribe_pricing_when_same_interval(self) -> None:
-        """setup() does NOT subscribe to pricing channel when same interval (e.g., 1m/1m)."""
-        # 1m signal -> 1m pricing (same, no separate pricing channel)
+        """setup() does NOT subscribe to pricing channel when same interval (e.g., m/m)."""
+        # 1m signal -> m pricing (same after DXLink normalization)
         config = make_config(symbol="SPX", signal_interval="1m")
         subscription = AsyncMock()
         engine = MagicMock()
@@ -173,17 +173,17 @@ class TestBacktestRunnerSetup:
 
         await runner.setup()
 
-        # Should only subscribe to signal channel
+        # Should only subscribe to signal channel (DXLink: "m" not "1m")
         assert subscription.subscribe.await_count == 1
         subscription.subscribe.assert_awaited_once_with(
-            "backtest:CandleEvent:SPX{=1m}",
+            "backtest:CandleEvent:SPX{=m}",
             event_type=CandleEvent,
             on_update=engine.on_candle_event,
         )
 
     @pytest.mark.asyncio
     async def test_setup_subscribes_pricing_with_explicit_interval(self) -> None:
-        """setup() uses explicit pricing_interval when provided."""
+        """setup() uses explicit pricing_interval when provided (DXLink normalized)."""
         config = make_config(
             symbol="NVDA", signal_interval="15m", pricing_interval="1m"
         )
@@ -206,8 +206,9 @@ class TestBacktestRunnerSetup:
             event_type=CandleEvent,
             on_update=engine.on_candle_event,
         )
+        # DXLink: "1m" normalizes to "m"
         subscription.subscribe.assert_any_await(
-            "backtest:CandleEvent:NVDA{=1m}",
+            "backtest:CandleEvent:NVDA{=m}",
             event_type=CandleEvent,
             on_update=publisher.buffer_pricing_candle,
         )
@@ -342,7 +343,7 @@ class TestBacktestReplayRun:
             make_candle("SPX{=5m}", datetime(2025, 1, 6, 10, 0)),
         ]
         pricing_candles = [
-            make_candle("SPX{=1m}", datetime(2025, 1, 6, 10, 0)),
+            make_candle("SPX{=m}", datetime(2025, 1, 6, 10, 0)),
         ]
 
         def mock_download(
@@ -350,7 +351,7 @@ class TestBacktestReplayRun:
         ) -> pl.DataFrame:
             if "5m" in symbol:
                 return make_candle_df(signal_candles)
-            elif "1m" in symbol:
+            elif "{=m}" in symbol:
                 return make_candle_df(pricing_candles)
             return pl.DataFrame()
 
@@ -366,9 +367,9 @@ class TestBacktestReplayRun:
         signal_call = provider.download.call_args_list[0]
         assert signal_call.kwargs["symbol"] == "SPX{=5m}"
 
-        # Verify pricing download call
+        # Verify pricing download call (DXLink: "m" not "1m")
         pricing_call = provider.download.call_args_list[1]
-        assert pricing_call.kwargs["symbol"] == "SPX{=1m}"
+        assert pricing_call.kwargs["symbol"] == "SPX{=m}"
 
     def test_run_publishes_candles_to_correct_redis_channels(self) -> None:
         """run() publishes candles to correct Redis channels (backtest:CandleEvent:*)."""
@@ -376,12 +377,12 @@ class TestBacktestReplayRun:
         provider = MagicMock()
 
         signal_candle = make_candle("SPX{=5m}", datetime(2025, 1, 6, 10, 0))
-        pricing_candle = make_candle("SPX{=1m}", datetime(2025, 1, 6, 10, 0))
+        pricing_candle = make_candle("SPX{=m}", datetime(2025, 1, 6, 10, 0))
 
         def mock_download(symbol: str, **kwargs) -> pl.DataFrame:
             if "5m" in symbol:
                 return make_candle_df([signal_candle])
-            elif "1m" in symbol:
+            elif "{=m}" in symbol:
                 return make_candle_df([pricing_candle])
             return pl.DataFrame()
 
@@ -395,7 +396,7 @@ class TestBacktestReplayRun:
         channels = [call.kwargs["channel"] for call in publish_calls]
 
         assert "backtest:CandleEvent:SPX{=5m}" in channels
-        assert "backtest:CandleEvent:SPX{=1m}" in channels
+        assert "backtest:CandleEvent:SPX{=m}" in channels
 
     def test_run_interleaves_candles_chronologically(self) -> None:
         """run() interleaves candles chronologically across timeframes."""
@@ -411,13 +412,13 @@ class TestBacktestReplayRun:
             make_candle("SPX{=5m}", t3, close=102.0),
         ]
         pricing_candles = [
-            make_candle("SPX{=1m}", t2, close=101.0),
+            make_candle("SPX{=m}", t2, close=101.0),
         ]
 
         def mock_download(symbol: str, **kwargs) -> pl.DataFrame:
             if "5m" in symbol:
                 return make_candle_df(signal_candles)
-            elif "1m" in symbol:
+            elif "{=m}" in symbol:
                 return make_candle_df(pricing_candles)
             return pl.DataFrame()
 
@@ -439,7 +440,7 @@ class TestBacktestReplayRun:
         third_channel = publish_calls[2].kwargs["channel"]
 
         assert "SPX{=5m}" in first_channel
-        assert "SPX{=1m}" in second_channel
+        assert "SPX{=m}" in second_channel
         assert "SPX{=5m}" in third_channel
 
     def test_run_returns_count_of_published_candles(self) -> None:
@@ -481,11 +482,11 @@ class TestBacktestReplayRun:
 
     def test_run_skips_pricing_download_when_same_interval(self) -> None:
         """run() skips pricing download when same interval as signal."""
-        # 1m signal -> 1m pricing (same interval, skip pricing download)
+        # 1m signal -> m pricing (same after DXLink normalization)
         config = make_config(symbol="SPX", signal_interval="1m")
         provider = MagicMock()
 
-        candles = [make_candle("SPX{=1m}", datetime(2025, 1, 6, 10, 0))]
+        candles = [make_candle("SPX{=m}", datetime(2025, 1, 6, 10, 0))]
         provider.download = MagicMock(return_value=make_candle_df(candles))
 
         replay, _ = _make_replay(config=config, provider=provider)
@@ -494,7 +495,7 @@ class TestBacktestReplayRun:
         # Only 1 download call (signal only, no pricing)
         assert provider.download.call_count == 1
         signal_call = provider.download.call_args_list[0]
-        assert signal_call.kwargs["symbol"] == "SPX{=1m}"
+        assert signal_call.kwargs["symbol"] == "SPX{=m}"
 
     def test_run_returns_zero_on_empty_data(self) -> None:
         """run() returns 0 when no candle data is available."""

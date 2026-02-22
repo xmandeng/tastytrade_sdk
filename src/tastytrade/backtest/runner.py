@@ -64,7 +64,7 @@ class BacktestRunner:
         logger.info("BacktestRunner subscribed to signal channel: %s", signal_channel)
 
         # Subscribe to pricing-timeframe if different from signal
-        if self._config.resolved_pricing_interval != self._config.signal_interval:
+        if self._config.pricing_symbol != self._config.signal_symbol:
             pricing_channel = f"backtest:CandleEvent:{self._config.pricing_symbol}"
             await self._subscription.subscribe(
                 pricing_channel,
