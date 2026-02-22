@@ -1185,7 +1185,7 @@ const nodes = [
       { author: 'claude', text: 'The engine stays a pure sync state machine — no async, no Redis knowledge. EngineRunner handles the async lifecycle and wiring. The engine just receives events and publishes signals.' },
     ],
     details: `Event-driven architecture:\n1. Create dedicated subscription for this engine\n2. Create engine with publisher: HullMacdEngine(publisher=RedisPublisher())\n3. Subscribe with on_update wired to engine:\n   subscription.subscribe(\n     pattern, event_type=CandleEvent,\n     on_update=engine.on_candle_event\n   )\n4. Subscription listener fires events DIRECTLY into engine\n5. Engine publishes signals via its publisher → Redis\n\nNo polling. No queues. No sleep.\nThe Redis listener IS the event loop.`,
-    code: `class EngineRunner:\n  def __init__(self, engine, subscription, publisher, channels, event_type):\n    self.engine = engine\n    self.subscription = subscription  # dedicated!\n    ...\n\n  async def start(self):\n    await self.subscription.connect()\n    for channel in self.channels:\n      await self.subscription.subscribe(\n        channel,\n        event_type=self.event_type,\n        on_update=self.engine.on_candle_event\n        # ↑ events fire DIRECTLY into engine\n        # No queue. No polling. Event-driven.\n      )\n    await self._wait_until_cancelled()`,
+    code: `class EngineRunner:\n  def __init__(self, name, subscription, channels,\n               event_type, on_event, publisher=None):\n    self.subscription = subscription  # dedicated!\n    self.on_event = on_event\n    self.publisher = publisher  # optional\n    ...\n\n  async def start(self):\n    await self.subscription.connect()\n    for channel in self.channels:\n      await self.subscription.subscribe(\n        channel,\n        event_type=self.event_type,\n        on_update=self.on_event\n        # ↑ events fire DIRECTLY into callback\n        # No queue. No polling. Event-driven.\n      )\n    await asyncio.Event().wait()`,
     connections: ['hull-macd', 'redis-sub']
   },
   { id: 'hull-macd', x: 680, y: 1490, layer: 'signal',
@@ -1229,6 +1229,22 @@ const nodes = [
       { author: 'claude', text: 'Uses @runtime_checkable so issubclass(RedisPublisher, EventPublisher) works at runtime — useful for protocol conformance tests.' },
     ],
     connections: ['redis-pub']
+  },
+
+  // ── TRADE SIGNAL FEED (independent EngineRunner instance) ──
+  { id: 'signal-persist', x: 480, y: 1490, layer: 'signal',
+    label: 'EngineRunner', type: 'Generic Harness',
+    badge: 'InfluxDB sink',
+    file: 'signal/runner.py',
+    desc: 'Second EngineRunner instance — same class, same file as the detection runner. Subscribes independently to Redis PSUBSCRIBE market:TradeSignal:* and fires every received event into TelegrafHTTPEventProcessor.process_event(). Fully decoupled — has no knowledge of signal producers, detection engines, or the signal CLI. Processes all TradeSignal events from any source engine on any host.',
+    details: `Same EngineRunner class as signal detection — different wiring.\n\nInput:  Redis PSUBSCRIBE market:TradeSignal:*\n  → Receives ALL TradeSignal events (hull_macd, rsi, future engines)\n  → Typed deserialization: JSON → TradeSignal\n  → on_update callback fires directly into processor\n\nCallback: TelegrafHTTPEventProcessor.process_event()\n  → Converts TradeSignal to InfluxDB Point\n  → Tags: eventSymbol, engine\n  → Fields: signal_type, direction, trigger, close_price, hull/macd values\n\nOutput: InfluxDB batch write\n  → Measurement: TradeSignal\n  → Bucket: tastytrade\n\nNo publisher — pure sink. Redis in → InfluxDB out.\nNo knowledge of who produced the signals or why.\nCould run on a completely different host/container.`,
+    code: `# Same class as detection runner — different callback:\nrunner = EngineRunner(\n  name="trade_signal_feed",\n  subscription=RedisSubscription(config),\n  channels=["market:TradeSignal:*"],\n  event_type=TradeSignal,\n  on_event=processor.process_event,\n  # no publisher — sink, not relay\n)\nawait runner.start()\n\n# Compare with detection runner:\nrunner = EngineRunner(\n  name=engine.name,\n  subscription=RedisSubscription(config),\n  channels=["market:CandleEvent:SPX{=5m}"],\n  event_type=CandleEvent,\n  on_event=engine.on_candle_event,\n  publisher=RedisPublisher(),\n)`,
+    insights: [
+      { author: 'xmandeng', text: 'This is a fully decoupled service. It subscribes to Redis independently — it doesn\'t know or care who produced the signals. It could run on a completely different platform from signal detection.' },
+      { author: 'claude', text: 'Consumes from market:TradeSignal:* (wildcard) — automatically picks up signals from any current or future engine (hull_macd, rsi, etc.) without configuration changes.' },
+      { author: 'claude', text: 'Same EngineRunner class, same runner.py file. The only differences: event_type is TradeSignal (not CandleEvent), on_event is processor.process_event (not engine.on_candle_event), and publisher is None (sink, not relay).' },
+    ],
+    connections: ['proc-influx', 'redis']
   },
 
   // ── CONFIG / SUBSCRIPTION ──
@@ -1398,6 +1414,10 @@ const edges = [
   { from: 'event-publisher', to: 'redis-pub', label: 'satisfies protocol', style: 'dashed' },
   { from: 'redis-pub', to: 'redis', label: 'market:TradeSignal:hull_macd:*' },
 
+  // TradeSignalFeed — independent service, subscribes to Redis directly
+  { from: 'redis', to: 'signal-persist', label: 'psubscribe market:TradeSignal:*' },
+  { from: 'signal-persist', to: 'proc-influx', label: 'on_event → process_event()' },
+
   // Subscription store
   { from: 'dxlink-mgr', to: 'sub-store', label: 'track subs', style: 'dashed' },
 
@@ -1464,7 +1484,7 @@ const FUNCTIONAL_VIEWS = {
       'queue-candle', 'msg-router', 'evt-handler',
       'proc-redis',
       'redis', 'redis-sub', 'signal-cli', 'signal-svc', 'hull-macd', 'redis-pub',
-      'event-publisher',
+      'event-publisher', 'signal-persist', 'proc-influx', 'influxdb',
     ]),
   },
   'Metrics & Accounts': {

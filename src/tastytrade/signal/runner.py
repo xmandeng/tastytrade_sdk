@@ -32,10 +32,10 @@ class EngineRunner:
         self,
         name: str,
         subscription: RedisSubscription,
-        publisher: RedisPublisher,
         channels: list[str],
         event_type: type[BaseEvent],
         on_event: Callable[[Any], None],
+        publisher: RedisPublisher | None = None,
     ) -> None:
         self.name = name
         self.subscription = subscription
@@ -72,6 +72,7 @@ class EngineRunner:
     async def stop(self) -> None:
         """Graceful shutdown."""
         logger.info("EngineRunner stopping — engine=%s", self.name)
-        self.publisher.close()
+        if self.publisher:
+            self.publisher.close()
         await self.subscription.close()
         logger.info("EngineRunner stopped — engine=%s", self.name)
