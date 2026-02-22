@@ -54,6 +54,7 @@ dependencies = [
 api = "tastytrade.api.main:start"
 tasty-subscription = "tastytrade.subscription.cli:main"
 tasty-signal = "tastytrade.signal.cli:main"
+tasty-backtest = "tastytrade.backtest.cli:main"
 
 # Note: 'uv sync' includes dev group by default. Use 'uv sync --no-dev' for production-only installs.
 [dependency-groups]
