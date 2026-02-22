@@ -1586,6 +1586,45 @@ function updateGroupVisuals() {
   }
 }
 
+function getNodeMetadata(nodeId) {
+  const node = nodes.find(n => n.id === nodeId);
+  if (!node) return null;
+  const meta = { id: node.id, label: node.label, type: node.type };
+  if (node.file) meta.file = node.file;
+  if (node.layer) meta.layer = node.layer;
+  if (node.badge) meta.badge = node.badge;
+  if (node.desc) meta.description = node.desc;
+  if (node.details) meta.details = node.details;
+  if (node.code) meta.code = node.code;
+  if (node.insights?.length) meta.insights = node.insights;
+  const incoming = edges.filter(e => e.to === nodeId).map(e => {
+    const src = nodes.find(n => n.id === e.from);
+    return { from: src?.label || e.from, label: e.label || null };
+  });
+  const outgoing = edges.filter(e => e.from === nodeId).map(e => {
+    const tgt = nodes.find(n => n.id === e.to);
+    return { to: tgt?.label || e.to, label: e.label || null };
+  });
+  if (incoming.length) meta.incoming = incoming;
+  if (outgoing.length) meta.outgoing = outgoing;
+  return meta;
+}
+
+async function copySelectedMetadata() {
+  let metadata;
+  if (groupSelected.size > 0) {
+    metadata = [...groupSelected].map(getNodeMetadata).filter(Boolean);
+  } else if (selectedNode) {
+    metadata = getNodeMetadata(selectedNode);
+  } else {
+    return false;
+  }
+  await navigator.clipboard.writeText(JSON.stringify(metadata, null, 2));
+  const count = groupSelected.size || 1;
+  showToast(`Copied ${count} node${count > 1 ? 's' : ''} metadata`);
+  return true;
+}
+
 // Lasso state
 let isLassoing = false;
 let lassoStartX, lassoStartY; // screen coords
@@ -2660,6 +2699,14 @@ window.addEventListener('keydown', (e) => {
     nodes.forEach(n => { if (layerVisibility[n.layer]) groupSelected.add(n.id); });
     updateGroupVisuals();
     return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    if (groupSelected.size > 0 || selectedNode) {
+      e.preventDefault();
+      copySelectedMetadata();
+      return;
+    }
   }
   // Ctrl+Z / Cmd+Z = undo, Ctrl+Shift+Z / Cmd+Shift+Z = redo
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }

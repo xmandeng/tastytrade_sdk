@@ -42,6 +42,7 @@ If using VS Code Remote SSH, the port will auto-forward — check the **Ports** 
 | **Shift+Click** nodes | Add/remove from group |
 | **Shift+Drag** canvas | Lasso select multiple nodes |
 | **Cmd/Ctrl+A** | Select all visible nodes |
+| **Cmd/Ctrl+C** | Copy selected node(s) metadata as JSON |
 | Drag any grouped node | Moves the entire group |
 | **Escape** or click canvas | Clear group |
 
