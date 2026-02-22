@@ -1,17 +1,22 @@
 # Signal Detection Architecture
 
-This document describes the real-time signal detection pipeline and the
-Redis-as-bus service boundary design.
+This document describes the real-time signal detection pipeline, signal
+persistence, and the Redis-as-bus service boundary design.
 
 ---
 
 ## Overview
 
-The signal detection system has one engine (`HullMacdEngine`) and a
-three-layer architecture: CLI → EngineRunner → Engine.
+The signal system uses `EngineRunner` as a reusable integration block —
+same harness, different callback:
 
-Every service is a self-contained unit: Redis in → process → Redis out.
-Events fire directly into the engine — no queues, no polling.
+- **Signal Detection:** `EngineRunner(on_event=engine.on_candle_event)`
+- **TradeSignalFeed:** `EngineRunner(on_event=processor.process_event)`
+
+These are independent services. The TradeSignalFeed subscribes to Redis
+directly — it has no knowledge of the detection pipeline. Each service
+is a self-contained unit: Redis in → process → output. Events fire
+directly into the callback — no queues, no polling.
 
 ```
                   ┌─────────────────────────────────────────────────┐
@@ -24,7 +29,7 @@ Events fire directly into the engine — no queues, no polling.
                               │
               ┌───────────────┴───────────────┐
               │                               │
-     EngineRunner (production)         Notebook / Direct
+     EngineRunner (detection)          Notebook / Direct
               │                               │
      RedisSubscription                 RedisSubscription.queue
      on_update callback                       │
@@ -35,6 +40,16 @@ Events fire directly into the engine — no queues, no polling.
      publisher.publish(signal)
               │
      Redis pub/sub: market:TradeSignal:hull_macd:SPX{=5m}
+              │
+     EngineRunner (TradeSignalFeed)
+              │
+     RedisSubscription
+     on_update callback
+              │
+     processor.process_event(signal)
+       (direct, no queue)
+              │
+     InfluxDB batch write
 ```
 
 ---
@@ -62,10 +77,10 @@ engine = HullMacdEngine(publisher=publisher)
 runner = EngineRunner(
     name=engine.name,
     subscription=subscription,
-    publisher=publisher,
     channels=[f"market:CandleEvent:{sym}{{={interval}}}"],
     event_type=CandleEvent,
     on_event=engine.on_candle_event,
+    publisher=publisher,
 )
 await runner.start()
 ```
@@ -110,6 +125,49 @@ exploration during market hours.
 The engine is a **standalone state machine** — it accepts `CandleEvent`
 in, accumulates internal state, and appends `TradeSignal` to a list.
 No framework required.
+
+---
+
+## TradeSignalFeed (Independent Service)
+
+Used by: `tasty-signal persist --channels "market:TradeSignal:*"`
+
+An independent service that subscribes to `market:TradeSignal:*` on Redis
+and writes every signal to InfluxDB. Has no knowledge of who produced
+the signals or why — it processes all TradeSignal events regardless of
+source engine. Could run on a completely different host from signal
+detection.
+
+```python
+subscription = RedisSubscription(config)
+processor = TelegrafHTTPEventProcessor()
+
+runner = EngineRunner(
+    name="trade_signal_feed",
+    subscription=subscription,
+    channels=["market:TradeSignal:*"],
+    event_type=TradeSignal,
+    on_event=processor.process_event,
+    # no publisher — InfluxDB sink
+)
+await runner.start()
+```
+
+**Data flow:**
+
+1. Redis `PSUBSCRIBE market:TradeSignal:*` → `RedisSubscription.listener()`
+2. Typed deserialization to `TradeSignal`
+3. `on_update` callback fires directly into `processor.process_event()`
+4. `TelegrafHTTPEventProcessor` writes to InfluxDB (batch)
+
+Uses EngineRunner as a harness (same as detection) but with:
+
+- `on_event = processor.process_event` (not `engine.on_candle_event`)
+- No publisher — pure sink, not a relay
+- `publisher` is optional (`RedisPublisher | None = None`)
+
+**When to use:** Automated persistence of signals to InfluxDB for
+historical analysis, charting, and backtesting.
 
 ---
 
