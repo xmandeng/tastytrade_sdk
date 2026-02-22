@@ -111,8 +111,9 @@ engine.set_prior_close("SPX{=5m}", prior_close)
 await subscription.subscribe("market:CandleEvent:SPX{=5m}")
 queue = subscription.queue["CandleEvent:SPX{=5m}"]
 
-while True:
-    event = await queue.get()
+max_candles = 500  # bounded — declare termination upfront
+for _ in range(max_candles):
+    event = await asyncio.wait_for(queue.get(), timeout=60.0)
     engine.on_candle_event(event)
 
     if engine.signals:
@@ -290,6 +291,58 @@ on charts. Key fields:
 | `macd_value` | MACD line value |
 | `macd_signal` | MACD signal line value |
 | `macd_histogram` | MACD histogram value |
+
+---
+
+## Design Maxims
+
+### No unbounded loops
+
+`while True` is forbidden. Every loop must declare its termination
+condition upfront — the reason for running and the reason for stopping
+should both be evident at the outset.
+
+```python
+# ANTI-PATTERN — no declared intent, no exit condition
+while True:
+    event = await queue.get()
+    process(event)
+
+# CORRECT — bounded by count
+for _ in range(max_events):
+    event = await asyncio.wait_for(queue.get(), timeout=60.0)
+    process(event)
+
+# CORRECT — bounded by async signal (EngineRunner pattern)
+await asyncio.Event().wait()  # explicit: "wait until cancelled"
+```
+
+Production services use `asyncio.Event().wait()` — a clear declaration
+that the process runs until externally cancelled. Notebooks and scripts
+use bounded loops (`for _ in range(n)`) with timeouts.
+
+### Event flow over callbacks
+
+The system is compartmentalized along event boundaries. Each service
+subscribes to its input events and publishes its output events. The
+event flow through Redis is the architecture — not function calls
+between objects.
+
+Callbacks are a lesser pattern — they create direct coupling between
+caller and callee, making them suitable only for in-process wiring
+within a single service (e.g., `on_update` inside EngineRunner). They
+must never cross service boundaries.
+
+```
+CORRECT — event flow through Redis:
+  ServiceA → Redis.publish(event) → ServiceB.subscribe(pattern)
+
+ANTI-PATTERN — callback across services:
+  ServiceA.on_signal = ServiceB.process  # invisible coupling
+```
+
+Each service is a black box: Redis in → process → output. The producer
+doesn't know (or care) who consumes its events.
 
 ---
 
