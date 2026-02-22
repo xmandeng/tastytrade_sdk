@@ -15,11 +15,14 @@ services:
       - ~/.ssh:/home/developer/.ssh:ro
       # Persist uv cache between container rebuilds
       - uv-cache:/home/developer/.cache/uv
-      # Share Claude authentication (read-write so CLI can refresh tokens)
-      - ~/.claude/.credentials.json:/home/developer/.claude/.credentials.json
+      # Share full Claude config directory (plugins, marketplaces, credentials)
+      - ~/.claude:/home/developer/.claude
       - ~/.claude.json:/home/developer/.claude.json
       # Docker-from-Docker: mount host Docker socket
       - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Host home directory for Claude plugin path compatibility
+      HOST_HOME: "${HOME}"
     working_dir: /workspace
     command: /bin/bash
     stdin_open: true

@@ -240,6 +240,28 @@ EOF
     fi
 }
 
+# Create symlinks so Claude plugin paths from host resolve in container
+# Claude Code writes absolute paths (with $HOME) into plugin config files.
+# When $HOME differs between host and container, those paths break.
+# This creates a symlink so paths written on the host still resolve here.
+fix_claude_plugin_paths() {
+    if [ -z "$HOST_HOME" ] || [ "$HOST_HOME" = "$HOME" ]; then
+        echo "  No HOST_HOME mismatch, skipping"
+        return 0
+    fi
+
+    echo "Creating symlink for Claude plugin path compatibility..."
+    if [ -d "$HOME/.claude" ] && [ ! -e "$HOST_HOME/.claude" ]; then
+        sudo mkdir -p "$HOST_HOME"
+        sudo ln -sfn "$HOME/.claude" "$HOST_HOME/.claude"
+        echo "  Linked $HOST_HOME/.claude -> $HOME/.claude"
+    elif [ -L "$HOST_HOME/.claude" ]; then
+        echo "  Symlink already exists at $HOST_HOME/.claude"
+    else
+        echo "  Skipped: $HOST_HOME/.claude already exists"
+    fi
+}
+
 # Fix Docker socket permissions for Docker-from-Docker
 fix_docker_socket_permissions() {
     if [ ! -S /var/run/docker.sock ]; then
@@ -331,11 +353,15 @@ echo ""
 add_convenience_aliases
 echo ""
 
-# Step 7: Fix Docker socket permissions for Docker-from-Docker (MCP servers)
+# Step 7: Fix Claude plugin path compatibility between host and container
+fix_claude_plugin_paths
+echo ""
+
+# Step 8: Fix Docker socket permissions for Docker-from-Docker (MCP servers)
 fix_docker_socket_permissions
 echo ""
 
-# Step 8: Initialize quber-workflow (Claude settings, hooks, skills)
+# Step 9: Initialize quber-workflow (Claude settings, hooks, skills)
 initialize_quber_workflow
 echo ""
 
