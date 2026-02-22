@@ -1358,6 +1358,66 @@ const nodes = [
     ],
     connections: ['dxlink-mgr', 'proc-influx', 'proc-redis', 'proc-snapshot', 'sub-store']
   },
+
+  // ── BACKTEST LAYER (TT-43) ──
+  { id: 'backtest-cli', x: 380, y: 2200, layer: 'signal',
+    label: 'Backtest CLI', type: 'CLI Entry Point',
+    badge: 'TT-43',
+    file: 'backtest/cli.py',
+    desc: 'Orchestrated backtest entry point — runs replay, engine, and persistence as concurrent async tasks in a single process, communicating through Redis.',
+    details: `Three-component orchestration:\n\n1. BacktestReplay  — InfluxDB → Redis (candle replay)\n2. BacktestRunner   — Redis → Engine → Redis (signal gen)\n3. EngineRunner     — Redis → InfluxDB (signal persist)\n\nAll three communicate exclusively through Redis pub/sub.\nSame operational boundary as production — no direct coupling.\n\nCLI: tasty-backtest backtest --symbol SPX --start 2025-01-01 --end 2025-02-01 --signal-interval 5m`,
+    code: `async def run_backtest_orchestrated(config):\n  replay = BacktestReplay(config, provider)\n  runner = BacktestRunner(config, sub, engine, pub)\n  persist = EngineRunner(\n    channels=["market:BacktestSignal:*"],\n    event_type=BacktestSignal,\n    on_event=processor.process_event)\n  await runner.setup()\n  persist_task = create_task(persist.start())\n  candles = await replay.run()\n  await drain + shutdown`,
+    insights: [
+      { author: 'xmandeng', text: 'This all needs to work through Redis — same operational boundaries as production. The backtest sits on a different server without direct InfluxDB access for the engine.' },
+      { author: 'claude', text: 'Reuses EngineRunner for persistence (same class as signal-persist) — subscribes to market:BacktestSignal:* instead of market:TradeSignal:*. Pattern reuse, not code duplication.' },
+    ],
+    connections: ['backtest-replay', 'backtest-runner', 'signal-persist']
+  },
+  { id: 'backtest-replay', x: 100, y: 2400, layer: 'signal',
+    label: 'BacktestReplay', type: 'Data Replay Service',
+    badge: 'TT-43',
+    file: 'backtest/replay.py',
+    desc: 'Reads historical candles from InfluxDB via MarketDataProvider, publishes each chronologically to Redis on backtest:CandleEvent:* channels. Interleaves signal and pricing timeframes.',
+    details: `Multi-timeframe replay:\n\n1. Download signal candles (e.g., SPX{=5m})\n2. Download pricing candles (e.g., SPX{=m})\n3. Merge chronologically (pricing before signal at same time)\n4. Publish each to Redis: backtest:CandleEvent:{symbol}\n\nIncludes:\n• 3-day warmup buffer for indicator seeding\n• Prior close seeding via daily candle\n• Throttling every 500 candles\n\nDXLink format: 1m→m, 1h→h, 1d→d`,
+    insights: [
+      { author: 'xmandeng', text: 'Entry price must be the lowest granularity possible. The concept of lower timeframe for accuracy is the key.' },
+      { author: 'claude', text: 'Pricing candles are interleaved BEFORE signal candles at the same timestamp. This ensures the pricing buffer is populated before the engine processes the signal-timeframe candle for accurate entry pricing.' },
+    ],
+    connections: ['mkt-provider', 'redis']
+  },
+  { id: 'backtest-runner', x: 660, y: 2400, layer: 'signal',
+    label: 'BacktestRunner', type: 'Multi-Timeframe Runner',
+    badge: 'TT-43',
+    file: 'backtest/runner.py',
+    desc: 'Subscribes to Redis for both signal and pricing candle channels. Signal candles feed into HullMacdEngine; pricing candles buffer in BacktestPublisher for entry/exit enrichment.',
+    details: `Dual-channel subscription:\n\nSignal:  backtest:CandleEvent:SPX{=5m}\n  → engine.on_candle_event()\nPricing: backtest:CandleEvent:SPX{=m}\n  → publisher.buffer_pricing_candle()\n\nThe runner does NOT access InfluxDB directly.\nAll data arrives via Redis pub/sub.\n\nSame subscription pattern as EngineRunner —\nRedis async listener IS the event loop.`,
+    insights: [
+      { author: 'claude', text: 'Compares pricing_symbol vs signal_symbol (both DXLink-normalized) to decide whether to subscribe to a separate pricing channel. When signal is 1m, pricing resolves to m — same symbol, single subscription.' },
+    ],
+    connections: ['hull-macd', 'backtest-publisher']
+  },
+  { id: 'backtest-publisher', x: 1100, y: 2400, layer: 'signal',
+    label: 'BacktestPublisher', type: 'EventPublisher Protocol',
+    badge: 'TT-43',
+    file: 'backtest/publisher.py',
+    desc: 'Implements EventPublisher protocol — wraps TradeSignal → BacktestSignal with pricing data from internal candle buffer, then publishes to Redis.',
+    details: `Pipeline: TradeSignal → BacktestSignal\n\n1. Engine calls publisher.publish(signal)\n2. Look up closest pricing candle ≤ signal time\n3. Create BacktestSignal with enriched metadata:\n   • entry_price from pricing buffer\n   • backtest_id, source, intervals\n4. Publish to Redis via inner RedisPublisher\n\nBacktestSignal extends TradeSignal:\n  → Auto-routed to market:BacktestSignal:* channel\n  → Stored as BacktestSignal measurement in InfluxDB\n  → Distinguishable from live signals`,
+    insights: [
+      { author: 'claude', text: 'Satisfies EventPublisher protocol via structural subtyping — HullMacdEngine uses it directly in the publisher slot without knowing it is a backtest wrapper. Zero changes to the engine code.' },
+    ],
+    connections: ['redis-pub']
+  },
+  { id: 'backtest-signal', x: 1100, y: 2600, layer: 'signal',
+    label: 'BacktestSignal', type: 'Event Model',
+    badge: 'TT-43',
+    file: 'backtest/models.py',
+    desc: 'Extends TradeSignal with backtest metadata — automatically distinguished in Redis channels (market:BacktestSignal:*) and InfluxDB measurements.',
+    details: `BacktestSignal(TradeSignal):\n  event_type = "backtest_signal"\n  backtest_id: str\n  source: str = "backtest"\n  entry_price: float | None\n  signal_interval: str\n  pricing_interval: str\n\nAlso: BacktestConfig (frozen Pydantic model)\n  • Auto-UUID backtest_id\n  • DXLink interval normalization\n  • Auto pricing interval resolution\n  • resolve_pricing_interval() mapping`,
+    insights: [
+      { author: 'claude', text: 'Class name drives routing: RedisPublisher uses __class__.__name__ for channel names (market:BacktestSignal:*), and TelegrafHTTPEventProcessor uses it as the InfluxDB measurement. Extending TradeSignal automatically creates separate routing — zero config.' },
+    ],
+    connections: []
+  },
 ];
 
 const edges = [
@@ -1438,6 +1498,19 @@ const edges = [
   { from: 'sub-orchestrator', to: 'proc-snapshot', label: 'attach / remove' },
   { from: 'sub-orchestrator', to: 'sub-store', label: 'restore subs' },
   { from: 'sub-orchestrator', to: 'mkt-provider', label: 'gap-fill', style: 'dashed' },
+
+  // Backtest (TT-43)
+  { from: 'backtest-cli', to: 'backtest-replay', label: 'constructs + starts' },
+  { from: 'backtest-cli', to: 'backtest-runner', label: 'constructs + setup()' },
+  { from: 'backtest-replay', to: 'mkt-provider', label: 'download(symbol, start, stop)' },
+  { from: 'backtest-replay', to: 'redis', label: 'publish backtest:CandleEvent:*' },
+  { from: 'redis', to: 'backtest-runner', label: 'psubscribe backtest:CandleEvent:*' },
+  { from: 'backtest-runner', to: 'hull-macd', label: 'on_candle_event()' },
+  { from: 'backtest-runner', to: 'backtest-publisher', label: 'buffer_pricing_candle()' },
+  { from: 'hull-macd', to: 'backtest-publisher', label: 'publish(signal)', style: 'dashed' },
+  { from: 'backtest-publisher', to: 'redis-pub', label: 'publish(BacktestSignal)' },
+  { from: 'backtest-publisher', to: 'backtest-signal', label: 'TradeSignal → BacktestSignal' },
+  { from: 'redis', to: 'signal-persist', label: 'psubscribe market:BacktestSignal:*', style: 'dashed' },
 ];
 
 // ── RENDER ───────────────────────────────────────────────────────────
@@ -1485,6 +1558,14 @@ const FUNCTIONAL_VIEWS = {
       'proc-redis',
       'redis', 'redis-sub', 'signal-cli', 'signal-svc', 'hull-macd', 'redis-pub',
       'event-publisher', 'signal-persist', 'proc-influx', 'influxdb',
+    ]),
+  },
+  'Backtest Path': {
+    color: '#d29922',
+    nodes: new Set([
+      'backtest-cli', 'backtest-replay', 'backtest-runner', 'backtest-publisher',
+      'backtest-signal', 'hull-macd', 'redis-pub', 'redis', 'mkt-provider',
+      'signal-persist', 'proc-influx', 'influxdb',
     ]),
   },
   'Metrics & Accounts': {
