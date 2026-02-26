@@ -40,11 +40,10 @@ account-stream log_level="INFO":
     uv run tasty-subscription account-stream \
         --log-level {{log_level}}
 
-# Start account-stream and subscribe together (Ctrl+C stops both)
+# Start account-stream and subscribe together (Ctrl+C stops both gracefully)
 start start_date=prior_workday log_level="INFO":
     #!/usr/bin/env bash
-    set -euo pipefail
-    trap 'kill 0; wait' EXIT
+    trap 'wait' INT TERM
     uv run tasty-subscription account-stream --log-level {{log_level}} &
     sleep 2
     uv run tasty-subscription run \
