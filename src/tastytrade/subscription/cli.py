@@ -301,6 +301,9 @@ def positions_cmd() -> None:
                 "implied_volatility",
             ]
             available = [c for c in display_cols if c in df.columns]
+            sort_cols = [c for c in ["underlying_symbol", "symbol"] if c in df.columns]
+            if sort_cols:
+                df = df.sort_values(sort_cols)
             click.echo(df[available].to_string(index=False))
         finally:
             await reader.close()
