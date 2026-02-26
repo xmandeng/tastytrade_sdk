@@ -13,12 +13,14 @@ from tastytrade.accounts.models import (
     QuantityDirection,
     TastyTradeApiModel,
 )
+from tastytrade.accounts.publisher import AccountStreamPublisher
 from tastytrade.accounts.streamer import AccountStreamer
 
 __all__ = [
     "Account",
     "AccountBalance",
     "AccountsClient",
+    "AccountStreamPublisher",
     "AccountStreamer",
     "InstrumentType",
     "Position",
