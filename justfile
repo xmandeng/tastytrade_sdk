@@ -39,3 +39,7 @@ subscribe-custom symbols intervals start_date=prior_workday log_level="INFO":
 account-stream log_level="INFO":
     uv run tasty-subscription account-stream \
         --log-level {{log_level}}
+
+# Show current position metrics from Redis
+positions:
+    uv run tasty-subscription positions

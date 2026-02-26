@@ -1,0 +1,79 @@
+"""Position metrics reader -- pure Redis consumer.
+
+Reads positions, latest quotes, and latest Greeks from Redis HSET.
+Joins them via MetricsTracker into a DataFrame.
+No API calls, no socket connections.
+"""
+
+import json
+import logging
+import os
+from typing import Optional
+
+import pandas as pd
+import redis.asyncio as aioredis  # type: ignore[import-untyped]
+
+from tastytrade.accounts.models import Position
+from tastytrade.accounts.publisher import AccountStreamPublisher
+from tastytrade.analytics.metrics import MetricsTracker
+from tastytrade.messaging.models.events import GreeksEvent, QuoteEvent
+
+logger = logging.getLogger(__name__)
+
+
+class PositionMetricsReader:
+    """Reads position metrics from Redis. Pure consumer -- no connections."""
+
+    QUOTES_KEY = "tastytrade:latest:QuoteEvent"
+    GREEKS_KEY = "tastytrade:latest:GreeksEvent"
+
+    def __init__(
+        self,
+        redis_host: Optional[str] = None,
+        redis_port: Optional[int] = None,
+    ) -> None:
+        host = redis_host or os.environ.get("REDIS_HOST", "localhost")
+        port = redis_port or int(os.environ.get("REDIS_PORT", "6379"))
+        self.redis = aioredis.Redis(host=host, port=port)
+
+    async def read(self) -> pd.DataFrame:
+        """Read positions + market data from Redis, return joined DataFrame."""
+        # 1. Read positions
+        raw_positions = await self.redis.hgetall(AccountStreamPublisher.POSITIONS_KEY)
+        if not raw_positions:
+            return MetricsTracker().df
+
+        positions = []
+        for _key, value in raw_positions.items():
+            try:
+                positions.append(Position.model_validate(json.loads(value)))
+            except Exception as e:
+                logger.warning("Failed to parse position: %s", e)
+
+        # 2. Load into tracker
+        tracker = MetricsTracker()
+        tracker.load_positions(positions)
+
+        # 3. Read latest quotes
+        raw_quotes = await self.redis.hgetall(self.QUOTES_KEY)
+        for _key, value in raw_quotes.items():
+            try:
+                quote = QuoteEvent.model_validate(json.loads(value))
+                tracker.on_quote_event(quote)
+            except Exception as e:
+                logger.debug("Skipped quote: %s", e)
+
+        # 4. Read latest Greeks
+        raw_greeks = await self.redis.hgetall(self.GREEKS_KEY)
+        for _key, value in raw_greeks.items():
+            try:
+                greeks = GreeksEvent.model_validate(json.loads(value))
+                tracker.on_greeks_event(greeks)
+            except Exception as e:
+                logger.debug("Skipped greeks: %s", e)
+
+        return tracker.df
+
+    async def close(self) -> None:
+        """Close Redis connection."""
+        await self.redis.close()

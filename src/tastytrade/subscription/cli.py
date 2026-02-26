@@ -268,6 +268,46 @@ def account_stream(log_level: str, health_interval: int) -> None:
     sys.exit(0)
 
 
+@cli.command(name="positions")
+def positions_cmd() -> None:
+    """Show current position metrics from Redis.
+
+    Reads positions, quotes, and Greeks from Redis and displays
+    a joined DataFrame. Requires account-stream and subscribe
+    to be running.
+
+    \b
+    Example:
+      tasty-subscription positions
+    """
+
+    async def _run() -> None:
+        from tastytrade.analytics.positions import PositionMetricsReader
+
+        reader = PositionMetricsReader()
+        try:
+            df = await reader.read()
+            if df.empty:
+                click.echo("No positions found in Redis. Is account-stream running?")
+                return
+            display_cols = [
+                "underlying_symbol",
+                "symbol",
+                "instrument_type",
+                "quantity",
+                "quantity_direction",
+                "mid_price",
+                "delta",
+                "implied_volatility",
+            ]
+            available = [c for c in display_cols if c in df.columns]
+            click.echo(df[available].to_string(index=False))
+        finally:
+            await reader.close()
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     """Entry point for the tasty-subscription CLI."""
     cli()
