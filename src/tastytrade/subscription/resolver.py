@@ -51,19 +51,11 @@ class PositionSymbolResolver:
 
         if to_subscribe:
             await self.dxlink.subscribe(sorted(to_subscribe))
-            logger.info(
-                "Subscribed %d position symbols: %s",
-                len(to_subscribe),
-                sorted(to_subscribe),
-            )
+            logger.info("Subscribed %d position symbols", len(to_subscribe))
 
         if to_unsubscribe:
             await self.dxlink.unsubscribe(sorted(to_unsubscribe))
-            logger.info(
-                "Unsubscribed %d closed symbols: %s",
-                len(to_unsubscribe),
-                sorted(to_unsubscribe),
-            )
+            logger.info("Unsubscribed %d closed symbols", len(to_unsubscribe))
 
         self.subscribed_symbols = current_symbols
 
