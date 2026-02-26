@@ -1,10 +1,11 @@
 """Resolves position streamer symbols into DXLink subscriptions.
 
-Reads current positions from Redis HSET, diffs against currently subscribed
-symbols, and calls subscribe/unsubscribe on the DXLink manager.
+Event-driven: listens to Redis pub/sub for position changes, diffs against
+currently subscribed symbols, and calls subscribe/unsubscribe on DXLink.
 Single responsibility: position symbols -> DXLink subscriptions.
 """
 
+import asyncio
 import logging
 import os
 from typing import Optional, Protocol
@@ -15,6 +16,8 @@ from tastytrade.accounts.publisher import AccountStreamPublisher
 
 logger = logging.getLogger(__name__)
 
+POSITION_EVENTS_CHANNEL = "tastytrade:events:CurrentPosition"
+
 
 class SymbolSubscriber(Protocol):
     """Protocol for anything that can subscribe/unsubscribe symbols."""
@@ -24,7 +27,7 @@ class SymbolSubscriber(Protocol):
 
 
 class PositionSymbolResolver:
-    """Diffs position symbols against active subscriptions."""
+    """Reacts to position changes and manages DXLink subscriptions."""
 
     def __init__(
         self,
@@ -63,3 +66,29 @@ class PositionSymbolResolver:
             )
 
         self.subscribed_symbols = current_symbols
+
+    async def listen(self) -> None:
+        """Subscribe to position events and resolve on each change.
+
+        Performs an initial resolve to catch positions already in Redis,
+        then listens to the pub/sub channel for real-time updates.
+        Runs until cancelled.
+        """
+        await self.resolve()
+        logger.info("Position resolver: initial sync complete, listening for changes")
+
+        pubsub = self.redis.pubsub()
+        await pubsub.subscribe(POSITION_EVENTS_CHANNEL)
+
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        await self.resolve()
+                    except Exception as e:
+                        logger.error("Position resolver error: %s", e)
+        except asyncio.CancelledError:
+            logger.info("Position resolver stopped")
+        finally:
+            await pubsub.unsubscribe(POSITION_EVENTS_CHANNEL)
+            await pubsub.close()
