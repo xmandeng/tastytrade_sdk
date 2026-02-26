@@ -11,7 +11,7 @@
   "customizations": {
     "vscode": {
       "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
         "python.languageServer": "Pylance",
         "python.analysis.typeCheckingMode": "strict",
         "python.analysis.diagnosticMode": "workspace",
@@ -27,7 +27,8 @@
             "source.organizeImports": "explicit",
             "source.fixAll": "explicit"
           }
-        }
+        },
+        "ruff.path": ["/home/developer/.local/bin/ruff"]
       },
       "extensions": [
         "ms-python.python",
@@ -39,7 +40,7 @@
   },
 
   // Use 'postCreateCommand' to run commands after the container is created
-  "postCreateCommand": "uv sync && /usr/local/bin/devcontainer-startup",
+  "postCreateCommand": "/usr/local/bin/devcontainer-startup",
 
   // Use 'postStartCommand' to refresh environment variables on container restart
   "postStartCommand": "/usr/local/bin/devcontainer-startup",
