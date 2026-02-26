@@ -222,6 +222,52 @@ def status(as_json: bool) -> None:
     click.echo(format_status(result, as_json=as_json))
 
 
+@cli.command(name="account-stream")
+@click.option(
+    "--log-level",
+    default="INFO",
+    callback=validate_log_level,
+    help="Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO",
+)
+@click.option(
+    "--health-interval",
+    default=3600,
+    type=int,
+    help="Seconds between health status log entries. Default: 3600",
+)
+def account_stream(log_level: str, health_interval: int) -> None:
+    """Start the account event stream, publishing positions and balances to Redis.
+
+    Connects to the TastyTrade Account Streamer WebSocket,
+    publishes CurrentPosition and AccountBalance events to Redis,
+    and self-heals on connection failures.
+
+    \b
+    Example:
+      tasty-subscription account-stream
+      tasty-subscription account-stream --log-level DEBUG
+    """
+    log_level_int = getattr(logging, log_level)
+    setup_logging(level=log_level_int, console=True, file=False)
+    local_logger = logging.getLogger(__name__)
+
+    local_logger.info("=" * 60)
+    local_logger.info("TastyTrade Account Stream - Starting")
+    local_logger.info("=" * 60)
+
+    from tastytrade.accounts.orchestrator import run_account_stream
+
+    try:
+        asyncio.run(run_account_stream(health_interval=health_interval))
+    except KeyboardInterrupt:
+        local_logger.info("Received interrupt signal - shutting down")
+    except Exception as e:
+        local_logger.error("Fatal error: %s", e, exc_info=True)
+        sys.exit(1)
+
+    sys.exit(0)
+
+
 def main() -> None:
     """Entry point for the tasty-subscription CLI."""
     cli()
