@@ -40,6 +40,20 @@ account-stream log_level="INFO":
     uv run tasty-subscription account-stream \
         --log-level {{log_level}}
 
+# Start account-stream and subscribe together (Ctrl+C stops both)
+start start_date=prior_workday log_level="INFO":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'kill 0; wait' EXIT
+    uv run tasty-subscription account-stream --log-level {{log_level}} &
+    sleep 2
+    uv run tasty-subscription run \
+        --symbols "{{default_symbols}}" \
+        --intervals {{default_intervals}} \
+        --start-date {{start_date}} \
+        --log-level {{log_level}} &
+    wait
+
 # Show current position metrics from Redis
 positions:
     uv run tasty-subscription positions
