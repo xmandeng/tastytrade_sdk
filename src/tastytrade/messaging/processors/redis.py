@@ -24,9 +24,18 @@ class RedisEventProcessor(BaseEventProcessor):
         self.redis = redis.Redis(host=host, port=port)
 
     def process_event(self, event: BaseEvent) -> None:
-        """Process an event and publish it to Redis."""
-        channel = f"market:{event.__class__.__name__}:{event.eventSymbol}"
-        self.redis.publish(channel=channel, message=event.model_dump_json())
+        """Process an event: publish to pub/sub AND store latest in HSET."""
+        event_json = event.model_dump_json()
+        event_type = event.__class__.__name__
+        symbol = event.eventSymbol
+
+        # Pub/sub for real-time streaming (existing behavior)
+        channel = f"market:{event_type}:{symbol}"
+        self.redis.publish(channel=channel, message=event_json)
+
+        # HSET for latest-value reads (new behavior)
+        hset_key = f"tastytrade:latest:{event_type}"
+        self.redis.hset(hset_key, symbol, event_json)
 
 
 """
