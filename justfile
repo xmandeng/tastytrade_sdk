@@ -40,26 +40,6 @@ account-stream log_level="INFO":
     uv run tasty-subscription account-stream \
         --log-level {{log_level}}
 
-# Start account-stream and subscribe together (Ctrl+C stops both gracefully)
-start start_date=prior_workday log_level="INFO":
-    #!/usr/bin/env bash
-    cleanup() {
-        kill -INT $PID1 $PID2 2>/dev/null
-        wait $PID1 $PID2 2>/dev/null
-        exit 0
-    }
-    trap cleanup INT TERM
-    uv run tasty-subscription account-stream --log-level {{log_level}} &
-    PID1=$!
-    sleep 2
-    uv run tasty-subscription run \
-        --symbols "{{default_symbols}}" \
-        --intervals {{default_intervals}} \
-        --start-date {{start_date}} \
-        --log-level {{log_level}} &
-    PID2=$!
-    wait
-
 # Show current position metrics from Redis
 positions:
     uv run tasty-subscription positions
