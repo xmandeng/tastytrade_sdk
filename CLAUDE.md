@@ -165,7 +165,7 @@ Bare commands (`pytest`, `mypy`, `ruff`) only work inside an activated `.venv`. 
 
 ## Implementation Plans
 
-Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket.
+Plans are saved to `docs/plans/` and should be associated with a Jira ticket when one exists.
 
 **File naming:** `docs/plans/TT-XXX-<feature-name>.md`
 - Always include the Jira ticket number as a prefix
