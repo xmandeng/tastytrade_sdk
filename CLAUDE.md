@@ -108,32 +108,6 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 
 ---
 
-## Package Management
-
-This project uses `uv` exclusively. Do NOT use `pip`.
-
-- **Install all dependencies:** `uv sync`
-- **Install production only:** `uv sync --no-dev`
-- **Install base package only:** `uv pip install -e .`
-- **Add a dependency:** `uv add <package>`
-- **Add a dev dependency:** `uv add --group dev <package>`
-
-**Why not pip?** Dev dependencies are declared under `[dependency-groups]` in `pyproject.toml` (PEP 735). `pip install -e ".[dev]"` will NOT work — pip does not support dependency groups. It also takes 4+ minutes vs under a second with `uv`.
-
-**Never run:** `pip install`, `pip install -e .`, or `pip install -e ".[dev]"`
-
----
-
-## Python Version
-
-The required Python version is declared in `pyproject.toml` (`requires-python`). Do not hardcode version numbers elsewhere.
-
-- `uv venv` and `uv sync` automatically resolve a compatible interpreter
-- System Python may NOT meet requirements — always use `uv run` or activate the `.venv`
-- Do not use bare `python` or `python3` — these may resolve to the system interpreter
-
----
-
 ## Worktree Setup
 
 When working in git worktrees (e.g., `/tmp/worktrees/TT-XXX`):
@@ -142,24 +116,13 @@ When working in git worktrees (e.g., `/tmp/worktrees/TT-XXX`):
 2. Set up the environment:
    ```bash
    cd /tmp/worktrees/TT-XXX
+   cp /workspace/.env .env
    uv venv
    uv sync
    ```
 3. Verify: `uv run pytest --co -q`
 
-Worktrees do NOT inherit the main repo's virtual environment. You must bootstrap every worktree.
-
----
-
-## Development Commands
-
-All commands use `uv run` to ensure the correct interpreter and dependencies:
-
-- **Run tests:** `uv run pytest`
-- **Type checking:** `uv run mypy src/`
-- **Linting:** `uv run ruff check src/`
-
-Bare commands (`pytest`, `mypy`, `ruff`) only work inside an activated `.venv`. Prefer `uv run` to avoid version mismatches.
+Worktrees do NOT inherit the main repo's `.venv` or `.env`. You must bootstrap every worktree.
 
 ---
 
