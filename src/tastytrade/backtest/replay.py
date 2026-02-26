@@ -77,8 +77,12 @@ class BacktestReplay:
         # indicator seeding (Hull needs ~20 candles, MACD needs ~26)
         warmup_start = self._config.start_date - timedelta(days=3)
 
+        # end_date + 1 day: InfluxDB range(stop:) is exclusive, so to
+        # include all intraday candles on end_date we must push past midnight.
+        inclusive_end = self._config.end_date + timedelta(days=1)
+
         signal_df = self._download_candles(
-            self._config.signal_symbol, warmup_start, self._config.end_date
+            self._config.signal_symbol, warmup_start, inclusive_end
         )
 
         pricing_df: pl.DataFrame | None = None
@@ -86,7 +90,7 @@ class BacktestReplay:
             pricing_df = self._download_candles(
                 self._config.pricing_symbol,
                 warmup_start,
-                self._config.end_date,
+                inclusive_end,
             )
 
         candles = self._merge_and_sort(signal_df, pricing_df)

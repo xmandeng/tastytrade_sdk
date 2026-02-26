@@ -123,24 +123,41 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
     # 2. Run replay (publishes candles to Redis)
     candle_count = await asyncio.get_event_loop().run_in_executor(None, replay.run)
 
-    # 3. Wait for signals to drain through the pipeline
-    drain_seconds = 3
+    # 3. Wait for engine to finish processing all replayed candles.
+    #    Poll runner.signals until the count stabilises (no new signals
+    #    for several consecutive checks).
     logger.info(
-        "Replay complete (%d candles). Draining for %ds...",
+        "Replay complete (%d candles). Waiting for engine to finish...",
         candle_count,
-        drain_seconds,
     )
-    await asyncio.sleep(drain_seconds)
+    last_count = 0
+    stable_ticks = 0
+    while stable_ticks < 3:
+        await asyncio.sleep(0.5)
+        current = len(runner.signals)
+        if current == last_count:
+            stable_ticks += 1
+        else:
+            stable_ticks = 0
+            last_count = current
+    logger.info(
+        "Engine stabilised at %d signals. Flushing persistence...",
+        last_count,
+    )
 
-    # 4. Shutdown
+    # 4. Shutdown — correct order: engine → persist flush → cleanup.
+    #    Stop the engine first so no new signals are generated, then
+    #    give the persist layer time to drain, flush InfluxDB, and
+    #    finally tear down the remaining resources.
+    await runner.stop()
+    await asyncio.sleep(0.5)
+    processor.close()
     persist_task.cancel()
     try:
         await persist_task
     except asyncio.CancelledError:
         pass
-    processor.close()
     await persist_runner.stop()
-    await runner.stop()
     replay.close()
     influx_client.close()
 
