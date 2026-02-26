@@ -104,6 +104,11 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 ### Naming
 - Do NOT prefix private functions or methods with `_`. Use descriptive names without underscore prefixes.
 
+### Concurrency
+- Prefer event-driven design over timers and polling loops
+- Avoid `while True` (infinite) loops — react to events instead (e.g., Redis pub/sub, asyncio.Event, queue.get)
+- Ask if uncertain whether an event source exists before introducing a polling fallback
+
 ### Testing
 - Unit tests required but NOT sufficient for PR approval
 - Tests must pass

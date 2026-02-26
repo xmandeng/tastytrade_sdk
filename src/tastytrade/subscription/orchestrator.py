@@ -220,22 +220,6 @@ async def failure_trigger_listener(
         await pubsub.close()
 
 
-RESOLVER_INTERVAL_SECONDS = 5
-
-
-async def run_resolver_loop(
-    resolver: "PositionSymbolResolver",
-    interval: float = RESOLVER_INTERVAL_SECONDS,
-) -> None:
-    """Periodically resolve position symbols into DXLink subscriptions."""
-    from tastytrade.subscription.resolver import PositionSymbolResolver
-
-    while True:
-        try:
-            await resolver.resolve()
-        except Exception as e:
-            logger.error("Position resolver error: %s", e)
-        await asyncio.sleep(interval)
 
 
 async def _run_subscription_once(
@@ -424,12 +408,12 @@ async def _run_subscription_once(
                 failure_trigger_listener(subscription_store, dxlink)
             )
 
-        # Start position symbol resolver — subscribes position streamer symbols on DXLink
+        # Start position symbol resolver — event-driven via Redis pub/sub
         from tastytrade.subscription.resolver import PositionSymbolResolver
 
         resolver = PositionSymbolResolver(dxlink=dxlink)
         resolver_task = asyncio.create_task(
-            run_resolver_loop(resolver), name="position_resolver"
+            resolver.listen(), name="position_resolver"
         )
 
         async def reconnection_monitor() -> ReconnectReason:
