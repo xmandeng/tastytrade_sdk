@@ -54,7 +54,7 @@ class AccountStreamPublisher:
             balance.account_number,
             balance.model_dump_json(by_alias=True),
         )
-        logger.debug("Published balance: %s", balance.account_number)
+        logger.debug("Published balance update")
 
     async def close(self) -> None:
         """Close Redis connection."""

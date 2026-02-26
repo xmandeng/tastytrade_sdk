@@ -104,6 +104,11 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 ### Naming
 - Do NOT prefix private functions or methods with `_`. Use descriptive names without underscore prefixes.
 
+### PII in Logging
+- NEVER log account numbers, monetary balances, or other PII
+- Log counts and status instead (e.g., "Fetched 3 positions" not "Fetched positions for account 5WT00001")
+- Exception messages must not contain account numbers or lists of valid accounts
+
 ### Concurrency
 - Prefer event-driven design over timers and polling loops
 - Avoid `while True` (infinite) loops — react to events instead (e.g., Redis pub/sub, asyncio.Event, queue.get)
