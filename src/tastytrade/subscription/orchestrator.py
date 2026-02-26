@@ -464,26 +464,14 @@ async def _run_subscription_once(
                 monitor_task = asyncio.create_task(reconnection_monitor())
 
         finally:
-            monitor_task.cancel()
-            try:
-                await monitor_task
-            except asyncio.CancelledError:
-                pass
-
-            # Cleanup failure listener if running
-            if failure_listener_task is not None:
-                failure_listener_task.cancel()
+            for task in [monitor_task, failure_listener_task, resolver_task]:
+                if task is None:
+                    continue
+                task.cancel()
                 try:
-                    await failure_listener_task
-                except asyncio.CancelledError:
+                    await asyncio.wait_for(task, timeout=3.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-
-            # Cleanup position resolver
-            resolver_task.cancel()
-            try:
-                await resolver_task
-            except asyncio.CancelledError:
-                pass
 
     except asyncio.CancelledError:
         raise
