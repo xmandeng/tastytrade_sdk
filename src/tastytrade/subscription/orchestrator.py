@@ -220,6 +220,24 @@ async def failure_trigger_listener(
         await pubsub.close()
 
 
+RESOLVER_INTERVAL_SECONDS = 5
+
+
+async def run_resolver_loop(
+    resolver: "PositionSymbolResolver",
+    interval: float = RESOLVER_INTERVAL_SECONDS,
+) -> None:
+    """Periodically resolve position symbols into DXLink subscriptions."""
+    from tastytrade.subscription.resolver import PositionSymbolResolver
+
+    while True:
+        try:
+            await resolver.resolve()
+        except Exception as e:
+            logger.error("Position resolver error: %s", e)
+        await asyncio.sleep(interval)
+
+
 async def _run_subscription_once(
     symbols: list[str],
     intervals: list[str],
@@ -406,6 +424,14 @@ async def _run_subscription_once(
                 failure_trigger_listener(subscription_store, dxlink)
             )
 
+        # Start position symbol resolver — subscribes position streamer symbols on DXLink
+        from tastytrade.subscription.resolver import PositionSymbolResolver
+
+        resolver = PositionSymbolResolver(dxlink=dxlink)
+        resolver_task = asyncio.create_task(
+            run_resolver_loop(resolver), name="position_resolver"
+        )
+
         async def reconnection_monitor() -> ReconnectReason:
             """Wait for reconnection signal and return reason."""
             reason = await dxlink.wait_for_reconnect_signal()
@@ -467,6 +493,13 @@ async def _run_subscription_once(
                     await failure_listener_task
                 except asyncio.CancelledError:
                     pass
+
+            # Cleanup position resolver
+            resolver_task.cancel()
+            try:
+                await resolver_task
+            except asyncio.CancelledError:
+                pass
 
     except asyncio.CancelledError:
         raise
