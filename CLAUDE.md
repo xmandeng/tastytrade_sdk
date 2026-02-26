@@ -163,6 +163,19 @@ Bare commands (`pytest`, `mypy`, `ruff`) only work inside an activated `.venv`. 
 
 ---
 
+## Implementation Plans
+
+Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket.
+
+**File naming:** `docs/plans/TT-XXX-<feature-name>.md`
+- Always include the Jira ticket number as a prefix
+- The plan title must reference the ticket: `# TT-XXX: Feature Name — Implementation Plan`
+- Include a Jira link in the header: `> **Jira:** [TT-XXX](https://tastytrade-sdk.atlassian.net/browse/TT-XXX)`
+
+**Plan-ticket sync:** Persist the plan summary to the Jira ticket before starting implementation. The ticket should reference the plan file path and branch.
+
+---
+
 ## Reference Documents
 
 - [docs/ISSUES_SPEC.md](docs/ISSUES_SPEC.md) - Jira issue specifications
