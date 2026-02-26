@@ -1,5 +1,7 @@
 # TT-59: Position Metrics Pipeline — Implementation Plan
 
+> **Jira:** [TT-59](https://tastytrade-sdk.atlassian.net/browse/TT-59) — Integrate AccountStreamer into subscription service with position-driven DXLink subscriptions
+>
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build decomposable backend services that stream account and market data to Redis, with a position metrics reader that is a pure Redis consumer.
@@ -1174,7 +1176,11 @@ git commit -m "TT-59: Add position metrics reader and CLI command"
 
 ---
 
-### Task 6: Run full test suite and verify
+### Task 6: Run full test suite, verify, and update integration notebook
+
+**Files:**
+- Modify: `src/devtools/playground_metrics_tracker.ipynb` (update to demonstrate Redis-based pipeline)
+- All new source and test files from Tasks 1-5
 
 **Step 1: Run all new tests**
 
@@ -1208,9 +1214,54 @@ uv run ruff check src/tastytrade/messaging/processors/redis.py src/tastytrade/ac
 
 Expected: No errors
 
-**Step 5: Commit final state**
+**Step 5: Update playground_metrics_tracker.ipynb**
+
+Update `src/devtools/playground_metrics_tracker.ipynb` to add cells demonstrating the new Redis-based position metrics pipeline. The existing notebook shows the direct DXLink approach — add new cells that show the Redis consumer approach:
+
+```python
+# Cell: "Position Metrics from Redis (New Pipeline)"
+# This demonstrates the pure-Redis consumer path added by TT-59.
+# Prerequisites: `tasty-subscription account-stream` and `tasty-subscription run` must be running.
+
+import asyncio
+from tastytrade.analytics.positions import PositionMetricsReader
+
+async def read_position_metrics():
+    reader = PositionMetricsReader()
+    try:
+        df = await reader.read()
+        return df
+    finally:
+        await reader.close()
+
+df = await read_position_metrics()
+df
+```
+
+```python
+# Cell: "Verify Redis HSET keys"
+import redis
+r = redis.Redis(host="localhost", port=6379)
+print("Positions:", r.hlen("tastytrade:positions"))
+print("Balances:", r.hlen("tastytrade:balances"))
+print("Latest Quotes:", r.hlen("tastytrade:latest:QuoteEvent"))
+print("Latest Greeks:", r.hlen("tastytrade:latest:GreeksEvent"))
+```
+
+```python
+# Cell: "Display position metrics table"
+display_cols = [
+    "underlying_symbol", "symbol", "instrument_type",
+    "quantity", "quantity_direction",
+    "mid_price", "delta", "implied_volatility",
+]
+available = [c for c in display_cols if c in df.columns]
+df[available]
+```
+
+**Step 6: Commit final state**
 
 ```bash
 git add -A
-git commit -m "TT-59: All tests pass, type checking and linting clean"
+git commit -m "TT-59: All tests pass, update integration notebook with Redis pipeline demo"
 ```
