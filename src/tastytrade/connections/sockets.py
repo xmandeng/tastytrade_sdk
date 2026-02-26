@@ -270,12 +270,12 @@ class DXLinkManager:
     ) -> None:
         """Track a new subscription."""
         await self.subscription_store.add_subscription(symbol, metadata)
-        logger.info(f"Added subscription: {symbol}")
+        logger.info("Added subscription: %s", symbol)
 
     async def remove_subscription(self, symbol: str) -> None:
         """Remove subscription tracking."""
         await self.subscription_store.remove_subscription(symbol)
-        logger.info(f"Marked subscription {symbol} as inactive")
+        logger.info("Marked subscription %s as inactive", symbol)
 
     async def get_active_subscriptions(self) -> Dict:
         """Get all active subscriptions."""
