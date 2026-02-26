@@ -60,7 +60,21 @@ class DevHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    server = HTTPServer(("0.0.0.0", port), DevHandler)
+    import socket
+
+    class ReusableHTTPServer(HTTPServer):
+        allow_reuse_address = True
+        allow_reuse_port = True
+
+        def server_bind(self) -> None:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except (AttributeError, OSError):
+                pass
+            super().server_bind()
+
+    server = ReusableHTTPServer(("0.0.0.0", port), DevHandler)
     print(f"DevServer running on http://localhost:{port}/")
     print(f"Serving: {os.getcwd()}")
     print("PUT enabled for .json files (layout persistence)")

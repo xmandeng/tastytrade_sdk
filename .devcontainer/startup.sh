@@ -329,39 +329,52 @@ echo "  Project: tastytrade-sdk"
 echo "==============================================="
 echo ""
 
-# Step 1: Load .env file and export to current environment
+# Step 1: Ensure Python virtual environment exists
+# This must run early so VS Code extensions (Ruff, Pylance) find the interpreter.
+# On first creation, postCreateCommand also runs uv sync, but on restarts
+# only postStartCommand runs (which calls this script), so we need it here.
+echo "Ensuring Python virtual environment..."
+cd /workspace
+if [ -f "pyproject.toml" ]; then
+    uv sync 2>&1 | tail -1 || echo "WARNING: uv sync failed"
+else
+    echo "  No pyproject.toml found, skipping"
+fi
+echo ""
+
+# Step 2: Load .env file and export to current environment
 load_env_file || echo "WARNING: Failed to load .env file"
 echo ""
 
-# Step 2: Persist environment variables to /etc/environment for non-interactive processes (MCP)
+# Step 3: Persist environment variables to /etc/environment for non-interactive processes (MCP)
 persist_env_to_system
 echo ""
 
-# Step 3: Persist environment variables to bashrc for interactive shells
+# Step 4: Persist environment variables to bashrc for interactive shells
 persist_env_to_bashrc
 echo ""
 
-# Step 4: Configure git
+# Step 5: Configure git
 configure_git
 echo ""
 
-# Step 5: Configure GitHub CLI
+# Step 6: Configure GitHub CLI
 configure_github_cli
 echo ""
 
-# Step 6: Add convenience aliases
+# Step 7: Add convenience aliases
 add_convenience_aliases
 echo ""
 
-# Step 7: Fix Claude plugin path compatibility between host and container
+# Step 8: Fix Claude plugin path compatibility between host and container
 fix_claude_plugin_paths
 echo ""
 
-# Step 8: Fix Docker socket permissions for Docker-from-Docker (MCP servers)
+# Step 9: Fix Docker socket permissions for Docker-from-Docker (MCP servers)
 fix_docker_socket_permissions
 echo ""
 
-# Step 9: Initialize quber-workflow (Claude settings, hooks, skills)
+# Step 10: Initialize quber-workflow (Claude settings, hooks, skills)
 initialize_quber_workflow
 echo ""
 

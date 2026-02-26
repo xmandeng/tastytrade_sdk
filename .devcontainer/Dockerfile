@@ -149,6 +149,11 @@ ENV PYTHONUNBUFFERED=1
 # Pre-create directories for better caching
 RUN mkdir -p /home/$USERNAME/.cache/uv
 
+# Install ruff as a standalone tool so it's available at container start.
+# Lives at ~/.local/bin/ruff — outside /workspace, so the bind mount can't hide it.
+# Pin to match pyproject.toml: ruff>=0.12.5
+RUN uv tool install "ruff>=0.12.5"
+
 # OPTIMIZATION: Pre-install heavy dependencies in Docker layer
 # This significantly speeds up devcontainer rebuilds and worktree setup
 # Cache stays valid unless pyproject.toml changes
