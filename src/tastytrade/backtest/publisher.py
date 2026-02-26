@@ -12,6 +12,7 @@ The pricing candle buffer is fed by the BacktestRunner, which subscribes
 to the pricing-timeframe Redis channel separately.
 """
 
+import bisect
 import logging
 from datetime import datetime
 
@@ -48,9 +49,10 @@ class BacktestPublisher:
         """Buffer a pricing-interval candle for later lookup.
 
         Called by the BacktestRunner when a pricing-timeframe candle
-        arrives on the Redis subscription.
+        arrives on the Redis subscription.  Uses bisect to maintain
+        sorted order by time for O(log n) entry-price lookups.
         """
-        self._pricing_candles.append(candle)
+        bisect.insort(self._pricing_candles, candle, key=lambda c: c.time)
 
     def publish(self, event: BaseEvent) -> None:
         """Enrich TradeSignal → BacktestSignal, then publish to Redis.
@@ -66,7 +68,7 @@ class BacktestPublisher:
             return
 
         signal = event
-        entry_price = self._find_entry_price(signal.start_time)
+        entry_price = self.find_entry_price(signal.start_time)
 
         backtest_signal = BacktestSignal(
             eventSymbol=signal.eventSymbol,
@@ -107,22 +109,23 @@ class BacktestPublisher:
         if self._inner:
             self._inner.publish(backtest_signal)
 
-    def _find_entry_price(self, signal_time: datetime) -> float | None:
+    def find_entry_price(self, signal_time: datetime) -> float | None:
         """Find the closest pricing-interval candle close price at signal time.
 
-        Walks backward through the pricing buffer to find the most recent
-        candle whose time is <= signal_time.
+        Uses binary search on the sorted pricing buffer to find the most
+        recent candle whose time is <= signal_time.
         """
         if not self._pricing_candles:
             return None
 
-        best: CandleEvent | None = None
-        for candle in reversed(self._pricing_candles):
-            if candle.time <= signal_time and candle.close is not None:
-                best = candle
-                break
-
-        return float(best.close) if best and best.close is not None else None
+        times = [c.time for c in self._pricing_candles]
+        idx = bisect.bisect_right(times, signal_time) - 1
+        while idx >= 0:
+            candle = self._pricing_candles[idx]
+            if candle.close is not None:
+                return float(candle.close)
+            idx -= 1
+        return None
 
     def close(self) -> None:
         """Close the inner publisher if present."""

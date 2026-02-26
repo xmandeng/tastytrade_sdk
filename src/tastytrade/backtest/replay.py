@@ -22,6 +22,22 @@ from tastytrade.providers.market import MarketDataProvider
 
 logger = logging.getLogger(__name__)
 
+# Minimum warmup days by interval granularity.  MACD(26) is the longest
+# indicator — daily needs 30+ calendar days, hourly ~5, sub-hourly 3.
+WARMUP_DAYS: dict[str, int] = {
+    "d": 45,
+    "h": 5,
+}
+DEFAULT_WARMUP_DAYS = 3
+
+
+def warmup_days(interval: str) -> int:
+    """Return warmup days needed for the given candle interval."""
+    from tastytrade.backtest.models import to_dxlink_interval
+
+    normalized = to_dxlink_interval(interval)
+    return WARMUP_DAYS.get(normalized, DEFAULT_WARMUP_DAYS)
+
 
 class BacktestReplay:
     """Replays historical candle data from InfluxDB to Redis.
@@ -73,27 +89,30 @@ class BacktestReplay:
             self._config.end_date,
         )
 
-        # Add warmup buffer: fetch extra days before start_date for
-        # indicator seeding (Hull needs ~20 candles, MACD needs ~26)
-        warmup_start = self._config.start_date - timedelta(days=3)
+        # Add warmup buffer: fetch extra candles before start_date for
+        # indicator seeding (Hull needs ~20 candles, MACD needs ~26).
+        # Scale warmup days by interval granularity.
+        warmup_start = self._config.start_date - timedelta(
+            days=warmup_days(self._config.signal_interval)
+        )
 
         # end_date + 1 day: InfluxDB range(stop:) is exclusive, so to
         # include all intraday candles on end_date we must push past midnight.
         inclusive_end = self._config.end_date + timedelta(days=1)
 
-        signal_df = self._download_candles(
+        signal_df = self.download_candles(
             self._config.signal_symbol, warmup_start, inclusive_end
         )
 
         pricing_df: pl.DataFrame | None = None
         if self._config.pricing_symbol != self._config.signal_symbol:
-            pricing_df = self._download_candles(
+            pricing_df = self.download_candles(
                 self._config.pricing_symbol,
                 warmup_start,
                 inclusive_end,
             )
 
-        candles = self._merge_and_sort(signal_df, pricing_df)
+        candles = self.merge_and_sort(signal_df, pricing_df)
 
         count = 0
         for candle in candles:
@@ -126,11 +145,11 @@ class BacktestReplay:
                 self._config.start_date - timedelta(days=1),
             )
             return float(candle.close) if candle.close is not None else None
-        except (ValueError, Exception) as e:
+        except Exception as e:
             logger.warning("Could not fetch prior close: %s", e)
             return None
 
-    def _download_candles(self, symbol: str, start: date, end: date) -> pl.DataFrame:
+    def download_candles(self, symbol: str, start: date, end: date) -> pl.DataFrame:
         """Download candles from InfluxDB via MarketDataProvider."""
         try:
             df = self._provider.download(
@@ -151,7 +170,7 @@ class BacktestReplay:
             logger.error("Failed to download candles for %s: %s", symbol, e)
             return pl.DataFrame()
 
-    def _merge_and_sort(
+    def merge_and_sort(
         self,
         signal_df: pl.DataFrame,
         pricing_df: pl.DataFrame | None,

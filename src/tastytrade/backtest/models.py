@@ -17,7 +17,7 @@ from tastytrade.analytics.engines.models import TradeSignal
 
 # DXLink uses compact interval format: "m" for 1-minute, "h" for 1-hour,
 # "d" for daily.  Multi-unit intervals like "5m", "15m" stay as-is.
-_DXLINK_NORMALIZATION: dict[str, str] = {
+DXLINK_NORMALIZATION: dict[str, str] = {
     "1m": "m",
     "1h": "h",
     "1d": "d",
@@ -26,7 +26,7 @@ _DXLINK_NORMALIZATION: dict[str, str] = {
 # Mapping from signal interval (DXLink format) to default pricing interval.
 # "Lower timeframe for accuracy" — use a finer granularity for
 # precise entry/exit pricing.
-_DEFAULT_PRICING_INTERVALS: dict[str, str] = {
+DEFAULT_PRICING_INTERVALS: dict[str, str] = {
     "d": "h",
     "h": "15m",
     "30m": "5m",
@@ -50,7 +50,7 @@ def to_dxlink_interval(interval: str) -> str:
         to_dxlink_interval("1h") → "h"
         to_dxlink_interval("1d") → "d"
     """
-    return _DXLINK_NORMALIZATION.get(interval, interval)
+    return DXLINK_NORMALIZATION.get(interval, interval)
 
 
 def resolve_pricing_interval(
@@ -73,7 +73,7 @@ def resolve_pricing_interval(
     if pricing_interval is not None:
         return to_dxlink_interval(pricing_interval)
     normalized = to_dxlink_interval(signal_interval)
-    return _DEFAULT_PRICING_INTERVALS.get(normalized, normalized)
+    return DEFAULT_PRICING_INTERVALS.get(normalized, normalized)
 
 
 class BacktestSignal(TradeSignal):
@@ -123,7 +123,6 @@ class BacktestConfig(BaseModel):
     )
     start_date: date = Field(description="Backtest start date")
     end_date: date = Field(description="Backtest end date")
-    engine_type: str = Field(default="hull_macd", description="Signal engine to use")
     source: str = Field(default="backtest", description="Signal source tag")
 
     @property

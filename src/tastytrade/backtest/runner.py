@@ -11,10 +11,9 @@ Follows the same three-layer separation as the live EngineRunner:
     engine    → The work (pure state machine: event in, signal out)
 """
 
-import asyncio
 import logging
 
-from tastytrade.analytics.engines.hull_macd import HullMacdEngine
+from tastytrade.analytics.engines.protocol import SignalEngine
 from tastytrade.backtest.models import BacktestConfig, BacktestSignal
 from tastytrade.backtest.publisher import BacktestPublisher
 from tastytrade.messaging.models.events import CandleEvent
@@ -38,7 +37,7 @@ class BacktestRunner:
         self,
         config: BacktestConfig,
         subscription: RedisSubscription,
-        engine: HullMacdEngine,
+        engine: SignalEngine,
         publisher: BacktestPublisher,
     ) -> None:
         self._config = config
@@ -79,23 +78,9 @@ class BacktestRunner:
         logger.info(
             "BacktestRunner ready — backtest_id=%s, engine=%s, symbol=%s",
             self._config.backtest_id,
-            self._config.engine_type,
+            self._engine.name,
             self._config.symbol,
         )
-
-    async def run(self) -> None:
-        """Run the subscription listener until cancelled.
-
-        The Redis ``async for message in pubsub.listen()`` IS the
-        event loop — same pattern as EngineRunner.
-        """
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            logger.info(
-                "BacktestRunner cancelled — backtest_id=%s",
-                self._config.backtest_id,
-            )
 
     async def stop(self) -> None:
         """Graceful shutdown."""

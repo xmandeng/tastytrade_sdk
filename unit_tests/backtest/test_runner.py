@@ -1,6 +1,5 @@
 """Tests for BacktestRunner and BacktestReplay."""
 
-import asyncio
 from datetime import date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -39,7 +38,7 @@ def make_config(
 def make_candle(
     symbol: str = "SPX{=5m}",
     time: datetime | None = None,
-    close: float = 5900.0,
+    close: float | None = 5900.0,
     open_: float = 5895.0,
     high: float = 5910.0,
     low: float = 5890.0,
@@ -274,54 +273,6 @@ class TestBacktestRunnerStop:
 
         publisher.close.assert_called_once()
         subscription.close.assert_awaited_once()
-
-
-class TestBacktestRunnerRun:
-    """Tests for BacktestRunner.run()."""
-
-    @pytest.mark.asyncio
-    async def test_run_waits_until_cancelled(self) -> None:
-        """run() waits until cancelled via asyncio pattern."""
-        config = make_config()
-        runner = BacktestRunner(
-            config=config,
-            subscription=AsyncMock(),
-            engine=MagicMock(),
-            publisher=MagicMock(),
-        )
-
-        with patch("tastytrade.backtest.runner.asyncio.Event") as mock_event_cls:
-            mock_event = MagicMock()
-            mock_event.wait = AsyncMock(side_effect=asyncio.CancelledError)
-            mock_event_cls.return_value = mock_event
-
-            # Should not raise — CancelledError is caught internally
-            await runner.run()
-
-        mock_event.wait.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_run_blocks_until_event_set(self) -> None:
-        """run() blocks on Event().wait() — proves it does not busy-loop."""
-        config = make_config()
-        runner = BacktestRunner(
-            config=config,
-            subscription=AsyncMock(),
-            engine=MagicMock(),
-            publisher=MagicMock(),
-        )
-
-        with patch("tastytrade.backtest.runner.asyncio.Event") as mock_event_cls:
-            mock_event = MagicMock()
-            # Simulate short wait then cancel
-            mock_event.wait = AsyncMock(side_effect=asyncio.CancelledError)
-            mock_event_cls.return_value = mock_event
-
-            await runner.run()
-
-        # Event was constructed and waited on
-        mock_event_cls.assert_called_once()
-        mock_event.wait.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -561,8 +512,7 @@ class TestBacktestReplaySeedPriorClose:
         config = make_config(symbol="SPX", start_date=date(2025, 1, 6))
         provider = MagicMock()
 
-        daily_candle = make_candle("SPX{=d}")
-        daily_candle.close = None
+        daily_candle = make_candle("SPX{=d}", close=None)
         provider.get_daily_candle = MagicMock(return_value=daily_candle)
 
         replay, _ = _make_replay(config=config, provider=provider)
@@ -572,10 +522,10 @@ class TestBacktestReplaySeedPriorClose:
 
 
 class TestBacktestReplayMergeAndSort:
-    """Tests for BacktestReplay._merge_and_sort()."""
+    """Tests for BacktestReplay.merge_and_sort()."""
 
-    def test_merge_and_sort_sorts_candles_by_time(self) -> None:
-        """_merge_and_sort() sorts candles by time."""
+    def testmerge_and_sort_sorts_candles_by_time(self) -> None:
+        """merge_and_sort() sorts candles by time."""
         config = make_config(symbol="SPX", signal_interval="5m")
         provider = MagicMock()
 
@@ -597,7 +547,7 @@ class TestBacktestReplayMergeAndSort:
         )
 
         replay, _ = _make_replay(config=config, provider=provider)
-        candles = replay._merge_and_sort(signal_df, pricing_df)
+        candles = replay.merge_and_sort(signal_df, pricing_df)
 
         # Should be sorted chronologically
         assert len(candles) == 3
@@ -605,8 +555,8 @@ class TestBacktestReplayMergeAndSort:
         assert candles[1].time == t2
         assert candles[2].time == t3
 
-    def test_merge_and_sort_handles_none_pricing_df(self) -> None:
-        """_merge_and_sort() works when pricing_df is None."""
+    def testmerge_and_sort_handles_none_pricing_df(self) -> None:
+        """merge_and_sort() works when pricing_df is None."""
         config = make_config(symbol="SPX", signal_interval="1m")
         provider = MagicMock()
 
@@ -621,24 +571,24 @@ class TestBacktestReplayMergeAndSort:
         )
 
         replay, _ = _make_replay(config=config, provider=provider)
-        candles = replay._merge_and_sort(signal_df, None)
+        candles = replay.merge_and_sort(signal_df, None)
 
         assert len(candles) == 2
         assert candles[0].time == t1
         assert candles[1].time == t2
 
-    def test_merge_and_sort_handles_empty_dataframes(self) -> None:
-        """_merge_and_sort() returns empty list for empty DataFrames."""
+    def testmerge_and_sort_handles_empty_dataframes(self) -> None:
+        """merge_and_sort() returns empty list for empty DataFrames."""
         config = make_config(symbol="SPX", signal_interval="5m")
         provider = MagicMock()
 
         replay, _ = _make_replay(config=config, provider=provider)
-        candles = replay._merge_and_sort(pl.DataFrame(), None)
+        candles = replay.merge_and_sort(pl.DataFrame(), None)
 
         assert candles == []
 
-    def test_merge_and_sort_preserves_all_candle_fields(self) -> None:
-        """_merge_and_sort() produces CandleEvents with all fields intact."""
+    def testmerge_and_sort_preserves_all_candle_fields(self) -> None:
+        """merge_and_sort() produces CandleEvents with all fields intact."""
         config = make_config(symbol="SPX", signal_interval="5m")
         provider = MagicMock()
 
@@ -655,7 +605,7 @@ class TestBacktestReplayMergeAndSort:
         signal_df = make_candle_df([candle])
 
         replay, _ = _make_replay(config=config, provider=provider)
-        result = replay._merge_and_sort(signal_df, None)
+        result = replay.merge_and_sort(signal_df, None)
 
         assert len(result) == 1
         assert result[0].eventSymbol == "SPX{=5m}"
@@ -721,17 +671,17 @@ class TestBacktestReplayInit:
 
 
 class TestBacktestReplayDownloadCandles:
-    """Tests for BacktestReplay._download_candles()."""
+    """Tests for BacktestReplay.download_candles()."""
 
-    def test_download_candles_calls_provider_download(self) -> None:
-        """_download_candles() delegates to MarketDataProvider.download()."""
+    def testdownload_candles_calls_provider_download(self) -> None:
+        """download_candles() delegates to MarketDataProvider.download()."""
         config = make_config()
         provider = MagicMock()
         expected_df = make_candle_df([make_candle()])
         provider.download = MagicMock(return_value=expected_df)
 
         replay, _ = _make_replay(config=config, provider=provider)
-        result = replay._download_candles(
+        result = replay.download_candles(
             "SPX{=5m}", date(2025, 1, 3), date(2025, 1, 10)
         )
 
@@ -743,14 +693,14 @@ class TestBacktestReplayDownloadCandles:
         )
         assert result.height == expected_df.height
 
-    def test_download_candles_returns_empty_df_on_error(self) -> None:
-        """_download_candles() returns empty DataFrame on provider error."""
+    def testdownload_candles_returns_empty_df_on_error(self) -> None:
+        """download_candles() returns empty DataFrame on provider error."""
         config = make_config()
         provider = MagicMock()
         provider.download = MagicMock(side_effect=Exception("InfluxDB error"))
 
         replay, _ = _make_replay(config=config, provider=provider)
-        result = replay._download_candles(
+        result = replay.download_candles(
             "SPX{=5m}", date(2025, 1, 3), date(2025, 1, 10)
         )
 

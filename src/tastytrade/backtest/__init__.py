@@ -9,3 +9,16 @@ Architecture (all communication through Redis):
     BacktestRunner  → Redis market:BacktestSignal:* (Redis → Engine → Redis)
     BacktestFeed    → InfluxDB                      (Redis → InfluxDB)
 """
+
+from tastytrade.backtest.models import BacktestConfig, BacktestSignal
+from tastytrade.backtest.publisher import BacktestPublisher
+from tastytrade.backtest.replay import BacktestReplay
+from tastytrade.backtest.runner import BacktestRunner
+
+__all__ = [
+    "BacktestConfig",
+    "BacktestPublisher",
+    "BacktestReplay",
+    "BacktestRunner",
+    "BacktestSignal",
+]

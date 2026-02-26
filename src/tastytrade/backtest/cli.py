@@ -30,7 +30,6 @@ from tastytrade.config.manager import RedisConfigManager
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisPublisher, RedisSubscription
-from tastytrade.signal.runner import EngineRunner
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,13 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
         data_feed=data_subscription,
         influx=influx_client,
     )
-    replay = BacktestReplay(config=config, provider=provider)
+    redis_kwargs = redis_config.redis_client.connection_pool.connection_kwargs
+    replay = BacktestReplay(
+        config=config,
+        provider=provider,
+        redis_host=redis_kwargs.get("host", "localhost"),
+        redis_port=redis_kwargs.get("port", 6379),
+    )
 
     # --- Engine setup (Redis → Engine → Redis) ---
     engine_subscription = RedisSubscription(redis_config)
@@ -93,13 +98,6 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
         org=influx_org,
         bucket=influx_bucket,
     )
-    persist_runner = EngineRunner(
-        name="backtest_signal_feed",
-        subscription=persist_subscription,
-        channels=["market:BacktestSignal:*"],
-        event_type=BacktestSignal,
-        on_event=processor.process_event,
-    )
 
     logger.info(
         "Starting orchestrated backtest — backtest_id=%s, symbol=%s, "
@@ -113,12 +111,15 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
     )
 
     # --- Run all three components ---
-    # 1. Setup subscriptions first (before replay publishes)
+    # 1. Setup ALL subscriptions before replay publishes.
+    #    Each subscribe() awaits Redis psubscribe — no sleep/race condition.
     await runner.setup()
-    persist_task = asyncio.create_task(persist_runner.start())
-
-    # Small delay to ensure subscriptions are active
-    await asyncio.sleep(0.5)
+    await persist_subscription.connect()
+    await persist_subscription.subscribe(
+        "market:BacktestSignal:*",
+        event_type=BacktestSignal,
+        on_update=processor.process_event,
+    )
 
     # 2. Run replay (publishes candles to Redis)
     candle_count = await asyncio.get_event_loop().run_in_executor(None, replay.run)
@@ -130,7 +131,7 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
         "Replay complete (%d candles). Waiting for engine to finish...",
         candle_count,
     )
-    last_count = 0
+    last_count = -1  # -1 ensures loop doesn't exit during warmup with 0 signals
     stable_ticks = 0
     while stable_ticks < 3:
         await asyncio.sleep(0.5)
@@ -152,12 +153,7 @@ async def run_backtest_orchestrated(config: BacktestConfig) -> None:
     await runner.stop()
     await asyncio.sleep(0.5)
     processor.close()
-    persist_task.cancel()
-    try:
-        await persist_task
-    except asyncio.CancelledError:
-        pass
-    await persist_runner.stop()
+    await persist_subscription.close()
     replay.close()
     influx_client.close()
 

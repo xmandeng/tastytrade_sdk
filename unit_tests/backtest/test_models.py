@@ -509,14 +509,6 @@ class TestToDxlinkInterval:
 class TestBacktestConfigDefaults:
     """BacktestConfig has correct defaults."""
 
-    def test_default_engine_type(self):
-        config = BacktestConfig(
-            symbol="SPX",
-            start_date=date(2026, 1, 1),
-            end_date=date(2026, 2, 1),
-        )
-        assert config.engine_type == "hull_macd"
-
     def test_default_source(self):
         config = BacktestConfig(
             symbol="SPX",
