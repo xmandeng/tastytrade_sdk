@@ -34,3 +34,8 @@ subscribe-custom symbols intervals start_date=prior_workday log_level="INFO":
         --intervals {{intervals}} \
         --start-date {{start_date}} \
         --log-level {{log_level}}
+
+# Run account stream (positions/balances to Redis)
+account-stream log_level="INFO":
+    uv run tasty-subscription account-stream \
+        --log-level {{log_level}}
