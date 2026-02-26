@@ -101,6 +101,9 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 - Must pass linting checks with zero errors
 - No disabling rules without documented reason
 
+### Naming
+- Do NOT prefix private functions or methods with `_`. Use descriptive names without underscore prefixes.
+
 ### Testing
 - Unit tests required but NOT sufficient for PR approval
 - Tests must pass
@@ -116,7 +119,7 @@ When working in git worktrees (e.g., `/tmp/worktrees/TT-XXX`):
 2. Set up the environment:
    ```bash
    cd /tmp/worktrees/TT-XXX
-   cp /workspace/.env .env
+   cp "$(git rev-parse --show-toplevel)/.env" .env
    uv venv
    uv sync
    ```
