@@ -78,7 +78,7 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 
 ### Branch & Commit Rules
 
-**No code changes without a Jira and branch** — ask if missing, reuse if available, only skip if explicitly told to.
+**No code changes without a Jira and branch** — ask if missing, reuse if available, only skip if explicitly told to. All edits MUST be made on the feature branch or worktree, never on `main`. Check out the branch BEFORE editing files.
 
 **Branching:**
 - NEVER work on `main` — github-workflow agent will REJECT operations
