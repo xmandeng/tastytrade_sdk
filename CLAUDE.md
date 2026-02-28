@@ -78,6 +78,8 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 
 ### Branch & Commit Rules
 
+**No code changes without a Jira and branch** — ask if missing, reuse if available, only skip if explicitly told to.
+
 **Branching:**
 - NEVER work on `main` — github-workflow agent will REJECT operations
 - ALWAYS create feature branch with Jira ticket: `feature/TT-XXX-description`
