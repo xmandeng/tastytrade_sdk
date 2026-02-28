@@ -51,5 +51,10 @@ positions-summary:
 # Position summary with LLM strategy identification
 positions-strategies:
     uv run tasty-subscription positions-summary | claude --print \
-        "For each underlying, identify the trading strategy name from the legs. \
-        Output a markdown table: Underlying, Strategy, Net Delta, Num Legs"
+        "Identify the strategy for each underlying. Output ONLY a markdown table \
+        with columns: Underlying, Strategy, Net Delta, Num Legs. No reasoning or notes. \
+        Strategy reference: short strangle (2 short options, no stock), \
+        iron condor (short strangle + protective wings), \
+        covered call (long stock + short call), \
+        jade lizard (short OTM vertical spread + short option on opposite side), \
+        covered jade lizard (long stock + jade lizard overlay)."
