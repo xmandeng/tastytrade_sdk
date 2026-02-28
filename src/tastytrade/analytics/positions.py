@@ -35,6 +35,37 @@ class PositionMetricsReader:
         host = redis_host or os.environ.get("REDIS_HOST", "localhost")
         port = redis_port or int(os.environ.get("REDIS_PORT", "6379"))
         self.redis = aioredis.Redis(host=host, port=port)
+        self._df: pd.DataFrame = pd.DataFrame()
+
+    @property
+    def summary(self) -> pd.DataFrame:
+        """Aggregate positions by underlying: net delta, leg count, leg descriptions."""
+        if self._df.empty:
+            return pd.DataFrame(
+                columns=["underlying_symbol", "net_delta", "num_legs", "legs"]
+            )
+
+        rows = []
+        for underlying, group in self._df.groupby("underlying_symbol"):
+            legs = []
+            net_delta = 0.0
+            for _, row in group.iterrows():
+                direction = str(row.get("quantity_direction", ""))
+                qty = row.get("quantity", 0)
+                inst_type = str(row.get("instrument_type", ""))
+                delta = row.get("delta")
+                if pd.notna(delta):
+                    net_delta += float(delta) * float(qty)  # type: ignore[arg-type]
+                legs.append(f"{qty}x {direction} {inst_type}")
+            rows.append(
+                {
+                    "underlying_symbol": underlying,
+                    "net_delta": round(net_delta, 2),
+                    "num_legs": len(group),
+                    "legs": ", ".join(legs),
+                }
+            )
+        return pd.DataFrame(rows)
 
     async def read(self) -> pd.DataFrame:
         """Read positions + market data from Redis, return joined DataFrame."""
@@ -72,7 +103,8 @@ class PositionMetricsReader:
             except Exception as e:
                 logger.debug("Skipped greeks: %s", e)
 
-        return tracker.df
+        self._df = tracker.df
+        return self._df
 
     async def close(self) -> None:
         """Close Redis connection."""
