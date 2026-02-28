@@ -34,19 +34,19 @@ class PositionMetricsReader:
     ) -> None:
         host = redis_host or os.environ.get("REDIS_HOST", "localhost")
         port = redis_port or int(os.environ.get("REDIS_PORT", "6379"))
-        self.redis = aioredis.Redis(host=host, port=port)
-        self._df: pd.DataFrame = pd.DataFrame()
+        self.redis = aioredis.Redis(host=host, port=port)  # type: ignore[arg-type]
+        self.position_metrics_df: pd.DataFrame = pd.DataFrame()
 
     @property
     def summary(self) -> pd.DataFrame:
         """Aggregate positions by underlying: net delta, leg count, leg descriptions."""
-        if self._df.empty:
+        if self.position_metrics_df.empty:
             return pd.DataFrame(
                 columns=["underlying_symbol", "net_delta", "num_legs", "legs"]
             )
 
         rows = []
-        for underlying, group in self._df.groupby("underlying_symbol"):
+        for underlying, group in self.position_metrics_df.groupby("underlying_symbol"):
             legs = []
             net_delta = 0.0
             for _, row in group.iterrows():
@@ -103,8 +103,8 @@ class PositionMetricsReader:
             except Exception as e:
                 logger.debug("Skipped greeks: %s", e)
 
-        self._df = tracker.df
-        return self._df
+        self.position_metrics_df = tracker.df
+        return self.position_metrics_df
 
     async def close(self) -> None:
         """Close Redis connection."""
