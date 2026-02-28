@@ -311,6 +311,36 @@ def positions_cmd() -> None:
     asyncio.run(_run())
 
 
+@cli.command(name="positions-summary")
+def positions_summary_cmd() -> None:
+    """Show positions aggregated by underlying with net delta.
+
+    Pre-aggregates position data in Python for fast output.
+    Pipe to an LLM for strategy identification.
+
+    \b
+    Example:
+      tasty-subscription positions-summary
+      tasty-subscription positions-summary | claude --print "identify the strategy for each underlying"
+    """
+
+    async def _run() -> None:
+        from tastytrade.analytics.positions import PositionMetricsReader
+
+        reader = PositionMetricsReader()
+        try:
+            await reader.read()
+            summary = reader.summary
+            if summary.empty:
+                click.echo("No positions found in Redis. Is account-stream running?")
+                return
+            click.echo(summary.to_string(index=False))
+        finally:
+            await reader.close()
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     """Entry point for the tasty-subscription CLI."""
     cli()
