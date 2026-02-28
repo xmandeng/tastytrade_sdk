@@ -43,3 +43,13 @@ account-stream log_level="INFO":
 # Show current position metrics from Redis
 positions:
     uv run tasty-subscription positions
+
+# Aggregated position summary by underlying with strategy identification
+positions-summary:
+    uv run tasty-subscription positions | claude --print \
+        "Organize these positions by underlying_symbol. For each underlying: \
+        1) Identify the strategy (e.g. iron condor, short strangle, covered call, collar + put spread, etc.) \
+        2) Calculate net delta across all legs \
+        3) Note the expiration date \
+        Output a concise markdown table at the end summarizing all underlyings with columns: \
+        Underlying, Strategy, Net Delta, Expiry"
