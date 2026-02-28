@@ -29,7 +29,7 @@ class AccountStreamPublisher:
     ) -> None:
         host = redis_host or os.environ.get("REDIS_HOST", "localhost")
         port = redis_port or int(os.environ.get("REDIS_PORT", "6379"))
-        self.redis: aioredis.Redis = aioredis.Redis(host=host, port=port)  # type: ignore[type-arg]
+        self.redis: aioredis.Redis = aioredis.Redis(host=host, port=port)  # type: ignore[type-arg, arg-type]
 
     async def publish_position(self, position: Position) -> None:
         """Write position to Redis HSET. Remove if quantity is zero (closed)."""
