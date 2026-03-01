@@ -1,0 +1,23 @@
+# Strategy health monitoring thresholds.
+# Each strategy type can override the [default] section.
+# Strategy keys use snake_case matching StrategyType enum names.
+
+[default]
+dte_warning = 21
+dte_critical = 7
+max_loss_warning = 0.75
+max_loss_critical = 0.90
+delta_drift_warning = 0.30
+
+[iron_condor]
+dte_warning = 30
+dte_critical = 14
+delta_drift_warning = 0.20
+
+[short_strangle]
+dte_warning = 25
+dte_critical = 10
+delta_drift_warning = 0.25
+
+[jade_lizard]
+delta_drift_warning = 0.35
