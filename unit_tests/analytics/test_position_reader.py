@@ -63,6 +63,9 @@ def mock_redis() -> AsyncMock:
 def reader(mock_redis: AsyncMock) -> PositionMetricsReader:
     r = PositionMetricsReader.__new__(PositionMetricsReader)
     r.redis = mock_redis
+    r.position_metrics_df = pd.DataFrame()
+    r.tracker = None
+    r.instruments = {}
     return r
 
 
@@ -74,6 +77,7 @@ async def test_read_returns_dataframe(
         {b"SPY": make_position_json("SPY", "SPY").encode()},  # positions
         {b"SPY": make_quote_json("SPY", 690.0, 691.0).encode()},  # quotes
         {},  # greeks
+        {},  # instruments
     ]
     df = await reader.read()
     assert isinstance(df, pd.DataFrame)
@@ -91,16 +95,9 @@ async def test_read_joins_greeks_for_options(
                 "SPY P666", ".SPY260402P666", inst_type="Equity Option"
             ).encode()
         },
-        {
-            b".SPY260402P666": make_quote_json(
-                ".SPY260402P666", 5.75, 5.80
-            ).encode()
-        },
-        {
-            b".SPY260402P666": make_greeks_json(
-                ".SPY260402P666", -0.24, 0.19
-            ).encode()
-        },
+        {b".SPY260402P666": make_quote_json(".SPY260402P666", 5.75, 5.80).encode()},
+        {b".SPY260402P666": make_greeks_json(".SPY260402P666", -0.24, 0.19).encode()},
+        {},  # instruments
     ]
     df = await reader.read()
     assert len(df) == 1
@@ -112,7 +109,7 @@ async def test_read_joins_greeks_for_options(
 async def test_read_empty_positions_returns_empty_df(
     reader: PositionMetricsReader, mock_redis: AsyncMock
 ) -> None:
-    mock_redis.hgetall.side_effect = [{}, {}, {}]
+    mock_redis.hgetall.side_effect = [{}, {}, {}, {}]
     df = await reader.read()
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 0
@@ -125,7 +122,8 @@ async def test_read_includes_required_columns(
     mock_redis.hgetall.side_effect = [
         {b"SPY": make_position_json("SPY", "SPY").encode()},
         {b"SPY": make_quote_json("SPY", 690.0, 691.0).encode()},
-        {},
+        {},  # greeks
+        {},  # instruments
     ]
     df = await reader.read()
     for col in [
