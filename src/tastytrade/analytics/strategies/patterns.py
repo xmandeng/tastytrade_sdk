@@ -263,8 +263,11 @@ def match_big_lizard(legs: list[ParsedLeg]) -> MatchResult | None:
 
 
 def match_jade_lizard(legs: list[ParsedLeg]) -> MatchResult | None:
-    """Jade Lizard: short OTM put + bear call spread (short call + long higher call).
-    3 options, same exp.
+    """Jade Lizard: short put + short call vertical OR short call + short put vertical.
+
+    Variant A: short put + bear call spread (short call + long higher call).
+    Variant B: short call + bull put spread (short put + long lower put).
+    3 options, same exp, same abs quantity.
     """
     options = [leg for leg in legs if leg.is_option]
     if len(options) < 3:
@@ -275,23 +278,31 @@ def match_jade_lizard(legs: list[ParsedLeg]) -> MatchResult | None:
         if not same_expiration(combo_list):
             continue
 
-        short_puts = [leg for leg in combo_list if leg.is_put and leg.is_short]
-        short_calls = [leg for leg in combo_list if leg.is_call and leg.is_short]
-        long_calls = [leg for leg in combo_list if leg.is_call and leg.is_long]
-
-        if len(short_puts) != 1 or len(short_calls) != 1 or len(long_calls) != 1:
-            continue
-
         if not same_abs_quantity(combo_list):
             continue
 
-        # Bear call spread: short lower, long higher
-        if (
-            short_calls[0].strike is not None
-            and long_calls[0].strike is not None
-            and short_calls[0].strike < long_calls[0].strike
-        ):
-            return MatchResult(StrategyType.JADE_LIZARD, tuple(combo_list))
+        short_puts = [leg for leg in combo_list if leg.is_put and leg.is_short]
+        short_calls = [leg for leg in combo_list if leg.is_call and leg.is_short]
+        long_calls = [leg for leg in combo_list if leg.is_call and leg.is_long]
+        long_puts = [leg for leg in combo_list if leg.is_put and leg.is_long]
+
+        # Variant A: short put + bear call spread (1 short put, 1 short call, 1 long call)
+        if len(short_puts) == 1 and len(short_calls) == 1 and len(long_calls) == 1:
+            if (
+                short_calls[0].strike is not None
+                and long_calls[0].strike is not None
+                and short_calls[0].strike < long_calls[0].strike
+            ):
+                return MatchResult(StrategyType.JADE_LIZARD, tuple(combo_list))
+
+        # Variant B: short call + bull put spread (1 short call, 1 short put, 1 long put)
+        if len(short_calls) == 1 and len(short_puts) == 1 and len(long_puts) == 1:
+            if (
+                long_puts[0].strike is not None
+                and short_puts[0].strike is not None
+                and long_puts[0].strike < short_puts[0].strike
+            ):
+                return MatchResult(StrategyType.JADE_LIZARD, tuple(combo_list))
 
     return None
 
