@@ -208,6 +208,60 @@ class TestHealthChecks:
         assert len(delta_alerts) == 1
         assert delta_alerts[0].level == AlertLevel.WARNING
 
+    def test_no_delta_alert_for_long_stock(self):
+        """Long Stock is delta-exempt — no delta drift warning."""
+        legs = (
+            ParsedLeg(
+                streamer_symbol="SPY",
+                symbol="SPY",
+                underlying="SPY",
+                instrument_type=InstrumentType.EQUITY,
+                signed_quantity=100,
+                delta=100.0,
+            ),
+        )
+        strategy = make_strategy(
+            strategy_type=StrategyType.LONG_STOCK,
+            legs=legs,
+        )
+        monitor = StrategyHealthMonitor()
+        alerts = monitor.check(strategy)
+        delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
+        assert len(delta_alerts) == 0
+
+    def test_no_delta_alert_for_covered_call(self):
+        """Covered Call is delta-exempt — no delta drift warning."""
+        legs = (
+            ParsedLeg(
+                streamer_symbol="SPY",
+                symbol="SPY",
+                underlying="SPY",
+                instrument_type=InstrumentType.EQUITY,
+                signed_quantity=100,
+                delta=100.0,
+            ),
+            ParsedLeg(
+                streamer_symbol=".SPYC310",
+                symbol="SPY  C310",
+                underlying="SPY",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="C",
+                strike=Decimal("310"),
+                expiration=date(2026, 3, 20),
+                days_to_expiration=30,
+                delta=-0.30,
+            ),
+        )
+        strategy = make_strategy(
+            strategy_type=StrategyType.COVERED_CALL,
+            legs=legs,
+        )
+        monitor = StrategyHealthMonitor()
+        alerts = monitor.check(strategy)
+        delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
+        assert len(delta_alerts) == 0
+
     def test_no_delta_alert_when_none(self):
         """Strategy with no delta data → no delta alert."""
         legs = (
