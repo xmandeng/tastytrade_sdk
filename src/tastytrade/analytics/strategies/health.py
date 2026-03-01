@@ -133,20 +133,34 @@ class StrategyHealthMonitor:
                     )
                 )
 
-        # Delta drift check
+        # Delta drift check — skip for delta-1 and covered strategies
+        # where high absolute delta is inherent, not a risk signal.
+        delta_exempt = {
+            StrategyType.LONG_STOCK,
+            StrategyType.SHORT_STOCK,
+            StrategyType.LONG_CRYPTO,
+            StrategyType.SHORT_CRYPTO,
+            StrategyType.LONG_FUTURE,
+            StrategyType.SHORT_FUTURE,
+            StrategyType.COVERED_CALL,
+            StrategyType.PROTECTIVE_PUT,
+        }
         net_delta = strategy.net_delta
-        if net_delta is not None:
-            if abs(net_delta) > thresholds.delta_drift_warning:
-                alerts.append(
-                    HealthAlert(
-                        strategy=strategy,
-                        level=AlertLevel.WARNING,
-                        message=(
-                            f"Net delta={net_delta:.2f} exceeds "
-                            f"+/-{thresholds.delta_drift_warning}"
-                        ),
-                    )
+        if (
+            net_delta is not None
+            and strategy.strategy_type not in delta_exempt
+            and abs(net_delta) > thresholds.delta_drift_warning
+        ):
+            alerts.append(
+                HealthAlert(
+                    strategy=strategy,
+                    level=AlertLevel.WARNING,
+                    message=(
+                        f"Net delta={net_delta:.2f} exceeds "
+                        f"+/-{thresholds.delta_drift_warning}"
+                    ),
                 )
+            )
 
         # Max loss proximity check
         max_loss = strategy.max_loss
