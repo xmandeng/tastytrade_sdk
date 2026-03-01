@@ -341,6 +341,47 @@ def positions_summary_cmd() -> None:
     asyncio.run(_run())
 
 
+@cli.command(name="strategies")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output in JSON format for machine consumption.",
+)
+def strategies_cmd(as_json: bool) -> None:
+    """Classify positions into named option strategies.
+
+    Uses deterministic pattern matching to identify strategies like
+    iron condors, strangles, jade lizards, covered calls, etc.
+    Includes health monitoring alerts.
+
+    \b
+    Example:
+      tasty-subscription strategies
+      tasty-subscription strategies --json
+    """
+
+    async def _run() -> None:
+        from tastytrade.analytics.positions import PositionMetricsReader
+
+        reader = PositionMetricsReader()
+        try:
+            await reader.read()
+            summary = reader.strategy_summary
+            if summary.empty:
+                click.echo("No positions found in Redis. Is account-stream running?")
+                return
+            if as_json:
+                click.echo(summary.to_json(orient="records", indent=2))
+            else:
+                click.echo(summary.to_string(index=False))
+        finally:
+            await reader.close()
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     """Entry point for the tasty-subscription CLI."""
     cli()

@@ -48,7 +48,15 @@ positions:
 positions-summary:
     uv run tasty-subscription positions-summary
 
-# Position summary with LLM strategy identification
+# Deterministic strategy classification (no LLM)
+strategies:
+    uv run tasty-subscription strategies
+
+# Strategy classification in JSON format
+strategies-json:
+    uv run tasty-subscription strategies --json
+
+# Position summary with LLM strategy identification (legacy)
 positions-strategies:
     uv run tasty-subscription positions-summary | claude --print \
         "Identify the strategy for each underlying. Output ONLY a markdown table \
