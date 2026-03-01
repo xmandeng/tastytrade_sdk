@@ -108,8 +108,8 @@ class PositionMetricsReader:
             alert_str = "; ".join(a.message for a in alerts) if alerts else "OK"
             health_level = max(a.level.value for a in alerts) if alerts else "OK"
             leg_desc = ", ".join(
-                f"{leg.signed_quantity:+g}x {leg.option_type or leg.instrument_type.value}"
-                f"{'@' + str(leg.strike) if leg.strike else ''}"
+                f"{leg.signed_quantity:+g} {leg.option_type or leg.instrument_type.value}"
+                f"{'@' + str(leg.strike.normalize()) if leg.strike else ''}"
                 for leg in strat.legs
             )
             rows.append(
