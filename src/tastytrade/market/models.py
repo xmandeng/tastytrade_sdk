@@ -4,6 +4,14 @@ Each model maps 1:1 to its TT API ``/instruments/*`` endpoint.
 All extend InstrumentModel (frozen Pydantic with extra="allow").
 
 Field inventory sourced from live TT API responses (2026-02-28).
+
+Resilience policy:
+- Fields our code consumes (strategy classifier, publisher, position
+  joining) are **required** — if the API stops sending them we fail
+  fast rather than silently ingesting bad data.
+- Informational fields (display, metadata) are Optional with defaults
+  so API schema additions/removals don't break parsing.
+- ``extra="allow"`` captures any future fields the API adds.
 """
 
 import logging
@@ -45,22 +53,26 @@ class EquityOptionInstrument(InstrumentModel):
     All 19 fields observed in live API responses (2026-02-28).
     """
 
+    # --- Required: consumed by our code ---
     symbol: str = Field(alias="symbol")
-    instrument_type: str = Field(alias="instrument-type")
     strike_price: Decimal = Field(alias="strike-price")
     option_type: OptionType = Field(alias="option-type")
-    root_symbol: str = Field(alias="root-symbol")
     underlying_symbol: str = Field(alias="underlying-symbol")
     expiration_date: date = Field(alias="expiration-date")
     days_to_expiration: int = Field(alias="days-to-expiration")
-    expires_at: datetime = Field(alias="expires-at")
-    exercise_style: str = Field(alias="exercise-style")
-    settlement_type: str = Field(alias="settlement-type")
-    shares_per_contract: int = Field(alias="shares-per-contract")
     streamer_symbol: str = Field(alias="streamer-symbol")
-    active: bool = Field(alias="active")
-    is_closing_only: bool = Field(alias="is-closing-only")
-    # Fields discovered in live API (not in original plan)
+
+    # --- Informational: Optional with defaults ---
+    instrument_type: Optional[str] = Field(default=None, alias="instrument-type")
+    root_symbol: Optional[str] = Field(default=None, alias="root-symbol")
+    expires_at: Optional[datetime] = Field(default=None, alias="expires-at")
+    exercise_style: Optional[str] = Field(default=None, alias="exercise-style")
+    settlement_type: Optional[str] = Field(default=None, alias="settlement-type")
+    shares_per_contract: Optional[int] = Field(
+        default=None, alias="shares-per-contract"
+    )
+    active: Optional[bool] = Field(default=None, alias="active")
+    is_closing_only: Optional[bool] = Field(default=None, alias="is-closing-only")
     expiration_type: Optional[str] = Field(default=None, alias="expiration-type")
     market_time_instrument_collection: Optional[str] = Field(
         default=None, alias="market-time-instrument-collection"
@@ -75,17 +87,19 @@ class FutureOptionInstrument(InstrumentModel):
     All 34 fields observed in live API responses (2026-02-28).
     """
 
+    # --- Required: consumed by our code ---
     symbol: str = Field(alias="symbol")
-    underlying_symbol: str = Field(alias="underlying-symbol")
-    product_code: str = Field(alias="product-code")
-    expiration_date: date = Field(alias="expiration-date")
     strike_price: Decimal = Field(alias="strike-price")
     option_type: OptionType = Field(alias="option-type")
-    exchange: str = Field(alias="exchange")
+    underlying_symbol: str = Field(alias="underlying-symbol")
+    expiration_date: date = Field(alias="expiration-date")
+    days_to_expiration: int = Field(alias="days-to-expiration")
     streamer_symbol: str = Field(alias="streamer-symbol")
-    # Fields discovered in live API (not in original plan)
-    active: bool = Field(default=True, alias="active")
-    days_to_expiration: int = Field(default=0, alias="days-to-expiration")
+
+    # --- Informational: Optional with defaults ---
+    product_code: Optional[str] = Field(default=None, alias="product-code")
+    exchange: Optional[str] = Field(default=None, alias="exchange")
+    active: Optional[bool] = Field(default=None, alias="active")
     display_factor: Optional[str] = Field(default=None, alias="display-factor")
     exchange_symbol: Optional[str] = Field(default=None, alias="exchange-symbol")
     exercise_style: Optional[str] = Field(default=None, alias="exercise-style")
@@ -94,7 +108,7 @@ class FutureOptionInstrument(InstrumentModel):
         default=None, alias="future-option-product"
     )
     future_price_ratio: Optional[str] = Field(default=None, alias="future-price-ratio")
-    is_closing_only: bool = Field(default=False, alias="is-closing-only")
+    is_closing_only: Optional[bool] = Field(default=None, alias="is-closing-only")
     is_confirmed: Optional[bool] = Field(default=None, alias="is-confirmed")
     is_exercisable_weekly: Optional[bool] = Field(
         default=None, alias="is-exercisable-weekly"
@@ -124,29 +138,33 @@ class EquityInstrument(InstrumentModel):
     All 27 fields observed in live API responses (2026-02-28).
     """
 
+    # --- Required: consumed by our code ---
     symbol: str = Field(alias="symbol")
-    instrument_type: str = Field(alias="instrument-type")
+
+    # --- Informational: Optional with defaults ---
+    instrument_type: Optional[str] = Field(default=None, alias="instrument-type")
     description: Optional[str] = Field(default=None, alias="description")
-    is_etf: bool = Field(alias="is-etf")
-    active: bool = Field(alias="active")
-    # Fields discovered in live API (not in original plan)
+    is_etf: Optional[bool] = Field(default=None, alias="is-etf")
+    active: Optional[bool] = Field(default=None, alias="active")
     id: Optional[int] = Field(default=None, alias="id")
     cusip: Optional[str] = Field(default=None, alias="cusip")
     short_description: Optional[str] = Field(default=None, alias="short-description")
     streamer_symbol: Optional[str] = Field(default=None, alias="streamer-symbol")
-    is_closing_only: bool = Field(default=False, alias="is-closing-only")
-    is_index: bool = Field(default=False, alias="is-index")
-    is_illiquid: bool = Field(default=False, alias="is-illiquid")
-    is_fraud_risk: bool = Field(default=False, alias="is-fraud-risk")
-    is_options_closing_only: bool = Field(
-        default=False, alias="is-options-closing-only"
+    is_closing_only: Optional[bool] = Field(default=None, alias="is-closing-only")
+    is_index: Optional[bool] = Field(default=None, alias="is-index")
+    is_illiquid: Optional[bool] = Field(default=None, alias="is-illiquid")
+    is_fraud_risk: Optional[bool] = Field(default=None, alias="is-fraud-risk")
+    is_options_closing_only: Optional[bool] = Field(
+        default=None, alias="is-options-closing-only"
     )
-    is_fractional_quantity_eligible: bool = Field(
-        default=False, alias="is-fractional-quantity-eligible"
+    is_fractional_quantity_eligible: Optional[bool] = Field(
+        default=None, alias="is-fractional-quantity-eligible"
     )
-    bypass_manual_review: bool = Field(default=False, alias="bypass-manual-review")
-    overnight_trading_permitted: bool = Field(
-        default=False, alias="overnight-trading-permitted"
+    bypass_manual_review: Optional[bool] = Field(
+        default=None, alias="bypass-manual-review"
+    )
+    overnight_trading_permitted: Optional[bool] = Field(
+        default=None, alias="overnight-trading-permitted"
     )
     borrow_rate: Optional[str] = Field(default=None, alias="borrow-rate")
     lendability: Optional[str] = Field(default=None, alias="lendability")
@@ -173,25 +191,31 @@ class FutureInstrument(InstrumentModel):
     """Future instrument from GET /instruments/futures.
 
     Core fields defined; no live data available for full inventory.
-    extra="allow" will capture any additional fields.
     """
 
+    # --- Required: consumed by our code ---
     symbol: str = Field(alias="symbol")
-    product_code: str = Field(alias="product-code")
-    contract_size: Decimal = Field(alias="contract-size")
-    notional_multiplier: Decimal = Field(alias="notional-multiplier")
-    expiration_date: date = Field(alias="expiration-date")
-    active: bool = Field(alias="active")
+
+    # --- Informational: Optional with defaults ---
+    product_code: Optional[str] = Field(default=None, alias="product-code")
+    contract_size: Optional[Decimal] = Field(default=None, alias="contract-size")
+    notional_multiplier: Optional[Decimal] = Field(
+        default=None, alias="notional-multiplier"
+    )
+    expiration_date: Optional[date] = Field(default=None, alias="expiration-date")
+    active: Optional[bool] = Field(default=None, alias="active")
 
 
 class CryptocurrencyInstrument(InstrumentModel):
     """Cryptocurrency instrument from GET /instruments/cryptocurrencies.
 
     Core fields defined; no live data available for full inventory.
-    extra="allow" will capture any additional fields.
     """
 
+    # --- Required: consumed by our code ---
     symbol: str = Field(alias="symbol")
-    instrument_type: str = Field(alias="instrument-type")
+
+    # --- Informational: Optional with defaults ---
+    instrument_type: Optional[str] = Field(default=None, alias="instrument-type")
     description: Optional[str] = Field(default=None, alias="description")
-    active: bool = Field(alias="active")
+    active: Optional[bool] = Field(default=None, alias="active")
