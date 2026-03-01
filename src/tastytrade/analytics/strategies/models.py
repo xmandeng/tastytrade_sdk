@@ -302,7 +302,7 @@ def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
         StrategyType.JADE_LIZARD,
     ):
         # Credit strategies: max profit = net credit received × multiplier
-        return (max(net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
+        return (max(net_credit, Decimal("0")) * mult).quantize(Decimal("1"))
 
     if st in (StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD):
         # Debit spread: max profit = width - net debit paid
@@ -310,7 +310,7 @@ def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
         if w is None:
             return None
         # net_credit is negative for debit spreads (we paid more than we received)
-        return (max(w + net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
+        return (max(w + net_credit, Decimal("0")) * mult).quantize(Decimal("1"))
 
     return None
 
@@ -345,12 +345,12 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         w = strategy.width
         if w is None:
             return None
-        return (max(w - net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
+        return (max(w - net_credit, Decimal("0")) * mult).quantize(Decimal("1"))
 
     if st in (StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD):
         # Debit spread: max loss = net debit paid
         net_debit = -net_credit  # flip sign: positive = what we paid
-        return (max(net_debit, Decimal("0")) * mult).quantize(Decimal("0.01"))
+        return (max(net_debit, Decimal("0")) * mult).quantize(Decimal("1"))
 
     if st == StrategyType.IRON_CONDOR:
         put_strikes = sorted(
@@ -380,6 +380,6 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         w = strategy.width
         if w is None:
             return None
-        return (max(w - net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
+        return (max(w - net_credit, Decimal("0")) * mult).quantize(Decimal("1"))
 
     return None
