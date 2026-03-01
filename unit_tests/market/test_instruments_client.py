@@ -33,7 +33,10 @@ def make_ok_response(json_data: dict[str, Any]) -> AsyncMock:
 
 
 def make_equity_option_json(**overrides: Any) -> dict[str, Any]:
-    """Factory for equity option instrument API response."""
+    """Factory for equity option instrument API response.
+
+    Mirrors the full 19-field shape returned by GET /instruments/equity-options.
+    """
     base: dict[str, Any] = {
         "symbol": "SPY   260320C00500000",
         "instrument-type": "Equity Option",
@@ -50,13 +53,20 @@ def make_equity_option_json(**overrides: Any) -> dict[str, Any]:
         "streamer-symbol": ".SPY260320C500",
         "active": True,
         "is-closing-only": False,
+        "expiration-type": "Weekly",
+        "market-time-instrument-collection": "Cash Settled Equity Option",
+        "option-chain-type": "Standard",
+        "stops-trading-at": "2026-03-20T20:15:00.000+00:00",
     }
     base.update(overrides)
     return base
 
 
 def make_future_option_json(**overrides: Any) -> dict[str, Any]:
-    """Factory for future option instrument API response."""
+    """Factory for future option instrument API response.
+
+    Mirrors the full 34-field shape returned by GET /instruments/future-options.
+    """
     base: dict[str, Any] = {
         "symbol": "./MESM6EX3H6 260320P6450",
         "underlying-symbol": "/MESM6",
@@ -66,19 +76,72 @@ def make_future_option_json(**overrides: Any) -> dict[str, Any]:
         "option-type": "P",
         "exchange": "CME",
         "streamer-symbol": "./EX3H26P6450:XCME",
+        "active": True,
+        "days-to-expiration": 20,
+        "display-factor": "0.01",
+        "exchange-symbol": "EX3H6 P6450",
+        "exercise-style": "American",
+        "expires-at": "2026-03-20T17:30:00.000+00:00",
+        "future-option-product": {
+            "root-symbol": "EX3",
+            "exchange": "CME",
+            "product-type": "Physical",
+        },
+        "future-price-ratio": "1.0",
+        "is-closing-only": False,
+        "is-confirmed": True,
+        "is-exercisable-weekly": True,
+        "is-primary-deliverable": True,
+        "is-vanilla": True,
+        "last-trade-time": "0",
+        "maturity-date": "2026-03-20",
+        "multiplier": "1.0",
+        "notional-value": "1.0",
+        "option-root-symbol": "EX3",
+        "root-symbol": "/MES",
+        "security-exchange": "4",
+        "security-id": "12345678",
+        "settlement-type": "Future",
+        "stops-trading-at": "2026-03-20T17:30:00.000+00:00",
+        "strike-factor": "1.0",
+        "sx-id": "0",
+        "underlying-count": "1.0",
     }
     base.update(overrides)
     return base
 
 
 def make_equity_json(**overrides: Any) -> dict[str, Any]:
-    """Factory for equity instrument API response."""
+    """Factory for equity instrument API response.
+
+    Mirrors the full 27-field shape returned by GET /instruments/equities.
+    """
     base: dict[str, Any] = {
         "symbol": "SPY",
         "instrument-type": "Equity",
-        "description": "SPDR S&P 500 ETF Trust",
+        "description": "SPDR S&P 500 ETF TRUST",
         "is-etf": True,
         "active": True,
+        "id": 27854,
+        "cusip": "78462F103",
+        "short-description": "SPDR S&P 500 ET",
+        "streamer-symbol": "SPY",
+        "is-closing-only": False,
+        "is-index": False,
+        "is-illiquid": False,
+        "is-fraud-risk": False,
+        "is-options-closing-only": False,
+        "is-fractional-quantity-eligible": True,
+        "bypass-manual-review": False,
+        "overnight-trading-permitted": True,
+        "borrow-rate": "0.0",
+        "lendability": "Easy To Borrow",
+        "instrument-sub-type": "ETF",
+        "listed-market": "ARCX",
+        "market-time-instrument-collection": "Equity",
+        "country-of-incorporation": "US",
+        "tick-sizes": [{"threshold": "1.0", "value": "0.0001"}, {"value": "0.01"}],
+        "option-tick-sizes": [{"value": "0.01"}],
     }
     base.update(overrides)
     return base
@@ -146,6 +209,11 @@ def test_equity_option_instrument_parses() -> None:
     assert inst.streamer_symbol == ".SPY260320C500"
     assert inst.active is True
     assert inst.is_closing_only is False
+    # Fields discovered from live API
+    assert inst.expiration_type == "Weekly"
+    assert inst.market_time_instrument_collection == "Cash Settled Equity Option"
+    assert inst.option_chain_type == "Standard"
+    assert inst.stops_trading_at == "2026-03-20T20:15:00.000+00:00"
 
 
 def test_equity_option_instrument_put() -> None:
@@ -164,6 +232,15 @@ def test_future_option_instrument_parses() -> None:
     assert inst.strike_price == Decimal("6450.0")
     assert inst.option_type == OptionType.PUT
     assert inst.exchange == "CME"
+    # Fields discovered from live API
+    assert inst.active is True
+    assert inst.days_to_expiration == 20
+    assert inst.exercise_style == "American"
+    assert inst.settlement_type == "Future"
+    assert inst.is_closing_only is False
+    assert inst.root_symbol == "/MES"
+    assert inst.option_root_symbol == "EX3"
+    assert inst.is_vanilla is True
 
 
 def test_equity_instrument_parses() -> None:
@@ -171,7 +248,17 @@ def test_equity_instrument_parses() -> None:
     assert inst.symbol == "SPY"
     assert inst.is_etf is True
     assert inst.active is True
-    assert inst.description == "SPDR S&P 500 ETF Trust"
+    assert inst.description == "SPDR S&P 500 ETF TRUST"
+    # Fields discovered from live API
+    assert inst.id == 27854
+    assert inst.cusip == "78462F103"
+    assert inst.streamer_symbol == "SPY"
+    assert inst.is_closing_only is False
+    assert inst.is_fractional_quantity_eligible is True
+    assert inst.lendability == "Easy To Borrow"
+    assert inst.instrument_sub_type == "ETF"
+    assert inst.listed_market == "ARCX"
+    assert inst.country_of_incorporation == "US"
 
 
 def test_future_instrument_parses() -> None:
@@ -199,8 +286,8 @@ def test_equity_option_instrument_is_frozen() -> None:
 
 def test_equity_option_instrument_allows_extra_fields() -> None:
     data = make_equity_option_json()
-    data["expiration-type"] = "Weekly"
-    data["option-chain-type"] = "Standard"
+    data["some-future-field"] = "unknown-value"
+    data["another-new-field"] = 42
     inst = EquityOptionInstrument.model_validate(data)
     assert inst.symbol == data["symbol"]
 
