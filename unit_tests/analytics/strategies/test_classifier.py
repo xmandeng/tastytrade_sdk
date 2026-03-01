@@ -3,9 +3,13 @@
 import json
 from datetime import date
 from decimal import Decimal
+
 from tastytrade.accounts.models import InstrumentType, QuantityDirection
 from tastytrade.analytics.metrics import SecurityMetrics
-from tastytrade.analytics.strategies.classifier import StrategyClassifier
+from tastytrade.analytics.strategies.classifier import (
+    StrategyClassifier,
+    snap_to_option_tick,
+)
 from tastytrade.analytics.strategies.models import StrategyType
 
 
@@ -356,3 +360,113 @@ class TestClassifyGreedy:
         classifier = StrategyClassifier()
         strategies = classifier.classify({}, {})
         assert strategies == []
+
+
+class TestSnapToOptionTick:
+    """Test tick-snapping for truncated future option prices."""
+
+    def test_zb_put_snaps_to_64ths(self):
+        """/ZB put: 0.23 → 15/64 = 0.234375."""
+        tick_sizes = [{"value": "0.015625"}]
+        assert snap_to_option_tick(0.23, tick_sizes) == 0.234375
+
+    def test_zb_call_snaps_to_64ths(self):
+        """/ZB call: 0.28 → 18/64 = 0.28125."""
+        tick_sizes = [{"value": "0.015625"}]
+        assert snap_to_option_tick(0.28, tick_sizes) == 0.28125
+
+    def test_gc_snaps_to_tenths(self):
+        """/GC options: 0.1 tick size, 4.5 stays 4.5."""
+        tick_sizes = [{"value": "0.1"}]
+        assert snap_to_option_tick(4.5, tick_sizes) == 4.5
+
+    def test_tiered_tick_sizes(self):
+        """/MES options use tiered ticks based on price level."""
+        tick_sizes = [
+            {"threshold": "5.0", "value": "0.05"},
+            {"threshold": "20.0", "value": "0.1"},
+            {"threshold": "100.0", "value": "0.25"},
+            {"value": "0.5"},
+        ]
+        # Price 3.5 → tick 0.05, already on tick
+        assert snap_to_option_tick(3.5, tick_sizes) == 3.5
+        # Price 15.0 → tick 0.1, already on tick
+        assert snap_to_option_tick(15.0, tick_sizes) == 15.0
+        # Price 47.58 → tick 0.25, snaps to 47.50
+        assert snap_to_option_tick(47.58, tick_sizes) == 47.5
+
+    def test_zero_price_unchanged(self):
+        """Price of 0.0 is not snapped (handled as None elsewhere)."""
+        tick_sizes = [{"value": "0.015625"}]
+        assert snap_to_option_tick(0.0, tick_sizes) == 0.0
+
+    def test_empty_tick_sizes_unchanged(self):
+        """No tick sizes → price unchanged."""
+        assert snap_to_option_tick(0.23, []) == 0.23
+
+    def test_exact_price_stays_exact(self):
+        """A price already on a tick boundary is unchanged."""
+        tick_sizes = [{"value": "0.015625"}]
+        assert snap_to_option_tick(0.234375, tick_sizes) == 0.234375
+
+
+class TestBuildParsedLegFutureOptions:
+    """Test future option price correction in build_parsed_leg."""
+
+    def test_zero_average_open_price_becomes_none(self):
+        """API returning 0.0 for average-open-price is treated as missing."""
+        sec = make_security(
+            symbol="./6EM6 EUUJ6 260403P1.16",
+            streamer_symbol="./EUUJ26P1.16:XCME",
+            underlying_symbol="/6EM6",
+            instrument_type=InstrumentType.FUTURE_OPTION,
+            quantity=2,
+            quantity_direction=QuantityDirection.SHORT,
+        )
+        sec.average_open_price = 0.0
+        instruments = {
+            "./6EM6 EUUJ6 260403P1.16": {
+                "option-type": "P",
+                "strike-price": "1.16",
+                "expiration-date": "2026-04-03",
+                "days-to-expiration": 33,
+            },
+            "/6EM6": {
+                "notional-multiplier": "125000.0",
+                "option-tick-sizes": [
+                    {"threshold": "0.0005", "value": "0.00005"},
+                    {"value": "0.0001"},
+                ],
+            },
+        }
+        classifier = StrategyClassifier()
+        leg = classifier.build_parsed_leg(sec, instruments)
+        assert leg.average_open_price is None
+
+    def test_zb_price_snapped_to_tick(self):
+        """/ZB option price 0.23 is snapped to 15/64 = 0.234375."""
+        sec = make_security(
+            symbol="./ZBM6 OZBJ6 260327P115",
+            streamer_symbol="./OZBJ26P115:XCBT",
+            underlying_symbol="/ZBM6",
+            instrument_type=InstrumentType.FUTURE_OPTION,
+            quantity=1,
+            quantity_direction=QuantityDirection.SHORT,
+        )
+        sec.average_open_price = 0.23
+        instruments = {
+            "./ZBM6 OZBJ6 260327P115": {
+                "option-type": "P",
+                "strike-price": "115.0",
+                "expiration-date": "2026-03-27",
+                "days-to-expiration": 26,
+            },
+            "/ZBM6": {
+                "notional-multiplier": "1000.0",
+                "option-tick-sizes": [{"value": "0.015625"}],
+            },
+        }
+        classifier = StrategyClassifier()
+        leg = classifier.build_parsed_leg(sec, instruments)
+        assert leg.average_open_price == 0.234375
+        assert leg.multiplier == Decimal("1000.0")
