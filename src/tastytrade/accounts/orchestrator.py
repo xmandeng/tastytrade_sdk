@@ -10,11 +10,13 @@ import asyncio
 import logging
 import time
 
-from tastytrade.accounts.publisher import AccountStreamPublisher
+from tastytrade.accounts.models import InstrumentType, Position
+from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
 from tastytrade.accounts.streamer import AccountStreamer
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType
 from tastytrade.connections import Credentials
+from tastytrade.market.instruments import InstrumentsClient
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +95,68 @@ async def run_account_stream_once(
         # === Create publisher ===
         publisher = AccountStreamPublisher()
 
-        # === Start consumer tasks for position + balance queues ===
+        # === Enrich positions with instrument details ===
         position_queue = streamer.queues[AccountEventType.CURRENT_POSITION]
+        hydrated_items = []
+        while not position_queue.empty():
+            hydrated_items.append(position_queue.get_nowait())
+
+        hydrated_positions = [p for p in hydrated_items if isinstance(p, Position)]
+
+        if streamer.session is not None and hydrated_positions:
+            instruments_client = InstrumentsClient(streamer.session)
+
+            equity_option_syms = [
+                p.symbol
+                for p in hydrated_positions
+                if p.instrument_type == InstrumentType.EQUITY_OPTION
+            ]
+            future_option_syms = [
+                p.symbol
+                for p in hydrated_positions
+                if p.instrument_type == InstrumentType.FUTURE_OPTION
+            ]
+            equity_syms = [
+                p.symbol
+                for p in hydrated_positions
+                if p.instrument_type == InstrumentType.EQUITY
+            ]
+            future_syms = [
+                p.symbol
+                for p in hydrated_positions
+                if p.instrument_type == InstrumentType.FUTURE
+            ]
+            crypto_syms = [
+                p.symbol
+                for p in hydrated_positions
+                if p.instrument_type == InstrumentType.CRYPTOCURRENCY
+            ]
+
+            all_instruments: list[Instrument] = []
+            if equity_option_syms:
+                all_instruments += await instruments_client.get_equity_options(
+                    equity_option_syms
+                )
+            if future_option_syms:
+                all_instruments += await instruments_client.get_future_options(
+                    future_option_syms
+                )
+            if equity_syms:
+                all_instruments += await instruments_client.get_equities(equity_syms)
+            if future_syms:
+                all_instruments += await instruments_client.get_futures(future_syms)
+            if crypto_syms:
+                all_instruments += await instruments_client.get_cryptocurrencies(
+                    crypto_syms
+                )
+
+            await publisher.publish_instruments(all_instruments)
+            logger.info("Enriched positions with %d instruments", len(all_instruments))
+
+        for item in hydrated_items:
+            position_queue.put_nowait(item)
+
+        # === Start consumer tasks for position + balance queues ===
         balance_queue = streamer.queues[AccountEventType.ACCOUNT_BALANCE]
 
         consumer_tasks.append(
@@ -116,9 +178,7 @@ async def run_account_stream_once(
         # === Monitor for reconnection signal ===
         while True:
             sleep_task = asyncio.create_task(asyncio.sleep(health_interval))
-            monitor_task = asyncio.create_task(
-                streamer.wait_for_reconnect_signal()
-            )
+            monitor_task = asyncio.create_task(streamer.wait_for_reconnect_signal())
 
             done, pending = await asyncio.wait(
                 [monitor_task, sleep_task],
@@ -135,9 +195,7 @@ async def run_account_stream_once(
             if monitor_task in done:
                 reason = monitor_task.result()
                 logger.warning("Reconnection triggered: %s", reason.value)
-                raise ConnectionError(
-                    f"Reconnection triggered: {reason.value}"
-                )
+                raise ConnectionError(f"Reconnection triggered: {reason.value}")
 
             # Health check on interval
             uptime = int(time.monotonic() - connection_established_at)
