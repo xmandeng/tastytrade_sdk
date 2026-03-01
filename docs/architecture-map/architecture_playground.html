@@ -910,6 +910,7 @@ const LAYERS = {
   processor:   { label: 'Processors',  color: '#3fb950' },
   persistence: { label: 'Persistence', color: '#f85149' },
   signal:      { label: 'Signal',      color: '#39d2c0' },
+  analytics:   { label: 'Analytics',   color: '#e8b004' },
   config:      { label: 'Config',      color: '#f778ba' },
 };
 
@@ -1343,6 +1344,93 @@ const nodes = [
     connections: []
   },
 
+  // ── ANALYTICS LAYER (TT-62: Strategy Engine) ──
+  { id: 'acct-publisher', x: 1700, y: -80, layer: 'analytics',
+    label: 'AccountStreamPublisher', type: 'Redis Writer',
+    badge: 'TT-62',
+    file: 'accounts/publisher.py',
+    desc: 'Publishes account events (positions, balances, instruments) to Redis HSET for on-demand reads. Single responsibility: account data → Redis.',
+    details: `Three Redis HSET keys:\n• tastytrade:positions — keyed by streamer_symbol\n• tastytrade:balances — keyed by account\n• tastytrade:instruments — keyed by symbol\n\nPositions: removes closed (qty=0) positions.\nInstruments: accepts any instrument model type\n(EquityOptionInstrument, FutureOptionInstrument, etc.)`,
+    code: `class AccountStreamPublisher:\n  POSITIONS_KEY = "tastytrade:positions"\n  BALANCES_KEY = "tastytrade:balances"\n  INSTRUMENTS_KEY = "tastytrade:instruments"\n\n  async def publish_position(self, position):\n    if position.quantity == 0.0:\n      await redis.hdel(POSITIONS_KEY, key)\n    else:\n      await redis.hset(POSITIONS_KEY, key, json)\n\n  async def publish_instruments(self, instruments):\n    for inst in instruments:\n      await redis.hset(INSTRUMENTS_KEY, inst.symbol, json)`,
+    insights: [
+      { author: 'claude', text: 'Instruments are keyed by the Position symbol (OCC format for equity options, broker format for futures). This allows PositionMetricsReader to look up instrument data by the same key used for positions.' },
+    ],
+    connections: ['redis']
+  },
+  { id: 'pos-reader', x: 1700, y: 1140, layer: 'analytics',
+    label: 'PositionMetricsReader', type: 'Redis Consumer',
+    badge: 'TT-62',
+    file: 'analytics/positions.py',
+    desc: 'Pure Redis consumer — reads positions, quotes, Greeks, and instrument details from Redis HSET. Joins via MetricsTracker into a DataFrame. Provides strategy classification and health monitoring.',
+    details: `read() loads from 4 Redis HSETs:\n1. tastytrade:positions → Position models\n2. tastytrade:latest:QuoteEvent → QuoteEvent\n3. tastytrade:latest:GreeksEvent → GreeksEvent\n4. tastytrade:instruments → instrument metadata\n\nProperties:\n• position_metrics_df — raw joined DataFrame\n• summary — grouped by underlying (net delta, legs)\n• strategies → list[Strategy] via StrategyClassifier\n• strategy_summary → DataFrame with Greeks, DTE, P&L, health`,
+    code: `class PositionMetricsReader:\n  async def read(self) -> pd.DataFrame:\n    positions = redis.hgetall(POSITIONS_KEY)\n    tracker = MetricsTracker()\n    tracker.load_positions(positions)\n    # Apply quotes + Greeks\n    for q in redis.hgetall(QUOTES_KEY): ...\n    for g in redis.hgetall(GREEKS_KEY): ...\n    # Load instruments\n    self.instruments = redis.hgetall(INSTRUMENTS_KEY)\n    return tracker.df\n\n  @property\n  def strategies(self) -> list[Strategy]:\n    return StrategyClassifier().classify(\n      self.tracker.securities, self.instruments)`,
+    insights: [
+      { author: 'claude', text: 'No API calls, no socket connections. Pure consumer pattern — reads what AccountStreamPublisher wrote. Can be called from CLI, notebook, or dashboard without starting any streaming infrastructure.' },
+      { author: 'xmandeng', text: 'This is the read side of the account data CQRS pattern. The publisher writes; the reader reads. They never share state directly — Redis is the contract boundary.' },
+    ],
+    connections: ['strategy-classifier', 'metrics-tracker']
+  },
+  { id: 'strategy-classifier', x: 1700, y: 1320, layer: 'analytics',
+    label: 'StrategyClassifier', type: 'Classification Engine',
+    badge: 'TT-62',
+    file: 'analytics/strategies/classifier.py',
+    desc: 'Greedy pattern matching engine. Groups positions by underlying, applies matchers from most-complex (4-leg) to simplest (1-leg), consuming matched legs at each step.',
+    details: `classify(securities, instruments) → list[Strategy]:\n\n1. Build ParsedLeg for each SecurityMetrics + instrument data\n2. Group by underlying_symbol\n3. For each underlying: greedy match (most complex first)\n4. Consume matched legs, repeat until no more matches\n5. Remaining legs → single-leg strategies\n\nbuild_parsed_leg() joins:\n• SecurityMetrics (position + real-time market data)\n• Instrument metadata (strike, expiration, option type)\n• Contract multiplier (shares-per-contract or notional-multiplier)`,
+    code: `class StrategyClassifier:\n  def classify(self, securities, instruments):\n    all_legs = [build_parsed_leg(s, instruments)\n                for s in securities.values()]\n    by_underlying = group_by(all_legs, key=underlying)\n\n    for underlying, legs in by_underlying.items():\n      remaining = list(legs)\n      for matcher in MULTI_LEG_MATCHERS:\n        while remaining:\n          result = matcher(remaining)\n          if result is None: break\n          strategies.append(result)\n          remaining -= result.matched_legs\n      # Remaining → single-leg strategies\n    return strategies`,
+    insights: [
+      { author: 'claude', text: 'Greedy matching order is critical: iron condor (4 legs) must match before strangle (2 legs), otherwise the short put + short call would get consumed as a strangle leaving two orphan wings.' },
+      { author: 'claude', text: 'ParsedLeg is a frozen dataclass — once built, it flows through matchers and into Strategy objects immutably. No mutation bugs possible across the classification pipeline.' },
+    ],
+    connections: ['strategy-patterns', 'strategy-models']
+  },
+  { id: 'strategy-patterns', x: 1500, y: 1490, layer: 'analytics',
+    label: 'Pattern Matchers', type: 'Match Functions',
+    badge: 'TT-62',
+    file: 'analytics/strategies/patterns.py',
+    desc: '25+ pattern matchers organized by complexity. Each returns MatchResult (strategy type + consumed legs) or None. Exported as MULTI_LEG_MATCHERS list in priority order.',
+    details: `Priority order (greedy — most legs first):\n\n4-leg: Iron Condor, Iron Butterfly, Covered Jade Lizard,\n       Big Lizard, Call/Put Butterfly\n3-leg: Jade Lizard, Collar\n2-leg (stock+option): Covered Call, Protective Put\n2-leg (same exp, same type): Bull/Bear Call/Put Spread\n2-leg (same exp, diff type): Straddle, Strangle, Synthetic\n2-leg (diff exp): Calendar, Diagonal\n1-leg: Long/Short Stock/Call/Put, Naked Call/Put\n\nHelpers: same_expiration(), same_abs_quantity()`,
+    code: `@dataclass(frozen=True)\nclass MatchResult:\n  strategy_type: StrategyType\n  matched_legs: tuple[ParsedLeg, ...]\n\ndef match_iron_condor(legs) -> MatchResult | None:\n  options = [l for l in legs if l.is_option]\n  for combo in combinations(options, 4):\n    puts = sorted([l for l in combo if l.is_put],\n                  key=lambda l: l.strike)\n    calls = sorted([l for l in combo if l.is_call],\n                   key=lambda l: l.strike)\n    if (len(puts)==2 and len(calls)==2\n        and puts[0].is_long and puts[1].is_short\n        and calls[0].is_short and calls[1].is_long\n        and same_expiration(combo)\n        and same_abs_quantity(combo)):\n      return MatchResult(IRON_CONDOR, tuple(combo))\n  return None\n\nMULTI_LEG_MATCHERS = [\n  match_iron_condor, match_iron_butterfly,\n  match_jade_lizard, match_collar,\n  match_covered_call, match_protective_put,\n  match_vertical_spread, match_straddle_strangle,\n  ...\n]`,
+    insights: [
+      { author: 'claude', text: 'Uses combinations() from itertools to try all possible leg groupings. For 4-leg patterns on an underlying with 6 positions, that is C(6,4)=15 attempts — fast enough for real portfolios but would not scale to thousands of positions per underlying.' },
+      { author: 'xmandeng', text: 'Jade lizard recognition was the key driver for building this. The LLM-based classifier kept misidentifying jade lizards as collars or strangles. Deterministic pattern matching gets it right every time.' },
+    ],
+    connections: []
+  },
+  { id: 'strategy-models', x: 1900, y: 1490, layer: 'analytics',
+    label: 'Strategy Models', type: 'Dataclasses',
+    badge: 'TT-62',
+    file: 'analytics/strategies/models.py',
+    desc: 'StrategyType enum (30+ types), ParsedLeg (frozen dataclass enriched with instrument metadata), Strategy (dataclass with computed Greeks, P&L, and DTE properties).',
+    details: `StrategyType enum:\n• Delta-1: Long/Short Stock, Crypto, Future\n• Single-leg: Long/Naked Call/Put\n• Covered: Covered Call, Protective Put, Collar\n• Verticals: Bull/Bear Call/Put Spread\n• Straddle/Strangle: Long/Short variants\n• Tastytrade: Jade Lizard, Big Lizard\n• Iron: Iron Condor, Iron Butterfly\n• Other: Butterfly, Calendar, Diagonal, Ratio, Synthetic\n\nParsedLeg (frozen):\n• Position: symbol, underlying, instrument_type, signed_quantity\n• Instrument: option_type, strike, expiration, DTE, multiplier\n• Market: delta, gamma, theta, vega, mid_price\n• Entry: average_open_price\n\nStrategy computed properties:\n• net_delta, net_gamma, net_theta (dollar-scaled), net_vega\n• max_profit, max_loss (dollar amounts via entry prices)\n• days_to_expiration, nearest_expiration, width`,
+    code: `class Strategy:\n  strategy_type: StrategyType\n  underlying: str\n  legs: tuple[ParsedLeg, ...]\n\n  @property\n  def net_theta(self) -> Optional[float]:\n    # Dollar-denominated: theta × qty × multiplier\n    return round(sum(\n      leg.theta * leg.signed_quantity * float(leg.multiplier)\n      for leg in self.legs if leg.theta\n    ), 2)\n\n  @property\n  def max_profit(self) -> Optional[Decimal]:\n    return compute_max_profit(self)  # entry-price based`,
+    insights: [
+      { author: 'claude', text: 'max_profit and max_loss use average_open_price (actual fill price) — not the current mark. Max profit is fixed at entry and does not change with market moves. This matches how brokers report it.' },
+      { author: 'claude', text: 'net_theta is dollar-denominated by multiplying by the contract multiplier. A /ZB put with theta=-0.03 and multiplier=1000 contributes $30/day of theta, not $0.03.' },
+    ],
+    connections: []
+  },
+  { id: 'strategy-health', x: 1700, y: 1650, layer: 'analytics',
+    label: 'StrategyHealthMonitor', type: 'Health Monitor',
+    badge: 'TT-62',
+    file: 'analytics/strategies/health.py',
+    desc: 'Monitors strategy health against TOML-configurable thresholds. Per-strategy-type overrides for DTE warnings, delta drift, and max loss proximity.',
+    details: `HealthThresholds (frozen dataclass):\n• dte_warning: 14 days\n• dte_critical: 7 days\n• delta_drift_warning: 0.30\n• max_loss_warning: 0.75 (future)\n\nChecks:\n1. DTE — warning/critical thresholds\n2. Delta drift — |net_delta| exceeds threshold\n   (exempt: delta-1, covered strategies)\n3. Max loss proximity (placeholder for future P&L tracking)\n\nConfig: config/strategy_health.toml\nPer-type overrides: iron_condor, short_strangle, jade_lizard`,
+    code: `class StrategyHealthMonitor:\n  def __init__(self, config_path=None):\n    self.load_config()  # TOML → thresholds\n\n  def thresholds_for(self, strategy_type):\n    key = strategy_type.name.lower()\n    return self.thresholds_map.get(\n      key, self.default_thresholds)\n\n  def check(self, strategy) -> list[HealthAlert]:\n    thresholds = self.thresholds_for(strategy.strategy_type)\n    # DTE check\n    if dte <= thresholds.dte_critical: → CRITICAL\n    elif dte <= thresholds.dte_warning: → WARNING\n    # Delta drift (skip delta-exempt types)\n    if |net_delta| > thresholds.delta_drift_warning: → WARNING`,
+    insights: [
+      { author: 'claude', text: 'Delta-1 strategies (Long Stock, Covered Call, etc.) are exempt from delta drift warnings. Their high absolute delta is inherent to the strategy, not a risk signal — flagging them would be noise.' },
+      { author: 'xmandeng', text: 'TOML-based thresholds let me tune per-strategy-type without code changes. Iron condors get a tighter delta drift threshold (0.20) than strangles (0.25) because condors are meant to be more neutral.' },
+    ],
+    connections: ['health-config']
+  },
+  { id: 'health-config', x: 1900, y: 1650, layer: 'config',
+    label: 'strategy_health.toml', type: 'TOML Config',
+    badge: 'TT-62',
+    file: 'config/strategy_health.toml',
+    desc: 'Per-strategy-type health thresholds. Default section as fallback, per-type sections override specific fields.',
+    details: `[default]\ndte_warning = 14\ndte_critical = 7\ndelta_drift_warning = 0.30\n\n[iron_condor]\ndelta_drift_warning = 0.20\n\n[short_strangle]\ndelta_drift_warning = 0.25\n\n[jade_lizard]\ndelta_drift_warning = 0.35\n\nStrategies not listed inherit from [default].`,
+    connections: []
+  },
+
   // ── ORCHESTRATION LAYER ──
   { id: 'sub-orchestrator', x: 1500, y: 230, layer: 'routing',
     label: 'SubscriptionOrchestrator', type: 'Async Coordinator',
@@ -1491,6 +1579,17 @@ const edges = [
   { from: 'acct-streamer', to: 'tastytrade-api', label: 'streamer token', style: 'dashed' },
   { from: 'proc-metrics', to: 'metrics-tracker', label: 'on_quote / on_greeks' },
 
+  // Account data → Redis → Strategy Engine (TT-62)
+  { from: 'acct-streamer', to: 'acct-publisher', label: 'positions + instruments' },
+  { from: 'acct-publisher', to: 'redis', label: 'HSET positions/instruments' },
+  { from: 'redis', to: 'pos-reader', label: 'HGETALL positions/quotes/greeks/instruments' },
+  { from: 'pos-reader', to: 'metrics-tracker', label: 'load_positions + events' },
+  { from: 'pos-reader', to: 'strategy-classifier', label: '.strategies property' },
+  { from: 'strategy-classifier', to: 'strategy-patterns', label: 'MULTI_LEG_MATCHERS' },
+  { from: 'strategy-classifier', to: 'strategy-models', label: 'ParsedLeg → Strategy' },
+  { from: 'pos-reader', to: 'strategy-health', label: '.strategy_summary property', style: 'dashed' },
+  { from: 'strategy-health', to: 'health-config', label: 'load TOML thresholds', style: 'dashed' },
+
   // Orchestrator
   { from: 'sub-orchestrator', to: 'dxlink-mgr', label: 'open / close' },
   { from: 'sub-orchestrator', to: 'proc-influx', label: 'wire processor', style: 'dashed' },
@@ -1574,6 +1673,16 @@ const FUNCTIONAL_VIEWS = {
       'acct-streamer', 'tastytrade-api', 'credentials',
       'queue-quote', 'queue-greeks', 'msg-router', 'evt-handler',
       'proc-metrics', 'metrics-tracker', 'proc-latest',
+      'acct-publisher',
+    ]),
+  },
+  'Strategy Engine': {
+    color: '#e8b004',
+    nodes: new Set([
+      'acct-streamer', 'acct-publisher', 'redis',
+      'pos-reader', 'metrics-tracker',
+      'strategy-classifier', 'strategy-patterns', 'strategy-models',
+      'strategy-health', 'health-config',
     ]),
   },
 };
