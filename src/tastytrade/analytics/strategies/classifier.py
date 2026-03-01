@@ -11,6 +11,7 @@ from collections import defaultdict
 from decimal import Decimal
 from typing import Any, Optional
 
+from tastytrade.accounts.models import InstrumentType
 from tastytrade.analytics.metrics import SecurityMetrics
 from tastytrade.analytics.strategies.models import ParsedLeg, Strategy
 from tastytrade.analytics.strategies.patterns import (
@@ -59,6 +60,23 @@ class StrategyClassifier:
                 )
             dte = instrument_data.get("days-to-expiration")
 
+        # Determine contract multiplier for dollar P&L
+        multiplier = Decimal("1")
+        if security.instrument_type == InstrumentType.EQUITY_OPTION:
+            if instrument_data and instrument_data.get("shares-per-contract"):
+                multiplier = Decimal(str(instrument_data["shares-per-contract"]))
+        elif security.instrument_type == InstrumentType.FUTURE_OPTION:
+            # Look up the underlying future's notional-multiplier
+            underlying_sym = security.underlying_symbol
+            if underlying_sym:
+                underlying_data = instruments.get(underlying_sym)
+                if underlying_data is not None:
+                    if isinstance(underlying_data, str):
+                        underlying_data = json.loads(underlying_data)
+                    nm = underlying_data.get("notional-multiplier")
+                    if nm is not None:
+                        multiplier = Decimal(str(nm))
+
         return ParsedLeg(
             streamer_symbol=security.streamer_symbol,
             symbol=security.symbol,
@@ -69,6 +87,7 @@ class StrategyClassifier:
             strike=strike,
             expiration=expiration,
             days_to_expiration=dte,
+            multiplier=multiplier,
             delta=security.delta,
             gamma=security.gamma,
             theta=security.theta,
