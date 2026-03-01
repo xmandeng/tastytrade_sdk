@@ -10,9 +10,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from pydantic import Field
-
-from tastytrade.accounts.models import TastyTradeApiModel
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,24 @@ class OptionType(str, Enum):
     PUT = "P"
 
 
-class EquityOptionInstrument(TastyTradeApiModel):
+class InstrumentModel(BaseModel):
+    """Base model for instrument API responses.
+
+    Separate from TastyTradeApiModel to avoid circular imports
+    (market.models <-> accounts.publisher). Uses extra="ignore"
+    since the TT API returns many fields we don't need.
+    """
+
+    model_config = ConfigDict(
+        frozen=True,
+        validate_assignment=True,
+        extra="allow",
+        str_strip_whitespace=True,
+        populate_by_name=True,
+    )
+
+
+class EquityOptionInstrument(InstrumentModel):
     symbol: str = Field(alias="symbol")
     instrument_type: str = Field(alias="instrument-type")
     strike_price: Decimal = Field(alias="strike-price")
@@ -40,7 +55,7 @@ class EquityOptionInstrument(TastyTradeApiModel):
     is_closing_only: bool = Field(alias="is-closing-only")
 
 
-class FutureOptionInstrument(TastyTradeApiModel):
+class FutureOptionInstrument(InstrumentModel):
     symbol: str = Field(alias="symbol")
     underlying_symbol: str = Field(alias="underlying-symbol")
     product_code: str = Field(alias="product-code")
@@ -51,7 +66,7 @@ class FutureOptionInstrument(TastyTradeApiModel):
     streamer_symbol: str = Field(alias="streamer-symbol")
 
 
-class EquityInstrument(TastyTradeApiModel):
+class EquityInstrument(InstrumentModel):
     symbol: str = Field(alias="symbol")
     instrument_type: str = Field(alias="instrument-type")
     description: Optional[str] = Field(default=None, alias="description")
@@ -59,7 +74,7 @@ class EquityInstrument(TastyTradeApiModel):
     active: bool = Field(alias="active")
 
 
-class FutureInstrument(TastyTradeApiModel):
+class FutureInstrument(InstrumentModel):
     symbol: str = Field(alias="symbol")
     product_code: str = Field(alias="product-code")
     contract_size: Decimal = Field(alias="contract-size")
@@ -68,7 +83,7 @@ class FutureInstrument(TastyTradeApiModel):
     active: bool = Field(alias="active")
 
 
-class CryptocurrencyInstrument(TastyTradeApiModel):
+class CryptocurrencyInstrument(InstrumentModel):
     symbol: str = Field(alias="symbol")
     instrument_type: str = Field(alias="instrument-type")
     description: Optional[str] = Field(default=None, alias="description")

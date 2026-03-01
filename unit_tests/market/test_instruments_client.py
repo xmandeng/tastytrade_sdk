@@ -197,11 +197,12 @@ def test_equity_option_instrument_is_frozen() -> None:
         inst.symbol = "OTHER"  # type: ignore[misc]
 
 
-def test_equity_option_instrument_rejects_extra_fields() -> None:
+def test_equity_option_instrument_allows_extra_fields() -> None:
     data = make_equity_option_json()
-    data["unknown-field"] = "value"
-    with pytest.raises(ValueError):
-        EquityOptionInstrument.model_validate(data)
+    data["expiration-type"] = "Weekly"
+    data["option-chain-type"] = "Standard"
+    inst = EquityOptionInstrument.model_validate(data)
+    assert inst.symbol == data["symbol"]
 
 
 def test_model_dump_json_uses_aliases() -> None:
