@@ -8,7 +8,7 @@ legs become single-leg strategies.
 import json
 import logging
 from collections import defaultdict
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any, Optional
 
 from tastytrade.accounts.models import InstrumentType
@@ -20,51 +20,6 @@ from tastytrade.analytics.strategies.patterns import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def snap_to_option_tick(
-    price: float,
-    tick_sizes: list[dict[str, str]],
-) -> float:
-    """Snap a truncated future-option price to the nearest valid tick.
-
-    The TastyTrade Position API truncates average-open-price to ~2 decimal
-    places for future options. The underlying future's ``option-tick-sizes``
-    tells us the minimum price increment, so we can recover the true fill.
-
-    Args:
-        price: The truncated average-open-price from the Position API.
-        tick_sizes: The ``option-tick-sizes`` list from the underlying future
-            instrument (e.g. ``[{"threshold": "5.0", "value": "0.05"}, {"value": "0.5"}]``).
-
-    Returns:
-        The price snapped to the nearest valid tick.
-    """
-    if not tick_sizes or price <= 0:
-        return price
-
-    price_dec = Decimal(str(price))
-
-    # Find the correct tick size for this price level.
-    # Entries with a threshold apply when price < threshold (ascending order).
-    # The entry without a threshold is the catch-all for the highest tier.
-    tick = None
-    for entry in tick_sizes:
-        threshold = entry.get("threshold")
-        if threshold is not None and price_dec < Decimal(str(threshold)):
-            tick = Decimal(str(entry["value"]))
-            break
-    if tick is None:
-        # Use the catch-all (entry without threshold)
-        for entry in tick_sizes:
-            if "threshold" not in entry:
-                tick = Decimal(str(entry["value"]))
-                break
-    if tick is None or tick == 0:
-        return price
-
-    snapped = (price_dec / tick).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * tick
-    return float(snapped)
 
 
 class StrategyClassifier:
@@ -108,7 +63,6 @@ class StrategyClassifier:
 
         # Determine contract multiplier for dollar P&L
         multiplier = Decimal("1")
-        underlying_data: Any = None
         if security.instrument_type == InstrumentType.EQUITY_OPTION:
             if instrument_data and instrument_data.get("shares-per-contract"):
                 multiplier = Decimal(str(instrument_data["shares-per-contract"]))
@@ -124,20 +78,13 @@ class StrategyClassifier:
                     if nm is not None:
                         multiplier = Decimal(str(nm))
 
-        # Recover average_open_price precision for future options.
-        # The Position API truncates prices to ~2 decimals; the underlying
-        # future's option-tick-sizes lets us snap back to the true fill.
+        # The Position API returns 0.0 for average-open-price on some
+        # future options (e.g. /6E) where the premium is too small to
+        # represent. Treat as missing data — the transactions API can
+        # provide precise entry prices (see future ticket).
         avg_open = security.average_open_price
         if avg_open is not None and avg_open == 0.0:
-            avg_open = None  # API returns 0.0 for some futures (e.g. /6E)
-        if (
-            avg_open is not None
-            and security.instrument_type == InstrumentType.FUTURE_OPTION
-            and underlying_data is not None
-        ):
-            tick_sizes = underlying_data.get("option-tick-sizes", [])
-            if tick_sizes:
-                avg_open = snap_to_option_tick(avg_open, tick_sizes)
+            avg_open = None
 
         return ParsedLeg(
             streamer_symbol=security.streamer_symbol,
