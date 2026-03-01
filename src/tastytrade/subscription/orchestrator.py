@@ -220,8 +220,6 @@ async def failure_trigger_listener(
         await pubsub.close()
 
 
-
-
 async def _run_subscription_once(
     symbols: list[str],
     intervals: list[str],
@@ -412,9 +410,7 @@ async def _run_subscription_once(
         from tastytrade.subscription.resolver import PositionSymbolResolver
 
         resolver = PositionSymbolResolver(dxlink=dxlink)
-        resolver_task = asyncio.create_task(
-            resolver.listen(), name="position_resolver"
-        )
+        resolver_task = asyncio.create_task(resolver.listen(), name="position_resolver")
 
         async def reconnection_monitor() -> ReconnectReason:
             """Wait for reconnection signal and return reason."""
@@ -464,7 +460,7 @@ async def _run_subscription_once(
                 monitor_task = asyncio.create_task(reconnection_monitor())
 
         finally:
-            for task in [monitor_task, failure_listener_task, resolver_task]:
+            for task in [monitor_task, failure_listener_task, resolver_task]:  # type: ignore[assignment]
                 if task is None:
                     continue
                 task.cancel()

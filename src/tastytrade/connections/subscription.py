@@ -50,11 +50,12 @@ class RedisSubscriptionStore(SubscriptionStore):
         db: Optional[int] = 0,
     ):
         self.hash_key = hash_key
-        self.redis = redis.Redis(
-            host=host or os.environ.get("REDIS_HOST", "localhost"),
-            port=port or os.environ.get("REDIS_PORT", 6379),
-            db=db or os.environ.get("REDIS_DB", 0),
+        resolved_host: str = host or os.environ.get("REDIS_HOST") or "localhost"
+        resolved_port: int = port or int(os.environ.get("REDIS_PORT", "6379"))
+        resolved_db: int = (
+            db if db is not None else int(os.environ.get("REDIS_DB", "0"))
         )
+        self.redis = redis.Redis(host=resolved_host, port=resolved_port, db=resolved_db)
 
     async def add_subscription(
         self, symbol: str, metadata: Optional[dict[Any, Any]] = None

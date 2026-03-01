@@ -37,7 +37,7 @@ class PositionSymbolResolver:
     ) -> None:
         host = redis_host or os.environ.get("REDIS_HOST", "localhost")
         port = redis_port or int(os.environ.get("REDIS_PORT", "6379"))
-        self.redis: aioredis.Redis = aioredis.Redis(host=host, port=port)  # type: ignore[type-arg]
+        self.redis: aioredis.Redis = aioredis.Redis(host=host, port=port)  # type: ignore[type-arg,arg-type]
         self.dxlink = dxlink
         self.subscribed_symbols: set[str] = set()
 
