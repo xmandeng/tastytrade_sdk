@@ -29,7 +29,7 @@ class AlertLevel(str, Enum):
 class HealthThresholds:
     """Configurable thresholds for strategy health checks."""
 
-    dte_warning: int = 21
+    dte_warning: int = 14
     dte_critical: int = 7
     max_loss_warning: float = 0.75
     max_loss_critical: float = 0.90
@@ -68,7 +68,7 @@ class StrategyHealthMonitor:
         # Load default section
         default_section = config.get("default", {})
         self.default_thresholds = HealthThresholds(
-            dte_warning=default_section.get("dte_warning", 21),
+            dte_warning=default_section.get("dte_warning", 14),
             dte_critical=default_section.get("dte_critical", 7),
             max_loss_warning=default_section.get("max_loss_warning", 0.75),
             max_loss_critical=default_section.get("max_loss_critical", 0.90),
