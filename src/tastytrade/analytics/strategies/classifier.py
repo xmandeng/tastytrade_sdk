@@ -58,7 +58,8 @@ class StrategyClassifier:
                 expiration = (
                     date.fromisoformat(exp_raw) if isinstance(exp_raw, str) else exp_raw
                 )
-            dte = instrument_data.get("days-to-expiration")
+            dte_raw = instrument_data.get("days-to-expiration")
+            dte = int(dte_raw) if dte_raw is not None else None
 
         # Determine contract multiplier for dollar P&L
         multiplier = Decimal("1")
@@ -88,6 +89,7 @@ class StrategyClassifier:
             expiration=expiration,
             days_to_expiration=dte,
             multiplier=multiplier,
+            average_open_price=security.average_open_price,
             delta=security.delta,
             gamma=security.gamma,
             theta=security.theta,
