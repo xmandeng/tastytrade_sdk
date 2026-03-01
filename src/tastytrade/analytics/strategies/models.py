@@ -372,7 +372,7 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         )
         wing_width = max(put_width, call_width)
         return (max(wing_width - net_credit, Decimal("0")) * mult).quantize(
-            Decimal("0.01")
+            Decimal("1")
         )
 
     if st == StrategyType.JADE_LIZARD:
