@@ -59,7 +59,7 @@ def make_strategy(
 class TestHealthThresholds:
     def test_defaults(self):
         t = HealthThresholds()
-        assert t.dte_warning == 21
+        assert t.dte_warning == 14
         assert t.dte_critical == 7
         assert t.max_loss_warning == 0.75
         assert t.max_loss_critical == 0.90
@@ -68,14 +68,14 @@ class TestHealthThresholds:
     def test_frozen(self):
         t = HealthThresholds()
         with pytest.raises(AttributeError):
-            t.dte_warning = 10  # type: ignore[misc]
+            t.dte_warning = 99  # type: ignore[misc]
 
 
 class TestStrategyHealthMonitor:
     def test_load_default_config(self):
         """Monitor loads the project TOML config successfully."""
         monitor = StrategyHealthMonitor()
-        assert monitor.default_thresholds.dte_warning == 21
+        assert monitor.default_thresholds.dte_warning == 14
         assert "iron_condor" in monitor.thresholds_map
         assert "short_strangle" in monitor.thresholds_map
         assert "jade_lizard" in monitor.thresholds_map
@@ -83,8 +83,8 @@ class TestStrategyHealthMonitor:
     def test_thresholds_for_known_type(self):
         monitor = StrategyHealthMonitor()
         t = monitor.thresholds_for(StrategyType.IRON_CONDOR)
-        assert t.dte_warning == 30
-        assert t.dte_critical == 14
+        assert t.dte_warning == 14
+        assert t.dte_critical == 7
         assert t.delta_drift_warning == 0.20
 
     def test_thresholds_for_unknown_type_falls_back_to_default(self):
@@ -141,7 +141,7 @@ class TestHealthChecks:
                 option_type="C",
                 strike=Decimal("310"),
                 expiration=date(2026, 3, 20),
-                days_to_expiration=15,
+                days_to_expiration=10,
                 delta=0.10,
             ),
         )
@@ -150,7 +150,7 @@ class TestHealthChecks:
             legs=legs,
         )
         monitor = StrategyHealthMonitor()
-        # default dte_warning=21 for unspecified, but short_strangle has dte_warning=25
+        # short_strangle has dte_warning=14, dte_critical=7
         alerts = monitor.check(strategy)
         dte_alerts = [a for a in alerts if "DTE" in a.message]
         assert len(dte_alerts) == 1
@@ -267,7 +267,7 @@ class TestHealthChecks:
                 option_type="P",
                 strike=Decimal("280"),
                 expiration=date(2026, 3, 20),
-                days_to_expiration=25,
+                days_to_expiration=12,
                 delta=-0.05,
             ),
             ParsedLeg(
@@ -279,7 +279,7 @@ class TestHealthChecks:
                 option_type="P",
                 strike=Decimal("290"),
                 expiration=date(2026, 3, 20),
-                days_to_expiration=25,
+                days_to_expiration=12,
                 delta=-0.15,
             ),
             ParsedLeg(
@@ -291,7 +291,7 @@ class TestHealthChecks:
                 option_type="C",
                 strike=Decimal("310"),
                 expiration=date(2026, 3, 20),
-                days_to_expiration=25,
+                days_to_expiration=12,
                 delta=0.15,
             ),
             ParsedLeg(
@@ -303,7 +303,7 @@ class TestHealthChecks:
                 option_type="C",
                 strike=Decimal("320"),
                 expiration=date(2026, 3, 20),
-                days_to_expiration=25,
+                days_to_expiration=12,
                 delta=0.05,
             ),
         )
@@ -314,7 +314,7 @@ class TestHealthChecks:
         monitor = StrategyHealthMonitor()
         alerts = monitor.check(strategy)
 
-        # Iron condor has dte_warning=30, so DTE=25 should trigger warning
+        # Iron condor has dte_warning=14, so DTE=12 should trigger warning
         dte_alerts = [a for a in alerts if "DTE" in a.message]
         assert len(dte_alerts) == 1
         assert dte_alerts[0].level == AlertLevel.WARNING
