@@ -241,11 +241,33 @@ class TestJadeLizard:
         assert result.strategy_type == StrategyType.JADE_LIZARD
         assert len(result.matched_legs) == 3
 
+    def test_variant_b_short_call_plus_bull_put_spread(self):
+        """Variant B: short call + bull put spread (short put + long lower put)."""
+        legs = [
+            make_option("C", Decimal("320"), -1),  # short OTM call
+            make_option("P", Decimal("290"), -1),  # short put (higher strike)
+            make_option("P", Decimal("280"), 1),  # long put (lower strike)
+        ]
+        result = match_jade_lizard(legs)
+        assert result is not None
+        assert result.strategy_type == StrategyType.JADE_LIZARD
+        assert len(result.matched_legs) == 3
+
     def test_no_match_wrong_call_direction(self):
         legs = [
             make_option("P", Decimal("280"), -1),
             make_option("C", Decimal("310"), 1),  # wrong: long lower call
             make_option("C", Decimal("320"), -1),  # wrong: short higher call
+        ]
+        result = match_jade_lizard(legs)
+        assert result is None
+
+    def test_no_match_variant_b_wrong_put_direction(self):
+        """Variant B fails when put spread direction is inverted."""
+        legs = [
+            make_option("C", Decimal("320"), -1),  # short call
+            make_option("P", Decimal("290"), 1),  # wrong: long higher put
+            make_option("P", Decimal("280"), -1),  # wrong: short lower put
         ]
         result = match_jade_lizard(legs)
         assert result is None
