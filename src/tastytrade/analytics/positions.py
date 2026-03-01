@@ -121,8 +121,12 @@ class PositionMetricsReader:
                     "net_theta": strat.net_theta,
                     "net_vega": strat.net_vega,
                     "dte": strat.days_to_expiration,
-                    "max_profit": strat.max_profit,
-                    "max_loss": strat.max_loss,
+                    "max_profit": f"{strat.max_profit:,}"
+                    if strat.max_profit is not None
+                    else None,
+                    "max_loss": f"{strat.max_loss:,}"
+                    if strat.max_loss is not None
+                    else None,
                     "health": health_level,
                     "alerts": alert_str,
                 }
