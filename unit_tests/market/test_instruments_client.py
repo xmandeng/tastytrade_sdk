@@ -301,6 +301,66 @@ def test_model_dump_json_uses_aliases() -> None:
 
 
 # ---------------------------------------------------------------------------
+# API resilience tests — models must survive schema changes
+# ---------------------------------------------------------------------------
+
+
+def test_equity_option_fails_without_required_fields() -> None:
+    """Option instruments must have strategy-critical fields — fail fast on bad data."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        EquityOptionInstrument.model_validate({"symbol": "SPY   260320C00500000"})
+
+
+def test_future_option_fails_without_required_fields() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        FutureOptionInstrument.model_validate({"symbol": "./MESM6EX3H6 260320P6450"})
+
+
+def test_equity_option_survives_missing_informational_fields() -> None:
+    """Informational fields are Optional — only strategy-critical ones are required."""
+    data = {
+        "symbol": "SPY   260320C00500000",
+        "strike-price": "500.0",
+        "option-type": "C",
+        "underlying-symbol": "SPY",
+        "expiration-date": "2026-03-20",
+        "days-to-expiration": 20,
+        "streamer-symbol": ".SPY260320C500",
+    }
+    inst = EquityOptionInstrument.model_validate(data)
+    assert inst.symbol == "SPY   260320C00500000"
+    assert inst.strike_price == Decimal("500.0")
+    # Informational fields default to None
+    assert inst.exercise_style is None
+    assert inst.settlement_type is None
+    assert inst.shares_per_contract is None
+
+
+def test_equity_parses_with_only_symbol() -> None:
+    """Equities only require symbol — no strategy-critical option fields."""
+    inst = EquityInstrument.model_validate({"symbol": "SPY"})
+    assert inst.symbol == "SPY"
+    assert inst.is_etf is None
+    assert inst.active is None
+
+
+def test_future_parses_with_only_symbol() -> None:
+    inst = FutureInstrument.model_validate({"symbol": "/MESM6"})
+    assert inst.symbol == "/MESM6"
+    assert inst.product_code is None
+
+
+def test_crypto_parses_with_only_symbol() -> None:
+    inst = CryptocurrencyInstrument.model_validate({"symbol": "BTC/USD"})
+    assert inst.symbol == "BTC/USD"
+    assert inst.instrument_type is None
+
+
+# ---------------------------------------------------------------------------
 # InstrumentsClient tests
 # ---------------------------------------------------------------------------
 
