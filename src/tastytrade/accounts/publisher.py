@@ -11,7 +11,24 @@ from typing import Optional
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
+from typing import Union
+
 from tastytrade.accounts.models import AccountBalance, Position
+from tastytrade.market.models import (
+    CryptocurrencyInstrument,
+    EquityInstrument,
+    EquityOptionInstrument,
+    FutureInstrument,
+    FutureOptionInstrument,
+)
+
+Instrument = Union[
+    EquityOptionInstrument,
+    FutureOptionInstrument,
+    EquityInstrument,
+    FutureInstrument,
+    CryptocurrencyInstrument,
+]
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +38,7 @@ class AccountStreamPublisher:
 
     POSITIONS_KEY = "tastytrade:positions"
     BALANCES_KEY = "tastytrade:balances"
+    INSTRUMENTS_KEY = "tastytrade:instruments"
 
     def __init__(
         self,
@@ -55,6 +73,18 @@ class AccountStreamPublisher:
             balance.model_dump_json(by_alias=True),
         )
         logger.debug("Published balance update")
+
+    async def publish_instruments(self, instruments: list[Instrument]) -> None:
+        """Write instrument details to Redis HSET. Key = symbol, value = JSON."""
+        if not instruments:
+            return
+        pipe = self.redis.pipeline()
+        for inst in instruments:
+            pipe.hset(
+                self.INSTRUMENTS_KEY, inst.symbol, inst.model_dump_json(by_alias=True)
+            )
+        await pipe.execute()
+        logger.info("Published %d instruments to Redis", len(instruments))
 
     async def close(self) -> None:
         """Close Redis connection."""

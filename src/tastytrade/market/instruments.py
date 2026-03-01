@@ -1,12 +1,25 @@
 import logging
-from typing import Union
+from typing import TypeVar, Union
 
 import polars as pl
+from pydantic import BaseModel
 from requests import Response
 
 from tastytrade.connections.requests import AsyncSessionHandler, SessionHandler
+from tastytrade.market.models import (
+    CryptocurrencyInstrument,
+    EquityInstrument,
+    EquityOptionInstrument,
+    FutureInstrument,
+    FutureOptionInstrument,
+)
+from tastytrade.utils.validators import validate_async_response
+
+T = TypeVar("T", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
+
+INSTRUMENT_BATCH_SIZE = 50
 
 
 async def get_option_chains(
@@ -41,3 +54,65 @@ async def get_option_chains(
         data = sync_response.json()
 
     return pl.DataFrame(data["data"]["items"])
+
+
+class InstrumentsClient:
+    """Async client for TastyTrade instrument endpoints."""
+
+    def __init__(self, session: AsyncSessionHandler) -> None:
+        self.session = session
+
+    async def get_equity_options(
+        self, symbols: list[str]
+    ) -> list[EquityOptionInstrument]:
+        """GET /instruments/equity-options?symbol[]={sym1}&symbol[]={sym2}..."""
+        return await self.fetch_batch(
+            "/instruments/equity-options", symbols, EquityOptionInstrument
+        )
+
+    async def get_future_options(
+        self, symbols: list[str]
+    ) -> list[FutureOptionInstrument]:
+        """GET /instruments/future-options?symbol[]={sym1}&symbol[]={sym2}..."""
+        return await self.fetch_batch(
+            "/instruments/future-options", symbols, FutureOptionInstrument
+        )
+
+    async def get_equities(self, symbols: list[str]) -> list[EquityInstrument]:
+        """GET /instruments/equities?symbol[]={sym1}&symbol[]={sym2}..."""
+        return await self.fetch_batch(
+            "/instruments/equities", symbols, EquityInstrument
+        )
+
+    async def get_futures(self, symbols: list[str]) -> list[FutureInstrument]:
+        """GET /instruments/futures?symbol[]={sym1}&symbol[]={sym2}..."""
+        return await self.fetch_batch("/instruments/futures", symbols, FutureInstrument)
+
+    async def get_cryptocurrencies(
+        self, symbols: list[str]
+    ) -> list[CryptocurrencyInstrument]:
+        """GET /instruments/cryptocurrencies?symbol[]={sym1}&symbol[]={sym2}..."""
+        return await self.fetch_batch(
+            "/instruments/cryptocurrencies", symbols, CryptocurrencyInstrument
+        )
+
+    async def fetch_batch(
+        self, endpoint: str, symbols: list[str], model_cls: type[T]
+    ) -> list[T]:
+        """Batch-fetch instruments, ~50 symbols per request."""
+        results: list[T] = []
+        for i in range(0, len(symbols), INSTRUMENT_BATCH_SIZE):
+            batch = symbols[i : i + INSTRUMENT_BATCH_SIZE]
+            params = [("symbol[]", sym) for sym in batch]
+            url = f"{self.session.base_url}{endpoint}"
+            async with self.session.session.get(url, params=params) as response:
+                await validate_async_response(response)
+                data = await response.json()
+                items = data.get("data", {}).get("items", [])
+                for item in items:
+                    try:
+                        results.append(model_cls.model_validate(item))
+                    except Exception as e:
+                        logger.warning("Failed to parse %s instrument: %s", endpoint, e)
+        logger.info("Fetched %d instruments from %s", len(results), endpoint)
+        return results
