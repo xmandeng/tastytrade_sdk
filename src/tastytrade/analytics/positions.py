@@ -90,6 +90,7 @@ class PositionMetricsReader:
                 columns=[
                     "underlying",
                     "strategy",
+                    "qty",
                     "legs",
                     "net_delta",
                     "net_theta",
@@ -107,8 +108,18 @@ class PositionMetricsReader:
             alerts = monitor.check(strat)
             alert_str = "; ".join(a.message for a in alerts) if alerts else "OK"
             health_level = max(a.level.value for a in alerts) if alerts else "OK"
+
+            # Extract common contract quantity from option legs
+            option_legs = [leg for leg in strat.legs if leg.is_option]
+            if option_legs:
+                qty = int(option_legs[0].abs_quantity)
+            else:
+                qty = int(strat.legs[0].abs_quantity) if strat.legs else 0
+
+            # Direction sign only — no repeated quantity
             leg_desc = ", ".join(
-                f"{leg.signed_quantity:+g} {leg.option_type or leg.instrument_type.value}"
+                f"{'+' if leg.is_long else '-'}"
+                f"{leg.option_type or leg.instrument_type.value}"
                 f"{'@' + str(leg.strike.normalize()) if leg.strike else ''}"
                 for leg in strat.legs
             )
@@ -116,6 +127,7 @@ class PositionMetricsReader:
                 {
                     "underlying": strat.underlying,
                     "strategy": strat.strategy_type.value,
+                    "qty": qty,
                     "legs": leg_desc,
                     "net_delta": strat.net_delta,
                     "net_theta": strat.net_theta,
