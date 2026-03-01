@@ -96,6 +96,9 @@ class ParsedLeg:
     # Future options: underlying future's notional-multiplier.
     multiplier: Decimal = Decimal("1")
 
+    # Entry price (from position's average-open-price)
+    average_open_price: Optional[float] = None
+
     # Market data (from real-time feeds)
     delta: Optional[float] = None
     gamma: Optional[float] = None
@@ -178,16 +181,17 @@ class Strategy:
 
     @property
     def net_theta(self) -> Optional[float]:
+        """Dollar-denominated net theta (scaled by contract multiplier)."""
         vals = [leg.theta for leg in self.legs if leg.theta is not None]
         if not vals:
             return None
         return round(
             sum(
-                (leg.theta or 0.0) * leg.signed_quantity
+                (leg.theta or 0.0) * leg.signed_quantity * float(leg.multiplier)
                 for leg in self.legs
                 if leg.theta is not None
             ),
-            4,
+            2,
         )
 
     @property
@@ -249,125 +253,104 @@ def _strategy_multiplier(strategy: Strategy) -> Decimal:
     return Decimal("1")
 
 
-def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
-    """Compute max profit in dollars based on strategy type.
+def _net_entry_credit(option_legs: list[ParsedLeg]) -> Optional[Decimal]:
+    """Compute the net credit received at entry from average_open_price.
 
-    For credit spreads: net credit × multiplier.
-    For debit spreads: (width - net debit) × multiplier.
+    Positive = net credit (sold premium > bought premium).
+    Returns None if any leg is missing open price data.
+    """
+    if any(leg.average_open_price is None for leg in option_legs):
+        return None
+    # Short legs contribute credit (+), long legs contribute debit (-)
+    return sum(
+        (
+            Decimal(str(leg.average_open_price))
+            * Decimal(str(leg.signed_quantity * -1))
+            for leg in option_legs
+            if leg.average_open_price is not None
+        ),
+        Decimal("0"),
+    )
+
+
+def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
+    """Compute max profit in dollars based on strategy type and entry prices.
+
+    Uses average_open_price (the actual fill) — not the current mark.
+    Max profit is fixed at entry and does not change with market moves.
     Returns None if insufficient data.
     """
-    legs = strategy.legs
-    option_legs = [leg for leg in legs if leg.is_option]
-
-    if not option_legs or any(leg.mid_price is None for leg in option_legs):
+    option_legs = [leg for leg in strategy.legs if leg.is_option]
+    if not option_legs:
         return None
 
     st = strategy.strategy_type
     mult = _strategy_multiplier(strategy)
+    net_credit = _net_entry_credit(option_legs)
 
-    if st in (StrategyType.BEAR_CALL_SPREAD, StrategyType.BULL_PUT_SPREAD):
-        net_credit = sum(
-            (
-                Decimal(str(leg.mid_price)) * Decimal(str(leg.signed_quantity * -1))
-                for leg in option_legs
-                if leg.mid_price is not None
-            ),
-            Decimal("0"),
-        )
-        return max(net_credit * mult, Decimal("0"))
+    if net_credit is None:
+        return None
+
+    if st in (
+        StrategyType.BEAR_CALL_SPREAD,
+        StrategyType.BULL_PUT_SPREAD,
+        StrategyType.IRON_CONDOR,
+        StrategyType.SHORT_STRANGLE,
+        StrategyType.SHORT_STRADDLE,
+        StrategyType.NAKED_CALL,
+        StrategyType.NAKED_PUT,
+        StrategyType.JADE_LIZARD,
+    ):
+        # Credit strategies: max profit = net credit received × multiplier
+        return (max(net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
 
     if st in (StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD):
+        # Debit spread: max profit = width - net debit paid
         w = strategy.width
         if w is None:
             return None
-        net_debit = sum(
-            (
-                Decimal(str(leg.mid_price)) * Decimal(str(leg.signed_quantity))
-                for leg in option_legs
-                if leg.mid_price is not None
-            ),
-            Decimal("0"),
-        )
-        return max((w - net_debit) * mult, Decimal("0"))
-
-    if st == StrategyType.IRON_CONDOR:
-        net_credit = sum(
-            (
-                Decimal(str(leg.mid_price)) * Decimal(str(leg.signed_quantity * -1))
-                for leg in option_legs
-                if leg.mid_price is not None
-            ),
-            Decimal("0"),
-        )
-        return max(net_credit * mult, Decimal("0"))
-
-    if st in (StrategyType.SHORT_STRANGLE, StrategyType.SHORT_STRADDLE):
-        return (
-            sum(
-                (
-                    Decimal(str(leg.mid_price)) * Decimal(str(abs(leg.signed_quantity)))
-                    for leg in option_legs
-                    if leg.mid_price is not None
-                ),
-                Decimal("0"),
-            )
-            * mult
-        )
-
-    if st in (StrategyType.NAKED_CALL, StrategyType.NAKED_PUT):
-        return (
-            sum(
-                (
-                    Decimal(str(leg.mid_price)) * Decimal(str(abs(leg.signed_quantity)))
-                    for leg in option_legs
-                    if leg.mid_price is not None
-                ),
-                Decimal("0"),
-            )
-            * mult
-        )
+        # net_credit is negative for debit spreads (we paid more than we received)
+        return (max(w + net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
 
     return None
 
 
 def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
-    """Compute max loss in dollars based on strategy type.
+    """Compute max loss in dollars based on strategy type and entry prices.
 
+    Uses average_open_price (the actual fill) — not the current mark.
     Returns None for unlimited-risk strategies or insufficient data.
     """
-    legs = strategy.legs
-    option_legs = [leg for leg in legs if leg.is_option]
-
-    if not option_legs or any(leg.mid_price is None for leg in option_legs):
+    option_legs = [leg for leg in strategy.legs if leg.is_option]
+    if not option_legs:
         return None
 
     st = strategy.strategy_type
     mult = _strategy_multiplier(strategy)
+    net_credit = _net_entry_credit(option_legs)
+
+    if net_credit is None:
+        return None
+
+    # Unlimited risk strategies
+    if st in (
+        StrategyType.NAKED_CALL,
+        StrategyType.SHORT_STRANGLE,
+        StrategyType.SHORT_STRADDLE,
+    ):
+        return None
 
     if st in (StrategyType.BEAR_CALL_SPREAD, StrategyType.BULL_PUT_SPREAD):
+        # Credit spread: max loss = width - net credit
         w = strategy.width
         if w is None:
             return None
-        net_credit = sum(
-            (
-                Decimal(str(leg.mid_price)) * Decimal(str(leg.signed_quantity * -1))
-                for leg in option_legs
-                if leg.mid_price is not None
-            ),
-            Decimal("0"),
-        )
-        return max((w - net_credit) * mult, Decimal("0"))
+        return (max(w - net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
 
     if st in (StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD):
-        net_debit = sum(
-            (
-                Decimal(str(leg.mid_price)) * Decimal(str(leg.signed_quantity))
-                for leg in option_legs
-                if leg.mid_price is not None
-            ),
-            Decimal("0"),
-        )
-        return max(net_debit * mult, Decimal("0"))
+        # Debit spread: max loss = net debit paid
+        net_debit = -net_credit  # flip sign: positive = what we paid
+        return (max(net_debit, Decimal("0")) * mult).quantize(Decimal("0.01"))
 
     if st == StrategyType.IRON_CONDOR:
         put_strikes = sorted(
@@ -388,23 +371,15 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
             else Decimal("0")
         )
         wing_width = max(put_width, call_width)
-
-        net_credit = sum(
-            (
-                Decimal(str(leg.mid_price)) * Decimal(str(leg.signed_quantity * -1))
-                for leg in option_legs
-                if leg.mid_price is not None
-            ),
-            Decimal("0"),
+        return (max(wing_width - net_credit, Decimal("0")) * mult).quantize(
+            Decimal("0.01")
         )
-        return max((wing_width - net_credit) * mult, Decimal("0"))
 
-    # Unlimited risk strategies return None
-    if st in (
-        StrategyType.NAKED_CALL,
-        StrategyType.SHORT_STRANGLE,
-        StrategyType.SHORT_STRADDLE,
-    ):
-        return None  # Unlimited risk
+    if st == StrategyType.JADE_LIZARD:
+        # Jade lizard has a defined-risk side (the vertical spread)
+        w = strategy.width
+        if w is None:
+            return None
+        return (max(w - net_credit, Decimal("0")) * mult).quantize(Decimal("0.01"))
 
     return None

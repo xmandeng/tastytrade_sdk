@@ -127,7 +127,10 @@ class PositionMetricsReader:
                     "alerts": alert_str,
                 }
             )
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        if not df.empty and "dte" in df.columns:
+            df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
+        return df
 
     async def read(self) -> pd.DataFrame:
         """Read positions + market data + instruments from Redis, return joined DataFrame."""
