@@ -126,6 +126,18 @@ async def run_account_stream_once(
                 for p in hydrated_positions
                 if p.instrument_type == InstrumentType.FUTURE
             ]
+            # Also fetch underlying futures for future option positions
+            # so we have their notional-multiplier for P&L calculations.
+            future_option_underlying_syms = list(
+                {
+                    p.underlying_symbol
+                    for p in hydrated_positions
+                    if p.instrument_type == InstrumentType.FUTURE_OPTION
+                    and p.underlying_symbol
+                    and p.underlying_symbol not in future_syms
+                }
+            )
+            future_syms = future_syms + future_option_underlying_syms
             crypto_syms = [
                 p.symbol
                 for p in hydrated_positions
