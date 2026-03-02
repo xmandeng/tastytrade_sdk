@@ -1106,7 +1106,7 @@ const nodes = [
       { author: 'claude', text: 'Redis pub/sub is fire-and-forget — if no subscriber is listening, the message is lost. This is by design: the Signal Service is the primary consumer, and it can tolerate missed messages since it rebuilds state from candle history.' },
       { author: 'xmandeng', text: 'The channel naming convention market:{Type}:{Symbol} is the contract between the main process and the decoupled signal service. Both sides must agree on this format.' },
     ],
-    connections: ['redis']
+    connections: ['redis-pubsub']
   },
   // proc-signal (SignalEventProcessor) REMOVED by TT-56.
   // Violated the Redis service boundary — engine now gets candles
@@ -1140,15 +1140,26 @@ const nodes = [
     ],
     connections: ['mkt-provider']
   },
-  { id: 'redis', x: 920, y: 1140, layer: 'persistence',
-    label: 'Redis', type: 'Pub/Sub + Hash Store',
+  { id: 'redis-pubsub', x: 820, y: 1140, layer: 'persistence',
+    label: 'Redis — Event Stream', type: 'Pub/Sub',
     badge: 'TCP :6379',
-    desc: 'Dual role: pub/sub for real-time event distribution AND hash store for subscription tracking.',
-    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{engine}:{symbol} (TT-56 engine-aware)\n  → market:TradeSignal:hull_macd:SPX{=5m}\n  → market:TradeSignal:rsi:SPX{=5m}\n\nPSUBSCRIBE patterns (server-side filtering):\n• market:TradeSignal:hull_macd:* — one engine\n• market:TradeSignal:*:SPX{=5m} — one symbol\n• market:TradeSignal:* — all signals\n\nHash store:\n• HSET subscriptions {symbol} JSON({active, last_update, metadata})`,
+    desc: 'Fire-and-forget event distribution. Streams market data, trade signals, and backtest events to decoupled consumers.',
+    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{engine}:{symbol} (TT-56 engine-aware)\n  → market:TradeSignal:hull_macd:SPX{=5m}\n  → market:TradeSignal:rsi:SPX{=5m}\n\nPSUBSCRIBE patterns (server-side filtering):\n• market:TradeSignal:hull_macd:* — one engine\n• market:TradeSignal:*:SPX{=5m} — one symbol\n• market:TradeSignal:* — all signals\n\nBacktest channels:\n• backtest:CandleEvent:{symbol}{=interval}\n• market:BacktestSignal:{engine}:{symbol}`,
     insights: [
-      { author: 'claude', text: 'Redis serves two unrelated roles here: (1) pub/sub for real-time event fan-out to decoupled services, (2) hash store for subscription state persistence. These could theoretically be separate Redis instances, but sharing one simplifies the deployment.' },
+      { author: 'claude', text: 'Pub/sub is fire-and-forget — if no subscriber is listening, the message is lost. This is by design: consumers rebuild state from InfluxDB history when needed.' },
     ],
-    connections: ['redis-sub','sub-store']
+    connections: ['redis-sub']
+  },
+  { id: 'redis-state', x: 1120, y: 1140, layer: 'persistence',
+    label: 'Redis — State Store', type: 'Hash Store',
+    badge: 'TCP :6379',
+    desc: 'Mutable reference state. Stores current positions, instruments, balances, subscriptions, and runtime config via HSET for on-demand reads.',
+    details: `Hash keys:\n• tastytrade:positions — keyed by streamer_symbol\n• tastytrade:balances — keyed by account\n• tastytrade:instruments — keyed by symbol\n• tastytrade:latest:QuoteEvent — latest quotes\n• tastytrade:latest:GreeksEvent — latest greeks\n• subscriptions — keyed by symbol\n• tastytrade:{env}:{key} — runtime config\n\nAccess pattern: HSET on write, HGETALL on read.\nState is mutable — positions removed when qty=0.`,
+    insights: [
+      { author: 'xmandeng', text: 'This is the write side of a CQRS pattern. Publishers write state here; readers consume it on demand. No shared state directly — Redis is the contract boundary.' },
+      { author: 'claude', text: 'Same Redis instance as pub/sub but serving a fundamentally different role: durable mutable state vs ephemeral event streaming. Could be separate instances with no code changes.' },
+    ],
+    connections: ['sub-store']
   },
 
   // ── SIGNAL LAYER ──
@@ -1214,7 +1225,7 @@ const nodes = [
       { author: 'claude', text: 'TT-56: Uses getattr(event, "engine", None) — no isinstance checks, no coupling to TradeSignal specifically. Any future event type that carries an engine field automatically gets engine-specific channels.' },
       { author: 'claude', text: 'Satisfies EventPublisher protocol via structural subtyping (runtime_checkable). No inheritance needed — just having publish(event: BaseEvent) -> None is enough.' },
     ],
-    connections: ['redis']
+    connections: ['redis-pubsub']
   },
 
   // ── EVENT PUBLISHER PROTOCOL (TT-56) ──
@@ -1245,7 +1256,7 @@ const nodes = [
       { author: 'claude', text: 'Consumes from market:TradeSignal:* (wildcard) — automatically picks up signals from any current or future engine (hull_macd, rsi, etc.) without configuration changes.' },
       { author: 'claude', text: 'Same EngineRunner class, same runner.py file. The only differences: event_type is TradeSignal (not CandleEvent), on_event is processor.process_event (not engine.on_candle_event), and publisher is None (sink, not relay).' },
     ],
-    connections: ['proc-influx', 'redis']
+    connections: ['proc-influx', 'redis-pubsub']
   },
 
   // ── CONFIG / SUBSCRIPTION ──
@@ -1312,7 +1323,7 @@ const nodes = [
     insights: [
       { author: 'claude', text: 'The .env → Redis bootstrap means environment variables are the single source of truth at startup, but Redis becomes the runtime config store. This enables external tools to modify config without restarting the process.' },
     ],
-    connections: ['redis', 'credentials']
+    connections: ['redis-state', 'credentials']
   },
   { id: 'observability', x: 280, y: -280, layer: 'config',
     label: 'Observability', type: 'Logging + OTLP',
@@ -1355,7 +1366,7 @@ const nodes = [
     insights: [
       { author: 'claude', text: 'Instruments are keyed by the Position symbol (OCC format for equity options, broker format for futures). This allows PositionMetricsReader to look up instrument data by the same key used for positions.' },
     ],
-    connections: ['redis']
+    connections: ['redis-state']
   },
   { id: 'pos-reader', x: 1700, y: 1140, layer: 'analytics',
     label: 'PositionMetricsReader', type: 'Redis Consumer',
@@ -1471,7 +1482,7 @@ const nodes = [
       { author: 'xmandeng', text: 'Entry price must be the lowest granularity possible. The concept of lower timeframe for accuracy is the key.' },
       { author: 'claude', text: 'Pricing candles are interleaved BEFORE signal candles at the same timestamp. This ensures the pricing buffer is populated before the engine processes the signal-timeframe candle for accurate entry pricing.' },
     ],
-    connections: ['mkt-provider', 'redis']
+    connections: ['mkt-provider', 'redis-pubsub']
   },
   { id: 'backtest-runner', x: 660, y: 2400, layer: 'signal',
     label: 'BacktestRunner', type: 'Multi-Timeframe Runner',
@@ -1547,7 +1558,7 @@ const edges = [
 
   // Processors → Persistence
   { from: 'proc-influx', to: 'influxdb', label: 'batch write' },
-  { from: 'proc-redis', to: 'redis', label: 'publish' },
+  { from: 'proc-redis', to: 'redis-pubsub', label: 'publish' },
 
 
   // InfluxDB → Provider
@@ -1556,14 +1567,14 @@ const edges = [
   // Signal path (TT-56: three-layer — CLI → Runner → Engine)
   { from: 'signal-cli', to: 'signal-svc', label: 'constructs + starts' },
   { from: 'signal-svc', to: 'redis-sub', label: 'owns (dedicated)', style: 'dashed' },
-  { from: 'redis', to: 'redis-sub', label: 'psubscribe' },
+  { from: 'redis-pubsub', to: 'redis-sub', label: 'psubscribe' },
   { from: 'redis-sub', to: 'hull-macd', label: 'on_update → on_candle_event()' },
   { from: 'hull-macd', to: 'event-publisher', label: 'publisher.publish(signal)', style: 'dashed' },
   { from: 'event-publisher', to: 'redis-pub', label: 'satisfies protocol', style: 'dashed' },
-  { from: 'redis-pub', to: 'redis', label: 'market:TradeSignal:hull_macd:*' },
+  { from: 'redis-pub', to: 'redis-pubsub', label: 'market:TradeSignal:hull_macd:*' },
 
   // TradeSignalFeed — independent service, subscribes to Redis directly
-  { from: 'redis', to: 'signal-persist', label: 'psubscribe market:TradeSignal:*' },
+  { from: 'redis-pubsub', to: 'signal-persist', label: 'psubscribe market:TradeSignal:*' },
   { from: 'signal-persist', to: 'proc-influx', label: 'on_event → process_event()' },
 
   // Subscription store
@@ -1574,15 +1585,15 @@ const edges = [
   { from: 'cli-entry', to: 'observability', label: 'init_observability()', style: 'dashed' },
   { from: 'sub-orchestrator', to: 'config-mgr', label: 'initialize config' },
   { from: 'config-mgr', to: 'credentials', label: 'env + secrets' },
-  { from: 'config-mgr', to: 'redis', label: 'namespace store', style: 'dashed' },
+  { from: 'config-mgr', to: 'redis-state', label: 'namespace store', style: 'dashed' },
   { from: 'credentials', to: 'tastytrade-api', label: 'auth strategy' },
   { from: 'acct-streamer', to: 'tastytrade-api', label: 'streamer token', style: 'dashed' },
   { from: 'proc-metrics', to: 'metrics-tracker', label: 'on_quote / on_greeks' },
 
   // Account data → Redis → Strategy Engine (TT-62)
   { from: 'acct-streamer', to: 'acct-publisher', label: 'positions + instruments' },
-  { from: 'acct-publisher', to: 'redis', label: 'HSET positions/instruments' },
-  { from: 'redis', to: 'pos-reader', label: 'HGETALL positions/quotes/greeks/instruments' },
+  { from: 'acct-publisher', to: 'redis-state', label: 'HSET positions/instruments' },
+  { from: 'redis-state', to: 'pos-reader', label: 'HGETALL positions/quotes/greeks/instruments' },
   { from: 'pos-reader', to: 'metrics-tracker', label: 'load_positions + events' },
   { from: 'pos-reader', to: 'strategy-classifier', label: '.strategies property' },
   { from: 'strategy-classifier', to: 'strategy-patterns', label: 'MULTI_LEG_MATCHERS' },
@@ -1602,14 +1613,14 @@ const edges = [
   { from: 'backtest-cli', to: 'backtest-replay', label: 'constructs + starts' },
   { from: 'backtest-cli', to: 'backtest-runner', label: 'constructs + setup()' },
   { from: 'backtest-replay', to: 'mkt-provider', label: 'download(symbol, start, stop)' },
-  { from: 'backtest-replay', to: 'redis', label: 'publish backtest:CandleEvent:*' },
-  { from: 'redis', to: 'backtest-runner', label: 'psubscribe backtest:CandleEvent:*' },
+  { from: 'backtest-replay', to: 'redis-pubsub', label: 'publish backtest:CandleEvent:*' },
+  { from: 'redis-pubsub', to: 'backtest-runner', label: 'psubscribe backtest:CandleEvent:*' },
   { from: 'backtest-runner', to: 'hull-macd', label: 'on_candle_event()' },
   { from: 'backtest-runner', to: 'backtest-publisher', label: 'buffer_pricing_candle()' },
   { from: 'hull-macd', to: 'backtest-publisher', label: 'publish(signal)', style: 'dashed' },
   { from: 'backtest-publisher', to: 'redis-pub', label: 'publish(BacktestSignal)' },
   { from: 'backtest-publisher', to: 'backtest-signal', label: 'TradeSignal → BacktestSignal' },
-  { from: 'redis', to: 'signal-persist', label: 'psubscribe market:BacktestSignal:*', style: 'dashed' },
+  { from: 'redis-pubsub', to: 'signal-persist', label: 'psubscribe market:BacktestSignal:*', style: 'dashed' },
 ];
 
 // ── RENDER ───────────────────────────────────────────────────────────
@@ -1647,7 +1658,7 @@ const FUNCTIONAL_VIEWS = {
       'ctrl-handler', 'msg-router', 'evt-handler', 'base-event',
       'proc-latest', 'proc-base', 'proc-candle', 'proc-influx', 'proc-redis',
       'proc-snapshot', 'proc-metrics',
-      'influxdb', 'redis',
+      'influxdb', 'redis-pubsub',
     ]),
   },
   'Signal Path': {
@@ -1655,7 +1666,7 @@ const FUNCTIONAL_VIEWS = {
     nodes: new Set([
       'queue-candle', 'msg-router', 'evt-handler',
       'proc-redis',
-      'redis', 'redis-sub', 'signal-cli', 'signal-svc', 'hull-macd', 'redis-pub',
+      'redis-pubsub', 'redis-sub', 'signal-cli', 'signal-svc', 'hull-macd', 'redis-pub',
       'event-publisher', 'signal-persist', 'proc-influx', 'influxdb',
     ]),
   },
@@ -1663,7 +1674,7 @@ const FUNCTIONAL_VIEWS = {
     color: '#d29922',
     nodes: new Set([
       'backtest-cli', 'backtest-replay', 'backtest-runner', 'backtest-publisher',
-      'backtest-signal', 'hull-macd', 'redis-pub', 'redis', 'mkt-provider',
+      'backtest-signal', 'hull-macd', 'redis-pub', 'redis-pubsub', 'mkt-provider',
       'signal-persist', 'proc-influx', 'influxdb',
     ]),
   },
@@ -1679,7 +1690,7 @@ const FUNCTIONAL_VIEWS = {
   'Strategy Engine': {
     color: '#e8b004',
     nodes: new Set([
-      'acct-streamer', 'acct-publisher', 'redis',
+      'acct-streamer', 'acct-publisher', 'redis-state',
       'pos-reader', 'metrics-tracker',
       'strategy-classifier', 'strategy-patterns', 'strategy-models',
       'strategy-health', 'health-config',
@@ -2302,6 +2313,33 @@ function renderNodes() {
     el.addEventListener('mouseenter', (e) => { if (!draggingNode) showTooltip(e, node); });
     el.addEventListener('mouseleave', hideTooltip);
 
+    // Touch: node drag
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const t = e.touches[0];
+      draggingNode = node;
+      nodeDragMoved = false;
+      nodeDragStartX = t.clientX;
+      nodeDragStartY = t.clientY;
+      nodeOrigX = node.x;
+      nodeOrigY = node.y;
+      preDragSnapshot = snapshotPositions();
+      if (groupSelected.has(node.id) && groupSelected.size > 1) {
+        groupDragOrigins = {};
+        groupSelected.forEach(id => {
+          const n = nodes.find(nd => nd.id === id);
+          if (n) groupDragOrigins[id] = { x: n.x, y: n.y };
+        });
+      } else {
+        groupDragOrigins = null;
+      }
+      el.style.zIndex = 50;
+      el.style.transition = 'box-shadow 0.2s, border-color 0.2s';
+      hideTooltip();
+    }, { passive: false });
+
     canvas.appendChild(el);
   });
 }
@@ -2772,6 +2810,141 @@ canvasWrap.addEventListener('click', (e) => {
   }
 });
 
+// ── TOUCH SUPPORT ──────────────────────────────────────────────────
+let touchPanActive = false;
+let touchPanStartX = 0, touchPanStartY = 0;
+let pinchStartDist = 0, pinchStartScale = 0;
+let pinchMidX = 0, pinchMidY = 0;
+
+function getTouchDist(t1, t2) {
+  const dx = t1.clientX - t2.clientX;
+  const dy = t1.clientY - t2.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Canvas: one-finger pan, two-finger pinch-to-zoom
+canvasWrap.addEventListener('touchstart', (e) => {
+  if (e.target.closest('.node')) return; // node touch handles itself
+
+  if (e.touches.length === 2) {
+    // Pinch start
+    e.preventDefault();
+    touchPanActive = false;
+    pinchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+    pinchStartScale = scale;
+    const rect = canvasWrap.getBoundingClientRect();
+    pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+    pinchMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+    return;
+  }
+
+  if (e.touches.length === 1) {
+    // Pan start
+    e.preventDefault();
+    touchPanActive = true;
+    touchPanStartX = e.touches[0].clientX - panX;
+    touchPanStartY = e.touches[0].clientY - panY;
+    canvasWrap.classList.add('dragging');
+  }
+}, { passive: false });
+
+// Global touchmove: node drag, canvas pan, pinch zoom
+window.addEventListener('touchmove', (e) => {
+  // Node drag
+  if (draggingNode && e.touches.length === 1) {
+    e.preventDefault();
+    const t = e.touches[0];
+    const dx = (t.clientX - nodeDragStartX) / scale;
+    const dy = (t.clientY - nodeDragStartY) / scale;
+
+    if (!nodeDragMoved && (Math.abs(dx) > NODE_DRAG_THRESHOLD || Math.abs(dy) > NODE_DRAG_THRESHOLD)) {
+      nodeDragMoved = true;
+      canvasWrap.classList.add('dragging');
+    }
+
+    if (nodeDragMoved) {
+      draggingNode.x = nodeOrigX + dx;
+      draggingNode.y = nodeOrigY + dy;
+      const el = document.getElementById(`node-${draggingNode.id}`);
+      if (el) {
+        el.style.left = draggingNode.x + 'px';
+        el.style.top = draggingNode.y + 'px';
+      }
+      if (groupDragOrigins) {
+        groupSelected.forEach(id => {
+          if (id === draggingNode.id) return;
+          const n = nodes.find(nd => nd.id === id);
+          const orig = groupDragOrigins[id];
+          if (!n || !orig) return;
+          n.x = orig.x + dx;
+          n.y = orig.y + dy;
+          const nel = document.getElementById(`node-${id}`);
+          if (nel) {
+            nel.style.left = n.x + 'px';
+            nel.style.top = n.y + 'px';
+          }
+        });
+      }
+      renderEdges();
+      updateMinimap();
+    }
+    return;
+  }
+
+  // Pinch zoom
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const dist = getTouchDist(e.touches[0], e.touches[1]);
+    const newScale = Math.max(0.2, Math.min(2, pinchStartScale * (dist / pinchStartDist)));
+    const prevScale = scale;
+    scale = newScale;
+    panX = pinchMidX - (pinchMidX - panX) * (scale / prevScale);
+    panY = pinchMidY - (pinchMidY - panY) * (scale / prevScale);
+    updateTransform();
+    return;
+  }
+
+  // Canvas pan
+  if (touchPanActive && e.touches.length === 1) {
+    e.preventDefault();
+    panX = e.touches[0].clientX - touchPanStartX;
+    panY = e.touches[0].clientY - touchPanStartY;
+    updateTransform();
+  }
+}, { passive: false });
+
+// Global touchend: finalize node drag, canvas pan
+window.addEventListener('touchend', (e) => {
+  // Node drag end
+  if (draggingNode) {
+    const el = document.getElementById(`node-${draggingNode.id}`);
+    if (el) {
+      el.style.zIndex = '';
+      el.style.transition = '';
+    }
+    if (nodeDragMoved && preDragSnapshot) {
+      pushUndo(preDragSnapshot);
+      autosave();
+    }
+    if (!nodeDragMoved) {
+      clearGroupSelection();
+      selectNode(draggingNode);
+    }
+    draggingNode = null;
+    nodeDragMoved = false;
+    preDragSnapshot = null;
+    groupDragOrigins = null;
+    canvasWrap.classList.remove('dragging');
+    return;
+  }
+
+  // Canvas pan end
+  if (touchPanActive) {
+    touchPanActive = false;
+    canvasWrap.classList.remove('dragging');
+  }
+});
+
 function resetView() {
   scale = 0.7; panX = 50; panY = 10;
   updateTransform();
@@ -2958,28 +3131,47 @@ window.addEventListener('keydown', (e) => {
   window.addEventListener('mouseup', () => {
     mmDragging = false;
   });
+
+  // Touch: minimap
+  mm.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    mmDragging = true;
+    minimapPan(e.touches[0]);
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (mmDragging && e.touches.length === 1) minimapPan(e.touches[0]);
+  });
+
+  window.addEventListener('touchend', () => {
+    mmDragging = false;
+  });
 })();
 
-// ── DRAGGABLE FLOATING PANELS ────────────────────────────────────────
+// ── DRAGGABLE FLOATING PANELS (mouse + touch) ───────────────────────
 document.querySelectorAll('.floating-panel').forEach(panel => {
   let px, py, startL, startT;
-  panel.addEventListener('mousedown', (e) => {
-    // Don't drag if clicking interactive children (buttons, inputs, selects)
-    if (e.target.closest('button, input, select, a, .minimap')) return;
-    e.preventDefault();
-    px = e.clientX; py = e.clientY;
+
+  function startDrag(clientX, clientY) {
+    px = clientX; py = clientY;
     const rect = panel.getBoundingClientRect();
     startL = rect.left; startT = rect.top;
     panel.classList.add('fp-dragging');
+  }
 
-    function onMove(ev) {
-      const dx = ev.clientX - px;
-      const dy = ev.clientY - py;
-      panel.style.left = (startL + dx) + 'px';
-      panel.style.top = (startT + dy) + 'px';
-      panel.style.right = 'auto';
-      panel.style.bottom = 'auto';
-    }
+  function moveDrag(clientX, clientY) {
+    panel.style.left = (startL + clientX - px) + 'px';
+    panel.style.top = (startT + clientY - py) + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+
+  panel.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button, input, select, a, .minimap')) return;
+    e.preventDefault();
+    startDrag(e.clientX, e.clientY);
+    function onMove(ev) { moveDrag(ev.clientX, ev.clientY); }
     function onUp() {
       panel.classList.remove('fp-dragging');
       window.removeEventListener('mousemove', onMove);
@@ -2988,6 +3180,23 @@ document.querySelectorAll('.floating-panel').forEach(panel => {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   });
+
+  panel.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button, input, select, a, .minimap')) return;
+    if (e.touches.length !== 1) return;
+    e.preventDefault();
+    startDrag(e.touches[0].clientX, e.touches[0].clientY);
+    function onMove(ev) {
+      if (ev.touches.length === 1) moveDrag(ev.touches[0].clientX, ev.touches[0].clientY);
+    }
+    function onUp() {
+      panel.classList.remove('fp-dragging');
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    }
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+  }, { passive: false });
 });
 
 // ── INIT ────────────────────────────────────────────────────────────
