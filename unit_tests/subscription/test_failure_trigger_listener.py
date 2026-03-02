@@ -24,7 +24,7 @@ def mock_redis_store():
 def mock_dxlink():
     """Create mock DXLinkManager."""
     dxlink = Mock(spec=DXLinkManager)
-    dxlink.simulate_failure = Mock()
+    dxlink.simulate_failure = AsyncMock()
     return dxlink
 
 

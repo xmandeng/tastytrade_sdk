@@ -15,6 +15,7 @@ from typing import Any, Dict
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections import Credentials
+from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.connections.sockets import ConnectionState, DXLinkManager
 from tastytrade.connections.subscription import RedisSubscriptionStore
 from tastytrade.messaging.processors import (
@@ -210,7 +211,7 @@ async def failure_trigger_listener(
                 try:
                     reason = ReconnectReason(reason_str)
                     logger.info("Received simulate_failure command: %s", reason.value)
-                    dxlink.simulate_failure(reason)
+                    await dxlink.simulate_failure(reason)
                 except ValueError:
                     logger.warning("Invalid ReconnectReason received: %s", reason_str)
     except asyncio.CancelledError:
@@ -258,7 +259,11 @@ async def _run_subscription_once(
         logger.info("Using %s environment (%s)", env, credentials.base_url)
 
         logger.info("Opening DXLink connection")
-        dxlink = DXLinkManager(subscription_store=RedisSubscriptionStore())
+        reconnect_signal = ReconnectSignal()
+        dxlink = DXLinkManager(
+            subscription_store=RedisSubscriptionStore(),
+            reconnect_signal=reconnect_signal,
+        )
         await dxlink.open(credentials=credentials)
 
         # Attach processors to all handlers
@@ -412,12 +417,7 @@ async def _run_subscription_once(
         resolver = PositionSymbolResolver(dxlink=dxlink)
         resolver_task = asyncio.create_task(resolver.listen(), name="position_resolver")
 
-        async def reconnection_monitor() -> ReconnectReason:
-            """Wait for reconnection signal and return reason."""
-            reason = await dxlink.wait_for_reconnect_signal()
-            return reason
-
-        monitor_task = asyncio.create_task(reconnection_monitor())
+        monitor_task = asyncio.create_task(reconnect_signal.wait())
 
         try:
             while True:
@@ -457,7 +457,7 @@ async def _run_subscription_once(
                 log_health_status(dxlink, handlers_dict, start_time)
 
                 # Recreate monitor task for next iteration
-                monitor_task = asyncio.create_task(reconnection_monitor())
+                monitor_task = asyncio.create_task(reconnect_signal.wait())
 
         finally:
             for task in [monitor_task, failure_listener_task, resolver_task]:  # type: ignore[assignment]

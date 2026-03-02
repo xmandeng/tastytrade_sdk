@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from typing import Callable, List, Optional, Protocol
+from typing import List, Optional, Protocol
 
-from tastytrade.config.enumerations import Channels, ReconnectReason
+from tastytrade.config.enumerations import Channels
+from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.handlers import ControlHandler, EventHandler
 from tastytrade.messaging.processors.default import (
@@ -13,9 +14,6 @@ from tastytrade.messaging.processors.default import (
 logger = logging.getLogger(__name__)
 
 
-ReconnectCallback = Callable[[ReconnectReason], None]
-
-
 class Websocket(Protocol):
     queues: dict[int, asyncio.Queue]
 
@@ -24,7 +22,7 @@ class MessageRouter:
     instance = None
     queues: dict[int, asyncio.Queue] = {}
 
-    # Default handlers (without reconnect callback)
+    # Default handlers (without reconnect signal)
     default_handlers: dict[Channels, EventHandler] = {
         Channels.Control: ControlHandler(),
         Channels.Quote: EventHandler(Channels.Quote, processor=LatestEventProcessor()),
@@ -51,13 +49,13 @@ class MessageRouter:
     def __init__(
         self,
         websocket: Websocket,
-        reconnect_callback: Optional[ReconnectCallback] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
         subscription_store: Optional[SubscriptionStore] = None,
     ) -> None:
         # Create handler dict with reconnect-aware ControlHandler
         # Pass subscription_store to data handlers for last_update tracking
         self.handler: dict[Channels, EventHandler] = {
-            Channels.Control: ControlHandler(reconnect_callback=reconnect_callback),
+            Channels.Control: ControlHandler(reconnect_signal=reconnect_signal),
             Channels.Quote: EventHandler(
                 Channels.Quote,
                 processor=LatestEventProcessor(),
