@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan Review: Option Strategy Classification Engine</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0d1117;
+    --bg-surface: #161b22;
+    --bg-surface-2: #1c2128;
+    --bg-hover: #21262d;
+    --border: #30363d;
+    --border-light: #484f58;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-dim: #6e7681;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --green-bg: rgba(63, 185, 80, 0.10);
+    --amber: #d29922;
+    --amber-bg: rgba(210, 153, 34, 0.10);
+    --red: #f85149;
+    --red-bg: rgba(248, 81, 73, 0.08);
+    --purple: #bc8cff;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    height: 52px;
+  }
+  .topbar h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .topbar .stats {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+  }
+  .stat { display: flex; align-items: center; gap: 5px; }
+  .stat .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .dot-pending { background: var(--amber); }
+  .dot-approved { background: var(--green); }
+  .dot-revision { background: var(--red); }
+  .dot-question { background: var(--purple); }
+
+  /* Main layout */
+  .main {
+    display: flex;
+    height: calc(100vh - 52px);
+  }
+
+  /* Resize handles */
+  .resize-handle {
+    width: 1px;
+    cursor: col-resize;
+    background: var(--border);
+    position: relative;
+    flex-shrink: 0;
+    z-index: 10;
+    overflow: visible;
+  }
+  .resize-handle:hover,
+  .resize-handle.dragging {
+    background: var(--accent);
+    width: 3px;
+  }
+  body.resizing { cursor: col-resize; user-select: none; }
+
+  /* Topbar collapse toggle buttons */
+  .topbar-toggles {
+    display: flex;
+    gap: 6px;
+  }
+  .collapse-toggle {
+    width: 36px;
+    height: 32px;
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  }
+  @media (hover: hover) {
+    .collapse-toggle:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+      border-color: var(--accent);
+    }
+  }
+  .collapse-toggle.panel-collapsed {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  /* Collapsed panel states */
+  .nav.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  .right-panel.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden;
+  }
+  .right-panel.collapsed > * { display: none; }
+  .nav.collapsed > * { display: none; }
+  .nav, .right-panel { transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease; }
+
+  /* Section nav */
+  .nav {
+    width: 240px;
+    min-width: 140px;
+    background: var(--bg-surface);
+    overflow-y: auto;
+    padding: 12px 0;
+  }
+  .nav-item {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-item:hover { background: var(--bg-hover); color: var(--text); }
+  .nav-item.active {
+    background: var(--bg-hover);
+    border-left-color: var(--accent);
+    color: var(--text);
+  }
+  .nav-item .status-icon {
+    width: 16px; height: 16px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+  }
+  .nav-item .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Document panel */
+  .doc-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+    min-width: 0;
+  }
+  .doc-panel::-webkit-scrollbar { width: 8px; }
+  .doc-panel::-webkit-scrollbar-track { background: transparent; }
+  .doc-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* Section rendering */
+  .section { margin-bottom: 16px; scroll-margin-top: 20px; padding: 16px 16px 10px; border-radius: 6px; }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .section-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    flex: 1;
+  }
+
+  .section-content {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+  .section-content p { margin-bottom: 12px; }
+  .section-content strong { color: var(--text); font-weight: 600; }
+  .section-content code {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg-surface-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+  }
+  .section-content pre {
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin: 12px 0;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .section-content pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+  .section-content ul, .section-content ol {
+    margin: 8px 0 12px 24px;
+  }
+  .section-content li { margin-bottom: 4px; }
+  .section-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .section-content th, .section-content td {
+    text-align: left;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+  }
+  .section-content th { background: var(--bg-surface-2); color: var(--text); font-weight: 600; }
+  .section-content hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* Review actions */
+  .review-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .review-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    transition: all 0.15s;
+  }
+  .review-btn:hover { border-color: var(--border-light); color: var(--text); }
+  .review-btn.active-approved {
+    background: var(--green-bg);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .review-btn.active-revision {
+    background: var(--red-bg);
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .review-btn.active-question {
+    background: rgba(188, 140, 255, 0.10);
+    border-color: var(--purple);
+    color: var(--purple);
+  }
+
+  .comment-area {
+    margin-top: 10px;
+    display: none;
+  }
+  .comment-area.visible { display: block; }
+  .comment-area textarea {
+    width: 100%;
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 60px;
+    outline: none;
+    margin-bottom: 0;
+    display: block;
+  }
+  .comment-area textarea:focus { border-color: var(--accent); }
+  .comment-area textarea::placeholder { color: var(--text-dim); }
+  .existing-comment {
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    position: relative;
+  }
+  .existing-comment .edit-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  /* Right panel: prompt output */
+  .right-panel {
+    width: 360px;
+    min-width: 200px;
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+  }
+  .right-panel-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .right-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .right-panel-content::-webkit-scrollbar { width: 6px; }
+  .right-panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .prompt-output {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .prompt-placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .copy-btn {
+    padding: 8px 16px;
+    margin: 12px 16px 16px;
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .copy-btn:hover { opacity: 0.9; }
+  .copy-btn.copied { background: var(--green); }
+
+  /* Filter tabs in right panel */
+  .filter-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .filter-tab {
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .filter-tab:hover { background: var(--bg-hover); }
+  .filter-tab.active { background: var(--bg-hover); color: var(--text); }
+
+  /* Feedback summary items */
+  .feedback-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .feedback-item:last-child { border-bottom: none; }
+  .feedback-item .fb-section {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  .feedback-item .fb-status {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .fb-status.approved { background: var(--green-bg); color: var(--green); }
+  .fb-status.revision { background: var(--red-bg); color: var(--red); }
+  .fb-status.question { background: rgba(188,140,255,0.1); color: var(--purple); }
+  .feedback-item .fb-comment {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  /* Revised section highlight */
+  .section.revised {
+    border-left: 3px solid var(--accent) !important;
+    background: rgba(88, 166, 255, 0.04) !important;
+  }
+  .revised-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-toggles">
+    <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9"/><rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3"/></svg>
+    </button>
+  </div>
+  <h1>Plan Review: Option Strategy Classification Engine</h1>
+  <div class="stats" id="stats"></div>
+  <div class="topbar-toggles">
+    <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3"/><rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="nav" id="nav"></div>
+  <div class="resize-handle" id="leftHandle"></div>
+  <div class="doc-panel" id="docPanel"></div>
+  <div class="resize-handle" id="rightHandle"></div>
+  <div class="right-panel" id="rightPanel">
+    <div class="right-panel-header">
+      <span>Review Feedback</span>
+      <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+    </div>
+    <div class="filter-tabs" id="filterTabs">
+      <div class="filter-tab active" data-filter="all">All</div>
+      <div class="filter-tab" data-filter="approved">Approved</div>
+      <div class="filter-tab" data-filter="revision">Needs Revision</div>
+      <div class="filter-tab" data-filter="question">Questions</div>
+    </div>
+    <div class="right-panel-content" id="feedbackList"></div>
+    <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+  </div>
+</div>
+
+<script>
+const docSections = [
+  {
+    id: "context",
+    title: "Context",
+    content: `The current \`positions-summary\` property groups legs by underlying and shows net delta + leg count, but doesn't identify strategies — that's delegated to an LLM via \`just positions-strategies\`. This is slow, expensive, and sometimes wrong (misidentifying jade lizards as collars).
+
+**Goal:** Build a deterministic strategy classifier that assembles all underlying positions, enriches them with broker-provided instrument metadata (strike, call/put, expiration), and classifies them into recognized option strategy recipes — including tastytrade varieties. Full lifecycle: identification, aggregate Greeks, P&L metrics, health monitoring.
+
+**Key design decision:** Get option metadata from the TastyTrade API (\`GET /instruments/equity-options\`) instead of parsing OCC symbols locally. Persist instrument details to Redis so all consumers read structured data.`
+  },
+  {
+    id: "architecture",
+    title: "Architecture Overview",
+    content: `\`\`\`
+TT API                    Redis                         Analytics
+───────                   ─────                         ─────────
+/instruments/             tastytrade:instruments        PositionMetricsReader
+  equity-options  ──▶     (HSET: symbol → JSON)    ──▶   .strategies property
+                                                          StrategyClassifier
+/accounts/.../            tastytrade:positions              │
+  positions       ──▶     (HSET: symbol → JSON)    ──▶   ParsedLeg objects
+                                                          │
+DXLink stream     ──▶     tastytrade:latest:*      ──▶   Greeks/Quotes
+                                                          │
+                                                        Strategy objects
+                                                        (type, legs, Greeks, P&L, health)
+\`\`\`
+
+**Data flow:**
+1. Account-stream starts → hydrates positions from API → for each option position, batch-fetches instrument details from \`GET /instruments/equity-options\` → writes both to Redis
+2. On live position updates (new option positions), fetches instrument details and writes to Redis
+3. \`PositionMetricsReader.read()\` loads positions + instruments + quotes + Greeks from Redis
+4. \`StrategyClassifier\` uses enriched data to identify strategies via greedy pattern matching`
+  },
+  {
+    id: "instrument-models",
+    title: "Step 1: Instrument Models & Client",
+    content: `### Per-type instrument models
+
+**File:** \`src/tastytrade/market/models.py\` (new)
+
+Each model maps 1:1 to its TT API \`/instruments/*\` endpoint. All extend \`TastyTradeApiModel\` (frozen Pydantic).
+
+\`\`\`python
+class OptionType(str, Enum):
+    CALL = "C"
+    PUT = "P"
+
+class EquityOptionInstrument(TastyTradeApiModel):
+    symbol: str                              # OCC symbol
+    instrument_type: str                     # "Equity Option"
+    strike_price: Decimal                    # e.g., 305.0
+    option_type: OptionType                  # "C" or "P"
+    root_symbol: str                         # e.g., "SPY"
+    underlying_symbol: str                   # e.g., "SPY"
+    expiration_date: date                    # YYYY-MM-DD
+    days_to_expiration: int                  # computed by broker
+    expires_at: datetime                     # full timestamp
+    exercise_style: str                      # "American"
+    settlement_type: str                     # "PM"
+    shares_per_contract: int                 # 100
+    streamer_symbol: str                     # ".SPY260220C185"
+    active: bool
+    is_closing_only: bool
+
+class FutureOptionInstrument(TastyTradeApiModel):
+    symbol: str
+    underlying_symbol: str
+    product_code: str
+    expiration_date: date
+    strike_price: Decimal
+    option_type: OptionType
+    exchange: str
+    streamer_symbol: str
+
+class EquityInstrument(TastyTradeApiModel):
+    symbol: str
+    instrument_type: str
+    description: Optional[str]
+    is_etf: bool
+    active: bool
+
+class FutureInstrument(TastyTradeApiModel):
+    symbol: str
+    product_code: str
+    contract_size: Decimal
+    notional_multiplier: Decimal
+    expiration_date: date
+    active: bool
+
+class CryptocurrencyInstrument(TastyTradeApiModel):
+    symbol: str
+    instrument_type: str
+    description: Optional[str]
+    active: bool
+\`\`\`
+
+### InstrumentsClient — one method per type
+
+**File:** \`src/tastytrade/market/instruments.py\` (extend existing)
+
+\`\`\`python
+class InstrumentsClient:
+    def __init__(self, session: AsyncSessionHandler): ...
+
+    async def get_equity_options(self, symbols: list[str]) -> list[EquityOptionInstrument]:
+        """GET /instruments/equity-options?symbol[]={sym1}&symbol[]={sym2}..."""
+
+    async def get_future_options(self, symbols: list[str]) -> list[FutureOptionInstrument]:
+        """GET /instruments/future-options?symbol[]={sym1}&symbol[]={sym2}..."""
+
+    async def get_equities(self, symbols: list[str]) -> list[EquityInstrument]:
+        """GET /instruments/equities?symbol[]={sym1}&symbol[]={sym2}..."""
+
+    async def get_futures(self, symbols: list[str]) -> list[FutureInstrument]:
+        """GET /instruments/futures?symbol[]={sym1}&symbol[]={sym2}..."""
+
+    async def get_cryptocurrencies(self, symbols: list[str]) -> list[CryptocurrencyInstrument]:
+        """GET /instruments/cryptocurrencies?symbol[]={sym1}&symbol[]={sym2}..."""
+\`\`\`
+
+**Batch size:** TT API may have URL length limits. Batch into groups of ~50 symbols per request.`
+  },
+  {
+    id: "redis-persistence",
+    title: "Step 2: Instrument Publisher (Redis)",
+    revised: false,
+    content: `### Extend AccountStreamPublisher
+
+**File:** \`src/tastytrade/accounts/publisher.py\`
+
+Add a new Redis HSET key and publish method:
+
+\`\`\`python
+INSTRUMENTS_KEY = "tastytrade:instruments"  # Single HSET, keyed by symbol
+
+async def publish_instruments(self, instruments: list) -> None:
+    """Write instrument details to Redis HSET. Key = symbol, value = JSON.
+
+    Accepts any instrument model type (EquityOptionInstrument,
+    FutureOptionInstrument, EquityInstrument, etc.).
+    """
+\`\`\`
+
+Single HSET is sufficient — symbol is globally unique across types, and consumers can look up by the Position's symbol field.
+
+### Orchestrator integration
+
+**File:** \`src/tastytrade/accounts/orchestrator.py\`
+
+After \`streamer.start()\` and position hydration, create an \`InstrumentsClient\` using \`streamer.session\` and enrich all position types:
+
+\`\`\`
+run_account_stream_once():
+    await streamer.start()       # positions hydrated into queue
+
+    # NEW: Enrich positions with instrument details per type
+    instruments_client = InstrumentsClient(streamer.session)
+
+    # Group position symbols by instrument type
+    equity_option_syms = [p.symbol for p in positions if p.instrument_type == EQUITY_OPTION]
+    future_option_syms = [p.symbol for p in positions if p.instrument_type == FUTURE_OPTION]
+    equity_syms = [p.symbol for p in positions if p.instrument_type == EQUITY]
+    # ... etc for futures, crypto
+
+    # Batch-fetch from each endpoint
+    instruments = []
+    if equity_option_syms:
+        instruments += await instruments_client.get_equity_options(equity_option_syms)
+    if future_option_syms:
+        instruments += await instruments_client.get_future_options(future_option_syms)
+    if equity_syms:
+        instruments += await instruments_client.get_equities(equity_syms)
+    # ...
+
+    await publisher.publish_instruments(instruments)
+
+    # Continue with existing consume loops...
+\`\`\`
+
+For live position updates: when a new position arrives that is not already in the instruments HSET, fetch and publish its instrument details using the appropriate type-specific method.`
+  },
+  {
+    id: "strategy-models",
+    title: "Step 3: Strategy Models",
+    content: `**File:** \`src/tastytrade/analytics/strategies/models.py\`
+
+### StrategyType enum (comprehensive)
+
+| Category | Strategies |
+|----------|-----------|
+| Delta-1 | Long Stock, Short Stock, Long Crypto, Short Crypto |
+| Single-leg | Long Call, Long Put, Naked Call, Naked Put |
+| Covered | Covered Call, Protective Put, Collar |
+| Verticals | Bull Call Spread, Bear Call Spread, Bull Put Spread, Bear Put Spread |
+| Straddle/Strangle | Long/Short Straddle, Long/Short Strangle |
+| Tastytrade | Jade Lizard, Covered Jade Lizard, Big Lizard |
+| Iron | Iron Condor, Iron Butterfly |
+| Butterfly/Condor | Call Butterfly, Put Butterfly, Condor |
+| Calendar/Diagonal | Calendar Spread, Diagonal Spread |
+| Other | Ratio Spread, Synthetic Long, Synthetic Short, Custom |
+
+### ParsedLeg (frozen dataclass)
+
+Built by joining \`SecurityMetrics\` + instrument from Redis:
+
+- Position fields: \`streamer_symbol\`, \`symbol\`, \`underlying\`, \`instrument_type\`, \`signed_quantity\`
+- Instrument fields (from broker): \`option_type\`, \`strike\` (Decimal), \`expiration\` (date), \`days_to_expiration\`
+- Market data fields: \`delta\`, \`gamma\`, \`theta\`, \`vega\`, \`mid_price\`
+
+### Strategy (dataclass)
+
+- \`strategy_type\`, \`underlying\`, \`legs: tuple[ParsedLeg, ...]\`
+- Computed properties: \`net_delta\`, \`net_gamma\`, \`net_theta\`, \`net_vega\`
+- P&L: \`max_profit\`, \`max_loss\`, \`breakeven_prices\` (strategy-type-specific formulas)
+- Time: \`days_to_expiration\`, \`nearest_expiration\`
+- \`width\` (strike width for spreads)`
+  },
+  {
+    id: "pattern-matchers",
+    title: "Step 4: Pattern Matchers",
+    content: `**File:** \`src/tastytrade/analytics/strategies/patterns.py\`
+
+Each pattern: \`match_X(legs: list[ParsedLeg]) -> MatchResult | None\`
+
+**Priority order (greedy — most legs first):**
+
+1. **4+ legs:** Iron Condor, Iron Butterfly, Covered Jade Lizard, Big Lizard, Butterfly, Condor
+2. **3 legs:** Jade Lizard, Collar
+3. **2 legs (with stock):** Covered Call, Protective Put
+4. **2 legs (same exp, same type):** Vertical spreads, Ratio Spread
+5. **2 legs (same exp, diff type):** Straddle, Strangle, Synthetic
+6. **2 legs (diff exp):** Calendar, Diagonal
+7. **1 leg:** Long/Short Stock, Long/Short Call/Put, Naked Call/Put
+
+**Key matching rules:**
+- All legs in a pattern must have matching absolute quantities (except ratio spreads)
+- Straddle = same strike; Strangle = different strikes
+- Iron condor = put strikes < call strikes, short inner + long outer
+- Jade lizard = short OTM put + bear call spread (short call + long higher call)
+- Quantity handling: 3 short puts + 1 short call → 1 strangle + 2 naked puts`
+  },
+  {
+    id: "classifier",
+    title: "Step 5: Classification Engine",
+    content: `**File:** \`src/tastytrade/analytics/strategies/classifier.py\`
+
+\`\`\`
+StrategyClassifier:
+    classify(securities, instruments) -> list[Strategy]:
+        1. Build ParsedLeg for each SecurityMetrics + instrument lookup
+        2. Group by underlying_symbol
+        3. For each underlying: greedy match patterns (most complex first)
+        4. Consume matched legs, repeat until no more matches
+        5. Remaining legs → single-leg strategies
+\`\`\``
+  },
+  {
+    id: "health",
+    title: "Step 6: Health Monitor",
+    revised: true,
+    content: `**File:** \`src/tastytrade/analytics/strategies/health.py\`
+**Config:** \`config/strategy_health.toml\`
+
+Thresholds are configurable per strategy type via TOML. Each strategy type can have its own thresholds, with a \`[default]\` section as fallback.
+
+\`\`\`toml
+# config/strategy_health.toml
+
+[default]
+dte_warning = 21
+dte_critical = 7
+max_loss_warning = 0.75
+max_loss_critical = 0.90
+delta_drift_warning = 0.30
+
+[iron_condor]
+dte_warning = 30
+dte_critical = 14
+delta_drift_warning = 0.20
+
+[short_strangle]
+dte_warning = 25
+dte_critical = 10
+delta_drift_warning = 0.25
+
+[jade_lizard]
+delta_drift_warning = 0.35
+
+# Strategies not listed here inherit from [default]
+\`\`\`
+
+**HealthThresholds** loaded from TOML at startup. Key = \`StrategyType\` name in snake_case, value = threshold overrides merged with defaults.
+
+\`\`\`python
+class StrategyHealthMonitor:
+    def __init__(self, config_path: Path | None = None): ...
+    def thresholds_for(self, strategy_type: StrategyType) -> HealthThresholds: ...
+    def check(self, strategy: Strategy) -> list[HealthAlert]: ...
+    def check_all(self, strategies: list[Strategy]) -> list[HealthAlert]: ...
+\`\`\`
+
+### Future features — Jira ticket creation required (AC)
+
+The following are out of scope for this ticket. **Acceptance criteria: create a Jira ticket for each** before closing this work.
+
+- **Profit target tracking** — Track strategy P&L against a configurable profit target (e.g., close at 50% max profit)
+- **Per-position adjustable thresholds** — Override health thresholds at the individual position/strategy level, not just by type
+- **Position annotations** — User-defined notes/tags on positions (e.g., "rolling candidate", "earnings play")
+- **InfluxDB persistence** — Store position/strategy snapshots as time-series data in InfluxDB for historical analysis`
+  },
+  {
+    id: "integration",
+    title: "Step 7: Integration",
+    content: `### PositionMetricsReader
+
+**File:** \`src/tastytrade/analytics/positions.py\`
+
+\`read()\` changes:
+- Also load instruments from \`tastytrade:instruments\` Redis HSET
+- Store \`self.tracker\` reference (currently only DataFrame is saved)
+- Store \`self.instruments: dict[str, EquityOptionInstrument]\`
+
+New properties:
+- \`strategies -> list[Strategy]\` — calls \`StrategyClassifier.classify()\`
+- \`strategy_summary -> pd.DataFrame\` — columns: underlying, strategy, legs, net_delta, net_theta, net_vega, dte, max_profit, max_loss, health, alerts
+
+### CLI
+
+**File:** \`src/tastytrade/subscription/cli.py\`
+
+New \`strategies\` subcommand:
+\`\`\`
+tasty-subscription strategies
+tasty-subscription strategies --json
+\`\`\`
+
+### Justfile
+
+\`\`\`just
+strategies:
+    uv run tasty-subscription strategies
+\`\`\``
+  },
+  {
+    id: "module-structure",
+    title: "Module Structure",
+    revised: false,
+    content: `\`\`\`
+src/tastytrade/
+    market/
+        models.py              # NEW: OptionType, EquityOptionInstrument,
+                               #   FutureOptionInstrument, EquityInstrument,
+                               #   FutureInstrument, CryptocurrencyInstrument
+        instruments.py         # EXTEND: add InstrumentsClient (one method per type)
+    accounts/
+        publisher.py           # EXTEND: add INSTRUMENTS_KEY, publish_instruments()
+        orchestrator.py        # EXTEND: instrument enrichment on startup + live updates
+    analytics/
+        positions.py           # EXTEND: strategies, strategy_summary properties
+        strategies/
+            __init__.py        # Public API exports
+            models.py          # StrategyType, ParsedLeg, Strategy (~200 lines)
+            patterns.py        # 25+ pattern matchers (~500 lines)
+            classifier.py      # Greedy classification engine (~100 lines)
+            health.py          # Health monitoring (~100 lines)
+
+config/
+    strategy_health.toml       # Per-strategy-type health thresholds (TOML)
+
+unit_tests/
+    market/
+        test_instruments_client.py   # InstrumentsClient tests
+    analytics/
+        strategies/
+            test_patterns.py         # Per-pattern unit tests
+            test_classifier.py       # End-to-end greedy matching tests
+            test_health.py           # Health monitoring tests
+\`\`\``
+  },
+  {
+    id: "file-refs",
+    title: "Critical File References",
+    content: `| File | Role |
+|------|------|
+| \`src/tastytrade/accounts/orchestrator.py\` | Integration point — instrument enrichment after startup |
+| \`src/tastytrade/accounts/publisher.py\` | Redis writer — add instruments HSET |
+| \`src/tastytrade/market/instruments.py\` | Existing instruments module — add InstrumentsClient |
+| \`src/tastytrade/analytics/metrics.py\` | SecurityMetrics + MetricsTracker — input data |
+| \`src/tastytrade/analytics/positions.py\` | PositionMetricsReader — new strategies properties |
+| \`src/tastytrade/accounts/models.py\` | Position model, InstrumentType, QuantityDirection |
+| \`src/tastytrade/subscription/cli.py\` | CLI commands — add strategies subcommand |
+| \`unit_tests/analytics/test_metrics_tracker.py\` | Factory helpers to reuse |`
+  },
+  {
+    id: "verification",
+    title: "Verification",
+    content: `1. **Unit tests:** \`uv run pytest unit_tests/analytics/strategies/ unit_tests/market/test_instruments_client.py -v\`
+2. **Type checking:** \`uv run mypy src/tastytrade/analytics/strategies/ src/tastytrade/market/models.py\`
+3. **Linting:** \`uv run ruff check src/tastytrade/analytics/strategies/\`
+4. **Functional test with live data:**
+   - Start account-stream: \`just account-stream\` — verify instruments HSET populated in Redis
+   - Run strategies: \`just strategies\` — verify strategies identified with broker-provided metadata
+   - Cross-check against \`just positions-strategies\` (LLM-based) for accuracy`
+  }
+];
+
+// State
+// Pre-populated approval status from first review round
+const priorApprovals = {
+  'context': 'approved',
+  'architecture': 'approved',
+  'instrument-models': 'approved',
+  'redis-persistence': 'approved',
+  'strategy-models': 'approved',
+  'pattern-matchers': 'approved',
+  'classifier': 'approved',
+  'health': 'pending',                  // REVISED — Jira AC requirement added
+  'integration': 'approved',
+  'module-structure': 'approved',
+  'file-refs': 'approved',
+  'verification': 'approved',
+};
+
+const state = {
+  sections: docSections.map(s => ({
+    ...s,
+    status: priorApprovals[s.id] || 'pending',
+    comment: ''
+  })),
+  activeSection: 'health',  // Jump to remaining revised section
+  activeFilter: 'all'
+};
+
+// Render markdown-like content to HTML
+function renderMarkdown(text) {
+  let html = '';
+  const lines = text.split('\n');
+  let inCode = false;
+  let codeLines = [];
+  let inList = false;
+  let inTable = false;
+  let tableRows = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Code blocks
+    if (line.trim().startsWith('```')) {
+      if (inCode) {
+        html += '<pre><code>' + codeLines.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
+        codeLines = [];
+        inCode = false;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    // Table
+    if (line.trim().startsWith('|')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      if (!inTable) inTable = true;
+      if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+        tableRows.push(line);
+      }
+      continue;
+    } else if (inTable) {
+      html += renderTable(tableRows);
+      inTable = false;
+      tableRows = [];
+    }
+
+    // Empty line
+    if (line.trim() === '') {
+      if (inList) { html += '</ul>'; inList = false; }
+      continue;
+    }
+
+    // Headers
+    if (line.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+      continue;
+    }
+
+    // List items
+    if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+      continue;
+    }
+    if (line.trim().match(/^\d+\.\s/)) {
+      if (!inList) { html += '<ol>'; inList = true; }
+      html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+      continue;
+    }
+
+    if (inList) { html += '</ul>'; inList = false; }
+    html += '<p>' + inlineFormat(line) + '</p>';
+  }
+
+  if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
+  if (inList) html += '</ul>';
+  if (inTable) html += renderTable(tableRows);
+
+  return html;
+}
+
+function renderTable(rows) {
+  if (rows.length === 0) return '';
+  let html = '<table>';
+  rows.forEach((row, idx) => {
+    const cells = row.split('|').filter(c => c.trim() !== '');
+    const tag = idx === 0 ? 'th' : 'td';
+    html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+  });
+  html += '</table>';
+  return html;
+}
+
+function inlineFormat(text) {
+  return text
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\\`/g, '`');
+}
+
+// Render navigation
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = state.sections.map(s => {
+    const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+      : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+      : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+      : '<span style="color:var(--text-dim)">&bull;</span>';
+    return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+                 onclick="navigateTo('${s.id}')">
+      <span class="status-icon">${icon}</span>
+      <span class="label">${s.title}</span>
+      ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+// Render document
+function renderDoc() {
+  const panel = document.getElementById('docPanel');
+  panel.innerHTML = state.sections.map(s => {
+    const borderColor = s.status === 'approved' ? 'var(--green)'
+      : s.status === 'revision' ? 'var(--red)'
+      : s.status === 'question' ? 'var(--purple)' : 'transparent';
+    const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+      : s.status === 'revision' ? 'var(--red-bg)'
+      : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+
+    const revisedAndPending = s.revised && s.status === 'pending';
+    const revisedClass = revisedAndPending ? ' revised' : '';
+    return `<div class="section${revisedClass}" id="section-${s.id}"
+                 style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
+      <div class="section-header">
+        <h2>${s.title}</h2>
+        ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
+      </div>
+      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="review-bar">
+        <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
+                onclick="setStatus('${s.id}','approved')">Approve</button>
+        <button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}"
+                onclick="setStatus('${s.id}','revision')">Needs Revision</button>
+        <button class="review-btn ${s.status === 'question' ? 'active-question' : ''}"
+                onclick="setStatus('${s.id}','question')">Question</button>
+        <button class="review-btn" onclick="toggleComment('${s.id}')"
+                style="margin-left:auto">Comment</button>
+      </div>
+      <div class="comment-area" id="comment-${s.id}">
+        ${s.comment
+          ? `<div class="existing-comment">${s.comment.replace(/</g,'&lt;').replace(/\n/g,'<br>')}
+               <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
+          : `<textarea placeholder="Add your feedback for this section..."
+                      onblur="saveComment('${s.id}', this.value)"
+                      id="textarea-${s.id}"></textarea>`
+        }
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Render stats
+function renderStats() {
+  const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+  state.sections.forEach(s => counts[s.status]++);
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
+    <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
+    <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
+    <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
+  `;
+}
+
+// Render feedback panel
+function renderFeedback() {
+  const list = document.getElementById('feedbackList');
+  const filtered = state.sections.filter(s => {
+    if (state.activeFilter === 'all') return s.status !== 'pending';
+    return s.status === state.activeFilter;
+  });
+
+  const count = state.sections.filter(s => s.status !== 'pending').length;
+  document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="prompt-placeholder">
+      ${state.activeFilter === 'all'
+        ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+        : 'No sections with this status yet.'}
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(s => `
+    <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
+      <div class="fb-section">
+        <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
+        ${s.title}
+      </div>
+      ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
+    </div>
+  `).join('');
+}
+
+// Actions
+function navigateTo(id) {
+  state.activeSection = id;
+  renderNav();
+  document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setStatus(id, status) {
+  const section = state.sections.find(s => s.id === id);
+  if (section.status === status) {
+    section.status = 'pending';
+  } else {
+    section.status = status;
+    // Auto-show comment area for revision/question
+    if (status === 'revision' || status === 'question') {
+      setTimeout(() => {
+        const area = document.getElementById('comment-' + id);
+        if (area) area.classList.add('visible');
+      }, 50);
+    }
+  }
+  renderAll();
+}
+
+function toggleComment(id) {
+  const area = document.getElementById('comment-' + id);
+  area.classList.toggle('visible');
+  if (area.classList.contains('visible')) {
+    const ta = document.getElementById('textarea-' + id);
+    if (ta) ta.focus();
+  }
+}
+
+function saveComment(id, value) {
+  const section = state.sections.find(s => s.id === id);
+  section.comment = value.trim();
+  renderAll();
+}
+
+function editComment(id) {
+  const section = state.sections.find(s => s.id === id);
+  const area = document.getElementById('comment-' + id);
+  area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    onblur="saveComment('${id}', this.value)"
+    id="textarea-${id}">${section.comment}</textarea>`;
+  area.classList.add('visible');
+  document.getElementById('textarea-' + id).focus();
+}
+
+function generatePrompt() {
+  const approved = state.sections.filter(s => s.status === 'approved');
+  const revision = state.sections.filter(s => s.status === 'revision');
+  const questions = state.sections.filter(s => s.status === 'question');
+
+  if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+    return '';
+  }
+
+  let prompt = 'Here is my review of the Option Strategy Classification Engine plan:\n\n';
+
+  if (approved.length > 0) {
+    prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+    approved.forEach(s => {
+      prompt += `- **${s.title}**: Approved`;
+      if (s.comment) prompt += ` — ${s.comment}`;
+      prompt += '\n';
+    });
+    prompt += '\n';
+  }
+
+  if (revision.length > 0) {
+    prompt += `## Needs Revision (${revision.length})\n`;
+    revision.forEach(s => {
+      prompt += `- **${s.title}**`;
+      if (s.comment) prompt += `: ${s.comment}`;
+      else prompt += ': (no specific feedback provided)';
+      prompt += '\n';
+    });
+    prompt += '\n';
+  }
+
+  if (questions.length > 0) {
+    prompt += `## Questions (${questions.length})\n`;
+    questions.forEach(s => {
+      prompt += `- **${s.title}**`;
+      if (s.comment) prompt += `: ${s.comment}`;
+      else prompt += ': (question not specified)';
+      prompt += '\n';
+    });
+    prompt += '\n';
+  }
+
+  const remaining = state.sections.filter(s => s.status === 'pending');
+  if (remaining.length > 0) {
+    prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+    remaining.forEach(s => prompt += `- ${s.title}\n`);
+  }
+
+  return prompt;
+}
+
+function copyPrompt() {
+  const prompt = generatePrompt();
+  if (!prompt) return;
+  navigator.clipboard.writeText(prompt).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// Filter tabs
+document.getElementById('filterTabs').addEventListener('click', e => {
+  const tab = e.target.closest('.filter-tab');
+  if (!tab) return;
+  state.activeFilter = tab.dataset.filter;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  renderFeedback();
+});
+
+function renderAll() {
+  renderNav();
+  renderDoc();
+  renderStats();
+  renderFeedback();
+}
+
+// Resizable & collapsible panels (mouse + touch)
+(function() {
+  const nav = document.getElementById('nav');
+  const rightPanel = document.getElementById('rightPanel');
+  const leftHandle = document.getElementById('leftHandle');
+  const rightHandle = document.getElementById('rightHandle');
+  const leftToggle = document.getElementById('leftToggle');
+  const rightToggle = document.getElementById('rightToggle');
+
+  let dragging = null;
+  let navWidth = 240;
+  let rightWidth = 360;
+
+  function updateToggles() {
+    const navCollapsed = nav.classList.contains('collapsed');
+    const rightCollapsed = rightPanel.classList.contains('collapsed');
+    leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+    leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+    rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+    rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+  }
+
+  function toggleNav(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (nav.classList.contains('collapsed')) {
+      nav.classList.remove('collapsed');
+      nav.style.width = navWidth + 'px';
+    } else {
+      navWidth = nav.offsetWidth;
+      nav.classList.add('collapsed');
+    }
+    updateToggles();
+  }
+
+  function toggleRight(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (rightPanel.classList.contains('collapsed')) {
+      rightPanel.classList.remove('collapsed');
+      rightPanel.style.width = rightWidth + 'px';
+    } else {
+      rightWidth = rightPanel.offsetWidth;
+      rightPanel.classList.add('collapsed');
+    }
+    updateToggles();
+  }
+
+  let touchFiredLeft = false, touchFiredRight = false;
+
+  leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+  leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+  rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+  rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+  updateToggles();
+
+  // Drag resize (mouse)
+  function onDragStart(e, side) {
+    e.preventDefault();
+    dragging = side;
+    document.body.classList.add('resizing');
+    (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+  }
+
+  leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left'));
+  rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right'));
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    applyDrag(e.clientX);
+  });
+
+  document.addEventListener('mouseup', endDrag);
+
+  // Drag resize (touch)
+  leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false });
+  rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false });
+
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    e.preventDefault();
+    applyDrag(e.touches[0].clientX);
+  }, { passive: false });
+
+  document.addEventListener('touchend', endDrag);
+
+  function applyDrag(clientX) {
+    if (dragging === 'left') {
+      const w = Math.max(140, Math.min(400, clientX));
+      nav.classList.remove('collapsed');
+      nav.style.width = w + 'px';
+      navWidth = w;
+    } else {
+      const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+      rightPanel.classList.remove('collapsed');
+      rightPanel.style.width = w + 'px';
+      rightWidth = w;
+    }
+    updateToggles();
+  }
+
+  function endDrag() {
+    if (!dragging) return;
+    document.body.classList.remove('resizing');
+    leftHandle.classList.remove('dragging');
+    rightHandle.classList.remove('dragging');
+    dragging = null;
+  }
+})();
+
+// Init — suppress transitions on first paint to avoid layout thrash
+document.body.style.visibility = 'hidden';
+renderAll();
+requestAnimationFrame(() => {
+  document.body.style.visibility = '';
+});
+</script>
+</body>
+</html>
