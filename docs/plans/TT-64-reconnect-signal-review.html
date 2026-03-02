@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan Review: TT-64 Reconnect Signal Refactor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0d1117;
+    --bg-surface: #161b22;
+    --bg-surface-2: #1c2128;
+    --bg-hover: #21262d;
+    --border: #30363d;
+    --border-light: #484f58;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-dim: #6e7681;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --green-bg: rgba(63, 185, 80, 0.10);
+    --amber: #d29922;
+    --amber-bg: rgba(210, 153, 34, 0.10);
+    --red: #f85149;
+    --red-bg: rgba(248, 81, 73, 0.08);
+    --purple: #bc8cff;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    height: 52px;
+  }
+  .topbar h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .topbar .stats {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+  }
+  .stat { display: flex; align-items: center; gap: 5px; }
+  .stat .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .dot-pending { background: var(--amber); }
+  .dot-approved { background: var(--green); }
+  .dot-revision { background: var(--red); }
+  .dot-question { background: var(--purple); }
+
+  /* Main layout */
+  .main {
+    display: flex;
+    height: calc(100vh - 52px);
+  }
+
+  /* Resize handles */
+  .resize-handle {
+    width: 1px;
+    cursor: col-resize;
+    background: var(--border);
+    position: relative;
+    flex-shrink: 0;
+    z-index: 10;
+    overflow: visible;
+  }
+  .resize-handle:hover,
+  .resize-handle.dragging {
+    background: var(--accent);
+    width: 3px;
+  }
+  body.resizing { cursor: col-resize; user-select: none; }
+
+  /* Topbar collapse toggle buttons */
+  .topbar-toggles {
+    display: flex;
+    gap: 6px;
+  }
+  .collapse-toggle {
+    width: 36px;
+    height: 32px;
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  }
+  @media (hover: hover) {
+    .collapse-toggle:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+      border-color: var(--accent);
+    }
+  }
+  .collapse-toggle.panel-collapsed {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  /* Collapsed panel states */
+  .nav.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  .right-panel.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden;
+  }
+  .right-panel.collapsed > * { display: none; }
+  .nav.collapsed > * { display: none; }
+  .nav, .right-panel { transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease; }
+
+  /* Section nav */
+  .nav {
+    width: 240px;
+    min-width: 140px;
+    background: var(--bg-surface);
+    overflow-y: auto;
+    padding: 12px 0;
+  }
+  .nav-item {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-item:hover { background: var(--bg-hover); color: var(--text); }
+  .nav-item.active {
+    background: var(--bg-hover);
+    border-left-color: var(--accent);
+    color: var(--text);
+  }
+  .nav-item .status-icon {
+    width: 16px; height: 16px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+  }
+  .nav-item .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Document panel */
+  .doc-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+    min-width: 0;
+  }
+  .doc-panel::-webkit-scrollbar { width: 8px; }
+  .doc-panel::-webkit-scrollbar-track { background: transparent; }
+  .doc-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* Section rendering */
+  .section { margin-bottom: 16px; scroll-margin-top: 20px; padding: 16px 16px 10px; border-radius: 6px; }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .section-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    flex: 1;
+  }
+
+  .section-content {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+  .section-content p { margin-bottom: 12px; }
+  .section-content strong { color: var(--text); font-weight: 600; }
+  .section-content code {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg-surface-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+  }
+  .section-content pre {
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin: 12px 0;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .section-content pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+  .section-content ul, .section-content ol {
+    margin: 8px 0 12px 24px;
+  }
+  .section-content li { margin-bottom: 4px; }
+  .section-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .section-content th, .section-content td {
+    text-align: left;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+  }
+  .section-content th { background: var(--bg-surface-2); color: var(--text); font-weight: 600; }
+  .section-content hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* Review actions */
+  .review-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .review-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    transition: all 0.15s;
+  }
+  .review-btn:hover { border-color: var(--border-light); color: var(--text); }
+  .review-btn.active-approved {
+    background: var(--green-bg);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .review-btn.active-revision {
+    background: var(--red-bg);
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .review-btn.active-question {
+    background: rgba(188, 140, 255, 0.10);
+    border-color: var(--purple);
+    color: var(--purple);
+  }
+
+  .comment-area {
+    margin-top: 10px;
+    display: none;
+  }
+  .comment-area.visible { display: block; }
+  .comment-area textarea {
+    width: 100%;
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 60px;
+    outline: none;
+    margin-bottom: 0;
+    display: block;
+  }
+  .comment-area textarea:focus { border-color: var(--accent); }
+  .comment-area textarea::placeholder { color: var(--text-dim); }
+  .existing-comment {
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    position: relative;
+  }
+  .existing-comment .edit-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  /* Right panel: prompt output */
+  .right-panel {
+    width: 360px;
+    min-width: 200px;
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+  }
+  .right-panel-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .right-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .right-panel-content::-webkit-scrollbar { width: 6px; }
+  .right-panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .prompt-output {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .prompt-placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .copy-btn {
+    padding: 8px 16px;
+    margin: 12px 16px 16px;
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .copy-btn:hover { opacity: 0.9; }
+  .copy-btn.copied { background: var(--green); }
+
+  /* Filter tabs in right panel */
+  .filter-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .filter-tab {
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .filter-tab:hover { background: var(--bg-hover); }
+  .filter-tab.active { background: var(--bg-hover); color: var(--text); }
+
+  /* Feedback summary items */
+  .feedback-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .feedback-item:last-child { border-bottom: none; }
+  .feedback-item .fb-section {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  .feedback-item .fb-status {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .fb-status.approved { background: var(--green-bg); color: var(--green); }
+  .fb-status.revision { background: var(--red-bg); color: var(--red); }
+  .fb-status.question { background: rgba(188,140,255,0.1); color: var(--purple); }
+  .feedback-item .fb-comment {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  /* Revised section highlight */
+  .section.revised {
+    border-left: 3px solid var(--accent) !important;
+    background: rgba(88, 166, 255, 0.04) !important;
+  }
+  .revised-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-toggles">
+    <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9"/><rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3"/></svg>
+    </button>
+  </div>
+  <h1>TT-64: Reconnect Signal Refactor</h1>
+  <div class="stats" id="stats"></div>
+  <div class="topbar-toggles">
+    <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3"/><rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="nav" id="nav"></div>
+  <div class="resize-handle" id="leftHandle"></div>
+  <div class="doc-panel" id="docPanel"></div>
+  <div class="resize-handle" id="rightHandle"></div>
+  <div class="right-panel" id="rightPanel">
+    <div class="right-panel-header">
+      <span>Review Feedback</span>
+      <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+    </div>
+    <div class="filter-tabs" id="filterTabs">
+      <div class="filter-tab active" data-filter="all">All</div>
+      <div class="filter-tab" data-filter="approved">Approved</div>
+      <div class="filter-tab" data-filter="revision">Needs Revision</div>
+      <div class="filter-tab" data-filter="question">Questions</div>
+    </div>
+    <div class="right-panel-content" id="feedbackList"></div>
+    <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+  </div>
+</div>
+
+<script>
+const docSections = [
+  {
+    id: "context",
+    title: "Context & Problem",
+    content: `**Jira:** [TT-64](https://mandeng.atlassian.net/browse/TT-64)
+
+### Current Architecture
+
+Three sources can trigger reconnection, but all route through DXLinkManager via a callback:
+
+\`\`\`
+ControlHandler  --callback-->  DXLinkManager.trigger_reconnect()  --sets-->  reconnect_event  <--awaits--  Orchestrator
+socket_listener -----calls-->  DXLinkManager.trigger_reconnect()
+send_keepalives -----calls-->  DXLinkManager.trigger_reconnect()
+\`\`\`
+
+### Problems
+
+1. **Circular dependency** — DXLinkManager creates ControlHandler (via MessageRouter), then ControlHandler calls back into DXLinkManager
+2. **Hidden control flow** — the callback isn't visible in the architecture diagram; ControlHandler appears disconnected from the orchestrator
+3. **Bypassed pipeline** — socket_listener and send_keepalives call trigger_reconnect() directly, bypassing the existing message pipeline
+4. **Testability** — testing ControlHandler's reconnect behavior requires mocking the callback, not just observing a signal
+
+### Proposed Architecture
+
+All failures route through the existing message pipeline. ControlHandler is the **single reconnection authority**.
+
+\`\`\`
+socket_listener ---CONNECTION_DROPPED--->  Queue[0]  --->  ControlHandler  ---trigger()--->  ReconnectSignal  <---await---  Orchestrator
+send_keepalives ---CONNECTION_DROPPED--->  Queue[0]  --->  ControlHandler  ---trigger()--->
+server messages ----naturally---->    Queue[0]  --->  ControlHandler  ---trigger()--->
+\`\`\`
+
+No callbacks. No bypass. One signal path through the existing pipeline. ControlHandler decides all reconnections.`
+  },
+  {
+    id: "step-1-signal",
+    title: "Step 1: Create ReconnectSignal",
+    content: `**File:** \`src/tastytrade/connections/signals.py\` (new)
+
+Extract the reconnection event + reason into a standalone, injectable object.
+
+\`\`\`python
+import asyncio
+import logging
+from typing import Optional
+
+from tastytrade.config.enumerations import ReconnectReason
+
+logger = logging.getLogger(__name__)
+
+
+class ReconnectSignal:
+    """Stable reconnection mailbox that outlives ControlHandler across
+    reconnection cycles.
+
+    ControlHandler is torn down and recreated every time the pipeline
+    reconnects. A direct subscription to ControlHandler would be lost
+    on each rebuild. This signal is created once by the Orchestrator,
+    passed down through the pipeline, and each new ControlHandler
+    instance publishes to the same object.
+
+    Replaces the callback pattern where ControlHandler called back
+    into DXLinkManager.trigger_reconnect().
+    """
+
+    def __init__(self) -> None:
+        self.event: asyncio.Event = asyncio.Event()
+        self.reason: Optional[ReconnectReason] = None
+
+    def trigger(self, reason: ReconnectReason) -> None:
+        """Signal that reconnection is needed."""
+        self.reason = reason
+        self.event.set()
+        logger.warning("Reconnect signal: %s", reason.value)
+
+    async def wait(self) -> ReconnectReason:
+        """Wait for a reconnection signal, return the reason."""
+        await self.event.wait()
+        self.event.clear()
+        return self.reason or ReconnectReason.MANUAL_TRIGGER
+
+    def simulate(self, reason: ReconnectReason) -> None:
+        """Trigger a simulated failure for testing."""
+        logger.warning("Simulating failure: %s", reason.value)
+        self.trigger(reason)
+\`\`\`
+
+### Key Decisions
+
+- **Standalone class, not a Protocol** — this is a concrete coordination primitive, not an abstraction boundary
+- **No connection state tracking** — \`ConnectionState\` stays on DXLinkManager where it belongs (it tracks WS lifecycle, not reconnection signaling)
+- **Logging moves here** — the "Reconnect signal" log line lives on the signal itself, so all trigger sources get consistent logging`
+  },
+  {
+    id: "step-2-controlhandler",
+    title: "Step 2: ControlHandler Uses Signal Directly",
+    content: `**File:** \`src/tastytrade/messaging/handlers.py\`
+
+Replace \`reconnect_callback\` parameter with \`reconnect_signal\` parameter.
+
+### Before
+
+\`\`\`python
+class ControlHandler(EventHandler):
+    def __init__(
+        self, reconnect_callback: Optional[Callable[[ReconnectReason], None]] = None
+    ) -> None:
+        super().__init__(channel=Channels.Control)
+        self.reconnect_callback = reconnect_callback
+        ...
+
+    async def handle_auth_state(self, message: Message) -> None:
+        ...
+        if self.reconnect_callback:
+            self.reconnect_callback(ReconnectReason.AUTH_EXPIRED)
+\`\`\`
+
+### After
+
+\`\`\`python
+from tastytrade.connections.signals import ReconnectSignal
+
+class ControlHandler(EventHandler):
+    def __init__(
+        self, reconnect_signal: Optional[ReconnectSignal] = None
+    ) -> None:
+        super().__init__(channel=Channels.Control)
+        self.reconnect_signal = reconnect_signal
+        ...
+
+    async def handle_auth_state(self, message: Message) -> None:
+        ...
+        if self.reconnect_signal:
+            self.reconnect_signal.trigger(ReconnectReason.AUTH_EXPIRED)
+\`\`\`
+
+### Changes
+
+- \`reconnect_callback\` parameter renamed to \`reconnect_signal\` with type \`Optional[ReconnectSignal]\`
+- All \`self.reconnect_callback(reason)\` calls become \`self.reconnect_signal.trigger(reason)\`
+- Affects: \`handle_auth_state\`, \`handle_error\` (TIMEOUT, UNAUTHORIZED, INVALID_MESSAGE/BAD_ACTION)`
+  },
+  {
+    id: "step-3-routing",
+    title: "Step 3: Update MessageRouter",
+    content: `**File:** \`src/tastytrade/connections/routing.py\`
+
+Replace callback plumbing with signal injection.
+
+### Before
+
+\`\`\`python
+ReconnectCallback = Callable[[ReconnectReason], None]
+
+class MessageRouter:
+    def __init__(
+        self,
+        websocket: Websocket,
+        reconnect_callback: Optional[ReconnectCallback] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
+    ) -> None:
+        self.handler = {
+            Channels.Control: ControlHandler(reconnect_callback=reconnect_callback),
+            ...
+        }
+\`\`\`
+
+### After
+
+\`\`\`python
+from tastytrade.connections.signals import ReconnectSignal
+
+class MessageRouter:
+    def __init__(
+        self,
+        websocket: Websocket,
+        reconnect_signal: Optional[ReconnectSignal] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
+    ) -> None:
+        self.handler = {
+            Channels.Control: ControlHandler(reconnect_signal=reconnect_signal),
+            ...
+        }
+\`\`\`
+
+### Changes
+
+- Remove \`ReconnectCallback\` type alias (no longer needed)
+- Rename parameter from \`reconnect_callback\` to \`reconnect_signal\`
+- Pass \`ReconnectSignal\` through to ControlHandler
+- Default handler dict (\`default_handlers\`) stays unchanged (uses \`ControlHandler()\` with no signal)`
+  },
+  {
+    id: "step-4-dxlink",
+    title: "Step 4: Simplify DXLinkManager",
+    content: `**File:** \`src/tastytrade/connections/sockets.py\`
+
+DXLinkManager receives the signal as a dependency instead of owning it.
+
+### Changes
+
+1. **Accept \`ReconnectSignal\` in \`__init__\`**, default to a new instance if none provided:
+
+\`\`\`python
+from tastytrade.connections.signals import ReconnectSignal
+
+class DXLinkManager:
+    def __init__(
+        self,
+        credentials: Optional[Credentials] = None,
+        subscription_store: Optional[SubscriptionStore] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
+    ) -> None:
+        if not hasattr(self, "initialized"):
+            ...
+            self.reconnect_signal = reconnect_signal or ReconnectSignal()
+            ...
+\`\`\`
+
+2. **Replace internal \`reconnect_event\` / \`reconnect_reason\` / \`trigger_reconnect\` / \`wait_for_reconnect_signal\`** with placing failure messages into Queue[0]:
+
+\`\`\`python
+# Remove these fields:
+#   self.reconnect_event
+#   self.reconnect_reason
+
+# Remove these methods:
+#   trigger_reconnect()
+#   wait_for_reconnect_signal()
+
+# Replace usages in socket_listener and send_keepalives:
+# Before: self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
+# After:  await self.queues[0].put({"type": "CONTROL", "channel": 0, "state": "CONNECTION_DROPPED"})
+
+# This routes failures through Queue[0] → ControlHandler → ReconnectSignal
+# The queues are in-memory asyncio.Queue — they survive the WebSocket dying.
+
+# Replace simulate_failure:
+# Before: self.trigger_reconnect(reason)
+# After:  self.reconnect_signal.simulate(reason)
+\`\`\`
+
+3. **Update \`start_router\`** to pass signal instead of callback:
+
+\`\`\`python
+async def start_router(self) -> None:
+    self.router = MessageRouter(
+        self,
+        reconnect_signal=self.reconnect_signal,
+        subscription_store=self.subscription_store,
+    )
+\`\`\`
+
+4. **ConnectionState tracking stays on DXLinkManager** — it tracks WS lifecycle (\`CONNECTED\` / \`DISCONNECTED\` / \`ERROR\`), which is separate from signaling. The orchestrator can still read \`dxlink.connection_state\` for health logging.
+
+### What Gets Removed
+
+| Removed from DXLinkManager | Moved to |
+|---|---|
+| \`reconnect_event: asyncio.Event\` | \`ReconnectSignal.event\` |
+| \`reconnect_reason: Optional[ReconnectReason]\` | \`ReconnectSignal.reason\` |
+| \`trigger_reconnect(reason)\` | \`ReconnectSignal.trigger(reason)\` |
+| \`wait_for_reconnect_signal()\` | \`ReconnectSignal.wait()\` |
+
+### What Stays
+
+| Stays on DXLinkManager | Why |
+|---|---|
+| \`connection_state\` | Tracks WS lifecycle, read by health logging |
+| \`last_error\` | Tracks last error string for health display |
+| \`should_reconnect\` | Guards whether socket_listener/keepalive should inject CONNECTION_DROPPED |
+| \`simulate_failure()\` | Convenience method, delegates to signal |`
+  },
+  {
+    id: "step-5-orchestrator",
+    title: "Step 5: Orchestrator Listens to Signal Directly",
+    content: `**File:** \`src/tastytrade/subscription/orchestrator.py\`
+
+The orchestrator creates the signal and passes it into DXLinkManager. Then it awaits the signal directly.
+
+### Changes
+
+\`\`\`python
+from tastytrade.connections.signals import ReconnectSignal
+
+async def _run_subscription_once(...) -> None:
+    ...
+    # Create shared signal
+    reconnect_signal = ReconnectSignal()
+
+    # Pass to DXLinkManager
+    dxlink = DXLinkManager(
+        subscription_store=RedisSubscriptionStore(),
+        reconnect_signal=reconnect_signal,
+    )
+    await dxlink.open(credentials=credentials)
+    ...
+
+    # Monitor loop — await signal directly
+    async def reconnection_monitor() -> ReconnectReason:
+        reason = await reconnect_signal.wait()  # was: dxlink.wait_for_reconnect_signal()
+        return reason
+    ...
+\`\`\`
+
+### Also update \`failure_trigger_listener\`
+
+\`\`\`python
+async def failure_trigger_listener(
+    redis_store: RedisSubscriptionStore,
+    reconnect_signal: ReconnectSignal,  # was: dxlink: DXLinkManager
+) -> None:
+    ...
+    reconnect_signal.simulate(reason)  # was: dxlink.simulate_failure(reason)
+\`\`\`
+
+### Signal Ownership
+
+The orchestrator **creates** the signal and **passes it down**. ControlHandler is the **sole authority** that triggers it.
+
+\`\`\`
+Orchestrator (creates ReconnectSignal)
+    |
+    +---> DXLinkManager (receives queues reference)
+    |        |
+    |        +---> socket_listener / send_keepalives
+    |                 (on failure: place CONNECTION_DROPPED into Queue[0])
+    |
+    +---> MessageRouter (passes signal through)
+    |        |
+    |        +---> ControlHandler (sole authority — calls signal.trigger())
+    |                 processes: server msgs + failure events
+    |
+    +---> awaits signal.wait()
+\`\`\`
+
+No circular references. All failures flow through the message pipeline. One signal path.`
+  },
+  {
+    id: "step-6-account-streamer",
+    title: "Step 6: AccountStreamer (Parallel Refactor)",
+    content: `**File:** \`src/tastytrade/accounts/streamer.py\`
+
+AccountStreamer mirrors the same pattern. Apply the same refactor for consistency.
+
+### Changes
+
+1. Accept \`ReconnectSignal\` in \`__init__\`, default to new instance
+2. Replace internal \`reconnect_event\` / \`reconnect_reason\` with \`self.reconnect_signal\`
+3. Replace \`trigger_reconnect()\` and \`wait_for_reconnect_signal()\` with delegation
+
+\`\`\`python
+from tastytrade.connections.signals import ReconnectSignal
+
+@singleton
+class AccountStreamer:
+    def __init__(
+        self,
+        credentials: Optional[Credentials] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
+    ) -> None:
+        if not hasattr(self, "initialized"):
+            ...
+            self.reconnect_signal = reconnect_signal or ReconnectSignal()
+            ...
+
+    def trigger_reconnect(self, reason: ReconnectReason) -> None:
+        self.reconnect_signal.trigger(reason)
+
+    async def wait_for_reconnect_signal(self) -> ReconnectReason:
+        return await self.reconnect_signal.wait()
+\`\`\`
+
+### Decision: Keep wrapper methods or remove?
+
+**CHOSEN: Keep thin wrappers for now** — AccountStreamer's external callers (account orchestrator) already use \`streamer.wait_for_reconnect_signal()\`. Removing them would widen the blast radius. We can deprecate in a follow-up.
+
+Alternatively, the account orchestrator could hold the signal directly (same as DXLink orchestrator), but that's a separate ticket since the account orchestrator pattern may differ.`
+  },
+  {
+    id: "step-7-tests",
+    title: "Step 7: Test Updates",
+    content: `### New Tests
+
+**File:** \`unit_tests/connections/test_reconnect_signal.py\` (new)
+
+\`\`\`python
+# Test ReconnectSignal in isolation:
+# - trigger() sets event and stores reason
+# - wait() blocks until triggered, returns reason, clears event
+# - simulate() delegates to trigger()
+# - Multiple sequential signals processed correctly
+# - Multiple concurrent waiters all wake up
+\`\`\`
+
+These mirror the existing tests in \`test_reconnection_workflow.py\` but test the signal directly.
+
+### Updated Tests
+
+**File:** \`unit_tests/connections/test_reconnection_workflow.py\`
+
+- Update \`dxlink_manager\` fixture: add \`reconnect_signal = ReconnectSignal()\` instead of \`reconnect_event = asyncio.Event()\`
+- Update assertions: \`dxlink_manager.reconnect_signal.event.is_set()\` instead of \`dxlink_manager.reconnect_event.is_set()\`
+- \`trigger_reconnect\` tests replaced: verify socket_listener/keepalive place failure messages into Queue[0], and ControlHandler triggers signal
+
+**File:** \`unit_tests/subscription/test_orchestrator_reconnection.py\`
+
+- \`test_reconnection_trigger_flow\`: use \`ReconnectSignal\` instead of raw \`asyncio.Event\`
+
+### ControlHandler Tests
+
+**File:** \`unit_tests/messaging/test_control_handler.py\` (new)
+
+\`\`\`python
+# Test ControlHandler with ReconnectSignal:
+# - AUTH_STATE UNAUTHORIZED (after prior AUTHORIZED) triggers signal
+# - AUTH_STATE UNAUTHORIZED (initial handshake) does NOT trigger signal
+# - ERROR TIMEOUT triggers signal
+# - ERROR UNAUTHORIZED triggers signal
+# - ERROR INVALID_MESSAGE triggers PROTOCOL_ERROR signal
+# - No signal provided: handler logs but doesn't crash
+\`\`\`
+
+These tests are simpler than before — no callback mock, just check \`signal.event.is_set()\` and \`signal.reason\`.`
+  },
+  {
+    id: "step-8-architecture",
+    title: "Step 8: Architecture Map Update",
+    content: `**File:** \`docs/architecture-map/architecture_layouts.json\`
+
+Add the \`ReconnectSignal\` node and update edges:
+
+### New Node
+
+\`\`\`json
+{
+  "id": "reconnect-signal",
+  "label": "ReconnectSignal",
+  "type": "Shared Signal",
+  "file": "connections/signals.py",
+  "layer": "coordination",
+  "description": "Shared reconnection signal. ControlHandler publishes; orchestrator listens."
+}
+\`\`\`
+
+### New Edges
+
+| From | To | Label |
+|---|---|---|
+| socket_listener | Queue[0] | CONNECTION_DROPPED |
+| send_keepalives | Queue[0] | CONNECTION_DROPPED |
+| ControlHandler | ReconnectSignal | \`trigger()\` |
+| ReconnectSignal | SubscriptionOrchestrator | \`await wait()\` |
+
+### Removed Edges
+
+| From | To | Notes |
+|---|---|---|
+| ControlHandler | DXLinkManager | Was hidden callback — gone |
+| socket_listener | DXLinkManager.trigger_reconnect() | Now routes through Queue[0] |
+| send_keepalives | DXLinkManager.trigger_reconnect() | Now routes through Queue[0] |
+
+This makes the reconnection flow fully visible in the diagram. All failures enter through Queue[0], ControlHandler is the single authority.`
+  },
+  {
+    id: "verification",
+    title: "Verification",
+    content: `### Automated
+
+1. **Unit tests:** \`uv run pytest unit_tests/ -v\`
+2. **Type checking:** \`uv run mypy src/tastytrade/connections/signals.py src/tastytrade/connections/sockets.py src/tastytrade/messaging/handlers.py src/tastytrade/connections/routing.py\`
+3. **Linting:** \`uv run ruff check src/tastytrade/connections/ src/tastytrade/messaging/handlers.py\`
+
+### Functional (Live DXLink)
+
+4. **Normal operation:** Run subscription orchestrator, verify market data flows
+5. **Simulated failure:** \`redis-cli PUBLISH subscription:simulate_failure "auth_expired"\` — verify reconnection triggers and recovers
+6. **Keepalive failure:** Kill WS server-side, verify \`CONNECTION_DROPPED\` propagates through signal
+7. **Health logging:** Verify \`log_health_status\` still reads \`dxlink.connection_state\` correctly
+
+### Before / After Summary
+
+| Aspect | Before | After |
+|---|---|---|
+| ControlHandler dependency | Callback function | ReconnectSignal object |
+| DXLinkManager role | Middleman (owns event + callback target) | Passes queues; no reconnect methods |
+| socket_listener / keepalive | Call trigger_reconnect() directly | Inject CONNECTION_DROPPED into Queue[0] |
+| Reconnection authority | Scattered (3 sources call trigger) | Single (ControlHandler only) |
+| Orchestrator listens to | \`dxlink.wait_for_reconnect_signal()\` | \`reconnect_signal.wait()\` |
+| Architecture diagram | ControlHandler appears disconnected | All flows through message pipeline |
+| Circular dependency | DXLinkManager <-> ControlHandler | None |
+| Test complexity | Mock callback | Assert signal state |`
+  }
+];
+
+const priorApprovals = {};
+
+const PLAN_NAME = "TT-64 Reconnect Signal Refactor";
+
+// State
+const state = {
+  sections: docSections.map(s => ({
+    ...s,
+    status: priorApprovals[s.id] || 'pending',
+    comment: ''
+  })),
+  activeSection: docSections[0]?.id || '',
+  activeFilter: 'all'
+};
+
+// Render markdown-like content to HTML
+function renderMarkdown(text) {
+  let html = '';
+  const lines = text.split('\n');
+  let inCode = false;
+  let codeLines = [];
+  let inList = false;
+  let inTable = false;
+  let tableRows = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.trim().startsWith('```')) {
+      if (inCode) {
+        html += '<pre><code>' + codeLines.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
+        codeLines = [];
+        inCode = false;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    if (line.trim().startsWith('|')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      if (!inTable) inTable = true;
+      if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+        tableRows.push(line);
+      }
+      continue;
+    } else if (inTable) {
+      html += renderTable(tableRows);
+      inTable = false;
+      tableRows = [];
+    }
+
+    if (line.trim() === '') {
+      if (inList) { html += '</ul>'; inList = false; }
+      continue;
+    }
+
+    if (line.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+      continue;
+    }
+
+    if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+      continue;
+    }
+    if (line.trim().match(/^\d+\.\s/)) {
+      if (!inList) { html += '<ol>'; inList = true; }
+      html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+      continue;
+    }
+
+    if (inList) { html += '</ul>'; inList = false; }
+    html += '<p>' + inlineFormat(line) + '</p>';
+  }
+
+  if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
+  if (inList) html += '</ul>';
+  if (inTable) html += renderTable(tableRows);
+
+  return html;
+}
+
+function renderTable(rows) {
+  if (rows.length === 0) return '';
+  let html = '<table>';
+  rows.forEach((row, idx) => {
+    const cells = row.split('|').filter(c => c.trim() !== '');
+    const tag = idx === 0 ? 'th' : 'td';
+    html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+  });
+  html += '</table>';
+  return html;
+}
+
+function inlineFormat(text) {
+  return text
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--blue);text-decoration:underline">$1</a>')
+    .replace(/\\`/g, '`');
+}
+
+// Render navigation
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = state.sections.map(s => {
+    const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+      : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+      : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+      : '<span style="color:var(--text-dim)">&bull;</span>';
+    return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+                 onclick="navigateTo('${s.id}')">
+      <span class="status-icon">${icon}</span>
+      <span class="label">${s.title}</span>
+      ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+// Render document
+function renderDoc() {
+  const panel = document.getElementById('docPanel');
+  panel.innerHTML = state.sections.map(s => {
+    const borderColor = s.status === 'approved' ? 'var(--green)'
+      : s.status === 'revision' ? 'var(--red)'
+      : s.status === 'question' ? 'var(--purple)' : 'transparent';
+    const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+      : s.status === 'revision' ? 'var(--red-bg)'
+      : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+
+    const revisedAndPending = s.revised && s.status === 'pending';
+    const revisedClass = revisedAndPending ? ' revised' : '';
+    return `<div class="section${revisedClass}" id="section-${s.id}"
+                 style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
+      <div class="section-header">
+        <h2>${s.title}</h2>
+        ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
+      </div>
+      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="review-bar">
+        <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
+                onclick="setStatus('${s.id}','approved')">Approve</button>
+        <button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}"
+                onclick="setStatus('${s.id}','revision')">Needs Revision</button>
+        <button class="review-btn ${s.status === 'question' ? 'active-question' : ''}"
+                onclick="setStatus('${s.id}','question')">Question</button>
+        <button class="review-btn" onclick="toggleComment('${s.id}')"
+                style="margin-left:auto">Comment</button>
+      </div>
+      <div class="comment-area" id="comment-${s.id}">
+        ${s.comment
+          ? `<div class="existing-comment">${s.comment.replace(/</g,'&lt;').replace(/\n/g,'<br>')}
+               <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
+          : `<textarea placeholder="Add your feedback for this section..."
+                      onblur="saveComment('${s.id}', this.value)"
+                      id="textarea-${s.id}"></textarea>`
+        }
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Render stats
+function renderStats() {
+  const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+  state.sections.forEach(s => counts[s.status]++);
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
+    <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
+    <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
+    <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
+  `;
+}
+
+// Render feedback panel
+function renderFeedback() {
+  const list = document.getElementById('feedbackList');
+  const filtered = state.sections.filter(s => {
+    if (state.activeFilter === 'all') return s.status !== 'pending';
+    return s.status === state.activeFilter;
+  });
+
+  const count = state.sections.filter(s => s.status !== 'pending').length;
+  document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="prompt-placeholder">
+      ${state.activeFilter === 'all'
+        ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+        : 'No sections with this status yet.'}
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(s => `
+    <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
+      <div class="fb-section">
+        <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
+        ${s.title}
+      </div>
+      ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
+    </div>
+  `).join('');
+}
+
+// Actions
+function navigateTo(id) {
+  state.activeSection = id;
+  renderNav();
+  document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setStatus(id, status) {
+  const section = state.sections.find(s => s.id === id);
+  if (section.status === status) {
+    section.status = 'pending';
+  } else {
+    section.status = status;
+    if (status === 'revision' || status === 'question') {
+      setTimeout(() => {
+        const area = document.getElementById('comment-' + id);
+        if (area) area.classList.add('visible');
+      }, 50);
+    }
+  }
+  renderAll();
+}
+
+function toggleComment(id) {
+  const area = document.getElementById('comment-' + id);
+  area.classList.toggle('visible');
+  if (area.classList.contains('visible')) {
+    const ta = document.getElementById('textarea-' + id);
+    if (ta) ta.focus();
+  }
+}
+
+function saveComment(id, value) {
+  const section = state.sections.find(s => s.id === id);
+  section.comment = value.trim();
+  renderAll();
+}
+
+function editComment(id) {
+  const section = state.sections.find(s => s.id === id);
+  const area = document.getElementById('comment-' + id);
+  area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    onblur="saveComment('${id}', this.value)"
+    id="textarea-${id}">${section.comment}</textarea>`;
+  area.classList.add('visible');
+  document.getElementById('textarea-' + id).focus();
+}
+
+function generatePrompt() {
+  const approved = state.sections.filter(s => s.status === 'approved');
+  const revision = state.sections.filter(s => s.status === 'revision');
+  const questions = state.sections.filter(s => s.status === 'question');
+
+  if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+    return '';
+  }
+
+  let prompt = `Here is my review of the ${PLAN_NAME} plan:\n\n`;
+
+  if (approved.length > 0) {
+    prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+    approved.forEach(s => {
+      prompt += `- **${s.title}**: Approved`;
+      if (s.comment) prompt += ` — ${s.comment}`;
+      prompt += '\n';
+    });
+    prompt += '\n';
+  }
+
+  if (revision.length > 0) {
+    prompt += `## Needs Revision (${revision.length})\n`;
+    revision.forEach(s => {
+      prompt += `- **${s.title}**`;
+      if (s.comment) prompt += `: ${s.comment}`;
+      else prompt += ': (no specific feedback provided)';
+      prompt += '\n';
+    });
+    prompt += '\n';
+  }
+
+  if (questions.length > 0) {
+    prompt += `## Questions (${questions.length})\n`;
+    questions.forEach(s => {
+      prompt += `- **${s.title}**`;
+      if (s.comment) prompt += `: ${s.comment}`;
+      else prompt += ': (question not specified)';
+      prompt += '\n';
+    });
+    prompt += '\n';
+  }
+
+  const remaining = state.sections.filter(s => s.status === 'pending');
+  if (remaining.length > 0) {
+    prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+    remaining.forEach(s => prompt += `- ${s.title}\n`);
+  }
+
+  return prompt;
+}
+
+function copyPrompt() {
+  const prompt = generatePrompt();
+  if (!prompt) return;
+  navigator.clipboard.writeText(prompt).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// Filter tabs
+document.getElementById('filterTabs').addEventListener('click', e => {
+  const tab = e.target.closest('.filter-tab');
+  if (!tab) return;
+  state.activeFilter = tab.dataset.filter;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  renderFeedback();
+});
+
+function renderAll() {
+  renderNav();
+  renderDoc();
+  renderStats();
+  renderFeedback();
+}
+
+// Resizable & collapsible panels (mouse + touch)
+(function() {
+  const nav = document.getElementById('nav');
+  const rightPanel = document.getElementById('rightPanel');
+  const leftHandle = document.getElementById('leftHandle');
+  const rightHandle = document.getElementById('rightHandle');
+  const leftToggle = document.getElementById('leftToggle');
+  const rightToggle = document.getElementById('rightToggle');
+
+  let dragging = null;
+  let navWidth = 240;
+  let rightWidth = 360;
+
+  function updateToggles() {
+    const navCollapsed = nav.classList.contains('collapsed');
+    const rightCollapsed = rightPanel.classList.contains('collapsed');
+    leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+    leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+    rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+    rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+  }
+
+  function toggleNav(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (nav.classList.contains('collapsed')) {
+      nav.classList.remove('collapsed');
+      nav.style.width = navWidth + 'px';
+    } else {
+      navWidth = nav.offsetWidth;
+      nav.classList.add('collapsed');
+    }
+    updateToggles();
+  }
+
+  function toggleRight(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (rightPanel.classList.contains('collapsed')) {
+      rightPanel.classList.remove('collapsed');
+      rightPanel.style.width = rightWidth + 'px';
+    } else {
+      rightWidth = rightPanel.offsetWidth;
+      rightPanel.classList.add('collapsed');
+    }
+    updateToggles();
+  }
+
+  let touchFiredLeft = false, touchFiredRight = false;
+
+  leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+  leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+  rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+  rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+  updateToggles();
+
+  // Drag resize (mouse)
+  function onDragStart(e, side) {
+    e.preventDefault();
+    dragging = side;
+    document.body.classList.add('resizing');
+    (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+  }
+
+  leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left'));
+  rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right'));
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    applyDrag(e.clientX);
+  });
+
+  document.addEventListener('mouseup', endDrag);
+
+  // Drag resize (touch)
+  leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false });
+  rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false });
+
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    e.preventDefault();
+    applyDrag(e.touches[0].clientX);
+  }, { passive: false });
+
+  document.addEventListener('touchend', endDrag);
+
+  function applyDrag(clientX) {
+    if (dragging === 'left') {
+      const w = Math.max(140, Math.min(400, clientX));
+      nav.classList.remove('collapsed');
+      nav.style.width = w + 'px';
+      navWidth = w;
+    } else {
+      const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+      rightPanel.classList.remove('collapsed');
+      rightPanel.style.width = w + 'px';
+      rightWidth = w;
+    }
+    updateToggles();
+  }
+
+  function endDrag() {
+    if (!dragging) return;
+    document.body.classList.remove('resizing');
+    leftHandle.classList.remove('dragging');
+    rightHandle.classList.remove('dragging');
+    dragging = null;
+  }
+})();
+
+// Init
+renderAll();
+</script>
+</body>
+</html>
