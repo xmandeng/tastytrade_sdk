@@ -10,7 +10,7 @@ Serves the current directory. PUT requests write the body to the requested file 
 
 import os
 import sys
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -62,7 +62,7 @@ def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     import socket
 
-    class ReusableHTTPServer(HTTPServer):
+    class ReusableThreadingHTTPServer(ThreadingHTTPServer):
         allow_reuse_address = True
         allow_reuse_port = True
 
@@ -74,7 +74,7 @@ def main() -> None:
                 pass
             super().server_bind()
 
-    server = ReusableHTTPServer(("0.0.0.0", port), DevHandler)
+    server = ReusableThreadingHTTPServer(("0.0.0.0", port), DevHandler)
     print(f"DevServer running on http://localhost:{port}/")
     print(f"Serving: {os.getcwd()}")
     print("PUT enabled for .json files (layout persistence)")
