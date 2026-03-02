@@ -1,4 +1,4 @@
-"""Unit tests for reconnection workflow primitives (TT-24)."""
+"""Unit tests for reconnection workflow primitives (TT-24, TT-64)."""
 
 import asyncio
 from unittest.mock import patch
@@ -6,161 +6,101 @@ from unittest.mock import patch
 import pytest
 
 from tastytrade.config.enumerations import ReconnectReason
+from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.connections.sockets import ConnectionState, DXLinkManager
 
 
-@pytest.fixture
-def dxlink_manager():
-    """Create a DXLinkManager instance for testing."""
-    # Use a minimal mock setup to avoid external dependencies
-    with patch(
-        "tastytrade.connections.sockets.DXLinkManager.__init__", return_value=None
-    ):
-        manager = DXLinkManager.__new__(DXLinkManager)
-        manager.connection_state = ConnectionState.CONNECTED
-        manager.last_error = None
-        manager.reconnect_reason = None
-        manager.reconnect_event = asyncio.Event()
-        manager.websocket = None
-        manager.router = None
-        manager.session = None
-        manager.should_reconnect = True
-        return manager
+# === ReconnectSignal tests ===
 
 
-def test_trigger_reconnect_sets_error_state(dxlink_manager):
-    """Test that trigger_reconnect() sets connection state to ERROR."""
-    dxlink_manager.trigger_reconnect(ReconnectReason.AUTH_EXPIRED)
+def test_signal_trigger_sets_event_and_reason():
+    """Test that trigger() sets the asyncio event and stores the reason."""
+    signal = ReconnectSignal()
+    signal.trigger(ReconnectReason.AUTH_EXPIRED)
 
-    assert dxlink_manager.connection_state == ConnectionState.ERROR
-    assert dxlink_manager.last_error == "auth_expired"
-    assert dxlink_manager.reconnect_reason == ReconnectReason.AUTH_EXPIRED
-    assert dxlink_manager.reconnect_event.is_set()
+    assert signal.event.is_set()
+    assert signal.reason == ReconnectReason.AUTH_EXPIRED
 
 
-def test_trigger_reconnect_with_different_reasons(dxlink_manager):
-    """Test trigger_reconnect() with all ReconnectReason values."""
-    test_cases = [
-        (ReconnectReason.AUTH_EXPIRED, "auth_expired"),
-        (ReconnectReason.CONNECTION_DROPPED, "connection_dropped"),
-        (ReconnectReason.TIMEOUT, "timeout"),
-        (ReconnectReason.MANUAL_TRIGGER, "manual_trigger"),
-    ]
+def test_signal_trigger_with_all_reasons():
+    """Test trigger() with all ReconnectReason values."""
+    signal = ReconnectSignal()
 
-    for reason, expected_error in test_cases:
-        # Reset state
-        dxlink_manager.connection_state = ConnectionState.CONNECTED
-        dxlink_manager.reconnect_event.clear()
+    for reason in ReconnectReason:
+        signal.reset()
+        signal.trigger(reason)
 
-        # Trigger reconnect
-        dxlink_manager.trigger_reconnect(reason)
-
-        # Verify
-        assert dxlink_manager.connection_state == ConnectionState.ERROR
-        assert dxlink_manager.last_error == expected_error
-        assert dxlink_manager.reconnect_reason == reason
-        assert dxlink_manager.reconnect_event.is_set()
+        assert signal.event.is_set()
+        assert signal.reason == reason
 
 
 @pytest.mark.asyncio
-async def test_wait_for_reconnect_signal_blocks_until_triggered(dxlink_manager):
-    """Test that wait_for_reconnect_signal() blocks until reconnect triggered."""
-    # Start waiting for signal
-    wait_task = asyncio.create_task(dxlink_manager.wait_for_reconnect_signal())
+async def test_signal_wait_blocks_until_triggered():
+    """Test that wait() blocks until trigger() is called."""
+    signal = ReconnectSignal()
+    wait_task = asyncio.create_task(signal.wait())
 
-    # Give it time to start waiting
     await asyncio.sleep(0.01)
     assert not wait_task.done(), "Task should be waiting"
 
-    # Trigger reconnect
-    dxlink_manager.trigger_reconnect(ReconnectReason.TIMEOUT)
+    signal.trigger(ReconnectReason.TIMEOUT)
 
-    # Wait for signal to be processed
     result = await wait_task
-
-    # Verify correct reason returned
     assert result == ReconnectReason.TIMEOUT
 
 
 @pytest.mark.asyncio
-async def test_wait_for_reconnect_signal_clears_event(dxlink_manager):
-    """Test that wait_for_reconnect_signal() clears the event after processing."""
-    # Trigger reconnect
-    dxlink_manager.trigger_reconnect(ReconnectReason.AUTH_EXPIRED)
-    assert dxlink_manager.reconnect_event.is_set()
+async def test_signal_wait_clears_event():
+    """Test that wait() clears the event after returning."""
+    signal = ReconnectSignal()
+    signal.trigger(ReconnectReason.AUTH_EXPIRED)
+    assert signal.event.is_set()
 
-    # Wait for signal
-    await dxlink_manager.wait_for_reconnect_signal()
-
-    # Event should be cleared
-    assert not dxlink_manager.reconnect_event.is_set()
+    await signal.wait()
+    assert not signal.event.is_set()
 
 
 @pytest.mark.asyncio
-async def test_wait_for_reconnect_signal_returns_manual_trigger_if_none(dxlink_manager):
-    """Test that MANUAL_TRIGGER is returned if reconnect_reason is None."""
-    # Manually set event without using trigger_reconnect
-    dxlink_manager.reconnect_reason = None
-    dxlink_manager.reconnect_event.set()
+async def test_signal_wait_returns_manual_trigger_if_none():
+    """Test that MANUAL_TRIGGER is returned if reason is None."""
+    signal = ReconnectSignal()
+    signal.reason = None
+    signal.event.set()
 
-    result = await dxlink_manager.wait_for_reconnect_signal()
-
+    result = await signal.wait()
     assert result == ReconnectReason.MANUAL_TRIGGER
 
 
-def test_simulate_failure_calls_trigger_reconnect(dxlink_manager):
-    """Test that simulate_failure() delegates to trigger_reconnect()."""
-    with patch.object(dxlink_manager, "trigger_reconnect") as mock_trigger:
-        dxlink_manager.simulate_failure(ReconnectReason.CONNECTION_DROPPED)
+def test_signal_reset_clears_state():
+    """Test that reset() clears both event and reason."""
+    signal = ReconnectSignal()
+    signal.trigger(ReconnectReason.CONNECTION_DROPPED)
 
-        mock_trigger.assert_called_once_with(ReconnectReason.CONNECTION_DROPPED)
+    signal.reset()
 
-
-def test_simulate_failure_logs_warning(dxlink_manager):
-    """Test that simulate_failure() logs a warning."""
-    with patch("tastytrade.connections.sockets.logger") as mock_logger:
-        dxlink_manager.simulate_failure(ReconnectReason.AUTH_EXPIRED)
-
-        mock_logger.warning.assert_called_once_with(
-            "Simulating failure: %s", "auth_expired"
-        )
-
-
-def test_simulate_failure_with_all_reasons(dxlink_manager):
-    """Test simulate_failure() with all ReconnectReason values."""
-    for reason in ReconnectReason:
-        # Reset state
-        dxlink_manager.connection_state = ConnectionState.CONNECTED
-        dxlink_manager.reconnect_event.clear()
-
-        # Simulate failure
-        dxlink_manager.simulate_failure(reason)
-
-        # Verify trigger_reconnect was called
-        assert dxlink_manager.connection_state == ConnectionState.ERROR
-        assert dxlink_manager.reconnect_reason == reason
-        assert dxlink_manager.reconnect_event.is_set()
+    assert not signal.event.is_set()
+    assert signal.reason is None
 
 
 @pytest.mark.asyncio
-async def test_multiple_reconnect_signals_sequential(dxlink_manager):
-    """Test multiple reconnect signals processed sequentially."""
+async def test_signal_multiple_sequential_triggers():
+    """Test multiple sequential trigger/wait cycles."""
+    signal = ReconnectSignal()
     results = []
 
     async def wait_and_collect():
         for _ in range(3):
-            reason = await dxlink_manager.wait_for_reconnect_signal()
+            reason = await signal.wait()
             results.append(reason)
 
     wait_task = asyncio.create_task(wait_and_collect())
 
-    # Trigger multiple reconnects
     await asyncio.sleep(0.01)
-    dxlink_manager.trigger_reconnect(ReconnectReason.AUTH_EXPIRED)
+    signal.trigger(ReconnectReason.AUTH_EXPIRED)
     await asyncio.sleep(0.01)
-    dxlink_manager.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
+    signal.trigger(ReconnectReason.CONNECTION_DROPPED)
     await asyncio.sleep(0.01)
-    dxlink_manager.trigger_reconnect(ReconnectReason.TIMEOUT)
+    signal.trigger(ReconnectReason.TIMEOUT)
 
     await wait_task
 
@@ -171,44 +111,144 @@ async def test_multiple_reconnect_signals_sequential(dxlink_manager):
     ]
 
 
+# === DXLinkManager.inject_connection_dropped tests ===
+
+
+@pytest.fixture
+def dxlink_manager():
+    """Create a DXLinkManager instance for testing."""
+    with patch(
+        "tastytrade.connections.sockets.DXLinkManager.__init__", return_value=None
+    ):
+        manager = DXLinkManager.__new__(DXLinkManager)
+        manager.connection_state = ConnectionState.CONNECTED
+        manager.last_error = None
+        manager.websocket = None
+        manager.router = None
+        manager.session = None
+        manager.should_reconnect = True
+        manager.queues = {0: asyncio.Queue()}
+        manager.reconnect_signal = ReconnectSignal()
+        return manager
+
+
 @pytest.mark.asyncio
-async def test_reconnect_event_multiple_waiters(dxlink_manager):
-    """Test that multiple tasks can wait for reconnect signal."""
-    results = []
+async def test_inject_connection_dropped_sets_error_state(dxlink_manager):
+    """Test that inject_connection_dropped() sets connection state to ERROR."""
+    await dxlink_manager.inject_connection_dropped(ReconnectReason.CONNECTION_DROPPED)
 
-    async def waiter(name):
-        reason = await dxlink_manager.wait_for_reconnect_signal()
-        results.append((name, reason))
+    assert dxlink_manager.connection_state == ConnectionState.ERROR
+    assert dxlink_manager.last_error == "connection_dropped"
 
-    # Start multiple waiters
-    wait_tasks = [
-        asyncio.create_task(waiter("waiter1")),
-        asyncio.create_task(waiter("waiter2")),
-        asyncio.create_task(waiter("waiter3")),
-    ]
 
-    await asyncio.sleep(0.01)
+@pytest.mark.asyncio
+async def test_inject_connection_dropped_puts_message_in_queue(dxlink_manager):
+    """Test that inject_connection_dropped() places a message in Queue[0]."""
+    await dxlink_manager.inject_connection_dropped(ReconnectReason.AUTH_EXPIRED)
 
-    # Trigger reconnect
-    dxlink_manager.trigger_reconnect(ReconnectReason.TIMEOUT)
+    assert not dxlink_manager.queues[0].empty()
+    message = dxlink_manager.queues[0].get_nowait()
 
-    # Wait for all tasks
-    await asyncio.gather(*wait_tasks)
+    assert message["type"] == "CONNECTION_DROPPED"
+    assert message["channel"] == 0
+    assert message["reason"] == "auth_expired"
 
-    # All waiters should have received the signal
-    assert len(results) >= 1  # At least one should receive it
-    # Note: Event.set() wakes all waiters, but only first clears it
+
+@pytest.mark.asyncio
+async def test_inject_connection_dropped_with_all_reasons(dxlink_manager):
+    """Test inject_connection_dropped() with all ReconnectReason values."""
+    for reason in ReconnectReason:
+        dxlink_manager.connection_state = ConnectionState.CONNECTED
+        await dxlink_manager.inject_connection_dropped(reason)
+
+        assert dxlink_manager.connection_state == ConnectionState.ERROR
+        assert dxlink_manager.last_error == reason.value
+
+        message = dxlink_manager.queues[0].get_nowait()
+        assert message["type"] == "CONNECTION_DROPPED"
+        assert message["reason"] == reason.value
+
+
+@pytest.mark.asyncio
+async def test_simulate_failure_delegates_to_inject(dxlink_manager):
+    """Test that simulate_failure() delegates to inject_connection_dropped()."""
+    await dxlink_manager.simulate_failure(ReconnectReason.CONNECTION_DROPPED)
+
+    assert dxlink_manager.connection_state == ConnectionState.ERROR
+    message = dxlink_manager.queues[0].get_nowait()
+    assert message["type"] == "CONNECTION_DROPPED"
+    assert message["reason"] == "connection_dropped"
+
+
+@pytest.mark.asyncio
+async def test_simulate_failure_logs_warning(dxlink_manager):
+    """Test that simulate_failure() logs a warning."""
+    with patch("tastytrade.connections.sockets.logger") as mock_logger:
+        await dxlink_manager.simulate_failure(ReconnectReason.AUTH_EXPIRED)
+
+        mock_logger.warning.assert_called_once_with(
+            "Simulating failure: %s", "auth_expired"
+        )
+
+
+# === End-to-end: Queue[0] -> ControlHandler -> ReconnectSignal ===
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_connection_dropped_flow():
+    """Test the full pipeline: inject -> Queue[0] -> ControlHandler -> ReconnectSignal."""
+    from tastytrade.messaging.handlers import ControlHandler
+
+    signal = ReconnectSignal()
+    handler = ControlHandler(reconnect_signal=signal)
+
+    # Simulate what inject_connection_dropped puts into Queue[0]
+    from tastytrade.messaging.models.messages import Message
+
+    message = Message(
+        type="CONNECTION_DROPPED",
+        channel=0,
+        headers={"type": "CONNECTION_DROPPED", "channel": 0, "reason": "auth_expired"},
+        data={},
+    )
+
+    await handler.handle_message(message)
+
+    # Signal should be triggered with the correct reason
+    assert signal.event.is_set()
+    assert signal.reason == ReconnectReason.AUTH_EXPIRED
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_error_timeout_flow():
+    """Test pipeline: ERROR message -> ControlHandler -> ReconnectSignal."""
+    from tastytrade.messaging.handlers import ControlHandler
+
+    signal = ReconnectSignal()
+    handler = ControlHandler(reconnect_signal=signal)
+
+    from tastytrade.messaging.models.messages import Message
+
+    message = Message(
+        type="ERROR",
+        channel=0,
+        headers={"type": "ERROR", "error": "TIMEOUT", "message": "session timeout"},
+        data={},
+    )
+
+    await handler.handle_message(message)
+
+    assert signal.event.is_set()
+    assert signal.reason == ReconnectReason.TIMEOUT
 
 
 def test_reconnect_preserves_previous_state_before_error(dxlink_manager):
     """Test that we can track state before error was set."""
-    # Set various states
     dxlink_manager.connection_state = ConnectionState.CONNECTED
 
-    # Trigger reconnect
     previous_state = dxlink_manager.connection_state
-    dxlink_manager.trigger_reconnect(ReconnectReason.AUTH_EXPIRED)
+    # Directly set error state (as inject_connection_dropped would)
+    dxlink_manager.connection_state = ConnectionState.ERROR
 
-    # Should now be ERROR, but we captured previous state
     assert previous_state == ConnectionState.CONNECTED
     assert dxlink_manager.connection_state == ConnectionState.ERROR

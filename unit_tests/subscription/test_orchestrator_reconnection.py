@@ -281,32 +281,21 @@ async def test_exponential_backoff_calculation():
 
 @pytest.mark.asyncio
 async def test_reconnection_trigger_flow():
-    """Test the complete reconnection trigger flow."""
-    from tastytrade.connections.sockets import DXLinkManager
+    """Test the complete reconnection trigger flow using ReconnectSignal."""
+    from tastytrade.connections.signals import ReconnectSignal
 
-    with patch(
-        "tastytrade.connections.sockets.DXLinkManager.__init__", return_value=None
-    ):
-        dxlink = DXLinkManager.__new__(DXLinkManager)
-        dxlink.reconnect_event = asyncio.Event()
-        dxlink.reconnect_reason = None
+    signal = ReconnectSignal()
 
-        # Simulate the orchestrator monitoring flow
-        async def mock_reconnection_monitor():
-            """Simulates orchestrator.py:386-389"""
-            reason = await dxlink.wait_for_reconnect_signal()
-            return reason
+    # Simulate the orchestrator monitoring flow: await signal.wait()
+    monitor_task = asyncio.create_task(signal.wait())
+    await asyncio.sleep(0.01)
 
-        monitor_task = asyncio.create_task(mock_reconnection_monitor())
-        await asyncio.sleep(0.01)
+    # Verify task is waiting
+    assert not monitor_task.done()
 
-        # Verify task is waiting
-        assert not monitor_task.done()
+    # Trigger reconnect (simulates ControlHandler calling signal.trigger())
+    signal.trigger(ReconnectReason.AUTH_EXPIRED)
 
-        # Trigger reconnect (simulates failure_trigger_listener calling simulate_failure)
-        dxlink.reconnect_reason = ReconnectReason.AUTH_EXPIRED
-        dxlink.reconnect_event.set()
-
-        # Monitor should detect and return reason
-        reason = await monitor_task
-        assert reason == ReconnectReason.AUTH_EXPIRED
+    # Monitor should detect and return reason
+    reason = await monitor_task
+    assert reason == ReconnectReason.AUTH_EXPIRED

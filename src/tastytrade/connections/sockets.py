@@ -27,6 +27,7 @@ from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.routing import MessageRouter
+from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.connections.subscription import (
     InMemorySubscriptionStore,
     SubscriptionStore,
@@ -85,6 +86,7 @@ class DXLinkManager:
         cls,
         credentials: Optional[Credentials] = None,
         subscription_store: Optional[SubscriptionStore] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
     ) -> "DXLinkManager":
         if cls.instance is None:
             cls.instance = object.__new__(cls)
@@ -94,6 +96,7 @@ class DXLinkManager:
         self,
         credentials: Optional[Credentials] = None,
         subscription_store: Optional[SubscriptionStore] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
     ) -> None:
         if not hasattr(self, "initialized"):
             config = DXLinkConfig()
@@ -101,6 +104,7 @@ class DXLinkManager:
             self.subscription_semaphore = Semaphore(config.max_subscriptions)
             self.keepalive_stop = asyncio.Event()
             self.credentials = credentials
+            self.reconnect_signal = reconnect_signal
 
             # Initialize subscription tracking
             self.active_subscriptions: Dict[str, SubscriptionInfo] = {}
@@ -109,12 +113,8 @@ class DXLinkManager:
                 subscription_store or InMemorySubscriptionStore()
             )
 
-            # Reconnection state
-            self.reconnect_event: asyncio.Event = asyncio.Event()
-            self.should_reconnect: bool = True
-            self.reconnect_reason: Optional[ReconnectReason] = None
-
             # Connection state tracking
+            self.should_reconnect: bool = True
             self.connection_state: ConnectionState = ConnectionState.DISCONNECTED
             self.last_error: Optional[str] = None
 
@@ -175,7 +175,7 @@ class DXLinkManager:
     async def start_router(self) -> None:
         self.router = MessageRouter(
             self,
-            reconnect_callback=self.trigger_reconnect,
+            reconnect_signal=self.reconnect_signal,
             subscription_store=self.subscription_store,
         )
 
@@ -205,12 +205,12 @@ class DXLinkManager:
         except Exception as e:
             logger.error("Websocket listener error: %s", e)
             if self.should_reconnect:
-                self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
+                await self.inject_connection_dropped(ReconnectReason.CONNECTION_DROPPED)
         else:
             # Loop exited normally = server closed connection
             logger.warning("WebSocket connection closed by server")
             if self.should_reconnect:
-                self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
+                await self.inject_connection_dropped(ReconnectReason.CONNECTION_DROPPED)
 
     async def send_keepalives(self) -> None:
         """Send keepalive messages every 30 seconds."""
@@ -225,8 +225,7 @@ class DXLinkManager:
             logger.info("Keepalive stopped")
         except Exception as e:
             logger.error("Error sending keepalive: %s", e)
-            self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
-            # Exit loop so reconnection can occur
+            await self.inject_connection_dropped(ReconnectReason.CONNECTION_DROPPED)
 
     async def setup_connection(self) -> None:
         assert self.websocket is not None, "websocket should be initialized"
@@ -285,37 +284,37 @@ class DXLinkManager:
         """Update last update time and metadata for a subscription."""
         await self.subscription_store.update_subscription_status(symbol, data)
 
-    def trigger_reconnect(self, reason: ReconnectReason) -> None:
-        """Signal that reconnection is needed.
+    async def inject_connection_dropped(self, reason: ReconnectReason) -> None:
+        """Inject a CONNECTION_DROPPED message into Queue[0] (control queue).
 
-        Args:
-            reason: The typed reason for reconnection
+        This is the unified path for all failure sources (socket_listener,
+        send_keepalives, simulate_failure) to signal reconnection through
+        the event-driven pipeline: Queue[0] -> ControlHandler -> ReconnectSignal.
         """
         self.connection_state = ConnectionState.ERROR
         self.last_error = reason.value
-        self.reconnect_reason = reason
-        self.reconnect_event.set()
+        await self.queues[0].put(
+            {
+                "type": "CONNECTION_DROPPED",
+                "channel": 0,
+                "reason": reason.value,
+            }
+        )
 
-    async def wait_for_reconnect_signal(self) -> ReconnectReason:
-        """Wait for reconnection signal, return reason."""
-        await self.reconnect_event.wait()
-        self.reconnect_event.clear()
-        return self.reconnect_reason or ReconnectReason.MANUAL_TRIGGER
-
-    def simulate_failure(self, reason: ReconnectReason) -> None:
+    async def simulate_failure(self, reason: ReconnectReason) -> None:
         """Simulate a connection failure for testing purposes.
 
-        This triggers the full reconnection flow as if a real failure occurred,
-        allowing tests to verify recovery behavior without actual network issues.
+        Injects a CONNECTION_DROPPED message into the control queue, triggering
+        the full reconnection flow through ControlHandler -> ReconnectSignal.
 
         Args:
             reason: The type of failure to simulate
 
         Example:
-            dxlink.simulate_failure(ReconnectReason.AUTH_EXPIRED)
+            await dxlink.simulate_failure(ReconnectReason.AUTH_EXPIRED)
         """
         logger.warning("Simulating failure: %s", reason.value)
-        self.trigger_reconnect(reason)
+        await self.inject_connection_dropped(reason)
 
     async def subscribe(self, symbols: List[str]) -> None:
         """Subscribe to data for a list of symbols.

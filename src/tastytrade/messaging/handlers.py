@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from tastytrade.common.exceptions import MessageProcessingError
 from tastytrade.config.configurations import CHANNEL_SPECS
 from tastytrade.config.enumerations import Channels, ReconnectReason
+from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
@@ -223,11 +224,9 @@ class EventHandler:
 
 
 class ControlHandler(EventHandler):
-    def __init__(
-        self, reconnect_callback: Optional[Callable[[ReconnectReason], None]] = None
-    ) -> None:
+    def __init__(self, reconnect_signal: Optional[ReconnectSignal] = None) -> None:
         super().__init__(channel=Channels.Control)
-        self.reconnect_callback = reconnect_callback
+        self.reconnect_signal = reconnect_signal
         self.was_authorized = False  # Track if we've been authorized before
         self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
@@ -236,6 +235,7 @@ class ControlHandler(EventHandler):
             "FEED_CONFIG": self.handle_feed_config,
             "KEEPALIVE": self.handle_keepalive,
             "ERROR": self.handle_error,
+            "CONNECTION_DROPPED": self.handle_connection_dropped,
         }
 
     async def handle_message(self, message: Message) -> None:
@@ -257,8 +257,8 @@ class ControlHandler(EventHandler):
             # Initial UNAUTHORIZED during handshake is expected
             if self.was_authorized:
                 logger.error("DXLink AUTH_STATE: UNAUTHORIZED - triggering reconnect")
-                if self.reconnect_callback:
-                    self.reconnect_callback(ReconnectReason.AUTH_EXPIRED)
+                if self.reconnect_signal:
+                    self.reconnect_signal.trigger(ReconnectReason.AUTH_EXPIRED)
             else:
                 logger.debug("AUTH_STATE: UNAUTHORIZED (initial handshake, expected)")
         else:
@@ -281,17 +281,29 @@ class ControlHandler(EventHandler):
 
         if error_type == "TIMEOUT":
             logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
-            if self.reconnect_callback:
-                self.reconnect_callback(ReconnectReason.TIMEOUT)
+            if self.reconnect_signal:
+                self.reconnect_signal.trigger(ReconnectReason.TIMEOUT)
         elif error_type == "UNAUTHORIZED":
             logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
-            if self.reconnect_callback:
-                self.reconnect_callback(ReconnectReason.AUTH_EXPIRED)
+            if self.reconnect_signal:
+                self.reconnect_signal.trigger(ReconnectReason.AUTH_EXPIRED)
         elif error_type == "UNSUPPORTED_PROTOCOL":
             logger.critical("DXLink UNSUPPORTED_PROTOCOL: %s - fatal error", error_msg)
         elif error_type in ("INVALID_MESSAGE", "BAD_ACTION"):
             logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
-            if self.reconnect_callback:
-                self.reconnect_callback(ReconnectReason.PROTOCOL_ERROR)
+            if self.reconnect_signal:
+                self.reconnect_signal.trigger(ReconnectReason.PROTOCOL_ERROR)
         else:
             logger.warning("DXLink %s: %s", error_type, error_msg)
+
+    async def handle_connection_dropped(self, message: Message) -> None:
+        reason_value = message.headers.get(
+            "reason", ReconnectReason.CONNECTION_DROPPED.value
+        )
+        try:
+            reason = ReconnectReason(reason_value)
+        except ValueError:
+            reason = ReconnectReason.CONNECTION_DROPPED
+        logger.error("CONNECTION_DROPPED: %s - triggering reconnect", reason.value)
+        if self.reconnect_signal:
+            self.reconnect_signal.trigger(reason)
