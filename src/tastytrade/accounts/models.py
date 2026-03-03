@@ -7,6 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tastytrade.messaging.models.events import FloatFieldMixin
 
+# Model config for new order models: extra="ignore" until sandbox payloads
+# are validated (TT-60 review decision). Promote to "forbid" after validation.
+ORDER_MODEL_CONFIG = ConfigDict(
+    frozen=True,
+    validate_assignment=True,
+    extra="ignore",
+    str_strip_whitespace=True,
+    populate_by_name=True,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -654,3 +664,220 @@ class AccountBalance(TastyTradeApiModel, FloatFieldMixin):
         "total_pending_liquidity_pool_rebate",
         "used_derivative_buying_power",
     )
+
+
+# ---------------------------------------------------------------------------
+# TT-60: Order & ComplexOrder models
+# ---------------------------------------------------------------------------
+
+
+class OrderStatus(str, Enum):
+    RECEIVED = "Received"
+    ROUTED = "Routed"
+    IN_FLIGHT = "In Flight"
+    LIVE = "Live"
+    FILLED = "Filled"
+    CANCELLED = "Cancelled"
+    EXPIRED = "Expired"
+    REJECTED = "Rejected"
+    CANCEL_REQUESTED = "Cancel Requested"
+    REPLACE_REQUESTED = "Replace Requested"
+    REMOVED = "Removed"
+    PARTIALLY_REMOVED = "Partially Removed"
+    CONTINGENT = "Contingent"
+    UNKNOWN = "Unknown"
+
+
+class OrderAction(str, Enum):
+    BUY_TO_OPEN = "Buy to Open"
+    BUY_TO_CLOSE = "Buy to Close"
+    SELL_TO_OPEN = "Sell to Open"
+    SELL_TO_CLOSE = "Sell to Close"
+    UNKNOWN = "Unknown"
+
+
+class ComplexOrderType(str, Enum):
+    OCO = "OCO"
+    OTOCO = "OTOCO"
+    UNKNOWN = "Unknown"
+
+
+class PriceEffect(str, Enum):
+    CREDIT = "Credit"
+    DEBIT = "Debit"
+    NONE = "None"
+    UNKNOWN = "Unknown"
+
+
+class TimeInForce(str, Enum):
+    DAY = "Day"
+    GTC = "GTC"
+    GTD = "GTD"
+    IOC = "IOC"
+    UNKNOWN = "Unknown"
+
+
+class OrderType(str, Enum):
+    LIMIT = "Limit"
+    MARKET = "Market"
+    STOP = "Stop"
+    STOP_LIMIT = "Stop Limit"
+    UNKNOWN = "Unknown"
+
+
+class OrderFill(BaseModel, FloatFieldMixin):
+    """A single fill execution within an order leg."""
+
+    model_config = ORDER_MODEL_CONFIG
+
+    fill_id: str = Field(alias="fill-id")
+    quantity: float = Field(alias="quantity")
+    fill_price: float = Field(alias="fill-price")
+    filled_at: datetime = Field(alias="filled-at")
+    destination_venue: Optional[str] = Field(default=None, alias="destination-venue")
+    ext_exec_id: Optional[str] = Field(default=None, alias="ext-exec-id")
+    ext_group_fill_id: Optional[str] = Field(default=None, alias="ext-group-fill-id")
+
+    convert_float = FloatFieldMixin.validate_float_fields("quantity", "fill_price")
+
+
+class OrderLeg(BaseModel, FloatFieldMixin):
+    """A single leg within an order."""
+
+    model_config = ORDER_MODEL_CONFIG
+
+    instrument_type: InstrumentType = Field(alias="instrument-type")
+    symbol: str = Field(alias="symbol")
+    action: OrderAction = Field(alias="action")
+    quantity: float = Field(alias="quantity")
+    remaining_quantity: Optional[float] = Field(
+        default=None, alias="remaining-quantity"
+    )
+    fills: list[OrderFill] = Field(default_factory=list, alias="fills")
+
+    convert_float = FloatFieldMixin.validate_float_fields(
+        "quantity", "remaining_quantity"
+    )
+
+    @field_validator("instrument_type", mode="before")
+    @classmethod
+    def coerce_unknown_instrument_type(cls, value: Any) -> str:
+        try:
+            InstrumentType(value)
+        except ValueError:
+            logger.warning("Unknown instrument type '%s', mapping to UNKNOWN", value)
+            return InstrumentType.UNKNOWN.value
+        return value
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def coerce_unknown_action(cls, value: Any) -> str:
+        try:
+            OrderAction(value)
+        except ValueError:
+            logger.warning("Unknown order action '%s', mapping to UNKNOWN", value)
+            return OrderAction.UNKNOWN.value
+        return value
+
+
+class PlacedOrder(BaseModel, FloatFieldMixin):
+    """A single order from the Account Streamer."""
+
+    model_config = ORDER_MODEL_CONFIG
+
+    # Identity
+    id: int = Field(alias="id")
+    account_number: str = Field(alias="account-number")
+
+    # Order parameters
+    order_type: OrderType = Field(alias="order-type")
+    time_in_force: TimeInForce = Field(alias="time-in-force")
+    price: Optional[float] = Field(default=None, alias="price")
+    price_effect: Optional[PriceEffect] = Field(default=None, alias="price-effect")
+    size: Optional[int] = Field(default=None, alias="size")
+
+    # Status
+    status: OrderStatus = Field(alias="status")
+    cancellable: bool = Field(default=False, alias="cancellable")
+    editable: bool = Field(default=False, alias="editable")
+
+    # Underlying
+    underlying_symbol: Optional[str] = Field(default=None, alias="underlying-symbol")
+    underlying_instrument_type: Optional[InstrumentType] = Field(
+        default=None, alias="underlying-instrument-type"
+    )
+
+    # Legs
+    legs: list[OrderLeg] = Field(default_factory=list, alias="legs")
+
+    # Timestamps
+    received_at: Optional[datetime] = Field(default=None, alias="received-at")
+    updated_at: Optional[datetime] = Field(default=None, alias="updated-at")
+    in_flight_at: Optional[datetime] = Field(default=None, alias="in-flight-at")
+    live_at: Optional[datetime] = Field(default=None, alias="live-at")
+    terminal_at: Optional[datetime] = Field(default=None, alias="terminal-at")
+
+    # Exchange routing
+    destination_venue: Optional[str] = Field(default=None, alias="destination-venue")
+
+    convert_float = FloatFieldMixin.validate_float_fields("price")
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def coerce_unknown_status(cls, value: Any) -> str:
+        try:
+            OrderStatus(value)
+        except ValueError:
+            logger.warning("Unknown order status '%s', mapping to UNKNOWN", value)
+            return OrderStatus.UNKNOWN.value
+        return value
+
+    @field_validator("order_type", mode="before")
+    @classmethod
+    def coerce_unknown_order_type(cls, value: Any) -> str:
+        try:
+            OrderType(value)
+        except ValueError:
+            logger.warning("Unknown order type '%s', mapping to UNKNOWN", value)
+            return OrderType.UNKNOWN.value
+        return value
+
+    @field_validator("time_in_force", mode="before")
+    @classmethod
+    def coerce_unknown_tif(cls, value: Any) -> str:
+        try:
+            TimeInForce(value)
+        except ValueError:
+            logger.warning("Unknown time-in-force '%s', mapping to UNKNOWN", value)
+            return TimeInForce.UNKNOWN.value
+        return value
+
+
+class PlacedComplexOrder(BaseModel):
+    """A complex (multi-leg) order from the Account Streamer."""
+
+    model_config = ORDER_MODEL_CONFIG
+
+    # Identity
+    id: int = Field(alias="id")
+    account_number: str = Field(alias="account-number")
+
+    # Type
+    type: ComplexOrderType = Field(alias="type")
+
+    # Sub-orders
+    orders: list[PlacedOrder] = Field(default_factory=list, alias="orders")
+    trigger_order: Optional[PlacedOrder] = Field(default=None, alias="trigger-order")
+
+    # Status
+    terminal_at: Optional[datetime] = Field(default=None, alias="terminal-at")
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def coerce_unknown_type(cls, value: Any) -> str:
+        try:
+            ComplexOrderType(value)
+        except ValueError:
+            logger.warning("Unknown complex order type '%s', mapping to UNKNOWN", value)
+            return ComplexOrderType.UNKNOWN.value
+        return value

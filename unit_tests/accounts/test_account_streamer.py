@@ -143,7 +143,7 @@ def test_handle_event_routes_balance_to_balance_queue() -> None:
 def test_handle_event_unknown_type_logs_warning() -> None:
     streamer = fresh_streamer()
     event_data = {
-        "type": "Order",
+        "type": "UnknownFutureEventType",
         "data": {"some": "data"},
     }
     # Should not raise, unknown types are logged and skipped
@@ -337,3 +337,5 @@ async def test_hydrate_enqueues_positions_and_balance() -> None:
 def test_account_event_type_values() -> None:
     assert AccountEventType.CURRENT_POSITION.value == "CurrentPosition"
     assert AccountEventType.ACCOUNT_BALANCE.value == "AccountBalance"
+    assert AccountEventType.ORDER.value == "Order"
+    assert AccountEventType.COMPLEX_ORDER.value == "ComplexOrder"

@@ -116,15 +116,11 @@ class TestRunAccountStreamOnce:
     async def test_starts_streamer_and_publisher(self) -> None:
         """Verify the orchestrator starts the AccountStreamer and creates a publisher."""
         with (
-            patch(
-                "tastytrade.accounts.orchestrator.AccountStreamer"
-            ) as MockStreamer,
+            patch("tastytrade.accounts.orchestrator.AccountStreamer") as MockStreamer,
             patch(
                 "tastytrade.accounts.orchestrator.AccountStreamPublisher"
             ) as MockPublisher,
-            patch(
-                "tastytrade.accounts.orchestrator.RedisConfigManager"
-            ) as MockConfig,
+            patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
         ):
             mock_config = MagicMock()
@@ -135,8 +131,7 @@ class TestRunAccountStreamOnce:
             mock_streamer = AsyncMock()
             mock_streamer.start = AsyncMock()
             mock_streamer.queues = {
-                AccountEventType.CURRENT_POSITION: asyncio.Queue(),
-                AccountEventType.ACCOUNT_BALANCE: asyncio.Queue(),
+                event_type: asyncio.Queue() for event_type in AccountEventType
             }
             mock_streamer.close = AsyncMock()
             mock_streamer.wait_for_reconnect_signal = AsyncMock(
@@ -159,15 +154,9 @@ class TestRunAccountStreamOnce:
     async def test_raises_account_stream_error_on_failure(self) -> None:
         """Non-CancelledError exceptions become AccountStreamError."""
         with (
-            patch(
-                "tastytrade.accounts.orchestrator.AccountStreamer"
-            ) as MockStreamer,
-            patch(
-                "tastytrade.accounts.orchestrator.AccountStreamPublisher"
-            ),
-            patch(
-                "tastytrade.accounts.orchestrator.RedisConfigManager"
-            ) as MockConfig,
+            patch("tastytrade.accounts.orchestrator.AccountStreamer") as MockStreamer,
+            patch("tastytrade.accounts.orchestrator.AccountStreamPublisher"),
+            patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
         ):
             mock_config = MagicMock()
@@ -180,8 +169,7 @@ class TestRunAccountStreamOnce:
                 side_effect=ConnectionError("WebSocket failed")
             )
             mock_streamer.queues = {
-                AccountEventType.CURRENT_POSITION: asyncio.Queue(),
-                AccountEventType.ACCOUNT_BALANCE: asyncio.Queue(),
+                event_type: asyncio.Queue() for event_type in AccountEventType
             }
             mock_streamer.close = AsyncMock()
             MockStreamer.return_value = mock_streamer
@@ -197,15 +185,11 @@ class TestRunAccountStreamOnce:
     async def test_cleanup_on_cancel(self) -> None:
         """Verify streamer and publisher are closed even on cancellation."""
         with (
-            patch(
-                "tastytrade.accounts.orchestrator.AccountStreamer"
-            ) as MockStreamer,
+            patch("tastytrade.accounts.orchestrator.AccountStreamer") as MockStreamer,
             patch(
                 "tastytrade.accounts.orchestrator.AccountStreamPublisher"
             ) as MockPublisher,
-            patch(
-                "tastytrade.accounts.orchestrator.RedisConfigManager"
-            ) as MockConfig,
+            patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
         ):
             mock_config = MagicMock()
@@ -216,8 +200,7 @@ class TestRunAccountStreamOnce:
             mock_streamer = AsyncMock()
             mock_streamer.start = AsyncMock()
             mock_streamer.queues = {
-                AccountEventType.CURRENT_POSITION: asyncio.Queue(),
-                AccountEventType.ACCOUNT_BALANCE: asyncio.Queue(),
+                event_type: asyncio.Queue() for event_type in AccountEventType
             }
             mock_streamer.close = AsyncMock()
             mock_streamer.wait_for_reconnect_signal = AsyncMock(

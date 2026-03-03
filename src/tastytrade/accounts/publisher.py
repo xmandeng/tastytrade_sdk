@@ -1,4 +1,4 @@
-"""Publishes AccountStreamer events (positions, balances) to Redis.
+"""Publishes AccountStreamer events (positions, balances, orders) to Redis.
 
 Reads from AccountStreamer asyncio queues and writes to Redis HSET
 for on-demand reads, plus pub/sub for real-time consumers.
@@ -13,7 +13,12 @@ import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
 from typing import Union
 
-from tastytrade.accounts.models import AccountBalance, Position
+from tastytrade.accounts.models import (
+    AccountBalance,
+    PlacedComplexOrder,
+    PlacedOrder,
+    Position,
+)
 from tastytrade.market.models import (
     CryptocurrencyInstrument,
     EquityInstrument,
@@ -39,6 +44,8 @@ class AccountStreamPublisher:
     POSITIONS_KEY = "tastytrade:positions"
     BALANCES_KEY = "tastytrade:balances"
     INSTRUMENTS_KEY = "tastytrade:instruments"
+    ORDERS_KEY = "tastytrade:orders"
+    COMPLEX_ORDERS_KEY = "tastytrade:complex-orders"
 
     def __init__(
         self,
@@ -73,6 +80,32 @@ class AccountStreamPublisher:
             balance.model_dump_json(by_alias=True),
         )
         logger.debug("Published balance update")
+
+    async def publish_order(self, order: PlacedOrder) -> None:
+        """Write order to Redis HSET keyed by order ID."""
+        await self.redis.hset(
+            self.ORDERS_KEY,
+            str(order.id),
+            order.model_dump_json(by_alias=True),
+        )
+        await self.redis.publish(
+            channel="tastytrade:events:Order",
+            message=order.model_dump_json(by_alias=True),
+        )
+        logger.debug("Published order %d status=%s", order.id, order.status.value)
+
+    async def publish_complex_order(self, order: PlacedComplexOrder) -> None:
+        """Write complex order to Redis HSET keyed by complex order ID."""
+        await self.redis.hset(
+            self.COMPLEX_ORDERS_KEY,
+            str(order.id),
+            order.model_dump_json(by_alias=True),
+        )
+        await self.redis.publish(
+            channel="tastytrade:events:ComplexOrder",
+            message=order.model_dump_json(by_alias=True),
+        )
+        logger.debug("Published complex order %d type=%s", order.id, order.type.value)
 
     async def publish_instruments(self, instruments: list[Instrument]) -> None:
         """Write instrument details to Redis HSET. Key = symbol, value = JSON."""

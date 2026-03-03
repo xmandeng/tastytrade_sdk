@@ -80,3 +80,5 @@ class AccountEventType(str, Enum):
 
     CURRENT_POSITION = "CurrentPosition"
     ACCOUNT_BALANCE = "AccountBalance"
+    ORDER = "Order"
+    COMPLEX_ORDER = "ComplexOrder"

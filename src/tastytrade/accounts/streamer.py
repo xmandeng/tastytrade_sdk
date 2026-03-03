@@ -30,7 +30,12 @@ from tastytrade.accounts.messages import (
     StreamerHeartbeatMessage,
     StreamerResponse,
 )
-from tastytrade.accounts.models import AccountBalance, Position
+from tastytrade.accounts.models import (
+    AccountBalance,
+    PlacedComplexOrder,
+    PlacedOrder,
+    Position,
+)
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
@@ -79,7 +84,10 @@ class AccountStreamer:
         if not hasattr(self, "initialized"):
             self.credentials = credentials
             self.queues: dict[
-                AccountEventType, asyncio.Queue[Union[Position, AccountBalance]]
+                AccountEventType,
+                asyncio.Queue[
+                    Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder]
+                ],
             ] = {event_type: asyncio.Queue() for event_type in AccountEventType}
 
             # Reconnection state
@@ -308,13 +316,17 @@ class AccountStreamer:
     def parse_event(
         event_type: str,
         data: dict,  # type: ignore[type-arg]
-    ) -> Union[Position, AccountBalance, None]:
-        """Parse event data into the corresponding TT-28 Pydantic model."""
+    ) -> Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder, None]:
+        """Parse event data into the corresponding Pydantic model."""
         try:
             if event_type == AccountEventType.CURRENT_POSITION:
                 return Position.model_validate(data)
             elif event_type == AccountEventType.ACCOUNT_BALANCE:
                 return AccountBalance.model_validate(data)
+            elif event_type == AccountEventType.ORDER:
+                return PlacedOrder.model_validate(data)
+            elif event_type == AccountEventType.COMPLEX_ORDER:
+                return PlacedComplexOrder.model_validate(data)
             else:
                 logger.warning("Unknown event type for parsing: %s", event_type)
                 return None

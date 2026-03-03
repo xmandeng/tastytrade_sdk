@@ -52,6 +52,26 @@ async def _consume_balances(
         await publisher.publish_balance(balance)
 
 
+async def _consume_orders(
+    queue: asyncio.Queue,  # type: ignore[type-arg]
+    publisher: AccountStreamPublisher,
+) -> None:
+    """Drain Order events from the queue and publish to Redis."""
+    while True:
+        order = await queue.get()
+        await publisher.publish_order(order)
+
+
+async def _consume_complex_orders(
+    queue: asyncio.Queue,  # type: ignore[type-arg]
+    publisher: AccountStreamPublisher,
+) -> None:
+    """Drain ComplexOrder events from the queue and publish to Redis."""
+    while True:
+        order = await queue.get()
+        await publisher.publish_complex_order(order)
+
+
 async def run_account_stream_once(
     env_file: str = ".env",
     health_interval: int = 3600,
@@ -181,6 +201,23 @@ async def run_account_stream_once(
             asyncio.create_task(
                 _consume_balances(balance_queue, publisher),
                 name="balance_consumer",
+            )
+        )
+
+        # === Start consumer tasks for order + complex order queues ===
+        order_queue = streamer.queues[AccountEventType.ORDER]
+        complex_order_queue = streamer.queues[AccountEventType.COMPLEX_ORDER]
+
+        consumer_tasks.append(
+            asyncio.create_task(
+                _consume_orders(order_queue, publisher),
+                name="order_consumer",
+            )
+        )
+        consumer_tasks.append(
+            asyncio.create_task(
+                _consume_complex_orders(complex_order_queue, publisher),
+                name="complex_order_consumer",
             )
         )
 
