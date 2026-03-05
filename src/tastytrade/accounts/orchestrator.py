@@ -9,6 +9,9 @@ Mirrors the pattern from ``subscription.orchestrator.run_subscription``.
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
+
+import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
 from tastytrade.accounts.models import InstrumentType, Position
 from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
@@ -31,6 +34,21 @@ class AccountStreamError(Exception):
     def __init__(self, message: str, was_healthy: bool = False) -> None:
         super().__init__(message)
         self.was_healthy = was_healthy
+
+
+async def update_account_connection_status(
+    redis_client: aioredis.Redis,  # type: ignore[type-arg]
+    state: str,
+    reason: str | None = None,
+) -> None:
+    """Update account connection status in Redis for external monitoring."""
+    status: dict[str, str] = {
+        "state": state,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if reason:
+        status["error"] = reason
+    await redis_client.hset("tastytrade:account_connection", mapping=status)  # type: ignore[arg-type]
 
 
 async def consume_positions(
@@ -227,6 +245,7 @@ async def run_account_stream_once(
 
         connection_established_at = time.monotonic()
         logger.info("Account stream active - press Ctrl+C to stop")
+        await update_account_connection_status(publisher.redis, state="connected")
 
         # === Monitor for reconnection signal ===
         while True:
@@ -248,6 +267,9 @@ async def run_account_stream_once(
             if monitor_task in done:
                 reason = monitor_task.result()
                 logger.warning("Reconnection triggered: %s", reason.value)
+                await update_account_connection_status(
+                    publisher.redis, state="error", reason=reason.value
+                )
                 raise ConnectionError(f"Reconnection triggered: {reason.value}")
 
             # Health check on interval
@@ -281,6 +303,9 @@ async def run_account_stream_once(
             await streamer.close()
 
         if publisher is not None:
+            await update_account_connection_status(
+                publisher.redis, state="disconnected"
+            )
             logger.info("Closing AccountStreamPublisher")
             await publisher.close()
 

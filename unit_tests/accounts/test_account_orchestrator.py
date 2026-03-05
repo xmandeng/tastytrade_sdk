@@ -11,6 +11,7 @@ from tastytrade.accounts.orchestrator import (
     consume_positions,
     run_account_stream,
     run_account_stream_once,
+    update_account_connection_status,
 )
 from tastytrade.accounts.models import AccountBalance, Position
 from tastytrade.config.enumerations import AccountEventType
@@ -37,6 +38,48 @@ class TestAccountStreamError:
 
     def test_is_exception(self) -> None:
         assert issubclass(AccountStreamError, Exception)
+
+
+# ---------------------------------------------------------------------------
+# update_account_connection_status
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateAccountConnectionStatus:
+    @pytest.mark.asyncio
+    async def test_publishes_connected_status(self) -> None:
+        """Connected state is written to Redis with timestamp."""
+        mock_redis = AsyncMock()
+        await update_account_connection_status(mock_redis, state="connected")
+        mock_redis.hset.assert_awaited_once()
+        call_kwargs = mock_redis.hset.call_args
+        assert call_kwargs[0][0] == "tastytrade:account_connection"
+        mapping = call_kwargs[1]["mapping"]
+        assert mapping["state"] == "connected"
+        assert "timestamp" in mapping
+        assert "error" not in mapping
+
+    @pytest.mark.asyncio
+    async def test_publishes_error_status_with_reason(self) -> None:
+        """Error state includes the reason string."""
+        mock_redis = AsyncMock()
+        await update_account_connection_status(
+            mock_redis, state="error", reason="auth_expired"
+        )
+        call_kwargs = mock_redis.hset.call_args
+        mapping = call_kwargs[1]["mapping"]
+        assert mapping["state"] == "error"
+        assert mapping["error"] == "auth_expired"
+
+    @pytest.mark.asyncio
+    async def test_publishes_disconnected_status(self) -> None:
+        """Disconnected state is written without error field."""
+        mock_redis = AsyncMock()
+        await update_account_connection_status(mock_redis, state="disconnected")
+        call_kwargs = mock_redis.hset.call_args
+        mapping = call_kwargs[1]["mapping"]
+        assert mapping["state"] == "disconnected"
+        assert "error" not in mapping
 
 
 # ---------------------------------------------------------------------------
