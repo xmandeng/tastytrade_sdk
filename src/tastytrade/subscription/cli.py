@@ -247,9 +247,15 @@ def account_stream(log_level: str, health_interval: int) -> None:
       tasty-subscription account-stream
       tasty-subscription account-stream --log-level DEBUG
     """
-    log_level_int = getattr(logging, log_level)
-    setup_logging(level=log_level_int, console=True, file=False)
-    local_logger = logging.getLogger(__name__)
+    os.environ["LOG_LEVEL"] = log_level
+    if os.getenv("GRAFANA_CLOUD_TOKEN"):
+        init_observability()
+        local_logger = logging.getLogger(__name__)
+        local_logger.info("Grafana Cloud logging enabled")
+    else:
+        log_level_int = getattr(logging, log_level)
+        setup_logging(level=log_level_int, console=True, file=False)
+        local_logger = logging.getLogger(__name__)
 
     local_logger.info("=" * 60)
     local_logger.info("TastyTrade Account Stream - Starting")
@@ -264,6 +270,9 @@ def account_stream(log_level: str, health_interval: int) -> None:
     except Exception as e:
         local_logger.error("Fatal error: %s", e, exc_info=True)
         sys.exit(1)
+    finally:
+        if os.getenv("GRAFANA_CLOUD_TOKEN"):
+            shutdown_observability()
 
     sys.exit(0)
 
