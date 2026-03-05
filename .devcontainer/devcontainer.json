@@ -58,11 +58,5 @@
     "PYTHONUNBUFFERED": "1"
   },
 
-  // Run arguments to pass environment variables from .env file
-  "runArgs": [
-    "--env-file",
-    "${localWorkspaceFolder}/.env"
-  ],
-
   "remoteUser": "developer"
 }

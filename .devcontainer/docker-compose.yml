@@ -20,6 +20,8 @@ services:
       - ~/.claude.json:/home/developer/.claude.json
       # Docker-from-Docker: mount host Docker socket
       - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - ../.env
     environment:
       # Host home directory for Claude plugin path compatibility
       HOST_HOME: "${HOME}"

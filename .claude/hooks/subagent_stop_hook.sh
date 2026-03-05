@@ -7,6 +7,14 @@
 
 set -e
 
+# Source .env if present (needed in Docker containers where env vars aren't in shell profile)
+if [ -f "$PWD/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$PWD/.env"
+    set +a
+fi
+
 # Read hook input
 HOOK_INPUT=$(cat)
 
