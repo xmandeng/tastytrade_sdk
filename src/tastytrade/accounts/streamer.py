@@ -32,6 +32,8 @@ from tastytrade.accounts.messages import (
 )
 from tastytrade.accounts.models import (
     AccountBalance,
+    InstrumentType,
+    OrderLeg,
     PlacedComplexOrder,
     PlacedOrder,
     Position,
@@ -44,6 +46,81 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 20
 CONNECT_TIMEOUT_SECONDS = 10
+
+SHORT_ACTIONS: dict[str, str] = {
+    "Buy to Open": "BTO",
+    "Sell to Open": "STO",
+    "Buy to Close": "BTC",
+    "Sell to Close": "STC",
+}
+
+
+def parse_occ_strike(symbol: str) -> str | None:
+    """Extract strike and put/call from an OCC equity option symbol.
+
+    OCC standard: 6-char root + 6-char date (YYMMDD) + C/P + 8-char strike (*1000).
+    Always 21 characters total.
+
+    'SPY   260306C00700000' → '700C'
+    'GOOGL 260306P00450500' → '450.5P'
+    """
+    s = symbol.strip()
+    if len(s) != 21:
+        return None
+    option_type = s[12]
+    if option_type not in ("C", "P"):
+        return None
+    try:
+        strike = int(s[13:]) / 1000
+        return f"{strike:g}{option_type}"
+    except ValueError:
+        return None
+
+
+def parse_futures_option_strike(symbol: str) -> str | None:
+    """Extract strike and put/call from a TastyTrade futures option symbol.
+
+    Format: './ESH6 EW4G6 250221P5500' — last segment contains date + C/P + strike.
+
+    './ESH6 EW4G6 250221P5500' → '5500P'
+    './MESH6 ME4G6 250221C5500' → '5500C'
+    """
+    parts = symbol.strip().split()
+    if len(parts) < 2:
+        return None
+    tail = parts[-1]
+    for i, c in enumerate(tail):
+        if c in ("C", "P") and i > 0:
+            strike = tail[i + 1 :]
+            if strike and strike.replace(".", "").isdigit():
+                return f"{strike}{c}"
+    return None
+
+
+def format_leg_summary(leg: OrderLeg) -> str:
+    """Format an order leg for logging.
+
+    Dispatches by instrument type to the appropriate symbol parser.
+
+    Equity:         'BTO SPY'
+    Equity Option:  'BTO 700C'
+    Future:         'BTO /ESH6'
+    Future Option:  'STO 5500P'
+    Fallback:       'BTO <symbol>'
+    """
+    action = SHORT_ACTIONS.get(leg.action.value, leg.action.value)
+
+    if leg.instrument_type == InstrumentType.EQUITY_OPTION:
+        strike = parse_occ_strike(leg.symbol)
+        if strike:
+            return f"{action} {strike}"
+    elif leg.instrument_type == InstrumentType.FUTURE_OPTION:
+        strike = parse_futures_option_strike(leg.symbol)
+        if strike:
+            return f"{action} {strike}"
+
+    return f"{action} {leg.symbol.strip()}"
+
 
 STREAMER_URLS: dict[bool, str] = {
     True: "wss://streamer.cert.tastyworks.com",  # sandbox
@@ -315,9 +392,7 @@ class AccountStreamer:
     ) -> None:
         """Log a human-readable summary of the event."""
         if event_type == AccountEventType.ORDER and isinstance(parsed, PlacedOrder):
-            legs_summary = ", ".join(
-                f"{leg.action.value} {leg.symbol}" for leg in parsed.legs
-            )
+            legs_summary = ", ".join(format_leg_summary(leg) for leg in parsed.legs)
             logger.info(
                 "Order %d %s — %s [%s]",
                 parsed.id,
