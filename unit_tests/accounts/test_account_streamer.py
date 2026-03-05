@@ -14,6 +14,7 @@ from tastytrade.accounts.streamer import (
     AccountStreamer,
 )
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
+from tastytrade.connections.signals import ReconnectSignal
 
 
 # ---------------------------------------------------------------------------
@@ -43,15 +44,15 @@ def make_balance_event(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-def fresh_streamer() -> AccountStreamer:
+def fresh_streamer(
+    reconnect_signal: ReconnectSignal | None = None,
+) -> AccountStreamer:
     """Create a fresh AccountStreamer with no singleton state."""
     AccountStreamer.instance = None
     streamer = AccountStreamer.__new__(AccountStreamer)
     streamer.credentials = None
+    streamer.reconnect_signal = reconnect_signal
     streamer.queues = {event_type: asyncio.Queue() for event_type in AccountEventType}
-    streamer.reconnect_event = asyncio.Event()
-    streamer.should_reconnect = True
-    streamer.reconnect_reason = None
     streamer.request_id = 0
     streamer.websocket = None
     streamer.session = None
@@ -236,37 +237,47 @@ def test_singleton_init_guard_runs_once() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC6: Reconnection signaling
+# AC6: Reconnection signaling via ReconnectSignal
 # ---------------------------------------------------------------------------
 
 
-def test_trigger_reconnect_sets_event() -> None:
-    streamer = fresh_streamer()
-    assert not streamer.reconnect_event.is_set()
-    streamer.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
-    assert streamer.reconnect_event.is_set()
-    assert streamer.reconnect_reason == ReconnectReason.CONNECTION_DROPPED
+def test_reconnect_signal_trigger_sets_event() -> None:
+    signal = ReconnectSignal()
+    streamer = fresh_streamer(reconnect_signal=signal)
+    assert not signal.event.is_set()
+    signal.trigger(ReconnectReason.CONNECTION_DROPPED)
+    assert signal.event.is_set()
+    assert signal.reason == ReconnectReason.CONNECTION_DROPPED
+    assert streamer.reconnect_signal is signal
 
 
 @pytest.mark.asyncio
-async def test_wait_for_reconnect_signal_blocks_then_returns() -> None:
-    streamer = fresh_streamer()
+async def test_reconnect_signal_wait_blocks_then_returns() -> None:
+    signal = ReconnectSignal()
+    fresh_streamer(reconnect_signal=signal)
 
     async def trigger_later() -> None:
         await asyncio.sleep(0.01)
-        streamer.trigger_reconnect(ReconnectReason.AUTH_EXPIRED)
+        signal.trigger(ReconnectReason.AUTH_EXPIRED)
 
     asyncio.create_task(trigger_later())
-    reason = await asyncio.wait_for(streamer.wait_for_reconnect_signal(), timeout=1.0)
+    reason = await asyncio.wait_for(signal.wait(), timeout=1.0)
     assert reason == ReconnectReason.AUTH_EXPIRED
 
 
 @pytest.mark.asyncio
-async def test_wait_clears_event_after_signal() -> None:
-    streamer = fresh_streamer()
-    streamer.trigger_reconnect(ReconnectReason.TIMEOUT)
-    await streamer.wait_for_reconnect_signal()
-    assert not streamer.reconnect_event.is_set()
+async def test_reconnect_signal_clears_event_after_wait() -> None:
+    signal = ReconnectSignal()
+    fresh_streamer(reconnect_signal=signal)
+    signal.trigger(ReconnectReason.TIMEOUT)
+    await signal.wait()
+    assert not signal.event.is_set()
+
+
+def test_streamer_without_signal_does_not_crash() -> None:
+    """AccountStreamer created without a signal should have reconnect_signal=None."""
+    streamer = fresh_streamer(reconnect_signal=None)
+    assert streamer.reconnect_signal is None
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ from tastytrade.accounts.models import (
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
+from tastytrade.connections.signals import ReconnectSignal
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,7 @@ class AccountStreamer:
     def __new__(
         cls,
         credentials: Optional[Credentials] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
     ) -> "AccountStreamer":
         if cls.instance is None:
             cls.instance = object.__new__(cls)
@@ -157,20 +159,17 @@ class AccountStreamer:
     def __init__(
         self,
         credentials: Optional[Credentials] = None,
+        reconnect_signal: Optional[ReconnectSignal] = None,
     ) -> None:
         if not hasattr(self, "initialized"):
             self.credentials = credentials
+            self.reconnect_signal = reconnect_signal
             self.queues: dict[
                 AccountEventType,
                 asyncio.Queue[
                     Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder]
                 ],
             ] = {event_type: asyncio.Queue() for event_type in AccountEventType}
-
-            # Reconnection state
-            self.reconnect_event: asyncio.Event = asyncio.Event()
-            self.should_reconnect: bool = True
-            self.reconnect_reason: Optional[ReconnectReason] = None
 
             # Request ID counter for outbound messages
             self.request_id: int = 0
@@ -265,8 +264,6 @@ class AccountStreamer:
 
     async def close(self) -> None:
         """Cancel tasks, close WebSocket + REST session, reset singleton."""
-        self.should_reconnect = False
-
         tasks_to_cancel = [
             ("Listener", self.listener_task),
             ("Keepalive", self.keepalive_task),
@@ -291,17 +288,6 @@ class AccountStreamer:
 
         self.initialized = False
         logger.info("AccountStreamer closed and cleaned up")
-
-    def trigger_reconnect(self, reason: ReconnectReason) -> None:
-        """Signal that reconnection is needed."""
-        self.reconnect_reason = reason
-        self.reconnect_event.set()
-
-    async def wait_for_reconnect_signal(self) -> ReconnectReason:
-        """Wait for reconnection signal, return reason."""
-        await self.reconnect_event.wait()
-        self.reconnect_event.clear()
-        return self.reconnect_reason or ReconnectReason.MANUAL_TRIGGER
 
     # --- Internal: listener & keepalive -----------------------------------
 
@@ -338,8 +324,8 @@ class AccountStreamer:
             logger.info("Account streamer listener stopped")
         except Exception as e:
             logger.error("Account streamer listener error: %s", e)
-            if self.should_reconnect:
-                self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
+            if self.reconnect_signal:
+                self.reconnect_signal.trigger(ReconnectReason.CONNECTION_DROPPED)
 
     async def send_keepalives(self) -> None:
         """Send heartbeat messages every HEARTBEAT_INTERVAL_SECONDS."""
@@ -361,8 +347,8 @@ class AccountStreamer:
             logger.info("Account streamer keepalive stopped")
         except Exception as e:
             logger.error("Error sending heartbeat: %s", e)
-            if self.should_reconnect:
-                self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
+            if self.reconnect_signal:
+                self.reconnect_signal.trigger(ReconnectReason.CONNECTION_DROPPED)
 
     def handle_event(self, raw: dict) -> None:  # type: ignore[type-arg]
         """Parse a single event envelope and route to the appropriate queue."""

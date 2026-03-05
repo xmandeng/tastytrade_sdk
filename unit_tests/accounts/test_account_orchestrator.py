@@ -122,11 +122,16 @@ class TestRunAccountStreamOnce:
             ) as MockPublisher,
             patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
+            patch("tastytrade.accounts.orchestrator.ReconnectSignal") as MockSignal,
         ):
             mock_config = MagicMock()
             mock_config.initialize = MagicMock()
             mock_config.get = MagicMock(return_value="LIVE")
             MockConfig.return_value = mock_config
+
+            mock_signal = AsyncMock()
+            mock_signal.wait = AsyncMock(side_effect=asyncio.CancelledError)
+            MockSignal.return_value = mock_signal
 
             mock_streamer = AsyncMock()
             mock_streamer.start = AsyncMock()
@@ -134,9 +139,6 @@ class TestRunAccountStreamOnce:
                 event_type: asyncio.Queue() for event_type in AccountEventType
             }
             mock_streamer.close = AsyncMock()
-            mock_streamer.wait_for_reconnect_signal = AsyncMock(
-                side_effect=asyncio.CancelledError
-            )
             MockStreamer.return_value = mock_streamer
             MockStreamer.instance = None
 
@@ -191,11 +193,16 @@ class TestRunAccountStreamOnce:
             ) as MockPublisher,
             patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
+            patch("tastytrade.accounts.orchestrator.ReconnectSignal") as MockSignal,
         ):
             mock_config = MagicMock()
             mock_config.initialize = MagicMock()
             mock_config.get = MagicMock(return_value="LIVE")
             MockConfig.return_value = mock_config
+
+            mock_signal = AsyncMock()
+            mock_signal.wait = AsyncMock(side_effect=asyncio.CancelledError)
+            MockSignal.return_value = mock_signal
 
             mock_streamer = AsyncMock()
             mock_streamer.start = AsyncMock()
@@ -203,9 +210,6 @@ class TestRunAccountStreamOnce:
                 event_type: asyncio.Queue() for event_type in AccountEventType
             }
             mock_streamer.close = AsyncMock()
-            mock_streamer.wait_for_reconnect_signal = AsyncMock(
-                side_effect=asyncio.CancelledError
-            )
             MockStreamer.return_value = mock_streamer
             MockStreamer.instance = None
 
