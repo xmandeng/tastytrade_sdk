@@ -7,13 +7,14 @@ import pytest
 
 from tastytrade.accounts.orchestrator import (
     AccountStreamError,
+    account_failure_trigger_listener,
     consume_balances,
     consume_positions,
     run_account_stream,
     run_account_stream_once,
 )
 from tastytrade.accounts.models import AccountBalance, Position
-from tastytrade.config.enumerations import AccountEventType
+from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 
 
 # ---------------------------------------------------------------------------
@@ -313,3 +314,93 @@ class TestRunAccountStream:
                 base_delay=0.01,
                 max_delay=0.05,
             )
+
+
+# ---------------------------------------------------------------------------
+# account_failure_trigger_listener
+# ---------------------------------------------------------------------------
+
+
+class TestAccountFailureTriggerListener:
+    @pytest.mark.asyncio
+    async def test_valid_reason_triggers_reconnect(self) -> None:
+        """Valid ReconnectReason triggers reconnect_signal.trigger()."""
+        mock_pubsub = AsyncMock()
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = mock_pubsub
+
+        async def fake_listen():  # type: ignore[no-untyped-def]
+            yield {"type": "subscribe", "data": None}
+            yield {"type": "message", "data": b"connection_dropped"}
+
+        mock_pubsub.listen = fake_listen
+
+        mock_signal = MagicMock()
+
+        task = asyncio.create_task(
+            account_failure_trigger_listener(mock_redis, mock_signal)
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        mock_signal.trigger.assert_called_once_with(ReconnectReason.CONNECTION_DROPPED)
+
+    @pytest.mark.asyncio
+    async def test_invalid_reason_logs_warning(self) -> None:
+        """Invalid value logs a warning and does not trigger reconnect."""
+        mock_pubsub = AsyncMock()
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = mock_pubsub
+
+        async def fake_listen():  # type: ignore[no-untyped-def]
+            yield {"type": "subscribe", "data": None}
+            yield {"type": "message", "data": b"not_a_valid_reason"}
+
+        mock_pubsub.listen = fake_listen
+
+        mock_signal = MagicMock()
+
+        task = asyncio.create_task(
+            account_failure_trigger_listener(mock_redis, mock_signal)
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        mock_signal.trigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_handled_gracefully(self) -> None:
+        """CancelledError is caught and pubsub is cleaned up."""
+        mock_pubsub = AsyncMock()
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = mock_pubsub
+
+        async def fake_listen():  # type: ignore[no-untyped-def]
+            yield {"type": "subscribe", "data": None}
+            # Block forever until cancelled
+            await asyncio.sleep(3600)
+            yield {"type": "message", "data": b"unreachable"}  # pragma: no cover
+
+        mock_pubsub.listen = fake_listen
+
+        mock_signal = MagicMock()
+
+        task = asyncio.create_task(
+            account_failure_trigger_listener(mock_redis, mock_signal)
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+
+        # Should not raise — CancelledError is handled gracefully
+        await task
+
+        mock_pubsub.unsubscribe.assert_awaited_once_with("account:simulate_failure")
+        mock_pubsub.close.assert_awaited_once()
