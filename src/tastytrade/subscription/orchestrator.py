@@ -613,11 +613,14 @@ async def run_subscription(
             if is_first_run:
                 effective_start = start_date
             else:
+                yesterday = datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ) - timedelta(days=1)
                 effective_start = await get_reconnect_start(
                     reconnect_store,
                     symbols=symbols,
                     intervals=intervals,
-                    fallback=start_date,
+                    fallback=yesterday,
                 )
 
             await _run_subscription_once(
