@@ -297,46 +297,46 @@ def test_parse_event_complex_order_invalid_data_returns_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. Queue dispatch — _handle_event routes to correct queue
+# 7. Queue dispatch — handle_event routes to correct queue
 # ---------------------------------------------------------------------------
 
 
-def test_handle_event_routes_order_to_order_queue() -> None:
+def testhandle_event_routes_order_to_order_queue() -> None:
     streamer = fresh_streamer()
     event_data = {
         "type": "Order",
         "data": make_order_data(),
         "timestamp": 1234567890,
     }
-    streamer._handle_event(event_data)
+    streamer.handle_event(event_data)
     assert not streamer.queues[AccountEventType.ORDER].empty()
     item = streamer.queues[AccountEventType.ORDER].get_nowait()
     assert isinstance(item, PlacedOrder)
     assert item.id == 12345
 
 
-def test_handle_event_routes_complex_order_to_complex_order_queue() -> None:
+def testhandle_event_routes_complex_order_to_complex_order_queue() -> None:
     streamer = fresh_streamer()
     event_data = {
         "type": "ComplexOrder",
         "data": make_complex_order_data(),
         "timestamp": 1234567890,
     }
-    streamer._handle_event(event_data)
+    streamer.handle_event(event_data)
     assert not streamer.queues[AccountEventType.COMPLEX_ORDER].empty()
     item = streamer.queues[AccountEventType.COMPLEX_ORDER].get_nowait()
     assert isinstance(item, PlacedComplexOrder)
     assert item.id == 99001
 
 
-def test_handle_event_order_does_not_affect_other_queues() -> None:
+def testhandle_event_order_does_not_affect_other_queues() -> None:
     streamer = fresh_streamer()
     event_data = {
         "type": "Order",
         "data": make_order_data(),
         "timestamp": 1234567890,
     }
-    streamer._handle_event(event_data)
+    streamer.handle_event(event_data)
     assert streamer.queues[AccountEventType.CURRENT_POSITION].empty()
     assert streamer.queues[AccountEventType.ACCOUNT_BALANCE].empty()
     assert streamer.queues[AccountEventType.COMPLEX_ORDER].empty()

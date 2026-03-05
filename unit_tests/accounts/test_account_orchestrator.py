@@ -7,8 +7,8 @@ import pytest
 
 from tastytrade.accounts.orchestrator import (
     AccountStreamError,
-    _consume_balances,
-    _consume_positions,
+    consume_balances,
+    consume_positions,
     run_account_stream,
     run_account_stream_once,
 )
@@ -40,7 +40,7 @@ class TestAccountStreamError:
 
 
 # ---------------------------------------------------------------------------
-# _consume_positions
+# consume_positions
 # ---------------------------------------------------------------------------
 
 
@@ -54,7 +54,7 @@ class TestConsumePositions:
         pos = MagicMock(spec=Position)
         queue.put_nowait(pos)
 
-        task = asyncio.create_task(_consume_positions(queue, mock_publisher))
+        task = asyncio.create_task(consume_positions(queue, mock_publisher))
         await asyncio.sleep(0.05)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -73,7 +73,7 @@ class TestConsumePositions:
         queue.put_nowait(pos1)
         queue.put_nowait(pos2)
 
-        task = asyncio.create_task(_consume_positions(queue, mock_publisher))
+        task = asyncio.create_task(consume_positions(queue, mock_publisher))
         await asyncio.sleep(0.05)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -83,7 +83,7 @@ class TestConsumePositions:
 
 
 # ---------------------------------------------------------------------------
-# _consume_balances
+# consume_balances
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +97,7 @@ class TestConsumeBalances:
         bal = MagicMock(spec=AccountBalance)
         queue.put_nowait(bal)
 
-        task = asyncio.create_task(_consume_balances(queue, mock_publisher))
+        task = asyncio.create_task(consume_balances(queue, mock_publisher))
         await asyncio.sleep(0.05)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

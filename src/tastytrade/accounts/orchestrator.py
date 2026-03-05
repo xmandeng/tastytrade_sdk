@@ -32,7 +32,7 @@ class AccountStreamError(Exception):
         self.was_healthy = was_healthy
 
 
-async def _consume_positions(
+async def consume_positions(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
 ) -> None:
@@ -42,7 +42,7 @@ async def _consume_positions(
         await publisher.publish_position(position)
 
 
-async def _consume_balances(
+async def consume_balances(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
 ) -> None:
@@ -52,7 +52,7 @@ async def _consume_balances(
         await publisher.publish_balance(balance)
 
 
-async def _consume_orders(
+async def consume_orders(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
 ) -> None:
@@ -62,7 +62,7 @@ async def _consume_orders(
         await publisher.publish_order(order)
 
 
-async def _consume_complex_orders(
+async def consume_complex_orders(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
 ) -> None:
@@ -193,13 +193,13 @@ async def run_account_stream_once(
 
         consumer_tasks.append(
             asyncio.create_task(
-                _consume_positions(position_queue, publisher),
+                consume_positions(position_queue, publisher),
                 name="position_consumer",
             )
         )
         consumer_tasks.append(
             asyncio.create_task(
-                _consume_balances(balance_queue, publisher),
+                consume_balances(balance_queue, publisher),
                 name="balance_consumer",
             )
         )
@@ -210,13 +210,13 @@ async def run_account_stream_once(
 
         consumer_tasks.append(
             asyncio.create_task(
-                _consume_orders(order_queue, publisher),
+                consume_orders(order_queue, publisher),
                 name="order_consumer",
             )
         )
         consumer_tasks.append(
             asyncio.create_task(
-                _consume_complex_orders(complex_order_queue, publisher),
+                consume_complex_orders(complex_order_queue, publisher),
                 name="complex_order_consumer",
             )
         )

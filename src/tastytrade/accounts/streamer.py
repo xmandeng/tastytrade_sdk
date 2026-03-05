@@ -196,7 +196,7 @@ class AccountStreamer:
         ]
         await asyncio.gather(
             *[
-                self._cancel_task(name, task)
+                self.cancel_task(name, task)
                 for name, task in tasks_to_cancel
                 if task is not None
             ]
@@ -251,9 +251,9 @@ class AccountStreamer:
                 # Batched events have a "results" key
                 if "results" in raw:
                     for event_data in raw["results"]:
-                        self._handle_event(event_data)
+                        self.handle_event(event_data)
                 elif "type" in raw:
-                    self._handle_event(raw)
+                    self.handle_event(raw)
                 else:
                     logger.warning("Unknown message format: %s", str(raw)[:200])
 
@@ -287,7 +287,7 @@ class AccountStreamer:
             if self.should_reconnect:
                 self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
 
-    def _handle_event(self, raw: dict) -> None:  # type: ignore[type-arg]
+    def handle_event(self, raw: dict) -> None:  # type: ignore[type-arg]
         """Parse a single event envelope and route to the appropriate queue."""
         try:
             envelope = StreamerEventEnvelope.model_validate(raw)
@@ -306,10 +306,10 @@ class AccountStreamer:
             return
 
         self.queues[event_type].put_nowait(parsed)
-        self._log_event(event_type, parsed)
+        self.log_event(event_type, parsed)
 
     @staticmethod
-    def _log_event(
+    def log_event(
         event_type: AccountEventType,
         parsed: Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder],
     ) -> None:
@@ -370,7 +370,7 @@ class AccountStreamer:
     # --- Internal: task management ----------------------------------------
 
     @staticmethod
-    async def _cancel_task(name: str, task: asyncio.Task) -> None:  # type: ignore[type-arg]
+    async def cancel_task(name: str, task: asyncio.Task) -> None:  # type: ignore[type-arg]
         try:
             task.cancel()
             await task

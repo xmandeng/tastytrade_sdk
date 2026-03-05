@@ -112,48 +112,48 @@ def test_connect_message_uses_raw_token_no_bearer() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_handle_event_routes_position_to_position_queue() -> None:
+def testhandle_event_routes_position_to_position_queue() -> None:
     streamer = fresh_streamer()
     event_data = {
         "type": "CurrentPosition",
         "data": make_position_event(),
         "timestamp": 1234567890,
     }
-    streamer._handle_event(event_data)
+    streamer.handle_event(event_data)
     assert not streamer.queues[AccountEventType.CURRENT_POSITION].empty()
     item = streamer.queues[AccountEventType.CURRENT_POSITION].get_nowait()
     assert isinstance(item, Position)
     assert item.symbol == "AAPL"
 
 
-def test_handle_event_routes_balance_to_balance_queue() -> None:
+def testhandle_event_routes_balance_to_balance_queue() -> None:
     streamer = fresh_streamer()
     event_data = {
         "type": "AccountBalance",
         "data": make_balance_event(),
         "timestamp": 1234567890,
     }
-    streamer._handle_event(event_data)
+    streamer.handle_event(event_data)
     assert not streamer.queues[AccountEventType.ACCOUNT_BALANCE].empty()
     item = streamer.queues[AccountEventType.ACCOUNT_BALANCE].get_nowait()
     assert isinstance(item, AccountBalance)
     assert item.cash_balance == 25000.5
 
 
-def test_handle_event_unknown_type_logs_warning() -> None:
+def testhandle_event_unknown_type_logs_warning() -> None:
     streamer = fresh_streamer()
     event_data = {
         "type": "UnknownFutureEventType",
         "data": {"some": "data"},
     }
     # Should not raise, unknown types are logged and skipped
-    streamer._handle_event(event_data)
+    streamer.handle_event(event_data)
     assert streamer.queues[AccountEventType.CURRENT_POSITION].empty()
     assert streamer.queues[AccountEventType.ACCOUNT_BALANCE].empty()
 
 
-def test_handle_event_batch_results() -> None:
-    """Verify that batched results in socket_listener would call _handle_event per item."""
+def testhandle_event_batch_results() -> None:
+    """Verify that batched results in socket_listener would call handle_event per item."""
     streamer = fresh_streamer()
     events = [
         {"type": "CurrentPosition", "data": make_position_event(symbol="AAPL")},
@@ -164,7 +164,7 @@ def test_handle_event_batch_results() -> None:
         },
     ]
     for event in events:
-        streamer._handle_event(event)
+        streamer.handle_event(event)
 
     assert streamer.queues[AccountEventType.CURRENT_POSITION].qsize() == 2
     assert streamer.queues[AccountEventType.ACCOUNT_BALANCE].qsize() == 1
