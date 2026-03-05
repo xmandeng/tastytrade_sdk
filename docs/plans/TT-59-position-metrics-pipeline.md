@@ -1,6 +1,6 @@
 # TT-59: Position Metrics Pipeline — Implementation Plan
 
-> **Jira:** [TT-59](https://tastytrade-sdk.atlassian.net/browse/TT-59) — Integrate AccountStreamer into subscription service with position-driven DXLink subscriptions
+> **Jira:** [TT-59](https://mandeng.atlassian.net/browse/TT-59) — Integrate AccountStreamer into subscription service with position-driven DXLink subscriptions
 >
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 

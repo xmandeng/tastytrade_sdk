@@ -148,7 +148,7 @@ Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket i
 **File naming:** `docs/plans/TT-XXX-<feature-name>.md`
 - Always include the Jira ticket number as a prefix
 - The plan title must reference the ticket: `# TT-XXX: Feature Name — Implementation Plan`
-- Include a Jira link in the header: `> **Jira:** [TT-XXX](https://tastytrade-sdk.atlassian.net/browse/TT-XXX)`
+- Include a Jira link in the header: `> **Jira:** [TT-XXX](https://mandeng.atlassian.net/browse/TT-XXX)`
 
 **Plan-ticket sync:** Persist the plan summary to the Jira ticket before starting implementation. The ticket should reference the plan file path and branch.
 
@@ -156,6 +156,11 @@ Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket i
 
 ## Reference Documents
 
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture overview (start here)
+- [CHANGELOG.md](CHANGELOG.md) - Sprint-by-sprint change history
+- [docs/streaming_services.md](docs/streaming_services.md) - Streaming services operations guide
+- [docs/signal_architecture.md](docs/signal_architecture.md) - Signal detection pipeline
+- [docs/SERVICE_DISCOVERY.md](docs/SERVICE_DISCOVERY.md) - Configuration resolution
 - [docs/ISSUES_SPEC.md](docs/ISSUES_SPEC.md) - Jira issue specifications
 - [docs/GITHUB_WORKFLOW_SPEC.md](docs/GITHUB_WORKFLOW_SPEC.md) - GitHub workflow standards
 - [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) - PR evidence standards
