@@ -503,6 +503,47 @@ async def _run_subscription_once(
             logger.info("Cleanup complete")
 
 
+async def get_reconnect_start(
+    store: RedisSubscriptionStore,
+    fallback: datetime,
+) -> datetime:
+    """Derive reconnect start_date from the earliest last_update in Redis.
+
+    Reads all active subscriptions and returns the start of the calendar day
+    (midnight UTC) of the earliest last_update. Falls back to the original
+    start_date if no subscription data is found.
+    """
+    active = await store.get_active_subscriptions()
+    if not active:
+        return fallback
+
+    earliest: datetime | None = None
+    for data in active.values():
+        last_update_str = data.get("last_update") if isinstance(data, dict) else None
+        if not last_update_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(last_update_str)
+            if earliest is None or ts < earliest:
+                earliest = ts
+        except (ValueError, TypeError):
+            continue
+
+    if earliest is None:
+        return fallback
+
+    # Round back to start of that calendar day (midnight UTC)
+    reconnect_from = earliest.replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc
+    )
+    logger.info(
+        "Reconnect from %s (earliest data: %s)",
+        reconnect_from.strftime("%Y-%m-%d"),
+        earliest.strftime("%Y-%m-%d %H:%M"),
+    )
+    return reconnect_from
+
+
 async def run_subscription(
     symbols: list[str],
     intervals: list[str],
@@ -520,6 +561,9 @@ async def run_subscription(
 
     This function initializes connections, subscribes to market data feeds,
     performs gap-fill operations, and runs until interrupted.
+
+    On reconnect, the start_date is derived from the earliest last_update
+    in the subscription store, rounded to the start of that calendar day.
 
     Args:
         symbols: List of symbols to subscribe to (e.g., ["AAPL", "SPY", "QQQ"])
@@ -549,13 +593,22 @@ async def run_subscription(
 
     # Auto-reconnect mode with exponential backoff
     attempt = 0
+    is_first_run = True
+    reconnect_store = RedisSubscriptionStore()
 
     while attempt < max_reconnect_attempts:
         try:
+            if is_first_run:
+                effective_start = start_date
+            else:
+                effective_start = await get_reconnect_start(
+                    reconnect_store, fallback=start_date
+                )
+
             await _run_subscription_once(
                 symbols=symbols,
                 intervals=intervals,
-                start_date=start_date,
+                start_date=effective_start,
                 env_file=env_file,
                 lookback_days=lookback_days,
                 health_interval=health_interval,
@@ -565,6 +618,7 @@ async def run_subscription(
             logger.info("Subscription cancelled by user")
             raise  # User interrupt - don't reconnect
         except SubscriptionError as e:
+            is_first_run = False
             if e.was_healthy:
                 logger.info(
                     "Connection was healthy before failure, resetting retry counter"
@@ -582,6 +636,7 @@ async def run_subscription(
             )
             await asyncio.sleep(delay)
         except Exception as e:
+            is_first_run = False
             attempt += 1
             delay = min(base_delay * (2**attempt), max_delay)
             logger.warning(
