@@ -13,11 +13,13 @@ from datetime import datetime, timezone
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
+import redis.asyncio as aioredis
+
 from tastytrade.accounts.models import InstrumentType, Position
 from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
 from tastytrade.accounts.streamer import AccountStreamer
 from tastytrade.config import RedisConfigManager
-from tastytrade.config.enumerations import AccountEventType
+from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
@@ -91,6 +93,46 @@ async def consume_complex_orders(
         await publisher.publish_complex_order(order)
 
 
+async def account_failure_trigger_listener(
+    redis_client: aioredis.Redis,  # type: ignore[type-arg]
+    reconnect_signal: ReconnectSignal,
+) -> None:
+    """Listen for failure simulation commands via Redis pub/sub.
+
+    Subscribes to 'account:simulate_failure' channel and triggers
+    reconnection when a valid ReconnectReason value is received.
+
+    Args:
+        redis_client: Async Redis client for pub/sub.
+        reconnect_signal: ReconnectSignal to trigger on valid commands.
+
+    Usage:
+        redis-cli PUBLISH account:simulate_failure "connection_dropped"
+    """
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe("account:simulate_failure")
+
+    try:
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                reason_str = (
+                    message["data"].decode()
+                    if isinstance(message["data"], bytes)
+                    else message["data"]
+                )
+                try:
+                    reason = ReconnectReason(reason_str)
+                    logger.info("Received simulate_failure command: %s", reason.value)
+                    reconnect_signal.trigger(reason)
+                except ValueError:
+                    logger.warning("Invalid ReconnectReason received: %s", reason_str)
+    except asyncio.CancelledError:
+        logger.info("Account failure trigger listener stopped")
+    finally:
+        await pubsub.unsubscribe("account:simulate_failure")
+        await pubsub.close()
+
+
 async def run_account_stream_once(
     env_file: str = ".env",
     health_interval: int = 3600,
@@ -112,6 +154,8 @@ async def run_account_stream_once(
     streamer: AccountStreamer | None = None
     publisher: AccountStreamPublisher | None = None
     consumer_tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
+    failure_listener_task: asyncio.Task[None] | None = None
+    failure_redis: aioredis.Redis | None = None  # type: ignore[type-arg]
     connection_established_at: float | None = None
 
     try:
@@ -243,6 +287,13 @@ async def run_account_stream_once(
             )
         )
 
+        # === Start failure simulation listener ===
+        failure_redis = aioredis.Redis()
+        failure_listener_task = asyncio.create_task(
+            account_failure_trigger_listener(failure_redis, reconnect_signal),
+            name="account_failure_listener",
+        )
+
         connection_established_at = time.monotonic()
         logger.info("Account stream active - press Ctrl+C to stop")
         await update_account_connection_status(publisher.redis, state="connected")
@@ -290,6 +341,18 @@ async def run_account_stream_once(
         )
         raise AccountStreamError(str(e), was_healthy=was_healthy) from e
     finally:
+        # Cancel failure listener task
+        if failure_listener_task is not None:
+            failure_listener_task.cancel()
+            try:
+                await failure_listener_task
+            except asyncio.CancelledError:
+                pass
+
+        # Close failure listener Redis client
+        if failure_redis is not None:
+            await failure_redis.close()
+
         # Cancel consumer tasks
         for task in consumer_tasks:
             task.cancel()
