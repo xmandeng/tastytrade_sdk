@@ -146,21 +146,28 @@ class StrategyHealthMonitor:
             StrategyType.PROTECTIVE_PUT,
         }
         net_delta = strategy.net_delta
-        if (
-            net_delta is not None
-            and strategy.strategy_type not in delta_exempt
-            and abs(net_delta) > thresholds.delta_drift_warning
-        ):
-            alerts.append(
-                HealthAlert(
-                    strategy=strategy,
-                    level=AlertLevel.WARNING,
-                    message=(
-                        f"Net delta={net_delta:.2f} exceeds "
-                        f"+/-{thresholds.delta_drift_warning}"
-                    ),
-                )
+        if net_delta is not None and strategy.strategy_type not in delta_exempt:
+            # Normalize to per-position (1x) delta for threshold comparison
+            option_legs = [leg for leg in strategy.legs if leg.is_option]
+            qty = (
+                int(option_legs[0].abs_quantity)
+                if option_legs
+                else int(strategy.legs[0].abs_quantity)
+                if strategy.legs
+                else 1
             )
+            per_pos_delta = net_delta / qty if qty > 0 else net_delta
+            if abs(per_pos_delta) > thresholds.delta_drift_warning:
+                alerts.append(
+                    HealthAlert(
+                        strategy=strategy,
+                        level=AlertLevel.WARNING,
+                        message=(
+                            f"Net delta={per_pos_delta:.2f} exceeds "
+                            f"+/-{thresholds.delta_drift_warning}"
+                        ),
+                    )
+                )
 
         # Max loss proximity check
         max_loss = strategy.max_loss

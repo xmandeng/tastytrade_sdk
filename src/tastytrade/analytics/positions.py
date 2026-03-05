@@ -116,6 +116,14 @@ class PositionMetricsReader:
             else:
                 qty = int(strat.legs[0].abs_quantity) if strat.legs else 0
 
+            # Normalize delta to per-position (1x) scale
+            raw_delta = strat.net_delta
+            per_pos_delta = (
+                round(raw_delta / qty, 2)
+                if raw_delta is not None and qty > 0
+                else raw_delta
+            )
+
             # Direction sign only — no repeated quantity
             leg_desc = ", ".join(
                 f"{'+' if leg.is_long else '-'}"
@@ -129,7 +137,7 @@ class PositionMetricsReader:
                     "strategy": strat.strategy_type.value,
                     "qty": qty,
                     "legs": leg_desc,
-                    "net_delta": strat.net_delta,
+                    "net_delta": per_pos_delta,
                     "net_theta": strat.net_theta,
                     "net_vega": strat.net_vega,
                     "dte": strat.days_to_expiration,
