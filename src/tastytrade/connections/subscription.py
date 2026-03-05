@@ -29,6 +29,11 @@ class SubscriptionStore(ABC):
         pass
 
     @abstractmethod
+    async def get_all_subscriptions(self) -> dict:
+        """Get all subscriptions regardless of active status"""
+        pass
+
+    @abstractmethod
     async def update_subscription_status(self, symbol: str, data: dict) -> None:
         """Update subscription status"""
         pass
@@ -86,6 +91,17 @@ class RedisSubscriptionStore(SubscriptionStore):
             data = json.loads(data_bytes.decode("utf-8"))
             if data.get("active", False):
                 result[key] = data
+
+        return result
+
+    async def get_all_subscriptions(self) -> dict:
+        all_subscriptions = await self.redis.hgetall(self.hash_key)
+        result = {}
+
+        for key_bytes, data_bytes in all_subscriptions.items():
+            key = key_bytes.decode("utf-8")
+            data = json.loads(data_bytes.decode("utf-8"))
+            result[key] = data
 
         return result
 
@@ -165,6 +181,9 @@ class InMemorySubscriptionStore(SubscriptionStore):
             for symbol, data in self.subscriptions.items()
             if data["active"]
         }
+
+    async def get_all_subscriptions(self) -> dict:
+        return dict(self.subscriptions)
 
     async def update_subscription_status(self, symbol: str, data: dict) -> None:
         # ! FIX THIS TO ALIGN WITH REDIS IMPLEMENTATION ! #
