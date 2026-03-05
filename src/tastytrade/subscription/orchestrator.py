@@ -505,24 +505,31 @@ async def _run_subscription_once(
 
 async def get_reconnect_start(
     store: RedisSubscriptionStore,
+    symbols: list[str],
+    intervals: list[str],
     fallback: datetime,
 ) -> datetime:
     """Derive reconnect start_date from the earliest last_update in Redis.
 
-    Reads all subscriptions (including inactive) and returns the start of
-    the calendar day (midnight UTC) of the earliest last_update. Uses
-    get_all_subscriptions because teardown marks subscriptions inactive
-    before the reconnect loop reads them.
+    Scoped to only the symbols and candle feeds this session subscribes to,
+    so other hosts/sessions with different symbols don't affect the lookback.
 
-    Falls back to the original start_date if no subscription data is found.
+    Falls back to the original start_date if no matching data is found.
     """
-
     all_subs = await store.get_all_subscriptions()
     if not all_subs:
         return fallback
 
+    # Build the set of Redis keys this session owns
+    session_keys: set[str] = set(symbols)
+    for symbol in symbols:
+        for interval in intervals:
+            session_keys.add(format_candle_symbol(f"{symbol}{{={interval}}}"))
+
     earliest: datetime | None = None
-    for data in all_subs.values():
+    for key, data in all_subs.items():
+        if key not in session_keys:
+            continue
         last_update_str = data.get("last_update") if isinstance(data, dict) else None
         if not last_update_str:
             continue
@@ -567,7 +574,8 @@ async def run_subscription(
     performs gap-fill operations, and runs until interrupted.
 
     On reconnect, the start_date is derived from the earliest last_update
-    in the subscription store, rounded to the start of that calendar day.
+    in the subscription store for this session's symbols, rounded to the
+    start of that calendar day.
 
     Args:
         symbols: List of symbols to subscribe to (e.g., ["AAPL", "SPY", "QQQ"])
@@ -606,7 +614,10 @@ async def run_subscription(
                 effective_start = start_date
             else:
                 effective_start = await get_reconnect_start(
-                    reconnect_store, fallback=start_date
+                    reconnect_store,
+                    symbols=symbols,
+                    intervals=intervals,
+                    fallback=start_date,
                 )
 
             await _run_subscription_once(
