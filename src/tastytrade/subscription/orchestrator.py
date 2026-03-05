@@ -509,16 +509,20 @@ async def get_reconnect_start(
 ) -> datetime:
     """Derive reconnect start_date from the earliest last_update in Redis.
 
-    Reads all active subscriptions and returns the start of the calendar day
-    (midnight UTC) of the earliest last_update. Falls back to the original
-    start_date if no subscription data is found.
+    Reads all subscriptions (including inactive) and returns the start of
+    the calendar day (midnight UTC) of the earliest last_update. Uses
+    get_all_subscriptions because teardown marks subscriptions inactive
+    before the reconnect loop reads them.
+
+    Falls back to the original start_date if no subscription data is found.
     """
-    active = await store.get_active_subscriptions()
-    if not active:
+
+    all_subs = await store.get_all_subscriptions()
+    if not all_subs:
         return fallback
 
     earliest: datetime | None = None
-    for data in active.values():
+    for data in all_subs.values():
         last_update_str = data.get("last_update") if isinstance(data, dict) else None
         if not last_update_str:
             continue
