@@ -306,7 +306,7 @@ class AccountStreamer:
             return
 
         self.queues[event_type].put_nowait(parsed)
-        logger.debug(
+        logger.info(
             "Queued %s event (ws-sequence=%s)",
             envelope.type,
             envelope.ws_sequence,
