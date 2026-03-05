@@ -306,11 +306,44 @@ class AccountStreamer:
             return
 
         self.queues[event_type].put_nowait(parsed)
-        logger.info(
-            "Queued %s event (ws-sequence=%s)",
-            envelope.type,
-            envelope.ws_sequence,
-        )
+        self._log_event(event_type, parsed)
+
+    @staticmethod
+    def _log_event(
+        event_type: AccountEventType,
+        parsed: Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder],
+    ) -> None:
+        """Log a human-readable summary of the event."""
+        if event_type == AccountEventType.ORDER and isinstance(parsed, PlacedOrder):
+            legs_summary = ", ".join(
+                f"{leg.action.value} {leg.symbol}" for leg in parsed.legs
+            )
+            logger.info(
+                "Order %d %s — %s [%s]",
+                parsed.id,
+                parsed.status.value,
+                parsed.underlying_symbol,
+                legs_summary,
+            )
+        elif event_type == AccountEventType.COMPLEX_ORDER and isinstance(
+            parsed, PlacedComplexOrder
+        ):
+            logger.info(
+                "ComplexOrder %d %s — %d sub-orders",
+                parsed.id,
+                parsed.type.value,
+                len(parsed.orders),
+            )
+        elif event_type == AccountEventType.CURRENT_POSITION and isinstance(
+            parsed, Position
+        ):
+            logger.info(
+                "Position %s qty=%s",
+                parsed.symbol,
+                parsed.quantity,
+            )
+        elif event_type == AccountEventType.ACCOUNT_BALANCE:
+            logger.info("AccountBalance updated")
 
     @staticmethod
     def parse_event(

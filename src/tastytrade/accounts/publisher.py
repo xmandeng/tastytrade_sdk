@@ -92,7 +92,13 @@ class AccountStreamPublisher:
             channel="tastytrade:events:Order",
             message=order.model_dump_json(by_alias=True),
         )
-        logger.info("Published order %d status=%s", order.id, order.status.value)
+        logger.info(
+            "Published order %d status=%s symbol=%s legs=%d",
+            order.id,
+            order.status.value,
+            order.underlying_symbol,
+            len(order.legs),
+        )
 
     async def publish_complex_order(self, order: PlacedComplexOrder) -> None:
         """Write complex order to Redis HSET keyed by complex order ID."""
@@ -105,7 +111,12 @@ class AccountStreamPublisher:
             channel="tastytrade:events:ComplexOrder",
             message=order.model_dump_json(by_alias=True),
         )
-        logger.info("Published complex order %d type=%s", order.id, order.type.value)
+        logger.info(
+            "Published complex order %d type=%s orders=%d",
+            order.id,
+            order.type.value,
+            len(order.orders),
+        )
 
     async def publish_instruments(self, instruments: list[Instrument]) -> None:
         """Write instrument details to Redis HSET. Key = symbol, value = JSON."""
