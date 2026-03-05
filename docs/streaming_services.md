@@ -103,7 +103,7 @@ The two services are **independent processes** that coordinate through Redis:
 | **WebSocket** | DXLink (Quote, Trade, Greeks, Candle) |
 | **Redis writes** | `tastytrade:latest:QuoteEvent` (HSET), `tastytrade:latest:GreeksEvent` (HSET), plus pub/sub per event |
 | **Position resolver** | `src/tastytrade/subscription/resolver.py` — event-driven via Redis pub/sub |
-| **Self-healing** | Exponential backoff, candle backfill on reconnect |
+| **Self-healing** | Exponential backoff with calendar-day lookback on reconnect (see [Reconnect Behavior](#reconnect-behavior)) |
 
 ### positions
 
@@ -116,6 +116,42 @@ The two services are **independent processes** that coordinate through Redis:
 | **Output** | Table sorted by underlying_symbol, symbol |
 
 ---
+
+## Reconnect Behavior
+
+Both services self-heal on connection failures with exponential backoff. The `subscribe` service has additional logic to avoid expensive full re-backfills on reconnect.
+
+### How it works
+
+1. **First run** — uses the original `start_date` for full historical backfill (candles, gap-fill, etc.)
+2. **Reconnect** — derives a lightweight `start_date` from the Redis subscription store:
+   - Reads all subscriptions in Redis, filtered to **this session's symbols only** (ticker symbols + candle keys like `AAPL{=d}`)
+   - Finds the **earliest `last_update`** timestamp among matching subscriptions
+   - Rounds back to **midnight UTC of that calendar day**
+   - Falls back to **yesterday midnight** if no matching subscription data exists
+
+### Why this matters
+
+Without this, a 1-second auth token expiry would trigger re-ingestion of the entire historical backfill (potentially days of candle data across all symbols and intervals). With the lookback, it only backfills from the start of the day the data last flowed.
+
+### Scoping
+
+The lookback is scoped to the symbols and intervals passed to `run_subscription`. If multiple hosts share the same Redis instance with different symbol sets, each host only considers its own symbols when computing the reconnect window. This prevents a stale session or a different host from dragging the lookback further back than necessary.
+
+### Redis keys involved
+
+| Key | Field | Used for |
+|-----|-------|----------|
+| `subscriptions` (HSET) | `last_update` | Timestamp of last event received per symbol |
+| `subscriptions` (HSET) | `active` | Whether subscription is currently active (note: teardown marks inactive before reconnect reads, so `get_all_subscriptions` is used) |
+
+### Reconnect triggers
+
+| Trigger | Source | Example from logs |
+|---------|--------|-------------------|
+| Auth token expired | `handle_auth_state` detects `UNAUTHORIZED` after being authorized | Predictable ~24h TTL, occurs at ~00:50 UTC daily |
+| WebSocket dropped | `socket_listener` catches exception or server close | `no close frame received or sent` |
+| Simulated failure | Redis pub/sub `subscription:simulate_failure` | Manual testing via `redis-cli PUBLISH` |
 
 ## Redis Keys Reference
 
