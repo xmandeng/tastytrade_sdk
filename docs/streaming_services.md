@@ -3,33 +3,47 @@
 Two independent services stream account and market data into Redis. A third command reads the joined result.
 
 ```
-┌─────────────────────┐     ┌─────────────────────┐
-│   account-stream    │     │     subscribe        │
-│                     │     │                      │
-│  AccountStreamer WS  │     │  DXLink WS           │
-│         │           │     │       │              │
-│         ▼           │     │       ▼              │
-│  AccountStream      │     │  RedisEventProcessor │
-│  Publisher          │     │       │              │
-│    │         │      │     │       ▼              │
-│    ▼         ▼      │     │  Redis HSET          │
-│  HSET     pub/sub ──────────► PositionSymbol     │
-│ positions  events   │     │  Resolver            │
-│ balances            │     │    │                 │
-└─────────────────────┘     │    ▼                 │
-                            │  subscribe/unsub     │
-                            │  on DXLink           │
-                            └─────────────────────-┘
+┌───────────────────────────┐     ┌─────────────────────────────┐
+│      account-stream       │     │         subscribe           │
+│                           │     │                             │
+│  AccountStreamer WS        │     │  DXLink WS                  │
+│         │                 │     │       │                     │
+│         ▼                 │     │       ▼                     │
+│  AccountStream Publisher  │     │  RedisEventProcessor        │
+│    │         │            │     │       │                     │
+│    ▼         ▼            │     │       ▼                     │
+│  HSET     pub/sub ──────────────► PositionSymbol Resolver     │
+│ positions  events         │     │    │                        │
+│ balances                  │     │    ▼                        │
+│                           │     │  subscribe/unsub on DXLink  │
+│  ReconnectSignal          │     │                             │
+│    ▲              ▲       │     │  ReconnectSignal            │
+│    │              │       │     │    ▲              ▲         │
+│  socket_listener  │       │     │  ControlHandler   │         │
+│  send_keepalives  │       │     │  socket_listener  │         │
+│                   │       │     │                   │         │
+│  failure_trigger ─┘       │     │  failure_trigger ─┘         │
+│  (account:simulate_       │     │  (subscription:simulate_    │
+│   failure pub/sub)        │     │   failure pub/sub)          │
+│                           │     │                             │
+│  connection_status ──►    │     │  connection_status ──►      │
+│  tastytrade:              │     │  tastytrade:                │
+│  account_connection       │     │  connection                 │
+└───────────────────────────┘     └─────────────────────────────┘
 
-┌──────────────────────────────────────────────────┐
-│                    Redis                         │
-│                                                  │
-│  tastytrade:positions        (HSET — positions)  │
-│  tastytrade:balances         (HSET — balances)   │
-│  tastytrade:latest:QuoteEvent  (HSET — quotes)   │
-│  tastytrade:latest:GreeksEvent (HSET — Greeks)   │
-│  tastytrade:events:CurrentPosition (pub/sub)     │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                         Redis                            │
+│                                                          │
+│  tastytrade:positions          (HSET — positions)        │
+│  tastytrade:balances           (HSET — balances)         │
+│  tastytrade:latest:QuoteEvent  (HSET — quotes)           │
+│  tastytrade:latest:GreeksEvent (HSET — Greeks)           │
+│  tastytrade:account_connection (HSET — account health)   │
+│  tastytrade:connection         (HSET — subscribe health) │
+│  tastytrade:events:CurrentPosition      (pub/sub)        │
+│  account:simulate_failure               (pub/sub)        │
+│  subscription:simulate_failure          (pub/sub)        │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -89,8 +103,10 @@ The two services are **independent processes** that coordinate through Redis:
 | **Recipe** | `just account-stream` |
 | **Source** | `src/tastytrade/accounts/orchestrator.py` |
 | **WebSocket** | TastyTrade Account Streamer (singleton) |
-| **Redis writes** | `tastytrade:positions` (HSET), `tastytrade:balances` (HSET) |
+| **Redis writes** | `tastytrade:positions` (HSET), `tastytrade:balances` (HSET), `tastytrade:account_connection` (HSET) |
 | **Redis pub/sub** | `tastytrade:events:CurrentPosition` (on every position change) |
+| **Reconnect signal** | Shared `ReconnectSignal` from `connections/signals.py` — same pattern as subscribe |
+| **Failure simulation** | `redis-cli PUBLISH account:simulate_failure "connection_dropped"` |
 | **Self-healing** | Exponential backoff, resets on healthy connection |
 
 ### subscribe
@@ -147,11 +163,23 @@ The lookback is scoped to the symbols and intervals passed to `run_subscription`
 
 ### Reconnect triggers
 
-| Trigger | Source | Example from logs |
-|---------|--------|-------------------|
-| Auth token expired | `handle_auth_state` detects `UNAUTHORIZED` after being authorized | Predictable ~24h TTL, occurs at ~00:50 UTC daily |
+Both services use a shared `ReconnectSignal` object (from `connections/signals.py`) created by the orchestrator and injected into the connection pipeline. All failure sources flow through this single signal.
+
+#### subscribe
+
+| Trigger | Source | Example |
+|---------|--------|---------|
+| Auth token expired | `ControlHandler` detects `UNAUTHORIZED` after being authorized | Predictable ~24h TTL, occurs at ~00:50 UTC daily |
 | WebSocket dropped | `socket_listener` catches exception or server close | `no close frame received or sent` |
-| Simulated failure | Redis pub/sub `subscription:simulate_failure` | Manual testing via `redis-cli PUBLISH` |
+| Simulated failure | Redis pub/sub `subscription:simulate_failure` | `redis-cli PUBLISH subscription:simulate_failure "auth_expired"` |
+
+#### account-stream
+
+| Trigger | Source | Example |
+|---------|--------|---------|
+| WebSocket dropped | `socket_listener` catches exception or server close | Connection lost during overnight maintenance |
+| Keepalive failure | `send_keepalives` fails to send heartbeat | Server timeout after 60s silence |
+| Simulated failure | Redis pub/sub `account:simulate_failure` | `redis-cli PUBLISH account:simulate_failure "connection_dropped"` |
 
 ## Redis Keys Reference
 
@@ -159,9 +187,13 @@ The lookback is scoped to the symbols and intervals passed to `run_subscription`
 |-----|------|-----------|----------|
 | `tastytrade:positions` | HSET | account-stream | Position JSON keyed by streamer symbol |
 | `tastytrade:balances` | HSET | account-stream | Balance JSON keyed by account |
+| `tastytrade:account_connection` | HSET | account-stream | Connection health: state, timestamp, error |
+| `tastytrade:connection` | HSET | subscribe | Connection health: state, timestamp, error |
 | `tastytrade:latest:QuoteEvent` | HSET | subscribe | Latest quote per symbol |
 | `tastytrade:latest:GreeksEvent` | HSET | subscribe | Latest Greeks per symbol |
 | `tastytrade:events:CurrentPosition` | pub/sub | account-stream | Position change events (consumed by resolver) |
+| `account:simulate_failure` | pub/sub | operator | Triggers account streamer reconnection |
+| `subscription:simulate_failure` | pub/sub | operator | Triggers subscription reconnection |
 | `market:{EventType}:{Symbol}` | pub/sub | subscribe | Real-time market data events |
 
 ---
@@ -189,7 +221,8 @@ The metrics tracker notebook at `src/devtools/playground_metrics_tracker.ipynb` 
 |------|------|
 | `src/tastytrade/accounts/orchestrator.py` | Account stream lifecycle with self-healing |
 | `src/tastytrade/accounts/publisher.py` | Publishes positions/balances to Redis |
-| `src/tastytrade/accounts/streamer.py` | Account Streamer WebSocket client |
+| `src/tastytrade/accounts/streamer.py` | Account Streamer WebSocket client (uses ReconnectSignal) |
+| `src/tastytrade/connections/signals.py` | Shared ReconnectSignal — used by both streamers |
 | `src/tastytrade/subscription/orchestrator.py` | Market data subscription lifecycle |
 | `src/tastytrade/subscription/resolver.py` | Event-driven position → DXLink subscription |
 | `src/tastytrade/messaging/processors/redis.py` | Writes market data to Redis HSET + pub/sub |
