@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan Review: TT-64 Reconnect Signal Refactor</title>
+<title>Plan Review: TT-60 Account Streamer Event Inventory</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -459,6 +459,53 @@
     text-transform: uppercase;
   }
 
+  /* Scoping toggle buttons */
+  .scope-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  .scope-table th, .scope-table td { text-align: left; padding: 8px 12px; border: 1px solid var(--border); }
+  .scope-table th { background: var(--bg-surface-2); color: var(--text); font-weight: 600; }
+  .scope-toggle {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    transition: all 0.15s;
+    margin: 0 2px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .scope-toggle.selected-include {
+    background: var(--green-bg);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .scope-toggle.selected-skip {
+    background: rgba(248, 81, 73, 0.25);
+    border-color: var(--red);
+    color: var(--red);
+    font-weight: 700;
+  }
+  .scope-toggle.selected-done {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-dim);
+    cursor: default;
+    font-style: italic;
+  }
+  .scope-decisions { display: flex; gap: 4px; }
+  .scope-decisions .scope-toggle.selected-include ~ .scope-toggle:not(.selected-skip),
+  .scope-decisions .scope-toggle.selected-skip ~ .scope-toggle:not(.selected-include),
+  .scope-decisions .scope-toggle:not(.selected-include):not(.selected-skip) {
+    /* keep default for unselected when no decision */
+  }
+  .scope-decisions:has(.selected-include) .scope-toggle:not(.selected-include),
+  .scope-decisions:has(.selected-skip) .scope-toggle:not(.selected-skip) {
+    opacity: 0.35;
+  }
+
   /* Copy modal overlay */
   .copy-modal-overlay {
     display: none;
@@ -546,7 +593,7 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9"/><rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3"/></svg>
     </button>
   </div>
-  <h1>TT-64: Reconnect Signal Refactor</h1>
+  <h1>TT-60: Account Streamer Event Inventory</h1>
   <div class="stats" id="stats"></div>
   <div class="topbar-toggles">
     <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
@@ -595,501 +642,379 @@ const docSections = [
   {
     id: "context",
     title: "Context & Problem",
-    content: `**Jira:** [TT-64](https://mandeng.atlassian.net/browse/TT-64)
+    content: `**Jira:** [TT-60](https://mandeng.atlassian.net/browse/TT-60)
+**Branch:** \`feature/TT-60-order-events\`
 
-### Current Architecture
+The TastyTrade Account Streamer WebSocket delivers **9 distinct event types**, but our \`AccountStreamer\` only handles 2 (\`CurrentPosition\`, \`AccountBalance\`). The remaining 7 are either silently dropped (5 arrive via the \`connect\` action) or never subscribed to (2 require separate subscription actions).
 
-Three sources can trigger reconnection, but all route through DXLinkManager via a callback:
+This document inventories all event types with enough detail to make informed scoping decisions for TT-60 and follow-up tickets.
 
-\`\`\`
-ControlHandler  --callback-->  DXLinkManager.trigger_reconnect()  --sets-->  reconnect_event  <--awaits--  Orchestrator
-socket_listener -----calls-->  DXLinkManager.trigger_reconnect()
-send_keepalives -----calls-->  DXLinkManager.trigger_reconnect()
-\`\`\`
+### Two Separate Streaming Pipelines
 
-### Problems
+The separation between AccountStreamer and DXLink/MessageRouter is **architecturally justified** — they are different WebSocket APIs with incompatible protocols:
 
-1. **Circular dependency** — DXLinkManager creates ControlHandler (via MessageRouter), then ControlHandler calls back into DXLinkManager
-2. **Hidden control flow** — the callback isn't visible in the architecture diagram; ControlHandler appears disconnected from the orchestrator
-3. **Bypassed pipeline** — socket_listener and send_keepalives call trigger_reconnect() directly, bypassing the existing message pipeline
-4. **Testability** — testing ControlHandler's reconnect behavior requires mocking the callback, not just observing a signal
+| Aspect | DXLink (MessageRouter) | Account Streamer |
+|---|---|---|
+| Endpoint | Dynamic URL from \`/api-quote-tokens\` (dxfeed.com) | \`wss://streamer.tastyworks.com\` |
+| Auth | Quote token via \`AuthModel\` | Raw session token (no Bearer) |
+| Protocol | Channel-based (numbered channels 0-99) | Flat event types, no channels |
+| Data domain | Market data (Quote, Trade, Greeks, Candle) | Account state (positions, balances, orders) |
+| Hydration | Pure streaming | Must REST-hydrate on every reconnect |
 
-### Proposed Architecture
+These cannot be merged. TT-60 work extends the **AccountStreamer pipeline only**.
 
-All failures route through the existing message pipeline. ControlHandler is the **single reconnection authority**.
+### Source
 
-\`\`\`
-socket_listener ---CONNECTION_DROPPED--->  Queue[0]  --->  ControlHandler  ---trigger()--->  ReconnectSignal  <---await---  Orchestrator
-send_keepalives ---CONNECTION_DROPPED--->  Queue[0]  --->  ControlHandler  ---trigger()--->
-server messages ----naturally---->    Queue[0]  --->  ControlHandler  ---trigger()--->
-\`\`\`
-
-No callbacks. No bypass. One signal path through the existing pipeline. ControlHandler decides all reconnections.`
+Cross-referenced from [TastyTrade Streaming Account Data docs](https://developer.tastytrade.com/streaming-account-data/) and the [tastyware/tastytrade community SDK](https://github.com/tastyware/tastytrade/blob/master/tastytrade/streamer.py) \`MAP_ALERTS\` dictionary.`
   },
   {
-    id: "step-1-signal",
-    title: "Step 1: Create ReconnectSignal",
-    content: `**File:** \`src/tastytrade/connections/signals.py\` (new)
+    id: "handled-events",
+    title: "Handled Events (2 of 9)",
+    content: `These 2 events are **fully implemented** today — parsed, queued, and published to Redis. They arrive via the \`connect\` action (already subscribed).
 
-Extract the reconnection event + reason into a standalone, injectable object.
+### 1. CurrentPosition
 
-\`\`\`python
-import asyncio
-import logging
-from typing import Optional
-
-from tastytrade.config.enumerations import ReconnectReason
-
-logger = logging.getLogger(__name__)
-
-
-class ReconnectSignal:
-    """Stable reconnection mailbox that outlives ControlHandler across
-    reconnection cycles.
-
-    ControlHandler is torn down and recreated every time the pipeline
-    reconnects. A direct subscription to ControlHandler would be lost
-    on each rebuild. This signal is created once by the Orchestrator,
-    passed down through the pipeline, and each new ControlHandler
-    instance publishes to the same object.
-
-    Replaces the callback pattern where ControlHandler called back
-    into DXLinkManager.trigger_reconnect().
-    """
-
-    def __init__(self) -> None:
-        self.event: asyncio.Event = asyncio.Event()
-        self.reason: Optional[ReconnectReason] = None
-
-    def trigger(self, reason: ReconnectReason) -> None:
-        """Signal that reconnection is needed."""
-        self.reason = reason
-        self.event.set()
-        logger.warning("Reconnect signal: %s", reason.value)
-
-    async def wait(self) -> ReconnectReason:
-        """Wait for a reconnection signal, return the reason."""
-        await self.event.wait()
-        self.event.clear()
-        return self.reason or ReconnectReason.MANUAL_TRIGGER
-
-    def simulate(self, reason: ReconnectReason) -> None:
-        """Trigger a simulated failure for testing."""
-        logger.warning("Simulating failure: %s", reason.value)
-        self.trigger(reason)
-\`\`\`
-
-### Key Decisions
-
-- **Standalone class, not a Protocol** — this is a concrete coordination primitive, not an abstraction boundary
-- **No connection state tracking** — \`ConnectionState\` stays on DXLinkManager where it belongs (it tracks WS lifecycle, not reconnection signaling)
-- **Logging moves here** — the "Reconnect signal" log line lives on the signal itself, so all trigger sources get consistent logging`
-  },
-  {
-    id: "step-2-controlhandler",
-    title: "Step 2: ControlHandler Uses Signal Directly",
-    content: `**File:** \`src/tastytrade/messaging/handlers.py\`
-
-Replace \`reconnect_callback\` parameter with \`reconnect_signal\` parameter.
-
-### Before
-
-\`\`\`python
-class ControlHandler(EventHandler):
-    def __init__(
-        self, reconnect_callback: Optional[Callable[[ReconnectReason], None]] = None
-    ) -> None:
-        super().__init__(channel=Channels.Control)
-        self.reconnect_callback = reconnect_callback
-        ...
-
-    async def handle_auth_state(self, message: Message) -> None:
-        ...
-        if self.reconnect_callback:
-            self.reconnect_callback(ReconnectReason.AUTH_EXPIRED)
-\`\`\`
-
-### After
-
-\`\`\`python
-from tastytrade.connections.signals import ReconnectSignal
-
-class ControlHandler(EventHandler):
-    def __init__(
-        self, reconnect_signal: Optional[ReconnectSignal] = None
-    ) -> None:
-        super().__init__(channel=Channels.Control)
-        self.reconnect_signal = reconnect_signal
-        ...
-
-    async def handle_auth_state(self, message: Message) -> None:
-        ...
-        if self.reconnect_signal:
-            self.reconnect_signal.trigger(ReconnectReason.AUTH_EXPIRED)
-\`\`\`
-
-### Changes
-
-- \`reconnect_callback\` parameter renamed to \`reconnect_signal\` with type \`Optional[ReconnectSignal]\`
-- All \`self.reconnect_callback(reason)\` calls become \`self.reconnect_signal.trigger(reason)\`
-- Affects: \`handle_auth_state\`, \`handle_error\` (TIMEOUT, UNAUTHORIZED, INVALID_MESSAGE/BAD_ACTION)`
-  },
-  {
-    id: "step-3-routing",
-    title: "Step 3: Update MessageRouter",
-    content: `**File:** \`src/tastytrade/connections/routing.py\`
-
-Replace callback plumbing with signal injection.
-
-### Before
-
-\`\`\`python
-ReconnectCallback = Callable[[ReconnectReason], None]
-
-class MessageRouter:
-    def __init__(
-        self,
-        websocket: Websocket,
-        reconnect_callback: Optional[ReconnectCallback] = None,
-        subscription_store: Optional[SubscriptionStore] = None,
-    ) -> None:
-        self.handler = {
-            Channels.Control: ControlHandler(reconnect_callback=reconnect_callback),
-            ...
-        }
-\`\`\`
-
-### After
-
-\`\`\`python
-from tastytrade.connections.signals import ReconnectSignal
-
-class MessageRouter:
-    def __init__(
-        self,
-        websocket: Websocket,
-        reconnect_signal: Optional[ReconnectSignal] = None,
-        subscription_store: Optional[SubscriptionStore] = None,
-    ) -> None:
-        self.handler = {
-            Channels.Control: ControlHandler(reconnect_signal=reconnect_signal),
-            ...
-        }
-\`\`\`
-
-### Changes
-
-- Remove \`ReconnectCallback\` type alias (no longer needed)
-- Rename parameter from \`reconnect_callback\` to \`reconnect_signal\`
-- Pass \`ReconnectSignal\` through to ControlHandler
-- Default handler dict (\`default_handlers\`) stays unchanged (uses \`ControlHandler()\` with no signal)`
-  },
-  {
-    id: "step-4-dxlink",
-    title: "Step 4: Simplify DXLinkManager",
-    content: `**File:** \`src/tastytrade/connections/sockets.py\`
-
-DXLinkManager receives the signal as a dependency instead of owning it.
-
-### Changes
-
-1. **Accept \`ReconnectSignal\` in \`__init__\`**, default to a new instance if none provided:
-
-\`\`\`python
-from tastytrade.connections.signals import ReconnectSignal
-
-class DXLinkManager:
-    def __init__(
-        self,
-        credentials: Optional[Credentials] = None,
-        subscription_store: Optional[SubscriptionStore] = None,
-        reconnect_signal: Optional[ReconnectSignal] = None,
-    ) -> None:
-        if not hasattr(self, "initialized"):
-            ...
-            self.reconnect_signal = reconnect_signal or ReconnectSignal()
-            ...
-\`\`\`
-
-2. **Replace internal \`reconnect_event\` / \`reconnect_reason\` / \`trigger_reconnect\` / \`wait_for_reconnect_signal\`** with placing failure messages into Queue[0]:
-
-\`\`\`python
-# Remove these fields:
-#   self.reconnect_event
-#   self.reconnect_reason
-
-# Remove these methods:
-#   trigger_reconnect()
-#   wait_for_reconnect_signal()
-
-# Replace usages in socket_listener and send_keepalives:
-# Before: self.trigger_reconnect(ReconnectReason.CONNECTION_DROPPED)
-# After:  await self.queues[0].put({"type": "CONTROL", "channel": 0, "state": "CONNECTION_DROPPED"})
-
-# This routes failures through Queue[0] → ControlHandler → ReconnectSignal
-# The queues are in-memory asyncio.Queue — they survive the WebSocket dying.
-
-# Replace simulate_failure:
-# Before: self.trigger_reconnect(reason)
-# After:  self.reconnect_signal.simulate(reason)
-\`\`\`
-
-3. **Update \`start_router\`** to pass signal instead of callback:
-
-\`\`\`python
-async def start_router(self) -> None:
-    self.router = MessageRouter(
-        self,
-        reconnect_signal=self.reconnect_signal,
-        subscription_store=self.subscription_store,
-    )
-\`\`\`
-
-4. **ConnectionState tracking stays on DXLinkManager** — it tracks WS lifecycle (\`CONNECTED\` / \`DISCONNECTED\` / \`ERROR\`), which is separate from signaling. The orchestrator can still read \`dxlink.connection_state\` for health logging.
-
-### What Gets Removed
-
-| Removed from DXLinkManager | Moved to |
+| Field | Value |
 |---|---|
-| \`reconnect_event: asyncio.Event\` | \`ReconnectSignal.event\` |
-| \`reconnect_reason: Optional[ReconnectReason]\` | \`ReconnectSignal.reason\` |
-| \`trigger_reconnect(reason)\` | \`ReconnectSignal.trigger(reason)\` |
-| \`wait_for_reconnect_signal()\` | \`ReconnectSignal.wait()\` |
+| Wire name | \`CurrentPosition\` |
+| Our model | \`Position\` (\`accounts/models.py:45\`) |
+| Trigger | Position quantity changes — fills modify quantity, new positions opened, positions closed |
+| Lifecycle role | **Result of trades** — after an order fills, this fires with the updated position state |
+| Key fields | \`account-number\`, \`symbol\`, \`instrument-type\`, \`quantity\`, \`quantity-direction\`, \`average-open-price\`, \`mark\`, \`close-price\`, \`realized-day-gain\`, \`streamer-symbol\` |
+| Redis key | \`tastytrade:positions\` (HSET, field = symbol) |
 
-### What Stays
+### 2. AccountBalance
 
-| Stays on DXLinkManager | Why |
+| Field | Value |
 |---|---|
-| \`connection_state\` | Tracks WS lifecycle, read by health logging |
-| \`last_error\` | Tracks last error string for health display |
-| \`should_reconnect\` | Guards whether socket_listener/keepalive should inject CONNECTION_DROPPED |
-| \`simulate_failure()\` | Convenience method, delegates to signal |`
+| Wire name | \`AccountBalance\` |
+| Our model | \`AccountBalance\` (\`accounts/models.py:256\`) |
+| Trigger | Balance changes — fills, deposits, withdrawals, margin adjustments |
+| Lifecycle role | **Financial impact of trades** — after a fill, fires with updated buying power, cash, margin |
+| Key fields | \`account-number\`, \`cash-balance\`, \`net-liquidating-value\`, \`equity-buying-power\`, \`derivative-buying-power\`, \`maintenance-requirement\`, 48+ fields total |
+| Redis key | \`tastytrade:balances\` (HSET, field = account-number) |`
   },
   {
-    id: "step-5-orchestrator",
-    title: "Step 5: Orchestrator Listens to Signal Directly",
-    content: `**File:** \`src/tastytrade/subscription/orchestrator.py\`
+    id: "order-event",
+    title: "Order Event (Dropped)",
+    content: `**Wire name:** \`Order\` — **Community model:** \`PlacedOrder\`
 
-The orchestrator creates the signal and passes it into DXLinkManager. Then it awaits the signal directly.
+This is the **core trade lifecycle event**. Every order state transition fires a new event with the full order representation. Fills are embedded in \`legs[].fills[]\`.
 
-### Changes
+### Trigger
 
-\`\`\`python
-from tastytrade.connections.signals import ReconnectSignal
+Every order state transition — placed, routed, live, partially filled, filled, cancelled, rejected, expired, replaced.
 
-async def _run_subscription_once(...) -> None:
-    ...
-    # Create shared signal
-    reconnect_signal = ReconnectSignal()
+### Status Enum
 
-    # Pass to DXLinkManager
-    dxlink = DXLinkManager(
-        subscription_store=RedisSubscriptionStore(),
-        reconnect_signal=reconnect_signal,
-    )
-    await dxlink.open(credentials=credentials)
-    ...
+\`Received\`, \`Routed\`, \`In Flight\`, \`Live\`, \`Filled\`, \`Cancelled\`, \`Expired\`, \`Rejected\`, \`Cancel Requested\`, \`Replace Requested\`, \`Removed\`, \`Partially Removed\`, \`Contingent\`
 
-    # Monitor loop — await signal directly
-    async def reconnection_monitor() -> ReconnectReason:
-        reason = await reconnect_signal.wait()  # was: dxlink.wait_for_reconnect_signal()
-        return reason
-    ...
-\`\`\`
+### Key Fields
 
-### Also update \`failure_trigger_listener\`
+| Category | Fields |
+|---|---|
+| Order | \`id\`, \`account-number\`, \`time-in-force\`, \`order-type\`, \`size\`, \`underlying-symbol\`, \`underlying-instrument-type\`, \`status\`, \`cancellable\`, \`editable\` |
+| Legs | \`instrument-type\`, \`symbol\`, \`action\` (Buy to Open, Sell to Close, etc.), \`quantity\`, \`remaining-quantity\`, \`fills[]\` |
+| Fills | \`fill-id\`, \`quantity\`, \`fill-price\`, \`filled-at\`, \`destination-venue\`, \`ext-exec-id\` |
+| Timestamps | \`received-at\`, \`updated-at\`, \`in-flight-at\`, \`live-at\`, \`terminal-at\` |
+| Exchange | \`ext-exchange-order-number\`, \`ext-client-order-id\`, \`ext-global-order-number\`, \`destination-venue\` |
 
-\`\`\`python
-async def failure_trigger_listener(
-    redis_store: RedisSubscriptionStore,
-    reconnect_signal: ReconnectSignal,  # was: dxlink: DXLinkManager
-) -> None:
-    ...
-    reconnect_signal.simulate(reason)  # was: dxlink.simulate_failure(reason)
-\`\`\`
+### Payload Style
 
-### Signal Ownership
+Full object representation on every state change (not differential). Each event contains the complete order with all legs and fills at that point in time.
 
-The orchestrator **creates** the signal and **passes it down**. ControlHandler is the **sole authority** that triggers it.
+### Why This Matters
 
-\`\`\`
-Orchestrator (creates ReconnectSignal)
-    |
-    +---> DXLinkManager (receives queues reference)
-    |        |
-    |        +---> socket_listener / send_keepalives
-    |                 (on failure: place CONNECTION_DROPPED into Queue[0])
-    |
-    +---> MessageRouter (passes signal through)
-    |        |
-    |        +---> ControlHandler (sole authority — calls signal.trigger())
-    |                 processes: server msgs + failure events
-    |
-    +---> awaits signal.wait()
-\`\`\`
-
-No circular references. All failures flow through the message pipeline. One signal path.`
+Order events are the **direct precursors** to CurrentPosition and AccountBalance events we already handle. Without them, we see position and balance changes but have no context for what triggered them.`
   },
   {
-    id: "step-6-account-streamer",
-    title: "Step 6: AccountStreamer (Parallel Refactor)",
-    content: `**File:** \`src/tastytrade/accounts/streamer.py\`
+    id: "complex-order-event",
+    title: "ComplexOrder Event (Include)",
+    revised: true,
+    content: `**Wire name:** \`ComplexOrder\` — **Community model:** \`PlacedComplexOrder\`
 
-AccountStreamer mirrors the same pattern. Apply the same refactor for consistency.
+**Decision: INCLUDE in TT-60** — most real-world orders are complex (spreads, iron condors, OCO/OTOCO). Without ComplexOrder events, we lose the grouping context that ties individual legs together.
 
-### Changes
+### Trigger
 
-1. Accept \`ReconnectSignal\` in \`__init__\`, default to new instance
-2. Replace internal \`reconnect_event\` / \`reconnect_reason\` with \`self.reconnect_signal\`
-3. Replace \`trigger_reconnect()\` and \`wait_for_reconnect_signal()\` with delegation
+Multi-leg order state changes — OCO (one-cancels-other), OTOCO (one-triggers-OCO).
 
-\`\`\`python
-from tastytrade.connections.signals import ReconnectSignal
+### Lifecycle Role
 
-@singleton
-class AccountStreamer:
-    def __init__(
-        self,
-        credentials: Optional[Credentials] = None,
-        reconnect_signal: Optional[ReconnectSignal] = None,
-    ) -> None:
-        if not hasattr(self, "initialized"):
-            ...
-            self.reconnect_signal = reconnect_signal or ReconnectSignal()
-            ...
+**Container for multi-leg strategies** — spreads, iron condors, strangles. Contains a list of sub-orders (\`PlacedOrder\`) that each have their own lifecycle.
 
-    def trigger_reconnect(self, reason: ReconnectReason) -> None:
-        self.reconnect_signal.trigger(reason)
+### Key Fields
 
-    async def wait_for_reconnect_signal(self) -> ReconnectReason:
-        return await self.reconnect_signal.wait()
-\`\`\`
+| Field | Description |
+|---|---|
+| \`id\` | Complex order identifier |
+| \`account-number\` | Account |
+| \`type\` | OCO or OTOCO |
+| \`orders[]\` | List of \`PlacedOrder\` sub-orders |
+| \`trigger-order\` | The order that triggers the rest (OTOCO) |
+| \`terminal-at\` | When the complex order completed |
+| \`ratio-price\` | Ratio price for the complex strategy |
 
-### Decision: Keep wrapper methods or remove?
+### Relationship to Order
 
-**CHOSEN: Keep thin wrappers for now** — AccountStreamer's external callers (account orchestrator) already use \`streamer.wait_for_reconnect_signal()\`. Removing them would widen the blast radius. We can deprecate in a follow-up.
+Each sub-order within a ComplexOrder also fires individual \`Order\` events. ComplexOrder provides the **grouping context** — understanding that two legs are part of the same spread strategy.
 
-Alternatively, the account orchestrator could hold the signal directly (same as DXLink orchestrator), but that's a separate ticket since the account orchestrator pattern may differ.`
+### Implementation Note
+
+ComplexOrder contains embedded \`PlacedOrder\` objects in its \`orders[]\` array. The \`Order\` Pydantic model must be defined first, then ComplexOrder references it. Both share the same \`parse_event()\` → Queue → Publisher → Redis pipeline pattern.`
   },
   {
-    id: "step-7-tests",
-    title: "Step 7: Test Updates",
-    content: `### New Tests
+    id: "operational-events",
+    title: "Operational Events (3 Dropped)",
+    content: `These 3 event types also arrive via the \`connect\` action but serve different domains than trade lifecycle.
 
-**File:** \`unit_tests/connections/test_reconnect_signal.py\` (new)
+### 5. ExternalTransaction
 
-\`\`\`python
-# Test ReconnectSignal in isolation:
-# - trigger() sets event and stores reason
-# - wait() blocks until triggered, returns reason, clears event
-# - simulate() delegates to trigger()
-# - Multiple sequential signals processed correctly
-# - Multiple concurrent waiters all wake up
-\`\`\`
+| Field | Value |
+|---|---|
+| Wire name | \`ExternalTransaction\` |
+| Trigger | Money movements — deposits, withdrawals, ACH transfers, wire transfers |
+| Lifecycle role | **Financial operations outside of trading** — tracks when money enters/leaves the account |
+| Key fields | \`id\`, \`account-number\`, \`amount\`, \`bank-account-type\`, \`banking-date\`, \`direction\`, \`disbursement-type\`, \`ext-transfer-id\`, \`funds-available-date\`, \`is-cancelable\`, \`is-clearing-accepted\`, \`state\`, \`transfer-method\` |
+| Use case | Knowing when a deposit clears and funds become available for trading |
 
-These mirror the existing tests in \`test_reconnection_workflow.py\` but test the signal directly.
+### 6. TradingStatus
 
-### Updated Tests
+| Field | Value |
+|---|---|
+| Wire name | \`TradingStatus\` |
+| Trigger | Account permission changes — futures approval, crypto enablement, margin calls, PDT status changes |
+| Lifecycle role | **Account-level permissions and restrictions** — what the account can trade, any regulatory flags |
+| Key fields | ~28 fields — \`is-futures-enabled\`, \`is-cryptocurrency-enabled\`, \`is-margin-call\`, \`day-trade-count\`, \`pdt-reset-on\`, \`enhanced-fraud-safeguards-enabled-at\` |
+| Use case | Detecting margin calls, PDT violations, or permission changes that affect trading strategy |
 
-**File:** \`unit_tests/connections/test_reconnection_workflow.py\`
+### 7. UnderlyingYearGainSummary
 
-- Update \`dxlink_manager\` fixture: add \`reconnect_signal = ReconnectSignal()\` instead of \`reconnect_event = asyncio.Event()\`
-- Update assertions: \`dxlink_manager.reconnect_signal.event.is_set()\` instead of \`dxlink_manager.reconnect_event.is_set()\`
-- \`trigger_reconnect\` tests replaced: verify socket_listener/keepalive place failure messages into Queue[0], and ControlHandler triggers signal
+| Field | Value |
+|---|---|
+| Wire name | \`UnderlyingYearGainSummary\` |
+| Trigger | Year-to-date P&L summary updates per underlying symbol |
+| Lifecycle role | **Tax/P&L tracking** — aggregated realized gains and losses per symbol per year |
+| Key fields | \`year\`, \`account-number\`, \`symbol\`, \`instrument-type\`, \`fees\`, \`commissions\`, \`yearly-realized-gain\`, \`realized-lot-gain\` |
+| Use case | Real-time tax lot tracking, wash sale monitoring, year-end P&L dashboards |
 
-**File:** \`unit_tests/subscription/test_orchestrator_reconnection.py\`
+### Common Characteristics
 
-- \`test_reconnection_trigger_flow\`: use \`ReconnectSignal\` instead of raw \`asyncio.Event\`
-
-### ControlHandler Tests
-
-**File:** \`unit_tests/messaging/test_control_handler.py\` (new)
-
-\`\`\`python
-# Test ControlHandler with ReconnectSignal:
-# - AUTH_STATE UNAUTHORIZED (after prior AUTHORIZED) triggers signal
-# - AUTH_STATE UNAUTHORIZED (initial handshake) does NOT trigger signal
-# - ERROR TIMEOUT triggers signal
-# - ERROR UNAUTHORIZED triggers signal
-# - ERROR INVALID_MESSAGE triggers PROTOCOL_ERROR signal
-# - No signal provided: handler logs but doesn't crash
-\`\`\`
-
-These tests are simpler than before — no callback mock, just check \`signal.event.is_set()\` and \`signal.reason\`.`
+- Low frequency compared to Order events
+- Different domain than trade lifecycle
+- All arrive via \`connect\` action (no additional subscription needed)
+- Each could be independently useful but not core to order tracking`
   },
   {
-    id: "step-8-architecture",
-    title: "Step 8: Architecture Map Update",
-    content: `**File:** \`docs/architecture-map/architecture_layouts.json\`
+    id: "subscription-events",
+    title: "Subscription Events (2 Not Subscribed)",
+    content: `These 2 event types require sending **separate WebSocket messages** beyond \`connect\`. They are not currently arriving because we never subscribe.
 
-Add the \`ReconnectSignal\` node and update edges:
+### 8. QuoteAlert
 
-### New Node
+| Field | Value |
+|---|---|
+| Wire name | \`QuoteAlert\` |
+| Subscription action | \`quote-alerts-subscribe\` (separate from \`connect\`) |
+| Trigger | User-configured price alerts trigger — e.g., "alert me when AAPL > $200" |
+| Key fields | \`user-external-id\`, \`symbol\`, \`alert-external-id\`, \`expires-at\`, \`completed-at\`, \`triggered-at\`, \`field\`, \`operator\`, \`threshold\`, \`threshold-numeric\`, \`dx-symbol\` |
+| Use case | Automated reaction to price targets — could trigger strategy evaluation |
 
-\`\`\`json
-{
-  "id": "reconnect-signal",
-  "label": "ReconnectSignal",
-  "type": "Shared Signal",
-  "file": "connections/signals.py",
-  "layer": "coordination",
-  "description": "Shared reconnection signal. ControlHandler publishes; orchestrator listens."
-}
+### 9. PublicWatchlists
+
+| Field | Value |
+|---|---|
+| Wire name | \`PublicWatchlists\` |
+| Subscription action | \`public-watchlists-subscribe\` (separate from \`connect\`) |
+| Trigger | Public watchlist changes — TastyTrade-curated symbol lists |
+| Key fields | \`name\`, \`watchlist-entries[]\`, \`group-name\`, \`order-index\` |
+| Use case | Tracking TastyTrade's curated lists for market context or universe selection |
+
+### Implementation Note
+
+These require **new subscription plumbing** — sending additional WebSocket actions beyond \`connect\`. This is a different code path from the other 7 events which arrive automatically. Recommend deferring to a separate ticket regardless of scope decisions.`
+  },
+  {
+    id: "trade-lifecycle",
+    title: "Trade Lifecycle Flow",
+    content: `Understanding how events relate to each other is critical for scoping decisions. Notifications always contain the **full object representation**, not partial/differential updates.
+
+### Single-Leg Order
+
+\`\`\`
+1. Order (status: Received)      — order accepted by TastyTrade
+2. Order (status: Routed)        — sent to exchange
+3. Order (status: Live)          — active on exchange
+4. Order (status: Filled)        — executed, legs[].fills[] populated
+5. CurrentPosition               — position quantity updated
+6. AccountBalance                — buying power, cash balance updated
+7. UnderlyingYearGainSummary     — YTD P&L updated (may be delayed)
 \`\`\`
 
-### New Edges
+### Multi-Leg Order (spreads, iron condors)
 
-| From | To | Label |
+\`\`\`
+1. ComplexOrder (contains sub-orders)
+2. Order events for each leg independently
+3. CurrentPosition events for each leg
+4. AccountBalance event (aggregate impact)
+\`\`\`
+
+### Money Movements
+
+\`\`\`
+1. ExternalTransaction (state changes: pending -> cleared)
+2. AccountBalance (when funds settle)
+\`\`\`
+
+### Key Insight
+
+We currently see steps 5-6 (CurrentPosition, AccountBalance) but are **blind to steps 1-4** (Order lifecycle). Adding Order events gives us the complete picture of what triggered each position/balance change.`
+  },
+  {
+    id: "scoping-checklist",
+    title: "Scoping Checklist",
+    content: `Review each event type and decide: **Include in TT-60** or **Skip (follow-up ticket)**. Use the toggle buttons below to make your selection.
+
+### Suggested Grouping
+
+- **Trade lifecycle (tightly coupled):** Order + ComplexOrder — direct precursors to CurrentPosition/AccountBalance events we already handle
+- **Account operations:** ExternalTransaction + TradingStatus — operational events, lower frequency
+- **Analytics:** UnderlyingYearGainSummary — P&L tracking, separate concern
+- **Requires new subscription plumbing:** QuoteAlert + PublicWatchlists — different code path entirely`
+  },
+  {
+    id: "architecture-impact",
+    title: "Architecture Impact",
+    content: `### Current Flow (\`_handle_event\`)
+
+\`\`\`
+WebSocket -> _handle_event() -> parse_event() -> Queue[EventType] -> Publisher -> Redis
+                                    |
+                              Unknown type?
+                              -> logger.warning()
+                              -> return (DROPPED)
+\`\`\`
+
+### Implementation Pattern (Per Event Type)
+
+For each included event type, we need:
+
+1. **Enum member** in \`AccountEventType\`
+2. **Pydantic model** in \`accounts/models.py\` (following \`TastyTradeApiModel\` + \`Field(alias=...)\` pattern)
+3. **Branch in \`parse_event()\`** for deserialization
+4. **Queue** in \`AccountStreamer.queues\`
+5. **Publisher method** in \`AccountStreamPublisher\`
+6. **Redis key** convention (e.g., \`tastytrade:orders\`)
+7. **Consumer coroutine** in \`orchestrator.py\`
+8. **Unit tests** for parsing, routing, and publishing
+
+The pattern is well-established by CurrentPosition and AccountBalance — each new type follows the same template.
+
+### Complexity Assessment
+
+| Event Type | Model Complexity | Notes |
 |---|---|---|
-| socket_listener | Queue[0] | CONNECTION_DROPPED |
-| send_keepalives | Queue[0] | CONNECTION_DROPPED |
-| ControlHandler | ReconnectSignal | \`trigger()\` |
-| ReconnectSignal | SubscriptionOrchestrator | \`await wait()\` |
-
-### Removed Edges
-
-| From | To | Notes |
-|---|---|---|
-| ControlHandler | DXLinkManager | Was hidden callback — gone |
-| socket_listener | DXLinkManager.trigger_reconnect() | Now routes through Queue[0] |
-| send_keepalives | DXLinkManager.trigger_reconnect() | Now routes through Queue[0] |
-
-This makes the reconnection flow fully visible in the diagram. All failures enter through Queue[0], ControlHandler is the single authority.`
+| Order | High | Nested legs[] with nested fills[], 13-value status enum |
+| ComplexOrder | High | Contains list of PlacedOrder objects |
+| ExternalTransaction | Medium | Flat fields, straightforward |
+| TradingStatus | Medium | ~28 boolean/string fields |
+| UnderlyingYearGainSummary | Low | Simple numeric fields |
+| QuoteAlert | Medium | Plus subscription plumbing |
+| PublicWatchlists | Medium | Plus subscription plumbing |`
   },
   {
-    id: "verification",
-    title: "Verification",
-    content: `### Automated
+    id: "q-payload-validation",
+    title: "Q: Live Payload Validation",
+    content: `The doc examples show minimal fields. Should we capture live payloads from the sandbox before defining models?
 
-1. **Unit tests:** \`uv run pytest unit_tests/ -v\`
-2. **Type checking:** \`uv run mypy src/tastytrade/connections/signals.py src/tastytrade/connections/sockets.py src/tastytrade/messaging/handlers.py src/tastytrade/connections/routing.py\`
-3. **Linting:** \`uv run ruff check src/tastytrade/connections/ src/tastytrade/messaging/handlers.py\`
+- Sandbox credentials: \`TT_SANDBOX_*\` in \`.env\`
+- Risk: undocumented fields could cause \`extra="forbid"\` failures
+- Option: capture payloads first, then define models from real data
 
-### Functional (Live DXLink)
+This is especially relevant for Order and ComplexOrder which have deeply nested structures (\`legs[].fills[]\`, \`orders[]\`). Getting the real shape from sandbox data would de-risk the model definitions.`
+  },
+  {
+    id: "q-model-strictness",
+    title: "Q: Model Strictness",
+    content: `Current models use \`extra="forbid"\`. Should new models use \`extra="ignore"\` initially to tolerate undocumented fields?
 
-4. **Normal operation:** Run subscription orchestrator, verify market data flows
-5. **Simulated failure:** \`redis-cli PUBLISH subscription:simulate_failure "auth_expired"\` — verify reconnection triggers and recovers
-6. **Keepalive failure:** Kill WS server-side, verify \`CONNECTION_DROPPED\` propagates through signal
-7. **Health logging:** Verify \`log_health_status\` still reads \`dxlink.connection_state\` correctly
+- **Pro (forbid):** Catches schema drift immediately, forces us to model every field
+- **Pro (ignore):** More resilient to undocumented fields, faster to ship
+- **Compromise:** Start with \`extra="ignore"\`, promote to \`extra="forbid"\` after capturing live payloads
 
-### Before / After Summary
+The community SDK uses \`extra="forbid"\` on their models. If their models are accurate, we could mirror them and trust the field list. If TastyTrade adds fields, both our code and the community SDK would break.`
+  },
+  {
+    id: "q-redis-key-design",
+    title: "Q: Redis Key Design for Orders",
+    content: `The ticket says \`tastytrade:orders\` HSET with field = order ID. Questions:
 
-| Aspect | Before | After |
-|---|---|---|
-| ControlHandler dependency | Callback function | ReconnectSignal object |
-| DXLinkManager role | Middleman (owns event + callback target) | Passes queues; no reconnect methods |
-| socket_listener / keepalive | Call trigger_reconnect() directly | Inject CONNECTION_DROPPED into Queue[0] |
-| Reconnection authority | Scattered (3 sources call trigger) | Single (ControlHandler only) |
-| Orchestrator listens to | \`dxlink.wait_for_reconnect_signal()\` | \`reconnect_signal.wait()\` |
-| Architecture diagram | ControlHandler appears disconnected | All flows through message pipeline |
-| Circular dependency | DXLinkManager <-> ControlHandler | None |
-| Test complexity | Mock callback | Assert signal state |`
+- Should ComplexOrder use a separate key (\`tastytrade:complex-orders\`) or nest under the same key?
+- Should we key by order ID (unique per order) or by underlying symbol (groups orders)?
+- Should terminal orders (Filled, Cancelled, Expired) be TTL'd out of Redis?
+
+### Considerations
+
+Order IDs are unique and immutable — each state transition overwrites the same hash field with the updated full object. This matches the CurrentPosition pattern (keyed by symbol) and AccountBalance pattern (keyed by account number).
+
+ComplexOrder has its own ID separate from its sub-order IDs. A separate key (\`tastytrade:complex-orders\`) keeps the data model clean and avoids ID collisions.
+
+TTL on terminal orders prevents unbounded Redis growth but means historical lookups require a different store.`
+  },
+  {
+    id: "q-scope-decision",
+    title: "Q: Scope Confirmation",
+    content: `Based on the scoping checklist selections, confirm the TT-60 scope:
+
+**Include in TT-60:**
+- \`Order\` — core trade lifecycle, events already arriving and being dropped
+- \`ComplexOrder\` — multi-leg strategy context, most real-world orders are complex
+
+**Skip (follow-up tickets):**
+- \`ExternalTransaction\` — money movements, different domain
+- \`TradingStatus\` — account permissions, operational concern
+- \`UnderlyingYearGainSummary\` — P&L tracking, separate concern
+- \`QuoteAlert\` — requires new subscription plumbing
+- \`PublicWatchlists\` — requires new subscription plumbing
+
+This gives us the complete trade lifecycle picture (Order → ComplexOrder → CurrentPosition → AccountBalance) without scope creep into unrelated domains or new subscription infrastructure.`
   }
 ];
 
-const priorApprovals = {};
+const priorApprovals = {
+  "context": "approved",
+  "handled-events": "approved",
+  "order-event": "approved",
+  "complex-order-event": "approved",
+  "operational-events": "approved",
+  "subscription-events": "approved",
+  "trade-lifecycle": "approved",
+  "scoping-checklist": "approved",
+  "architecture-impact": "approved",
+  "q-payload-validation": "approved",
+  "q-model-strictness": "approved",
+  "q-redis-key-design": "approved",
+  "q-scope-decision": "approved"
+};
 
-const PLAN_NAME = "TT-64 Reconnect Signal Refactor";
+const PLAN_NAME = "TT-60 Account Streamer Event Inventory";
+
+// Scoping items
+const scopingItems = [
+  { id: 1, name: 'CurrentPosition', action: 'connect', rationale: 'Fully implemented', fixed: 'done' },
+  { id: 2, name: 'AccountBalance', action: 'connect', rationale: 'Fully implemented', fixed: 'done' },
+  { id: 3, name: 'Order', action: 'connect', rationale: 'Core trade lifecycle. Events already arriving and being dropped.' },
+  { id: 4, name: 'ComplexOrder', action: 'connect', rationale: 'Multi-leg strategy context. Most real-world orders are complex.' },
+  { id: 5, name: 'ExternalTransaction', action: 'connect', rationale: 'Money movements. Low frequency, different domain.' },
+  { id: 6, name: 'TradingStatus', action: 'connect', rationale: 'Account permissions. Low frequency, operational concern.' },
+  { id: 7, name: 'UnderlyingYearGainSummary', action: 'connect', rationale: 'P&L tracking. Useful but separate concern.' },
+  { id: 8, name: 'QuoteAlert', action: 'quote-alerts-subscribe', rationale: 'Requires new subscription action. Different plumbing.' },
+  { id: 9, name: 'PublicWatchlists', action: 'public-watchlists-subscribe', rationale: 'Requires new subscription action. Low priority.' },
+];
+
+// Scoping decisions state: { itemId: 'include' | 'skip' | null }
+const scopingDecisions = {};
 
 // State
 const state = {
@@ -1213,6 +1138,59 @@ function renderNav() {
   }).join('');
 }
 
+// Render scoping table widget
+function renderScopingTable() {
+  const included = scopingItems.filter(i => !i.fixed && scopingDecisions[i.id] === 'include').length;
+  const skipped = scopingItems.filter(i => !i.fixed && scopingDecisions[i.id] === 'skip').length;
+  const undecided = scopingItems.filter(i => !i.fixed && !scopingDecisions[i.id]).length;
+
+  let summary = '';
+  if (included > 0 || skipped > 0) {
+    summary = `<p style="margin-top:12px;font-size:12px;color:var(--text-dim)">` +
+      `<span style="color:var(--green)">${included} include</span> · ` +
+      `<span style="color:var(--text-dim)">${skipped} skip</span>` +
+      (undecided > 0 ? ` · <span style="color:var(--amber)">${undecided} undecided</span>` : '') +
+      `</p>`;
+  }
+
+  return `<table class="scope-table">
+    <tr><th>#</th><th>Wire Name</th><th>Action</th><th>Decision</th><th>Rationale</th></tr>
+    ${scopingItems.map(item => {
+      const decision = item.fixed || scopingDecisions[item.id] || null;
+      const includeClass = decision === 'include' ? 'selected-include' : '';
+      const skipClass = decision === 'skip' ? 'selected-skip' : '';
+      const doneClass = decision === 'done' ? 'selected-done' : '';
+
+      let btns;
+      if (item.fixed === 'done') {
+        btns = `<span class="scope-toggle selected-done">Already done</span>`;
+      } else {
+        btns = `<div class="scope-decisions">
+          <button class="scope-toggle ${includeClass}" onclick="setScopeDecision(${item.id},'include')">Include</button>
+          <button class="scope-toggle ${skipClass}" onclick="setScopeDecision(${item.id},'skip')">Skip</button>
+        </div>`;
+      }
+
+      return `<tr>
+        <td>${item.id}</td>
+        <td><code>${item.name}</code></td>
+        <td><code style="font-size:11px">${item.action}</code></td>
+        <td>${btns}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${item.rationale}</td>
+      </tr>`;
+    }).join('')}
+  </table>${summary}`;
+}
+
+function setScopeDecision(itemId, decision) {
+  if (scopingDecisions[itemId] === decision) {
+    delete scopingDecisions[itemId];
+  } else {
+    scopingDecisions[itemId] = decision;
+  }
+  renderDoc();
+}
+
 // Render document
 function renderDoc() {
   const panel = document.getElementById('docPanel');
@@ -1232,7 +1210,7 @@ function renderDoc() {
         <h2>${s.title}</h2>
         ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
       </div>
-      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="section-content">${renderMarkdown(s.content)}${s.id === 'scoping-checklist' ? renderScopingTable() : ''}</div>
       <div class="review-bar">
         <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
                 onclick="setStatus('${s.id}','approved')">Approve</button>
@@ -1394,6 +1372,31 @@ function generatePrompt() {
   if (remaining.length > 0) {
     prompt += `## Not Yet Reviewed (${remaining.length})\n`;
     remaining.forEach(s => prompt += `- ${s.title}\n`);
+    prompt += '\n';
+  }
+
+  // Include scoping decisions
+  const included = scopingItems.filter(i => !i.fixed && scopingDecisions[i.id] === 'include');
+  const skipped = scopingItems.filter(i => !i.fixed && scopingDecisions[i.id] === 'skip');
+  const undecided = scopingItems.filter(i => !i.fixed && !scopingDecisions[i.id]);
+
+  if (included.length > 0 || skipped.length > 0) {
+    prompt += `## Scoping Decisions\n`;
+    if (included.length > 0) {
+      prompt += `### Include in TT-60\n`;
+      included.forEach(i => prompt += `- \`${i.name}\`\n`);
+      prompt += '\n';
+    }
+    if (skipped.length > 0) {
+      prompt += `### Skip (follow-up ticket)\n`;
+      skipped.forEach(i => prompt += `- \`${i.name}\`\n`);
+      prompt += '\n';
+    }
+    if (undecided.length > 0) {
+      prompt += `### Undecided\n`;
+      undecided.forEach(i => prompt += `- \`${i.name}\`\n`);
+      prompt += '\n';
+    }
   }
 
   return prompt;

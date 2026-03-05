@@ -4,10 +4,13 @@ Self-contained HTML playgrounds for reviewing implementation plans. Designed for
 
 ## Quick Start
 
-1. Copy `review-template.html` to `TT-XXX-<feature>-review.html`
-2. Update the `<title>` and topbar `<h1>`
+1. Copy an existing review playground (e.g., `TT-64-reconnect-signal-review.html`) to `TT-XXX-<feature>-review.html`
+2. Update three identifiers:
+   - `<title>` — browser tab title
+   - Topbar `<h1>` — visible page heading (format: `TT-XXX: Feature Name`)
+   - `PLAN_NAME` constant — used in generated feedback prompt
 3. Replace the `docSections` array with your plan sections
-4. Update the plan name in `generatePrompt()`
+4. Optionally populate `priorApprovals` for sections from prior review rounds
 5. Serve with `/devserver <port> docs/plans`
 
 ## Customizing Content
@@ -36,6 +39,9 @@ The `content` field supports a markdown-like syntax rendered by the built-in `re
 | `- item` or `* item` | unordered list |
 | `1. item` | ordered list |
 | `\| col \| col \|` | table (first row = header, skip separator row) |
+| `[text](url)` | clickable link (opens in new tab) |
+
+**Tip:** Use template literals (backtick strings) for content to allow multi-line text and easy embedding of backtick-heavy code blocks with `\`\`\`` escaping.
 
 ### Pre-Approved Sections
 
@@ -81,9 +87,22 @@ Three-panel layout: **Nav** (240px) | **Document** (flex) | **Feedback** (360px)
 - **Revised sections**: Blue highlight only shows while status is pending; review status color takes over once set
 - **Comment persistence**: Comments saved on textarea blur; existing comments show with an edit button
 - **Feedback filters**: All / Approved / Needs Revision / Questions tabs in right panel
+- **Section-level review colors**: Approved (green), Needs Revision (red), Question (purple) — applied to section border + background + nav icon
+- **Prompt generation**: "Copy Feedback as Prompt" generates structured markdown grouped by status (Approved / Needs Revision / Questions / Not Yet Reviewed) for pasting into Claude
+
+## Structuring Sections
+
+Good review sections are **independently reviewable** — each one represents a decision or approval point. Guidelines:
+
+- **One concern per section** — avoid mixing unrelated topics
+- **Actionable titles** — the reviewer should know what they're approving from the nav alone
+- **Context first** — lead with a Context section that frames the problem before diving into specifics
+- **Decision sections last** — put scoping checklists and open questions at the end so the reviewer has full context
 
 ## Files
 
 - `review-template.html` — Blank template, ready to fill with content
+- `TT-60-order-events-review.html` — Example: account streamer event inventory & scoping review
 - `TT-62-strategy-engine-review.html` — Example: strategy classification engine review
 - `TT-63-design-review.html` — Example: futures option entry price reconciliation review
+- `TT-64-reconnect-signal-review.html` — Example: reconnect signal refactor step-by-step plan review
