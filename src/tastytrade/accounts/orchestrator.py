@@ -16,6 +16,7 @@ from tastytrade.accounts.streamer import AccountStreamer
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType
 from tastytrade.connections import Credentials
+from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,10 @@ async def run_account_stream_once(
 
         # === Reset and create AccountStreamer ===
         AccountStreamer.instance = None
-        streamer = AccountStreamer(credentials=credentials)
+        reconnect_signal = ReconnectSignal()
+        streamer = AccountStreamer(
+            credentials=credentials, reconnect_signal=reconnect_signal
+        )
         await streamer.start()
         logger.info("AccountStreamer started")
 
@@ -227,7 +231,7 @@ async def run_account_stream_once(
         # === Monitor for reconnection signal ===
         while True:
             sleep_task = asyncio.create_task(asyncio.sleep(health_interval))
-            monitor_task = asyncio.create_task(streamer.wait_for_reconnect_signal())
+            monitor_task = asyncio.create_task(reconnect_signal.wait())
 
             done, pending = await asyncio.wait(
                 [monitor_task, sleep_task],
