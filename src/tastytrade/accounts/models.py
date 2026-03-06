@@ -7,12 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tastytrade.messaging.models.events import FloatFieldMixin
 
-# Model config for new order models: extra="ignore" until sandbox payloads
-# are validated (TT-60 review decision). Promote to "forbid" after validation.
+# Model config for order models: extra="allow" to preserve all fields
+# the brokerage sends, even ones we haven't explicitly modeled yet.
 ORDER_MODEL_CONFIG = ConfigDict(
     frozen=True,
     validate_assignment=True,
-    extra="ignore",
+    extra="allow",
     str_strip_whitespace=True,
     populate_by_name=True,
 )
@@ -46,7 +46,7 @@ class TastyTradeApiModel(BaseModel):
     model_config = ConfigDict(
         frozen=True,
         validate_assignment=True,
-        extra="forbid",
+        extra="allow",
         str_strip_whitespace=True,
         populate_by_name=True,
     )
