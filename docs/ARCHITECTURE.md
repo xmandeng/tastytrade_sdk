@@ -14,16 +14,16 @@ The system is a collection of independent services that coordinate through Redis
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           TastyTrade Platform APIs                              │
 │                                                                                 │
-│   Account Streamer WS          DXLink WS            REST API                   │
+│   Account Streamer WS          DXLink WS            REST API                    │
 │   (positions, balances,        (quotes, trades,      (instruments,              │
-│    orders)                      Greeks, candles)       options chains)           │
+│    orders)                      Greeks, candles)       options chains)          │
 └───────┬─────────────────────────────┬──────────────────────┬────────────────────┘
         │                             │                      │
         ▼                             ▼                      │
 ┌───────────────────┐   ┌────────────────────────┐           │
 │  account-stream   │   │      subscribe         │           │
 │                   │   │                        │           │
-│  AccountStreamer   │   │  DXLinkManager         │           │
+│  AccountStreamer  │   │  DXLinkManager         │           │
 │       │           │   │       │                │           │
 │       ▼           │   │       ▼                │           │
 │  AccountStream    │   │  RedisEventProcessor   │           │
@@ -39,11 +39,11 @@ The system is a collection of independent services that coordinate through Redis
         │                            │
         ▼                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                          Redis                               │
-│                                                              │
-│  HSET: positions, balances, quotes, Greeks, instruments      │
-│  HSET: account_connection, connection (health)               │
-│  pub/sub: position events, market events, failure triggers   │
+│                          Redis                              │
+│                                                             │
+│  HSET: positions, balances, quotes, Greeks, instruments     │
+│  HSET: account_connection, connection (health)              │
+│  pub/sub: position events, market events, failure triggers  │
 └────────┬───────────────────────────────────┬────────────────┘
          │                                   │
          ▼                                   ▼
@@ -88,7 +88,48 @@ The system is a collection of independent services that coordinate through Redis
 
 ## Key Design Patterns
 
-### 1. ReconnectSignal — Decoupled Connection Lifecycle
+### 1. Event-Driven Architecture — Immutable Models Through Queues
+
+Every input from the broker is deserialized into an immutable Pydantic model and processed through a straight-through pipeline. No callbacks cross component boundaries — data flows in one direction through queues and processors.
+
+```
+WebSocket JSON
+    │
+    ▼
+DXLinkManager.socket_listener()
+    │  raw dict dispatched by channel number
+    ▼
+asyncio.Queue (one per channel: Quote, Trade, Greeks, Candle, Control...)
+    │
+    ▼
+EventHandler.queue_listener()
+    │  deserializes raw data → Pydantic BaseEvent (frozen=True, extra=forbid)
+    │  using CHANNEL_SPECS field mapping
+    ▼
+BaseEvent (immutable model)
+    │
+    ▼
+Processor.process_event(event)     ← straight-through, no callbacks
+    │
+    ├── RedisEventProcessor  → Redis HSET + pub/sub
+    ├── TelegrafHTTPEventProcessor → InfluxDB
+    └── MetricsTracker → in-memory metrics
+```
+
+**Key properties:**
+
+- **Immutable events** — `BaseEvent` uses `frozen=True` and `extra="forbid"`. Once created, events cannot be modified. This eliminates an entire class of mutation bugs across processors.
+- **Per-channel queues** — Each DXLink channel (Quote, Trade, Greeks, Candle, Control) has its own `asyncio.Queue` and `EventHandler`. This isolates backpressure — a slow candle processor doesn't block quote delivery.
+- **Straight-through processing** — Processors receive events directly via `process_event()`. No callback registration, no observer patterns, no event buses between components within a service. Data enters, gets processed, exits.
+- **Field-driven deserialization** — `CHANNEL_SPECS` maps each channel to its event type and field names. The `EventHandler` chunks raw WebSocket arrays by field count and constructs typed Pydantic models via `dict(zip(fields, chunk))`.
+
+**Files:**
+- `messaging/models/events.py` — `BaseEvent`, `QuoteEvent`, `TradeEvent`, `CandleEvent`, `GreeksEvent`
+- `messaging/handlers.py` — `EventHandler` (queue listener + deserializer), `ControlHandler` (connection state machine)
+- `connections/routing.py` — `MessageRouter` wires queues to handlers
+- `config/configurations.py` — `CHANNEL_SPECS` channel-to-event-type mapping
+
+### 2. ReconnectSignal — Decoupled Connection Lifecycle
 
 Both streaming services use a shared `ReconnectSignal` object for connection lifecycle management. The signal is created by the orchestrator, injected into the connection pipeline, and outlives individual connection cycles.
 
@@ -111,7 +152,7 @@ Orchestrator creates ReconnectSignal
 - `src/tastytrade/accounts/orchestrator.py` — Account stream usage
 - `src/tastytrade/subscription/orchestrator.py` — Subscription usage
 
-### 2. Redis-as-Bus — Service Boundary Communication
+### 3. Redis-as-Bus — Service Boundary Communication
 
 Services communicate exclusively through Redis. No callbacks, no shared memory, no direct function calls across service boundaries.
 
@@ -129,7 +170,7 @@ Each service is a black box: Redis in → process → output. The producer doesn
 - `tastytrade:events:CurrentPosition` — Position change events
 - `account:simulate_failure` / `subscription:simulate_failure` — Failure simulation
 
-### 3. Protocol-Based Design — Structural Subtyping
+### 4. Protocol-Based Design — Structural Subtyping
 
 Interfaces are defined as Python `Protocol` classes. Any class with matching method signatures satisfies the protocol — no inheritance required.
 
@@ -142,7 +183,7 @@ Interfaces are defined as Python `Protocol` classes. Any class with matching met
 
 **Why:** Protocols enable dependency injection without inheritance hierarchies. New implementations can be added without modifying existing code. Testing uses mock objects that match the protocol shape.
 
-### 4. Self-Healing Orchestrators — Exponential Backoff
+### 5. Self-Healing Orchestrators — Exponential Backoff
 
 Both streaming services wrap their connection logic in a retry loop with exponential backoff. The pattern is identical across services:
 
@@ -164,7 +205,7 @@ while attempt < max_attempts:
 
 **Why:** WebSocket connections fail for many reasons (auth expiry, network blips, server maintenance). The `was_healthy` flag distinguishes between "worked for hours then dropped" (reset counter, reconnect immediately) and "failed on startup" (increment counter, back off). This prevents infinite rapid retries on configuration errors while being aggressive about recovering from transient failures.
 
-### 5. Event-Driven Position Resolution
+### 6. Event-Driven Position Resolution
 
 The subscription service discovers which symbols to stream by listening to position changes — not by polling.
 
@@ -180,7 +221,7 @@ PositionSymbolResolver.listener() receives event
 
 **Why:** Polling introduces latency and wasted cycles. The pub/sub listener reacts to changes in real time. When a new position is opened on the TastyTrade platform, the market data subscription updates within milliseconds.
 
-### 6. Layered Configuration Resolution
+### 7. Layered Configuration Resolution
 
 Configuration values resolve through a three-layer precedence chain:
 
