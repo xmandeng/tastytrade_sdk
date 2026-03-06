@@ -90,10 +90,14 @@ The system is a collection of independent services that coordinate through Redis
 
 ### 1. Event-Driven Architecture — Immutable Models Through Queues
 
-Every input from the broker is deserialized into an immutable Pydantic model and processed through a straight-through pipeline. No callbacks cross component boundaries — data flows in one direction through queues and processors.
+Every input from the broker — whether market data or account events — is deserialized into an immutable Pydantic model and processed through a straight-through pipeline. No callbacks cross component boundaries — data flows in one direction through queues and consumers.
+
+Both streaming services implement this pattern with the same structure:
+
+#### Market Data (subscribe service)
 
 ```
-WebSocket JSON
+DXLink WebSocket JSON
     │
     ▼
 DXLinkManager.socket_listener()
@@ -103,8 +107,8 @@ asyncio.Queue (one per channel: Quote, Trade, Greeks, Candle, Control...)
     │
     ▼
 EventHandler.queue_listener()
-    │  deserializes raw data → Pydantic BaseEvent (frozen=True, extra=forbid)
-    │  using CHANNEL_SPECS field mapping
+    │  deserializes raw arrays → Pydantic BaseEvent (frozen=True, extra=forbid)
+    │  using CHANNEL_SPECS field mapping: dict(zip(fields, chunk))
     ▼
 BaseEvent (immutable model)
     │
@@ -116,18 +120,44 @@ Processor.process_event(event)     ← straight-through, no callbacks
     └── MetricsTracker → in-memory metrics
 ```
 
+#### Account Events (account-stream service)
+
+```
+Account Streamer WebSocket JSON
+    │
+    ▼
+AccountStreamer.socket_listener()
+    │  parses envelope → StreamerEventEnvelope (frozen=True, extra=allow)
+    │  routes by event type
+    ▼
+AccountStreamer.handle_event()
+    │  envelope.data → Pydantic model via model_validate()
+    │  Position, AccountBalance, PlacedOrder, PlacedComplexOrder
+    ▼
+asyncio.Queue (one per AccountEventType)
+    │
+    ▼
+consume_positions() / consume_balances() / consume_orders()
+    │  straight-through consumers, one per event type
+    ▼
+AccountStreamPublisher → Redis HSET + pub/sub
+```
+
 **Key properties:**
 
-- **Immutable events** — `BaseEvent` uses `frozen=True` and `extra="forbid"`. Once created, events cannot be modified. This eliminates an entire class of mutation bugs across processors.
-- **Per-channel queues** — Each DXLink channel (Quote, Trade, Greeks, Candle, Control) has its own `asyncio.Queue` and `EventHandler`. This isolates backpressure — a slow candle processor doesn't block quote delivery.
-- **Straight-through processing** — Processors receive events directly via `process_event()`. No callback registration, no observer patterns, no event buses between components within a service. Data enters, gets processed, exits.
-- **Field-driven deserialization** — `CHANNEL_SPECS` maps each channel to its event type and field names. The `EventHandler` chunks raw WebSocket arrays by field count and constructs typed Pydantic models via `dict(zip(fields, chunk))`.
+- **Immutable events** — Both pipelines produce frozen Pydantic models. Market data uses `BaseEvent` (`frozen=True`, `extra="forbid"`). Account events use typed models (`Position`, `AccountBalance`) and wire protocol envelopes (`StreamerEventEnvelope` with `frozen=True`, `extra="allow"` to tolerate new server fields).
+- **Per-channel/per-type queues** — Market data has one `asyncio.Queue` per DXLink channel (Quote, Trade, Greeks, Candle, Control). Account data has one queue per `AccountEventType` (CurrentPosition, AccountBalance, Order, ComplexOrder). This isolates backpressure — a slow processor on one event type doesn't block others.
+- **Straight-through processing** — No callback registration, no observer patterns, no event buses between components within a service. Data enters, gets deserialized, gets consumed, exits.
+- **Field-driven deserialization** — Market data uses `CHANNEL_SPECS` to map channels to event types and field names, chunking raw arrays by field count. Account data uses Pydantic's `model_validate()` on the event envelope's `data` dict.
 
 **Files:**
 - `messaging/models/events.py` — `BaseEvent`, `QuoteEvent`, `TradeEvent`, `CandleEvent`, `GreeksEvent`
 - `messaging/handlers.py` — `EventHandler` (queue listener + deserializer), `ControlHandler` (connection state machine)
 - `connections/routing.py` — `MessageRouter` wires queues to handlers
 - `config/configurations.py` — `CHANNEL_SPECS` channel-to-event-type mapping
+- `accounts/messages.py` — `StreamerEventEnvelope`, `StreamerConnectMessage`, `StreamerResponse`
+- `accounts/streamer.py` — `AccountStreamer.socket_listener()`, `handle_event()`, `parse_event()`
+- `accounts/orchestrator.py` — `consume_positions()`, `consume_balances()`, `consume_orders()`
 
 ### 2. ReconnectSignal — Decoupled Connection Lifecycle
 
