@@ -4,7 +4,15 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 
 ---
 
-## Sprint 5 — Account Streamer Hardening (Mar 4–5, 2026)
+## Sprint 5 — Account Streamer Hardening (Mar 4–6, 2026)
+
+### TT-76: Change all inbound Pydantic models to extra="allow"
+
+- Position model was rejecting `update-type` field from brokerage, silently dropping 14 events at market close
+- Change `TastyTradeApiModel`, `BaseEvent`, and `ORDER_MODEL_CONFIG` from `extra="forbid"`/`"ignore"` to `extra="allow"`
+- All inbound brokerage data is now preserved on `model_extra` — reject nothing, discard nothing
+- Remove defensive column-filtering in market provider that was gatekeeping data unnecessarily
+- Document design rule in ARCHITECTURE.md: inbound brokerage models must use `extra="allow"`
 
 ### TT-74: Fix devcontainer environment variable injection
 

@@ -92,6 +92,8 @@ The system is a collection of independent services that coordinate through Redis
 
 Every input from the broker — whether market data or account events — is deserialized into an immutable Pydantic model and processed through a straight-through pipeline. No callbacks cross component boundaries — data flows in one direction through queues and consumers.
 
+> **Design rule: Inbound brokerage data uses `extra="allow"`.** The brokerage is the source of truth. All inbound Pydantic models accept and preserve unknown fields on `model_extra` — we never reject or discard data the brokerage sends. If the API adds a field we haven't modeled, it flows through the system intact. `extra="forbid"` is reserved exclusively for **outbound** messages we construct (DXLink protocol, streamer connect/heartbeat), where it catches our own typos before they hit the wire. Any exception to this rule requires a clearly documented design objective.
+
 Both streaming services implement this pattern with the same structure:
 
 #### Market Data (subscribe service)
@@ -107,7 +109,7 @@ asyncio.Queue (one per channel: Quote, Trade, Greeks, Candle, Control...)
     │
     ▼
 EventHandler.queue_listener()
-    │  deserializes raw arrays → Pydantic BaseEvent (frozen=True, extra=forbid)
+    │  deserializes raw arrays → Pydantic BaseEvent (frozen=True, extra="allow")
     │  using CHANNEL_SPECS field mapping: dict(zip(fields, chunk))
     ▼
 BaseEvent (immutable model)
@@ -145,7 +147,7 @@ AccountStreamPublisher → Redis HSET + pub/sub
 
 **Key properties:**
 
-- **Immutable events** — Both pipelines produce frozen Pydantic models. Market data uses `BaseEvent` (`frozen=True`, `extra="forbid"`). Account events use typed models (`Position`, `AccountBalance`) and wire protocol envelopes (`StreamerEventEnvelope` with `frozen=True`, `extra="allow"` to tolerate new server fields).
+- **Immutable events, permissive ingestion** — Both pipelines produce frozen Pydantic models with `extra="allow"`. Market data uses `BaseEvent`; account events use typed models (`Position`, `AccountBalance`, `PlacedOrder`). Unknown fields from the brokerage are preserved on `model_extra`, never rejected or discarded.
 - **Per-channel/per-type queues** — Market data has one `asyncio.Queue` per DXLink channel (Quote, Trade, Greeks, Candle, Control). Account data has one queue per `AccountEventType` (CurrentPosition, AccountBalance, Order, ComplexOrder). This isolates backpressure — a slow processor on one event type doesn't block others.
 - **Straight-through processing** — No callback registration, no observer patterns, no event buses between components within a service. Data enters, gets deserialized, gets consumed, exits.
 - **Field-driven deserialization** — Market data uses `CHANNEL_SPECS` to map channels to event types and field names, chunking raw arrays by field count. Account data uses Pydantic's `model_validate()` on the event envelope's `data` dict.
