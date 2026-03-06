@@ -332,11 +332,6 @@ class MarketDataProvider:
                 pl.col("start_time").str.to_datetime().alias("start_time")
             )
 
-        # Filter to only fields accepted by TradeSignal (extra="forbid")
-        valid_fields = set(TradeSignal.model_fields.keys())
-        keep_cols = [c for c in df_pl.columns if c in valid_fields]
-        df_pl = df_pl.select(keep_cols)
-
         signals = [TradeSignal(**row) for row in df_pl.to_dicts()]
         signals.sort(key=lambda s: s.start_time)
         return signals

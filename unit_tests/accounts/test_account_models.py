@@ -222,10 +222,12 @@ def test_position_is_frozen() -> None:
         pos.symbol = "MSFT"  # type: ignore[misc]
 
 
-def test_position_rejects_extra_fields() -> None:
-    data = make_position_json(**{"unexpected-field": "boom"})
-    with pytest.raises(ValidationError):
-        Position.model_validate(data)
+def test_position_preserves_extra_fields() -> None:
+    data = make_position_json(**{"update-type": "Close Price"})
+    pos = Position.model_validate(data)
+    assert pos.symbol == data["symbol"]
+    assert pos.model_extra is not None
+    assert pos.model_extra["update-type"] == "Close Price"
 
 
 def test_account_is_frozen() -> None:
@@ -446,5 +448,5 @@ async def test_validate_account_number_rejects_empty() -> None:
 def test_tastytrade_api_model_config() -> None:
     config = TastyTradeApiModel.model_config
     assert config["frozen"] is True
-    assert config["extra"] == "forbid"
+    assert config["extra"] == "allow"
     assert config["populate_by_name"] is True

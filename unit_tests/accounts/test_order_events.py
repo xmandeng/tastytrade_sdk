@@ -104,9 +104,7 @@ def fresh_streamer() -> AccountStreamer:
     streamer = AccountStreamer.__new__(AccountStreamer)
     streamer.credentials = None
     streamer.queues = {event_type: asyncio.Queue() for event_type in AccountEventType}
-    streamer.reconnect_event = asyncio.Event()
-    streamer.should_reconnect = True
-    streamer.reconnect_reason = None
+    streamer.reconnect_signal = None
     streamer.request_id = 0
     streamer.websocket = None
     streamer.session = None
@@ -188,12 +186,14 @@ def test_placed_order_is_frozen() -> None:
         order.status = OrderStatus.CANCELLED  # type: ignore[misc]
 
 
-def test_placed_order_ignores_extra_fields() -> None:
-    """extra='ignore' should NOT raise on unknown fields (unlike Position which uses 'forbid')."""
+def test_placed_order_preserves_extra_fields() -> None:
+    """extra='allow' preserves unknown brokerage fields on model_extra."""
     data = make_order_data()
-    data["unexpected-field"] = "should-be-ignored"
+    data["unexpected-field"] = "preserved"
     order = PlacedOrder.model_validate(data)
     assert order.id == 12345
+    assert order.model_extra is not None
+    assert order.model_extra["unexpected-field"] == "preserved"
 
 
 def test_placed_order_optional_timestamps() -> None:

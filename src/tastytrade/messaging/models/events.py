@@ -23,7 +23,7 @@ class BaseEvent(BaseModel):
     model_config = ConfigDict(
         frozen=True,  # Make models immutable
         validate_assignment=True,
-        extra="forbid",
+        extra="allow",
         str_strip_whitespace=True,
     )
 
