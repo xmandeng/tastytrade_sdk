@@ -4,7 +4,8 @@ Wire protocol uses hyphenated keys (e.g. ``auth-token``, ``request-id``).
 All models use ``populate_by_name=True`` so both Python names and aliases work.
 
 Outbound models use ``extra="forbid"`` to catch typos at construction time.
-Inbound models use ``extra="allow"`` so new server fields don't break parsing.
+Inbound models use ``extra="allow"`` — the brokerage is the source of truth,
+we preserve all fields it sends (see ARCHITECTURE.md §1 design rule).
 """
 
 from typing import Any, Optional
