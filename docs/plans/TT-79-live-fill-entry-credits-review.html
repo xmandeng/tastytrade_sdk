@@ -1,0 +1,1660 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan Review: TT-79 Live-Fill Entry Credit Updates</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.10);
+      --amber: #d29922;
+      --amber-bg: rgba(210, 153, 34, 0.10);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.08);
+      --purple: #bc8cff;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      height: 52px;
+    }
+
+    .topbar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .topbar .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-pending {
+      background: var(--amber);
+    }
+
+    .dot-approved {
+      background: var(--green);
+    }
+
+    .dot-revision {
+      background: var(--red);
+    }
+
+    .dot-question {
+      background: var(--purple);
+    }
+
+    /* Main layout */
+    .main {
+      display: flex;
+      height: calc(100vh - 52px);
+    }
+
+    /* Resize handle */
+    .resize-handle {
+      width: 1px;
+      cursor: col-resize;
+      background: var(--border);
+      position: relative;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.dragging {
+      background: var(--accent);
+      width: 3px;
+    }
+
+    body.resizing * {
+      cursor: col-resize !important;
+      user-select: none !important;
+    }
+
+    /* Topbar collapse toggle buttons */
+    .topbar-toggles {
+      display: flex;
+      gap: 6px;
+    }
+
+    .collapse-toggle {
+      width: 36px;
+      height: 32px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    @media (hover: hover) {
+      .collapse-toggle:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+        border-color: var(--accent);
+      }
+    }
+
+    .collapse-toggle.panel-collapsed {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    /* Collapsed panel states */
+    .nav-panel.collapsed {
+      width: 0 !important;
+      overflow: hidden;
+      min-width: 0;
+      padding: 0;
+    }
+
+    .right-panel.collapsed {
+      width: 0 !important;
+      overflow: hidden;
+      min-width: 0;
+      padding: 0;
+    }
+
+    /* Left panel: nav */
+    .nav-panel {
+      width: 240px;
+      min-width: 140px;
+      background: var(--bg-surface);
+      overflow-y: auto;
+      flex-shrink: 0;
+      transition: width 0.2s;
+    }
+
+    .nav-item {
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--bg-hover);
+      border-left-color: var(--accent);
+      color: var(--text);
+    }
+
+    .nav-item .status-icon {
+      flex-shrink: 0;
+      width: 14px;
+      text-align: center;
+    }
+
+    .nav-item .label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Center panel: document */
+    .doc-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 32px;
+      min-width: 0;
+    }
+
+    .doc-panel::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .doc-panel::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .doc-panel::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    /* Section rendering */
+    .section {
+      margin-bottom: 16px;
+      scroll-margin-top: 20px;
+      padding: 16px 16px 10px;
+      border-radius: 6px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header h2 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .revised-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      letter-spacing: 0.5px;
+    }
+
+    .section-content {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .section-content p {
+      margin-bottom: 8px;
+    }
+
+    .section-content code {
+      font-size: 12px;
+      background: var(--bg-surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .section-content pre {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin: 12px 0;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .section-content pre code {
+      background: none;
+      padding: 0;
+      font-size: 12px;
+    }
+
+    .section-content ul,
+    .section-content ol {
+      margin: 8px 0 8px 20px;
+    }
+
+    .section-content li {
+      margin-bottom: 4px;
+    }
+
+    .section-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+
+    .section-content th,
+    .section-content td {
+      text-align: left;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+    }
+
+    .section-content th {
+      background: var(--bg-surface-2);
+      font-weight: 600;
+    }
+
+    .section-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    /* Review actions */
+    .review-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .review-btn {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .review-btn:hover {
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+
+    .review-btn.active-approved {
+      background: var(--green-bg);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .review-btn.active-revision {
+      background: var(--red-bg);
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .review-btn.active-question {
+      background: rgba(188, 140, 255, 0.10);
+      border-color: var(--purple);
+      color: var(--purple);
+    }
+
+    /* Comment area */
+    .comment-area {
+      display: none;
+      margin-top: 10px;
+    }
+
+    .comment-area.visible {
+      display: block;
+    }
+
+    .comment-area textarea {
+      width: 100%;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 60px;
+      outline: none;
+    }
+
+    .comment-area textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .comment-area textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    .existing-comment {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .edit-btn {
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    /* Right panel: prompt output */
+    .right-panel {
+      width: 360px;
+      min-width: 200px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      transition: width 0.2s;
+    }
+
+    .right-panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .right-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    .right-panel-content::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .right-panel-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .prompt-output {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      line-height: 1.6;
+    }
+
+    .prompt-placeholder {
+      color: var(--text-dim);
+      font-size: 12px;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .copy-btn {
+      padding: 10px;
+      margin: 12px 16px 16px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .copy-btn:hover {
+      opacity: 0.9;
+    }
+
+    .copy-btn.copied {
+      background: var(--green);
+    }
+
+    /* Filter tabs in right panel */
+    .filter-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .filter-tab {
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .filter-tab:hover {
+      background: var(--bg-hover);
+    }
+
+    .filter-tab.active {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    /* Feedback summary items */
+    .feedback-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .feedback-item:last-child {
+      border-bottom: none;
+    }
+
+    .feedback-item .fb-section {
+      font-weight: 500;
+    }
+
+    .feedback-item .fb-comment {
+      color: var(--text-dim);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .fb-status {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .fb-status.approved {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .fb-status.revision {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .fb-status.question {
+      background: rgba(188, 140, 255, 0.10);
+      color: var(--purple);
+    }
+
+    /* Revised section highlight */
+    .section.revised {
+      border-left: 3px solid var(--accent) !important;
+      background: rgba(88, 166, 255, 0.04) !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9" />
+          <rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3" />
+        </svg>
+      </button>
+    </div>
+    <h1>Plan Review: TT-79 Live-Fill Entry Credit Updates</h1>
+    <div class="stats" id="stats"></div>
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
+          <rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="nav-panel" id="nav"></div>
+    <div class="resize-handle" id="leftHandle"></div>
+    <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="rightHandle"></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="right-panel-header">
+        Feedback <span id="feedbackCount" style="font-weight:400;color:var(--text-dim);font-size:11px"></span>
+      </div>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">All</div>
+        <div class="filter-tab" data-filter="approved">Approved</div>
+        <div class="filter-tab" data-filter="revision">Revision</div>
+        <div class="filter-tab" data-filter="question">Questions</div>
+      </div>
+      <div class="right-panel-content" id="feedbackList"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+    </div>
+  </div>
+
+  <script>
+    const docSections = [
+      {
+        id: "context",
+        title: "Context & Relationship to TT-63",
+        content: `### Problem
+
+TT-63 computes entry credits for all option positions (equity + futures) **at startup only**. It fetches historical transactions, runs a LIFO reverse replay, and publishes results to Redis. Once the system is running, entry credits become stale:
+
+- **New fills** (legs added to existing positions) are not reflected
+- **Position closures** leave orphaned entry credit records in Redis
+- **New positions** opened after startup have no entry credit data at all
+
+The strategy classifier operates on stale cost basis data until the next restart.
+
+### What TT-63 Provides (Dependencies)
+
+- \`Transaction\` Pydantic model and \`TransactionsClient\` REST client
+- \`compute_entry_credit_lifo()\` — the LIFO reverse replay algorithm
+- Redis schema: \`tastytrade:entry_credits\` HSET (field=streamer_symbol, value=JSON)
+- \`publish_entry_credits()\` on \`AccountStreamPublisher\`
+
+### What TT-79 Adds
+
+An **event-driven update path** that keeps entry credits current as fills occur during a running session. Covers all option types (equity + futures) uniformly. Triggered by Order fill events already flowing through the account-stream WebSocket.
+
+### Design Principle: Replay-First, Rollup-Second
+
+**Revised from TT-63's original step ordering.** The LIFO replay is the primary operation that identifies which transaction fills constitute the current position. The position-level rollup is a derived calculation over those identified fills — not a prerequisite grouping step.
+
+\`\`\`
+TT-63 original:         TT-79 revised:
+4. Group by symbol       4. Run LIFO replay (per-symbol transactions)
+5. LIFO replay           5. Rollup entry credits from identified fills
+\`\`\`
+
+This ordering is cleaner for incremental updates: when a new fill arrives, re-run the LIFO replay for that symbol and recompute the rollup, rather than maintaining a pre-grouped structure.`
+      },
+      {
+        id: "event-detection",
+        title: "Step 1: Fill Event Detection",
+        content: `### Event Source
+
+The account-stream WebSocket already delivers Order events in real time. The existing pipeline:
+
+\`\`\`
+WebSocket → socket_listener() → handle_event()
+  → queues[ORDER] → consume_orders() → publisher.publish_order()
+    → Redis HSET tastytrade:orders
+    → Redis pub/sub tastytrade:events:Order
+\`\`\`
+
+### Fill Detection Logic
+
+A new \`EntryCreditsRefresher\` listens for Order events that indicate an option fill has occurred. It subscribes to the order queue alongside the existing publisher.
+
+\`\`\`python
+OPTION_TYPES = {InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION}
+
+class EntryCreditsRefresher:
+    """Watches for filled option orders and refreshes entry credits."""
+
+    def __init__(
+        self,
+        transactions_client: TransactionsClient,
+        publisher: AccountStreamPublisher,
+        account_number: str,
+    ) -> None:
+        self.transactions_client = transactions_client
+        self.publisher = publisher
+        self.account_number = account_number
+
+    def is_option_fill(self, order: PlacedOrder) -> bool:
+        """Check if an order contains a completed option fill."""
+        if order.status != OrderStatus.FILLED:
+            return False
+        return any(
+            leg.instrument_type in OPTION_TYPES
+            for leg in order.legs
+        )
+
+    def affected_symbols(self, order: PlacedOrder) -> set[str]:
+        """Extract option symbols from a filled order."""
+        return {
+            leg.symbol
+            for leg in order.legs
+            if leg.instrument_type in OPTION_TYPES
+        }
+\`\`\`
+
+### Key Decisions
+
+- **Filter on \`OrderStatus.FILLED\`** — ignore Received, Live, Cancelled, etc.
+- **Check \`instrument_type\` per leg** — a single order can have mixed instrument types (e.g., equity + option)
+- **Extract symbol per leg** — one fill event can affect multiple symbols (e.g., a spread or roll)
+- **All option types included** — uniform workflow for both equity and futures options, driven by the same transactions API \`value\` field`
+      },
+      {
+        id: "incremental-replay",
+        title: "Step 2: Incremental LIFO Replay",
+        content: `### Trigger Flow
+
+When an option fill is detected:
+
+\`\`\`
+1. Identify affected symbol(s) from the filled order legs
+2. Fetch current position state from Redis (tastytrade:positions)
+3. Fetch full transaction history for affected symbol(s) via REST
+4. Run LIFO replay per symbol → compute entry credit
+5. Publish updated entry credits to Redis
+\`\`\`
+
+### Why Full Transaction Fetch (Not Incremental)
+
+We re-fetch the complete transaction history for the affected symbol rather than trying to incrementally update. Reasons:
+
+- **LIFO replay is order-dependent** — a new fill can change which prior transactions are "consumed" by closes vs. surviving as open
+- **Correctness over optimization** — transaction lists are small (typically <50 per symbol) and the REST call is fast
+- **Simplicity** — no local transaction cache to maintain or synchronize
+
+### The Refresh Method
+
+\`\`\`python
+async def refresh_entry_credits(
+    self,
+    symbols: set[str],
+    positions: dict[str, Position],
+) -> None:
+    """Re-fetch transactions and recompute entry credits for given symbols."""
+    transactions = await self.transactions_client.get_transactions(
+        account_number=self.account_number,
+    )
+
+    # Group transactions by symbol
+    by_symbol: dict[str, list[Transaction]] = defaultdict(list)
+    for txn in transactions:
+        if txn.symbol in symbols:
+            by_symbol[txn.symbol].append(txn)
+
+    updated_credits: dict[str, EntryCredit] = {}
+
+    for symbol in symbols:
+        position = positions.get(symbol)
+
+        # Position closed — remove entry credit
+        if position is None or position.quantity == 0:
+            await self.publisher.remove_entry_credit(symbol)
+            logger.info("Removed entry credit for closed position: %s", symbol)
+            continue
+
+        symbol_txns = by_symbol.get(symbol, [])
+        if not symbol_txns:
+            logger.warning("No transactions found for %s", symbol)
+            continue
+
+        # LIFO replay first, then rollup
+        entry_credit = compute_entry_credit_lifo(
+            transactions=symbol_txns,
+            current_qty=int(position.quantity),
+            position_side="short" if position.quantity_direction.value == "Short" else "long",
+        )
+
+        if entry_credit is not None:
+            updated_credits[symbol] = EntryCredit(
+                value=entry_credit,
+                method="transaction_lifo",
+                transaction_count=len(symbol_txns),
+            )
+
+    if updated_credits:
+        await self.publisher.publish_entry_credits(updated_credits)
+        logger.info("Refreshed entry credits for %d symbols", len(updated_credits))
+\`\`\`
+
+### Position State Lookup
+
+The refresher reads current positions from Redis (\`tastytrade:positions\` HSET) rather than maintaining its own position state. This ensures it always uses the latest position quantity/direction, which may have been updated by the position consumer moments before the order event arrives.`
+      },
+      {
+        id: "consumer-architecture",
+        title: "Step 3: Consumer Architecture",
+        content: `### Option A: Dual-Dispatch from Order Queue (Recommended)
+
+Add a second consumer that reads from the same order queue. The orchestrator creates a dedicated queue for the entry credits refresher, and the streamer's \`handle_event\` dispatches Order events to both queues.
+
+\`\`\`
+                    ┌─────────────────────┐
+                    │   socket_listener   │
+                    │   handle_event()    │
+                    └─────────┬───────────┘
+                              │ Order event
+                    ┌─────────┴───────────┐
+                    ▼                     ▼
+           order_queue              entry_credit_queue
+                │                         │
+                ▼                         ▼
+        consume_orders()       consume_entry_credit_events()
+                │                         │
+                ▼                         ▼
+        publish_order()        is_futures_option_fill()?
+                                    │ yes
+                                    ▼
+                            refresh_entry_credits()
+                                    │
+                                    ▼
+                            publish to Redis HSET
+\`\`\`
+
+**Pros:** Clean separation. Order publisher and entry credit refresher are independent.
+**Cons:** Requires a second queue and dispatching order events to both.
+
+### Option B: Post-Publish Hook on Order Publisher
+
+Add a callback/hook in \`publish_order()\` that notifies the entry credits refresher after an order is published.
+
+\`\`\`python
+# In publisher.publish_order():
+async def publish_order(self, order: PlacedOrder) -> None:
+    # ... existing publish logic ...
+    if self.on_order_published:
+        await self.on_order_published(order)
+\`\`\`
+
+**Pros:** No extra queue. Simpler wiring.
+**Cons:** Couples publisher to entry credit concerns. Violates single-responsibility.
+
+### Option C: Redis Pub/Sub Subscriber
+
+A separate async task subscribes to \`tastytrade:events:Order\` Redis channel and processes fill events from there.
+
+\`\`\`python
+async def listen_for_fills(
+    redis_client: aioredis.Redis,
+    refresher: EntryCreditsRefresher,
+) -> None:
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe("tastytrade:events:Order")
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            order = PlacedOrder.model_validate_json(message["data"])
+            if refresher.is_futures_option_fill(order):
+                ...
+\`\`\`
+
+**Pros:** Fully decoupled. Could even run in a separate process.
+**Cons:** Extra Redis round-trip. Serialization/deserialization overhead. Message ordering not guaranteed.
+
+### Recommendation: Option A
+
+Dual-dispatch keeps the entry credits refresher in-process (same orchestrator), avoids coupling the publisher, and doesn't add network overhead. The pattern already exists in the codebase — the orchestrator already creates separate queues for positions, balances, orders, and complex orders.`
+      },
+      {
+        id: "position-lifecycle",
+        title: "Step 4: Position Lifecycle Handling",
+        content: `### Three Scenarios
+
+**1. New position opened (no prior entry credit)**
+
+An option order fills that creates a brand new position. The position consumer writes it to Redis, then the entry credits refresher detects the fill and computes the initial entry credit.
+
+\`\`\`
+Order fills (STO 2 /6E calls) → Position appears in Redis
+  → EntryCreditsRefresher.refresh_entry_credits()
+    → Fetches transactions → LIFO replay → publishes entry credit
+\`\`\`
+
+**2. Existing position modified (leg added/removed)**
+
+A fill changes the quantity of an existing position. The LIFO replay re-walks the full transaction history and recomputes which fills constitute the current position.
+
+\`\`\`
+Order fills (STO 1 more /6E call) → Position updated in Redis (qty: 2 → 3)
+  → EntryCreditsRefresher.refresh_entry_credits()
+    → Fetches ALL /6E transactions → LIFO replay with qty=3 → updated credit
+\`\`\`
+
+**3. Position fully closed**
+
+A closing fill brings the position quantity to zero. The position consumer removes it from Redis. The entry credits refresher detects \`quantity == 0\` (or position missing) and removes the entry credit record.
+
+\`\`\`
+Order fills (BTC 2 /6E calls) → Position removed from Redis (qty=0)
+  → EntryCreditsRefresher.refresh_entry_credits()
+    → Position not found / qty=0 → remove entry credit from Redis
+\`\`\`
+
+### Race Condition: Position Update vs. Order Event
+
+The position consumer and entry credits refresher process events concurrently. The position update should arrive before or around the same time as the order event (both come from the same WebSocket message batch).
+
+**Mitigation:** The refresher reads position state from Redis at refresh time (not cached). If the position hasn't been updated yet, it uses the current Redis state, which is still valid for the LIFO replay. In the worst case, a brief delay means the entry credit reflects the pre-fill quantity — which will be corrected on the next fill or can be handled with a short retry.
+
+### Cleanup on Reconnect
+
+When the account-stream reconnects (self-healing), the startup flow (TT-63) re-hydrates everything from scratch. No stale entry credits survive a reconnect — the full startup computation replaces all entries.`
+      },
+      {
+        id: "notification-downstream",
+        title: "Step 5: Downstream Notification",
+        content: `### Strategy Classifier Needs to Know
+
+When entry credits are updated, downstream consumers (primarily the strategy classifier) need to re-classify strategies with the fresh cost basis data.
+
+### Pub/Sub Notification
+
+After publishing updated entry credits to Redis HSET, publish a notification:
+
+\`\`\`python
+# In publisher:
+ENTRY_CREDITS_CHANNEL = "tastytrade:events:EntryCreditsUpdated"
+
+async def publish_entry_credits(
+    self,
+    credits: dict[str, EntryCredit],
+) -> None:
+    pipe = self.redis.pipeline()
+    symbols = []
+    for symbol, credit in credits.items():
+        pipe.hset(self.ENTRY_CREDITS_KEY, symbol, credit.model_dump_json())
+        symbols.append(symbol)
+    await pipe.execute()
+
+    # Notify downstream consumers
+    await self.redis.publish(
+        self.ENTRY_CREDITS_CHANNEL,
+        json.dumps({"symbols": symbols, "count": len(symbols)}),
+    )
+\`\`\`
+
+### Consumer Pattern
+
+Any service that needs to react to entry credit changes subscribes to the channel:
+
+\`\`\`python
+# In strategy classifier or signal engine:
+pubsub = redis.pubsub()
+await pubsub.subscribe("tastytrade:events:EntryCreditsUpdated")
+
+async for message in pubsub.listen():
+    if message["type"] == "message":
+        data = json.loads(message["data"])
+        # Re-classify affected strategies
+        await reclassify_strategies(data["symbols"])
+\`\`\`
+
+### Design Decision: Pub/Sub vs. Polling
+
+- **Pub/Sub (chosen):** Event-driven, immediate reaction, consistent with project conventions (Redis-as-bus pattern)
+- **Polling:** Would require a timer loop — violates the project's preference for event-driven design over polling`
+      },
+      {
+        id: "orchestrator-wiring",
+        title: "Step 6: Orchestrator Integration",
+        content: `### Changes to \`run_account_stream_once()\`
+
+The orchestrator needs to:
+
+1. Create the \`TransactionsClient\` using the existing session
+2. Create the \`EntryCreditsRefresher\`
+3. Create a dedicated order queue for entry credit events
+4. Start the entry credits consumer task
+
+\`\`\`python
+# In run_account_stream_once(), after streamer.start():
+
+# === Entry credits refresher (TT-79) ===
+transactions_client = TransactionsClient(streamer.session)
+entry_credits_refresher = EntryCreditsRefresher(
+    transactions_client=transactions_client,
+    publisher=publisher,
+    account_number=credentials.account_number,
+)
+
+# Create a dedicated queue for entry credit fill detection
+entry_credit_order_queue: asyncio.Queue[PlacedOrder] = asyncio.Queue()
+
+# ... existing consumer tasks ...
+
+consumer_tasks.append(
+    asyncio.create_task(
+        consume_entry_credit_events(
+            queue=entry_credit_order_queue,
+            refresher=entry_credits_refresher,
+            redis_client=publisher.redis,
+        ),
+        name="entry_credit_consumer",
+    )
+)
+\`\`\`
+
+### Order Event Dispatching
+
+The streamer's \`handle_event\` currently puts Order events into a single queue. We need to dispatch to both the existing order queue and the new entry credit queue.
+
+\`\`\`python
+# Option: In streamer.handle_event(), dispatch to multiple queues
+# OR: In orchestrator, create a fan-out wrapper
+
+async def fanout_orders(
+    source_queue: asyncio.Queue,
+    targets: list[asyncio.Queue],
+) -> None:
+    """Read from one queue, dispatch to multiple consumers."""
+    while True:
+        order = await source_queue.get()
+        for target in targets:
+            target.put_nowait(order)
+\`\`\`
+
+### Consumer Function
+
+\`\`\`python
+async def consume_entry_credit_events(
+    queue: asyncio.Queue,
+    refresher: EntryCreditsRefresher,
+    redis_client: aioredis.Redis,
+) -> None:
+    """Watch for filled option orders and refresh entry credits."""
+    while True:
+        order = await queue.get()
+        if not isinstance(order, PlacedOrder):
+            continue
+        if not refresher.is_option_fill(order):
+            continue
+
+        symbols = refresher.affected_symbols(order)
+        logger.info("Option fill detected — refreshing %d symbols", len(symbols))
+
+        # Read current positions from Redis
+        raw_positions = await redis_client.hgetall("tastytrade:positions")
+        positions = {
+            k.decode(): Position.model_validate_json(v)
+            for k, v in raw_positions.items()
+        }
+
+        await refresher.refresh_entry_credits(symbols, positions)
+\`\`\`
+
+### Startup Sequence (Unchanged from TT-63)
+
+The startup computation in TT-63 runs before any consumer tasks start. TT-79's consumer only handles fills that arrive *after* the initial hydration is complete. No conflict.`
+      },
+      {
+        id: "files-modified",
+        title: "Files Modified",
+        content: `| Action | File | Description |
+|--------|------|-------------|
+| New | \`src/tastytrade/accounts/entry_credits.py\` | EntryCreditsRefresher class, consume_entry_credit_events(), fanout_orders() |
+| Modified | \`src/tastytrade/accounts/orchestrator.py\` | Wire up entry credits refresher, create queue, start consumer task |
+| Modified | \`src/tastytrade/accounts/publisher.py\` | Add remove_entry_credit(), add pub/sub notification to publish_entry_credits() |
+| New | \`unit_tests/accounts/test_entry_credits.py\` | Tests for fill detection, incremental replay, position lifecycle |
+| Modified | \`unit_tests/accounts/test_orchestrator.py\` | Test entry credit consumer wiring |
+
+### What This Does NOT Touch
+
+- \`transactions.py\` — TT-63 owns the Transaction model and TransactionsClient
+- \`classifier.py\` — already reads from Redis; no changes needed
+- \`models.py\` — PlacedOrder, OrderStatus already have everything we need
+- \`streamer.py\` — event routing unchanged (fan-out happens in orchestrator)`
+      },
+      {
+        id: "verification",
+        title: "Verification",
+        content: `### Automated
+
+1. **Unit tests:** \`uv run pytest unit_tests/accounts/test_entry_credits.py -v\`
+2. **Type checking:** \`uv run pyright src/tastytrade/accounts/entry_credits.py\`
+3. **Linting:** \`uv run ruff check src/tastytrade/accounts/\`
+
+### Functional (Live Environment)
+
+1. **Start account-stream:** \`just account-stream\`
+   - Verify startup entry credits populated in Redis (TT-63 baseline)
+   - \`redis-cli HGETALL tastytrade:entry_credits\`
+
+2. **Place an option order** (equity or futures) in the TastyTrade app
+   - Verify log output: "Option fill detected — refreshing N symbols"
+   - Verify Redis entry credits updated within seconds
+   - \`redis-cli HGET tastytrade:entry_credits "<symbol>"\`
+
+3. **Close an option position** in the TastyTrade app
+   - Verify entry credit record removed from Redis
+   - Verify log: "Removed entry credit for closed position"
+
+4. **Leg into an existing position** (add contracts)
+   - Verify entry credit is recomputed with updated LIFO replay
+   - Compare against manual calculation from transaction history
+
+5. **Strategy classifier accuracy**
+   - Run \`just strategies\` after a live fill
+   - Verify max_profit / max_loss reflect the updated entry credits
+   - Compare against TT app position cards
+
+### Edge Cases to Test
+
+- Order with mixed instrument types (equity + option legs)
+- Partial fill → then remaining fill (two separate FILLED events)
+- Rapid successive fills (multiple orders filling within seconds)
+- Reconnect after fills occurred while disconnected (TT-63 startup should re-hydrate)`
+      }
+    ];
+
+    const PLAN_NAME = "TT-79 Live-Fill Entry Credit Updates";
+
+    // Persistence
+    const STORAGE_KEY = 'review-state:' + PLAN_NAME;
+    const LAYOUT_KEY = 'review-layout:' + PLAN_NAME;
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          sections: state.sections.map(s => ({ id: s.id, status: s.status, comment: s.comment })),
+          activeSection: state.activeSection,
+          activeFilter: state.activeFilter
+        }));
+      } catch (e) { }
+    }
+
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.sections || []).forEach(saved => {
+          const s = state.sections.find(s => s.id === saved.id);
+          if (s) { s.status = saved.status || 'pending'; s.comment = saved.comment || ''; }
+        });
+        if (data.activeSection) state.activeSection = data.activeSection;
+        if (data.activeFilter) state.activeFilter = data.activeFilter;
+      } catch (e) { }
+    }
+
+    // State
+    const state = {
+      sections: docSections.map(s => ({
+        ...s,
+        status: 'pending',
+        comment: ''
+      })),
+      activeSection: 'context',
+      activeFilter: 'all'
+    };
+
+    // Render markdown-like content to HTML
+    function renderMarkdown(text) {
+      let html = '';
+      const lines = text.split('\n');
+      let inCode = false;
+      let codeLines = [];
+      let inList = false;
+      let inTable = false;
+      let tableRows = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Code blocks
+        if (line.trim().startsWith('```')) {
+          if (inCode) {
+            html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+            codeLines = [];
+            inCode = false;
+          } else {
+            if (inList) { html += '</ul>'; inList = false; }
+            if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) { codeLines.push(line); continue; }
+
+        // Table
+        if (line.trim().startsWith('|')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          if (!inTable) inTable = true;
+          if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+            tableRows.push(line);
+          }
+          continue;
+        } else if (inTable) {
+          html += renderTable(tableRows);
+          inTable = false;
+          tableRows = [];
+        }
+
+        // Empty line
+        if (line.trim() === '') {
+          if (inList) { html += '</ul>'; inList = false; }
+          continue;
+        }
+
+        // Headers
+        if (line.startsWith('### ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+          continue;
+        }
+
+        // List items
+        if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+          continue;
+        }
+        if (line.trim().match(/^\d+\.\s/)) {
+          if (!inList) { html += '<ol>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+          continue;
+        }
+
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<p>' + inlineFormat(line) + '</p>';
+      }
+
+      if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+      if (inList) html += '</ul>';
+      if (inTable) html += renderTable(tableRows);
+
+      return html;
+    }
+
+    function renderTable(rows) {
+      if (rows.length === 0) return '';
+      let html = '<table>';
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').filter(c => c.trim() !== '');
+        const tag = idx === 0 ? 'th' : 'td';
+        html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+      });
+      html += '</table>';
+      return html;
+    }
+
+    function inlineFormat(text) {
+      return text
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:none">$1</a>')
+        .replace(/\\`/g, '`');
+    }
+
+    // Render navigation
+    function renderNav() {
+      const nav = document.getElementById('nav');
+      nav.innerHTML = state.sections.map(s => {
+        const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+          : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+            : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+              : '<span style="color:var(--text-dim)">&bull;</span>';
+        return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+                 onclick="navigateTo('${s.id}')">
+      <span class="status-icon">${icon}</span>
+      <span class="label">${s.title}</span>
+      ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
+    </div>`;
+      }).join('');
+    }
+
+    // Render document
+    function renderDoc() {
+      const panel = document.getElementById('docPanel');
+      panel.innerHTML = state.sections.map(s => {
+        const borderColor = s.status === 'approved' ? 'var(--green)'
+          : s.status === 'revision' ? 'var(--red)'
+            : s.status === 'question' ? 'var(--purple)' : 'transparent';
+        const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+          : s.status === 'revision' ? 'var(--red-bg)'
+            : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+
+        const revisedAndPending = s.revised && s.status === 'pending';
+        const revisedClass = revisedAndPending ? ' revised' : '';
+        return `<div class="section${revisedClass}" id="section-${s.id}"
+                 style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
+      <div class="section-header">
+        <h2>${s.title}</h2>
+        ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
+      </div>
+      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="review-bar">
+        <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
+                onclick="setStatus('${s.id}','approved')">Approve</button>
+        <button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}"
+                onclick="setStatus('${s.id}','revision')">Needs Revision</button>
+        <button class="review-btn ${s.status === 'question' ? 'active-question' : ''}"
+                onclick="setStatus('${s.id}','question')">Question</button>
+        <button class="review-btn" onclick="toggleComment('${s.id}')"
+                style="margin-left:auto">Comment</button>
+      </div>
+      <div class="comment-area" id="comment-${s.id}">
+        ${s.comment
+            ? `<div class="existing-comment">${s.comment.replace(/</g, '&lt;').replace(/\n/g, '<br>')}
+               <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
+            : `<textarea placeholder="Add your feedback for this section..."
+                      onblur="saveComment('${s.id}', this.value)"
+                      id="textarea-${s.id}"></textarea>`
+          }
+      </div>
+    </div>`;
+      }).join('');
+    }
+
+    // Render stats
+    function renderStats() {
+      const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+      state.sections.forEach(s => counts[s.status]++);
+      document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
+    <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
+    <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
+    <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
+  `;
+    }
+
+    // Render feedback panel
+    function renderFeedback() {
+      const list = document.getElementById('feedbackList');
+      const filtered = state.sections.filter(s => {
+        if (state.activeFilter === 'all') return s.status !== 'pending';
+        return s.status === state.activeFilter;
+      });
+
+      const count = state.sections.filter(s => s.status !== 'pending').length;
+      document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="prompt-placeholder">
+      ${state.activeFilter === 'all'
+            ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+            : 'No sections with this status yet.'}
+    </div>`;
+        return;
+      }
+
+      list.innerHTML = filtered.map(s => `
+    <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
+      <div class="fb-section">
+        <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
+        ${s.title}
+      </div>
+      ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
+    </div>
+  `).join('');
+    }
+
+    // Actions
+    function navigateTo(id) {
+      state.activeSection = id;
+      saveToStorage();
+      renderNav();
+      document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function setStatus(id, status) {
+      const section = state.sections.find(s => s.id === id);
+      if (section.status === status) {
+        section.status = 'pending';
+      } else {
+        section.status = status;
+        if (status === 'revision' || status === 'question') {
+          setTimeout(() => {
+            const area = document.getElementById('comment-' + id);
+            if (area) area.classList.add('visible');
+          }, 50);
+        }
+      }
+      renderAll();
+      saveToStorage();
+    }
+
+    function toggleComment(id) {
+      const area = document.getElementById('comment-' + id);
+      area.classList.toggle('visible');
+      if (area.classList.contains('visible')) {
+        const ta = document.getElementById('textarea-' + id);
+        if (ta) ta.focus();
+      }
+    }
+
+    function saveComment(id, value) {
+      const section = state.sections.find(s => s.id === id);
+      section.comment = value.trim();
+      renderAll();
+      saveToStorage();
+    }
+
+    function editComment(id) {
+      const section = state.sections.find(s => s.id === id);
+      const area = document.getElementById('comment-' + id);
+      area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    onblur="saveComment('${id}', this.value)"
+    id="textarea-${id}">${section.comment}</textarea>`;
+      area.classList.add('visible');
+      document.getElementById('textarea-' + id).focus();
+    }
+
+    function generatePrompt() {
+      const approved = state.sections.filter(s => s.status === 'approved');
+      const revision = state.sections.filter(s => s.status === 'revision');
+      const questions = state.sections.filter(s => s.status === 'question');
+
+      if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+        return '';
+      }
+
+      let prompt = 'Here is my review of the TT-79 Live-Fill Entry Credit Updates plan:\n\n';
+
+      if (approved.length > 0) {
+        prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+        approved.forEach(s => {
+          prompt += `- **${s.title}**: Approved`;
+          if (s.comment) prompt += ` — ${s.comment}`;
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (revision.length > 0) {
+        prompt += `## Needs Revision (${revision.length})\n`;
+        revision.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (no specific feedback provided)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (questions.length > 0) {
+        prompt += `## Questions (${questions.length})\n`;
+        questions.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (question not specified)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      const remaining = state.sections.filter(s => s.status === 'pending');
+      if (remaining.length > 0) {
+        prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+        remaining.forEach(s => prompt += `- ${s.title}\n`);
+      }
+
+      return prompt;
+    }
+
+    function copyPrompt() {
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      navigator.clipboard.writeText(prompt).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+
+    // Filter tabs
+    document.getElementById('filterTabs').addEventListener('click', e => {
+      const tab = e.target.closest('.filter-tab');
+      if (!tab) return;
+      state.activeFilter = tab.dataset.filter;
+      document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderFeedback();
+      saveToStorage();
+    });
+
+    function renderAll() {
+      renderNav();
+      renderDoc();
+      renderStats();
+      renderFeedback();
+    }
+
+    // Resizable & collapsible panels
+    (function () {
+      const nav = document.getElementById('nav');
+      const rightPanel = document.getElementById('rightPanel');
+      const leftHandle = document.getElementById('leftHandle');
+      const rightHandle = document.getElementById('rightHandle');
+      const leftToggle = document.getElementById('leftToggle');
+      const rightToggle = document.getElementById('rightToggle');
+
+      let dragging = null;
+      let navWidth = 240;
+      let rightWidth = 360;
+
+      const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })();
+      if (savedLayout.navWidth) navWidth = savedLayout.navWidth;
+      if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth;
+      if (savedLayout.navCollapsed) nav.classList.add('collapsed');
+      else nav.style.width = navWidth + 'px';
+      if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed');
+      else rightPanel.style.width = rightWidth + 'px';
+
+      function saveLayout() {
+        try {
+          localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+            navWidth, rightWidth,
+            navCollapsed: nav.classList.contains('collapsed'),
+            rightCollapsed: rightPanel.classList.contains('collapsed')
+          }));
+        } catch (e) { }
+      }
+
+      function updateToggles() {
+        const navCollapsed = nav.classList.contains('collapsed');
+        const rightCollapsed = rightPanel.classList.contains('collapsed');
+        leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+        leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+        rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+        rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+      }
+
+      function toggleNav(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (nav.classList.contains('collapsed')) {
+          nav.classList.remove('collapsed');
+          nav.style.width = navWidth + 'px';
+        } else {
+          navWidth = nav.offsetWidth;
+          nav.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      function toggleRight(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightPanel.classList.contains('collapsed')) {
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = rightWidth + 'px';
+        } else {
+          rightWidth = rightPanel.offsetWidth;
+          rightPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      let touchFiredLeft = false, touchFiredRight = false;
+
+      leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+      leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+      rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+      rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+      updateToggles();
+
+      function onDragStart(e, side) {
+        e.preventDefault();
+        dragging = side;
+        document.body.classList.add('resizing');
+        (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+      }
+
+      leftHandle.addEventListener('mousedown', e => { if (e.target === leftHandle) onDragStart(e, 'left'); });
+      rightHandle.addEventListener('mousedown', e => { if (e.target === rightHandle) onDragStart(e, 'right'); });
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        applyDrag(e.clientX);
+      });
+
+      document.addEventListener('mouseup', endDrag);
+
+      leftHandle.addEventListener('touchstart', e => {
+        if (e.target !== leftHandle) return;
+        e.preventDefault();
+        onDragStart(e, 'left');
+      }, { passive: false });
+
+      rightHandle.addEventListener('touchstart', e => {
+        if (e.target !== rightHandle) return;
+        e.preventDefault();
+        onDragStart(e, 'right');
+      }, { passive: false });
+
+      document.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        e.preventDefault();
+        applyDrag(e.touches[0].clientX);
+      }, { passive: false });
+
+      document.addEventListener('touchend', endDrag);
+
+      function applyDrag(clientX) {
+        if (dragging === 'left') {
+          const w = Math.max(140, Math.min(400, clientX));
+          nav.classList.remove('collapsed');
+          nav.style.width = w + 'px';
+          navWidth = w;
+        } else {
+          const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = w + 'px';
+          rightWidth = w;
+        }
+        updateToggles();
+      }
+
+      function endDrag() {
+        if (!dragging) return;
+        document.body.classList.remove('resizing');
+        leftHandle.classList.remove('dragging');
+        rightHandle.classList.remove('dragging');
+        dragging = null;
+        saveLayout();
+      }
+    })();
+
+    // Init
+    loadFromStorage();
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.filter === state.activeFilter);
+    });
+    document.body.style.visibility = 'hidden';
+    renderAll();
+    requestAnimationFrame(() => {
+      document.body.style.visibility = '';
+    });
+  </script>
+</body>
+
+</html>
