@@ -133,6 +133,6 @@ All new branches MUST be pushed to remote **immediately** after creation.
 ## Branch Naming Conventions
 
 - Format: `type/TT-XXX-description`
-- Types: `feature/`, `fix/`, `refactor/`, `docs/`, `chore/`
+- Types: `feature/`, `bugfix/`, `refactor/`, `docs/`, `chore/`
 - MUST include Jira ticket (TT-XXX) in branch name — enforced by agent
 - NEVER work on `main` branch — github-workflow agent will REJECT operations
