@@ -32,7 +32,7 @@ directly into the callback — no queues, no polling.
      EngineRunner (detection)          Notebook / Direct
               │                               │
      RedisSubscription                 RedisSubscription.queue
-     on_update callback                       │
+     on_event callback                        │
               │                        engine.on_candle_event()
      engine.on_candle_event()                 │
        (direct, no queue)              engine.signals  ← read list
@@ -44,7 +44,7 @@ directly into the callback — no queues, no polling.
      EngineRunner (TradeSignalFeed)
               │
      RedisSubscription
-     on_update callback
+     on_event callback
               │
      processor.process_event(signal)
        (direct, no queue)
@@ -89,7 +89,7 @@ await runner.start()
 
 1. DXLink (separate process) → Redis pub/sub → `RedisSubscription.listener()`
 2. Typed deserialization to `CandleEvent`
-3. `on_update` callback fires directly into `engine.on_candle_event()`
+3. `on_event` callback fires directly into `engine.on_candle_event()`
 4. Engine detects confluence → `publisher.publish(signal)` → Redis
 5. Signal appears on `market:TradeSignal:hull_macd:SPX{=5m}`
 
@@ -158,7 +158,7 @@ await runner.start()
 
 1. Redis `PSUBSCRIBE market:TradeSignal:*` → `RedisSubscription.listener()`
 2. Typed deserialization to `TradeSignal`
-3. `on_update` callback fires directly into `processor.process_event()`
+3. `on_event` callback fires directly into `processor.process_event()`
 4. `TelegrafHTTPEventProcessor` writes to InfluxDB (batch)
 
 Uses EngineRunner as a harness (same as detection) but with:
@@ -330,7 +330,7 @@ between objects.
 
 Callbacks are a lesser pattern — they create direct coupling between
 caller and callee, making them suitable only for in-process wiring
-within a single service (e.g., `on_update` inside EngineRunner). They
+within a single service (e.g., `on_event` inside EngineRunner). They
 must never cross service boundaries.
 
 ```
