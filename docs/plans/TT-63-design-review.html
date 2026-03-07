@@ -691,45 +691,74 @@ This means \`max_profit\` and \`max_loss\` are wrong or missing for future optio
       {
         id: "transaction-model",
         title: "Step 1: Transaction Data Model & API Client",
+        revised: true,
         content: `**File:** \`src/tastytrade/accounts/transactions.py\`
 
-A new Pydantic model and API client for fetching transaction history:
+**Revised:** Scope expanded from futures options only to **all option types** (equity + futures). The API returns identical field structure for both — confirmed against live production data.
+
+### API Response Fields (Verified)
+
+The \`GET /accounts/{acct}/transactions\` endpoint returns these fields per fill:
+
+| Field | Example (Equity) | Example (Futures) | Description |
+|-------|-------------------|-------------------|-------------|
+| \`price\` | \`0.8\` | \`0.002\` | Per-unit price |
+| \`value\` | \`80.0\` | \`500.0\` | Dollar amount (price x multiplier x qty) |
+| \`value-effect\` | \`Credit\` | \`Credit\` | Direction of dollar flow |
+| \`net-value\` | \`78.877\` | \`493.66\` | Dollar amount after fees |
+| \`net-value-effect\` | \`Credit\` | \`Credit\` | Direction after fees |
+
+**\`value\` already accounts for multiplier and quantity** — the API does the math:
+- Equity: \`price=0.80 * 100 shares * 1 contract = value=80.0\`
+- /6E: \`price=0.002 * 125,000 multiplier * 2 contracts = value=500.0\`
+
+### Transaction Model
 
 \`\`\`python
 class Transaction(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     id: int
     executed_at: datetime             # When the fill occurred
     action: str                       # "Sell to Open", "Buy to Open",
                                       # "Buy to Close", "Sell to Close"
     symbol: str                       # Option symbol (matches position)
-    underlying_symbol: str            # e.g., "/6EM6"
-    instrument_type: str              # "Future Option"
-    value: Decimal                    # Dollar amount of fill
+    underlying_symbol: str            # e.g., "/6EM6" or "CSCO"
+    instrument_type: str              # "Equity Option" or "Future Option"
+    price: Decimal                    # Per-unit price
+    value: Decimal                    # Dollar amount of fill (pre-fee)
     value_effect: str                 # "Credit" or "Debit"
-    quantity: int                     # Number of contracts in this fill
+    net_value: Decimal                # Dollar amount after fees
+    net_value_effect: str             # "Credit" or "Debit"
+    quantity: Decimal                 # Number of contracts in this fill
+    order_id: int                     # Links legs of the same order
+    leg_count: int                    # How many legs in the original order
 \`\`\`
+
+### Transactions Client
 
 \`\`\`python
 class TransactionsClient:
     def get_transactions(
         self,
         account_number: str,
-        instrument_type: str = "Future Option",
+        instrument_type: Optional[str] = None,  # None = all types
         start_date: Optional[date] = None,
     ) -> list[Transaction]:
         # GET /accounts/{acct}/transactions
-        # Filters by instrument-type server-side
+        # Filters by instrument-type server-side if provided
         ...
 \`\`\`
 
 ### Key Decisions
 
-- **CHOSEN:** Fetch ALL futures option transactions (not just problematic subset)
-- **CHOSEN:** Store dollar \`value\` directly (not per-unit prices)
-- Transaction \`value\` already accounts for multiplier x quantity
-- \`value_effect\` disambiguates credit vs debit (sign convention)`
+- **REVISED:** Fetch transactions for **all option types** uniformly — not just futures options
+- **CHOSEN:** Store dollar \`value\` (pre-fee) for position cost basis accounting
+- **Noted:** \`net-value\` (post-fee) available if true P&L including fees is needed later
+- Transaction \`value\` already accounts for multiplier x quantity — no manual computation
+- \`value_effect\` disambiguates credit vs debit (sign convention)
+- Multi-leg orders produce **separate transaction records per leg** with the same \`order_id\`
+- Each leg has its own \`symbol\`, \`action\`, \`value\` — LIFO processes per-symbol independently`
       },
       {
         id: "lifo-algorithm",
@@ -814,9 +843,12 @@ T1: Sell to Open 1 -> consumed=0, surviving=1, take=1
       {
         id: "dollar-normalization",
         title: "Step 3: Dollar Normalization of P&L Formulas",
+        revised: true,
         content: `**File:** \`src/tastytrade/analytics/strategies/models.py\`
 
-### Current Formula (per-unit prices)
+**Revised:** With transactions API used uniformly for all option types, the bifurcated equity/futures path is eliminated. Every option leg gets its \`entry_value\` from transactions — no fallback to \`average_open_price\`.
+
+### Current Formula (per-unit prices — being replaced)
 
 \`\`\`python
 # Current: per-unit -> then multiply
@@ -824,9 +856,9 @@ net_credit = sum(avg_open_price * (-signed_qty) for leg in legs)
 max_profit = net_credit * multiplier  # e.g., 0.80 * 100 = $80
 \`\`\`
 
-### New Formula (dollar values)
+### New Formula (uniform dollar values)
 
-Normalize ALL option types to dollar-valued entry credits:
+Single path — all option types use transaction-derived dollar values:
 
 \`\`\`python
 def compute_net_entry_credit_dollars(
@@ -835,34 +867,31 @@ def compute_net_entry_credit_dollars(
     """Compute net dollar credit received at entry.
     Positive = net credit. Returns None if data missing."""
 
-    for leg in option_legs:
-        if leg.entry_value is not None:
-            continue
-        elif leg.average_open_price is not None:
-            continue
-        else:
-            return None
+    # All legs must have transaction-derived entry values
+    if any(leg.entry_value is None for leg in option_legs):
+        return None
 
     total = Decimal("0")
     for leg in option_legs:
-        if leg.entry_value is not None:
-            # Transaction-derived: already in dollars
-            sign = 1 if leg.signed_quantity < 0 else -1
-            total += leg.entry_value * sign
-        else:
-            # Equity options: compute from price
-            price = Decimal(str(leg.average_open_price))
-            qty = Decimal(str(abs(leg.signed_quantity)))
-            sign = 1 if leg.signed_quantity < 0 else -1
-            total += price * qty * leg.multiplier * sign
+        sign = 1 if leg.signed_quantity < 0 else -1
+        total += leg.entry_value * sign
     return total
 \`\`\`
+
+**What changed:** No more \`if entry_value ... elif average_open_price\` branching. Every leg uses \`entry_value\` from the transactions API. The \`value\` field already accounts for multiplier and quantity — the API does the math for us.
 
 ### Impact on \`compute_max_profit\` / \`compute_max_loss\`
 
 - **Credit strategies:** \`max_profit = net_credit_dollars\` (no multiplier step)
 - **Width-based:** \`max_loss = (width * multiplier) - net_credit_dollars\`
 - **Debit strategies:** \`max_loss = abs(net_credit_dollars)\`
+
+### What Gets Removed
+
+- The \`average_open_price\` fallback path in the classifier
+- The \`average_open_price == 0.0\` workaround in \`classifier.py:81-87\`
+- Per-unit price multiplication logic (\`price * qty * multiplier\`)
+- The concept of "equity options use position API, futures use transactions API"
 
 **Renaming:** \`_net_entry_credit()\` becomes \`compute_net_entry_credit_dollars()\`, \`_strategy_multiplier()\` becomes \`strategy_multiplier()\``
       },
@@ -919,20 +948,25 @@ async def publish_entry_credits(
       {
         id: "orchestrator-classifier",
         title: "Step 5: Orchestrator & Classifier Changes",
+        revised: true,
         content: `**Files:** \`src/tastytrade/accounts/orchestrator.py\`, \`src/tastytrade/analytics/strategies/classifier.py\`
 
 ### Orchestrator: Fetch Transactions at Startup
+
+**Revised (v2):** Steps 4 and 5 swapped (replay-first, rollup-second). Scope expanded to **all option types** — not just futures options.
 
 \`\`\`
 # In orchestrator startup sequence:
 1. Fetch positions (existing)
 2. Fetch instruments for position symbols (existing)
-3. Fetch futures option transactions              <-- NEW
-4. Group transactions by symbol                   <-- NEW
-5. Run LIFO replay per symbol -> entry credits    <-- NEW
+3. Fetch option transactions (equity + futures)   <-- NEW (all options)
+4. Run LIFO replay per symbol -> identify fills   <-- NEW (replay first)
+5. Roll up entry credits from identified fills    <-- NEW (rollup second)
 6. Publish entry credits to Redis                 <-- NEW
 7. Run strategy classification (existing, now reads entry credits)
 \`\`\`
+
+**Rationale:** Using the transactions API uniformly for all option types eliminates the bifurcated equity/futures path. The API returns identical \`value\` (dollar) fields for both — confirmed against production data (CSCO equity options and /6E futures options).
 
 ### Classifier: \`build_parsed_leg()\` Changes
 
@@ -940,21 +974,22 @@ async def publish_entry_credits(
 # In build_parsed_leg():
 entry_credits = await redis.hgetall("tastytrade:entry_credits")
 
-# For each future option position:
+# For ALL option positions (equity + futures):
 credit_data = entry_credits.get(streamer_symbol)
 if credit_data:
     parsed = json.loads(credit_data)
     leg.entry_value = Decimal(parsed["value"])
 else:
-    # Fall back to average_open_price (equity options)
-    leg.entry_value = None
+    leg.entry_value = None  # No transaction data available
 \`\`\`
 
-### Remove the 0.0 Workaround
+### What Gets Removed
 
-The current workaround in \`classifier.py:81-87\` that treats \`average_open_price == 0.0\` as \`None\` becomes unnecessary. Futures options no longer depend on \`average_open_price\` at all.
+- The \`average_open_price == 0.0\` workaround in \`classifier.py:81-87\`
+- The \`average_open_price\` fallback path for equity options
+- The concept of "equity options use Position API prices, futures use transactions"
 
-**Backward compatibility:** Equity options continue to use \`average_open_price\` from the Position API (sufficient precision). No changes needed for equity options.
+**All option types now use a single, uniform flow:** transactions API -> LIFO replay -> dollar-valued entry credits.
 
 ### Files Modified
 
