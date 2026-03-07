@@ -239,16 +239,6 @@ INFLUX_DB_TOKEN=your_token
 - Automatic infrastructure service management
 - Consistent development experience across machines
 
-### Agentic Skills (Claude Code)
-
-This project includes agentic skills for GitHub and Jira integration with [Claude Code](https://claude.ai/code). After installing dev dependencies, run:
-
-```bash
-uv run quber-workflow init --config .claude/.quber-workflow.yaml
-```
-
-This reads the project configuration from `.claude/.quber-workflow.yaml` and generates all workflow files (agents, skills, hooks, settings, and docs). Generated files are excluded from git via `.git/info/exclude` — they are not committed to the repository.
-
 ### Dependency Management (UV)
 
 This project uses [uv](https://github.com/astral-sh/uv) instead of Poetry.

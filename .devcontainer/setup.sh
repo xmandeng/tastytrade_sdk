@@ -20,7 +20,7 @@ if [ -d "/workspace/.git" ] && command -v pre-commit > /dev/null 2>&1; then
     pre-commit install 2>/dev/null || echo "  pre-commit install failed (non-critical)"
 fi
 
-# Step 3: Run startup.sh (env persistence, git, gh CLI, quber-workflow)
+# Step 3: Run startup.sh (env persistence, git, gh CLI)
 echo "Running startup configuration..."
 /usr/local/bin/devcontainer-startup
 

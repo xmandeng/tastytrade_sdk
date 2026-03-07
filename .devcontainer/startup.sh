@@ -302,23 +302,6 @@ fix_docker_socket_permissions() {
     fi
 }
 
-# Initialize quber-workflow (generates Claude settings, hooks, skills)
-initialize_quber_workflow() {
-    echo "Initializing quber-workflow..."
-
-    if ! command -v uv > /dev/null 2>&1; then
-        echo "  uv not found, skipping quber-workflow init"
-        return 0
-    fi
-
-    cd /workspace
-    if uv run quber-workflow init --config /workspace/.devcontainer/quber-workflow.yaml; then
-        echo "  quber-workflow initialized successfully"
-    else
-        echo "  quber-workflow init failed (non-critical, continuing)"
-    fi
-}
-
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
@@ -372,10 +355,6 @@ echo ""
 
 # Step 9: Fix Docker socket permissions for Docker-from-Docker (MCP servers)
 fix_docker_socket_permissions
-echo ""
-
-# Step 10: Initialize quber-workflow (Claude settings, hooks, skills)
-initialize_quber_workflow
 echo ""
 
 echo "==============================================="

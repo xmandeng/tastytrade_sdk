@@ -1,9 +1,0 @@
-project_name: tastytrade-sdk
-repo_name: xmandeng/tastytrade_sdk
-jira_prefix: TT
-jira_label: tastytrade-sdk
-jira_url: https://mandeng.atlassian.net
-epic_manager: true
-enable_langsmith: true
-enable_logfire: false
-enable_agent_teams: true
