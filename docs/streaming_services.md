@@ -58,7 +58,7 @@ Start each service in its own terminal. Order matters — start `account-stream`
 just account-stream
 ```
 
-Connects to the TastyTrade Account Streamer WebSocket. Publishes `CurrentPosition` and `AccountBalance` events to Redis HSET. Self-heals with exponential backoff on connection failures.
+Connects to the TastyTrade Account Streamer WebSocket. Publishes `CurrentPosition`, `AccountBalance`, `PlacedOrder`, and `PlacedComplexOrder` events to Redis. Self-heals with exponential backoff on connection failures.
 
 ### Terminal 2: Market Data Subscription
 
@@ -108,6 +108,15 @@ The two services are **independent processes** that coordinate through Redis:
 | **Reconnect signal** | Shared `ReconnectSignal` from `connections/signals.py` — same pattern as subscribe |
 | **Failure simulation** | `redis-cli PUBLISH account:simulate_failure "connection_dropped"` |
 | **Self-healing** | Exponential backoff, resets on healthy connection |
+
+#### Order Events
+
+The account-stream service also consumes order events via two dedicated consumers in `accounts/orchestrator.py`:
+
+- **`consume_orders()`** — processes `PlacedOrder` events (single-leg orders)
+- **`consume_complex_orders()`** — processes `PlacedComplexOrder` events (multi-leg / spread orders)
+
+Each consumer pulls from its own `asyncio.Queue` (one per `AccountEventType`) and publishes to Redis through `AccountStreamPublisher`. This follows the same straight-through pattern as position and balance consumers — no callbacks, no polling.
 
 ### subscribe
 
