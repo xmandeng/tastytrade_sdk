@@ -105,7 +105,7 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 - Add HSET storage to `RedisEventProcessor` for latest market data
 - Refactor position resolver from polling to event-driven (pub/sub listener)
 - Remove PII from logging output (account numbers, balances)
-- Add `streaming_services.md` operations guide
+- Add `STREAMING_SERVICES.md` operations guide
 
 ---
 
