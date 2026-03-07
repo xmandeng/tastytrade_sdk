@@ -154,62 +154,65 @@ The development environment will be automatically configured with all necessary 
 
 The SDK is now ready to use within the development container!
 
-## 🚀 Quick Start
+## Quick Start
 
-```python
-from tastytrade.connections import Credentials
-from tastytrade.connections.sockets import DXLinkManager
-from tastytrade.analytics.visualizations.charts import CandleChart
+### CLI Services
 
-# Initialize connection
-credentials = Credentials(env="Live")
-async with DXLinkManager(credentials) as dxlink:
-    # Subscribe to market data
-    await dxlink.subscribe_to_candles(
-        symbol="SPY",
-        interval="5m",
-        from_time=datetime.now() - timedelta(days=1)
-    )
+The SDK provides several CLI entry points for streaming and analytics:
 
-    # Create real-time chart
-    chart = CandleChart(
-        streamer=dxlink,
-        symbol="SPY",
-        start_time=datetime.now() - timedelta(days=1)
-    )
-    chart.add_study(hull_ma)  # Add Hull Moving Average
-    await chart.start()
+```bash
+# Start market data subscription (candles, quotes, Greeks → Redis)
+uv run tasty-subscription run \
+  --symbols AAPL,SPY,QQQ \
+  --intervals 1d,1h,5m \
+  --start-date 2026-01-20
+
+# Start account stream (positions, balances, orders → Redis)
+uv run tasty-subscription account-stream
+
+# View current positions from Redis
+uv run tasty-subscription positions
+
+# View position summary by underlying
+uv run tasty-subscription positions-summary
+
+# Deterministic strategy classification
+uv run tasty-subscription strategies
+
+# Check subscription status
+uv run tasty-subscription status
+
+# Signal detection
+uv run tasty-signal run --symbols SPY,QQQ
+
+# Backtesting
+uv run tasty-backtest run --strategy iron-condor --symbol SPY
+
+# FastAPI server
+uv run api
 ```
 
-## 📊 Data Processing Pipeline
+### Justfile Recipes
+
+Common operations are available via [just](https://github.com/casey/just):
+
+```bash
+just subscribe          # Market data subscription (defaults to prior workday)
+just account-stream     # Account stream (positions/balances/orders to Redis)
+just positions          # Show current position metrics
+just positions-summary  # Aggregated position summary by underlying
+just strategies         # Deterministic strategy classification
+just status             # Check subscription status
+```
+
+## Data Processing Pipeline
 
 ### Market Data Flow
-1. Real-time data ingestion via WebSocket
+1. Real-time data ingestion via WebSocket (DXLink for market data, Account Streamer for account state)
 2. Event processing and normalization
-3. Storage in InfluxDB for historical analysis
-4. Distribution via ~~Kafka~~ Redis for real-time processing
-5. Analytics and visualization
-
-### Sample Visualization
-```python
-from tastytrade.analytics.visualizations.charts import Study
-
-# Create a Hull Moving Average study
-hma_study = Study(
-    name="HMA-20",
-    compute_fn=hull,
-    params={"length": 20},
-    plot_params={
-        "colors": {"Up": "#01FFFF", "Down": "#FF66FE"},
-        "width": 1,
-    },
-    value_column="HMA",
-    color_column="HMA_color",
-)
-
-# Apply to chart
-chart.add_study(hma_study)
-```
+3. Storage in Redis HSET for latest state and pub/sub for real-time distribution
+4. Storage in InfluxDB for historical analysis
+5. Analytics, strategy classification, and signal detection
 
 ## 🔧 Configuration
 
@@ -223,7 +226,7 @@ INFLUX_DB_TOKEN=your_token
 ### Docker Services
 - InfluxDB (Port 8086)
 - Telegraf (Port 8186)
-- Kafka (Ports 9092, 9093)
+- Redis (Port 6379)
 - Grafana (Port 3000)
 
 ## 🧪 Development
@@ -289,7 +292,7 @@ uv run pytest
 ### Code Quality
 ```bash
 uv run ruff check .
-uv run mypy .
+uv run pyright
 ```
 
 ## 📚 Documentation

@@ -1,5 +1,7 @@
 # TT-60: Account Streamer Event Inventory & Implementation Plan
 
+> **Status:** COMPLETED — Scoping decision document. See TT-60-implementation-plan.md for implementation details.
+
 > **Jira:** [TT-60](https://mandeng.atlassian.net/browse/TT-60)
 > **Branch:** `feature/TT-60-order-events`
 

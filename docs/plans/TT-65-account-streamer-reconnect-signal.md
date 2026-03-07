@@ -1,5 +1,7 @@
 # TT-65: Apply ReconnectSignal Refactor to AccountStreamer — Implementation Plan
 
+> **Status:** COMPLETED — AccountStreamer refactored to use shared ReconnectSignal. This plan is historical reference.
+
 > **Jira:** [TT-65](https://mandeng.atlassian.net/browse/TT-65)
 > **Branch:** `feature/TT-65-account-streamer-reconnect-signal`
 > **Depends on:** [TT-64](https://mandeng.atlassian.net/browse/TT-64) (Done)
