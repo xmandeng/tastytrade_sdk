@@ -1,5 +1,7 @@
 # TT-64: Refactor Reconnection Signaling — Implementation Plan
 
+> **Status:** COMPLETED — ReconnectSignal implemented in connections/signals.py. This plan is historical reference.
+
 > **Jira:** [TT-64](https://mandeng.atlassian.net/browse/TT-64)
 > **Branch:** `feature/TT-64-reconnect-signal-refactor`
 

@@ -1,5 +1,7 @@
 # TT-60: Order & ComplexOrder Event Pipeline — Implementation Plan
 
+> **Status:** COMPLETED — Order event pipeline implemented. This plan is historical reference.
+
 > **Jira:** [TT-60](https://mandeng.atlassian.net/browse/TT-60)
 > **Branch:** `feature/TT-60-order-events`
 > **Scope:** Order + ComplexOrder events (approved 2026-03-02)

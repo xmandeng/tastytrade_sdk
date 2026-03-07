@@ -1,5 +1,7 @@
 # TT-62: Option Strategy Classification Engine — Implementation Plan
 
+> **Status:** COMPLETED — Strategy engine fully implemented. This plan is historical reference.
+
 > **Jira:** [TT-62](https://mandeng.atlassian.net/browse/TT-62)
 
 ## Context
