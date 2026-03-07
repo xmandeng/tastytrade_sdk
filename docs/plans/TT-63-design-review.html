@@ -1,507 +1,685 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan Review: Futures Option Entry Price Reconciliation</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan Review: Futures Option Entry Price Reconciliation</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-  :root {
-    --bg: #0d1117;
-    --bg-surface: #161b22;
-    --bg-surface-2: #1c2128;
-    --bg-hover: #21262d;
-    --border: #30363d;
-    --border-light: #484f58;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --text-dim: #6e7681;
-    --accent: #58a6ff;
-    --green: #3fb950;
-    --green-bg: rgba(63, 185, 80, 0.10);
-    --amber: #d29922;
-    --amber-bg: rgba(210, 153, 34, 0.10);
-    --red: #f85149;
-    --red-bg: rgba(248, 81, 73, 0.08);
-    --purple: #bc8cff;
-  }
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.10);
+      --amber: #d29922;
+      --amber-bg: rgba(210, 153, 34, 0.10);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.08);
+      --purple: #bc8cff;
+    }
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.6;
-    height: 100vh;
-    overflow: hidden;
-  }
-
-  /* Top bar */
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 20px;
-    background: var(--bg-surface);
-    border-bottom: 1px solid var(--border);
-    height: 52px;
-  }
-  .topbar h1 {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .topbar .stats {
-    display: flex;
-    gap: 16px;
-    font-size: 12px;
-  }
-  .stat { display: flex; align-items: center; gap: 5px; }
-  .stat .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-  }
-  .dot-pending { background: var(--amber); }
-  .dot-approved { background: var(--green); }
-  .dot-revision { background: var(--red); }
-  .dot-question { background: var(--purple); }
-
-  /* Main layout */
-  .main {
-    display: flex;
-    height: calc(100vh - 52px);
-  }
-
-  /* Resize handles */
-  .resize-handle {
-    width: 1px;
-    cursor: col-resize;
-    background: var(--border);
-    position: relative;
-    flex-shrink: 0;
-    z-index: 10;
-    overflow: visible;
-  }
-  .resize-handle:hover,
-  .resize-handle.dragging {
-    background: var(--accent);
-    width: 3px;
-  }
-  body.resizing { cursor: col-resize; user-select: none; }
-
-  /* Topbar collapse toggle buttons */
-  .topbar-toggles {
-    display: flex;
-    gap: 6px;
-  }
-  .collapse-toggle {
-    width: 36px;
-    height: 32px;
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-    -webkit-user-select: none;
-    user-select: none;
-    transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-  }
-  @media (hover: hover) {
-    .collapse-toggle:hover {
-      background: var(--bg-hover);
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
       color: var(--text);
+      line-height: 1.6;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      height: 52px;
+    }
+
+    .topbar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .topbar .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-pending {
+      background: var(--amber);
+    }
+
+    .dot-approved {
+      background: var(--green);
+    }
+
+    .dot-revision {
+      background: var(--red);
+    }
+
+    .dot-question {
+      background: var(--purple);
+    }
+
+    /* Main layout */
+    .main {
+      display: flex;
+      height: calc(100vh - 52px);
+    }
+
+    /* Resize handles */
+    .resize-handle {
+      width: 1px;
+      cursor: col-resize;
+      background: var(--border);
+      position: relative;
+      flex-shrink: 0;
+      z-index: 10;
+      overflow: visible;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.dragging {
+      background: var(--accent);
+      width: 3px;
+    }
+
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    /* Topbar collapse toggle buttons */
+    .topbar-toggles {
+      display: flex;
+      gap: 6px;
+    }
+
+    .collapse-toggle {
+      width: 36px;
+      height: 32px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    @media (hover: hover) {
+      .collapse-toggle:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+        border-color: var(--accent);
+      }
+    }
+
+    .collapse-toggle.panel-collapsed {
+      background: var(--accent);
+      color: var(--bg);
       border-color: var(--accent);
     }
-  }
-  .collapse-toggle.panel-collapsed {
-    background: var(--accent);
-    color: var(--bg);
-    border-color: var(--accent);
-  }
 
-  /* Collapsed panel states */
-  .nav.collapsed {
-    width: 0 !important;
-    min-width: 0 !important;
-    padding: 0 !important;
-    overflow: hidden;
-  }
-  .right-panel.collapsed {
-    width: 0 !important;
-    min-width: 0 !important;
-    overflow: hidden;
-  }
-  .right-panel.collapsed > * { display: none; }
-  .nav.collapsed > * { display: none; }
-  .nav, .right-panel { transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease; }
+    /* Collapsed panel states */
+    .nav.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
 
-  /* Section nav */
-  .nav {
-    width: 240px;
-    min-width: 140px;
-    background: var(--bg-surface);
-    overflow-y: auto;
-    padding: 12px 0;
-  }
-  .nav-item {
-    padding: 8px 16px;
-    font-size: 12px;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-left: 3px solid transparent;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .nav-item:hover { background: var(--bg-hover); color: var(--text); }
-  .nav-item.active {
-    background: var(--bg-hover);
-    border-left-color: var(--accent);
-    color: var(--text);
-  }
-  .nav-item .status-icon {
-    width: 16px; height: 16px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px;
-  }
-  .nav-item .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .right-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
 
-  /* Document panel */
-  .doc-panel {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px 32px;
-    min-width: 0;
-  }
-  .doc-panel::-webkit-scrollbar { width: 8px; }
-  .doc-panel::-webkit-scrollbar-track { background: transparent; }
-  .doc-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .right-panel.collapsed>* {
+      display: none;
+    }
 
-  /* Section rendering */
-  .section { margin-bottom: 16px; scroll-margin-top: 20px; padding: 16px 16px 10px; border-radius: 6px; }
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  .section-header h2 {
-    font-size: 18px;
-    font-weight: 600;
-    flex: 1;
-  }
-  .section-header h3 {
-    font-size: 15px;
-    font-weight: 600;
-    flex: 1;
-  }
+    .nav.collapsed>* {
+      display: none;
+    }
 
-  .section-content {
-    font-size: 14px;
-    line-height: 1.7;
-    color: var(--text-muted);
-  }
-  .section-content p { margin-bottom: 12px; }
-  .section-content strong { color: var(--text); font-weight: 600; }
-  .section-content code {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-    font-size: 12px;
-    background: var(--bg-surface-2);
-    padding: 2px 6px;
-    border-radius: 4px;
-    color: var(--accent);
-  }
-  .section-content pre {
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px;
-    margin: 12px 0;
-    overflow-x: auto;
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--text-muted);
-  }
-  .section-content pre code {
-    background: none;
-    padding: 0;
-    color: inherit;
-  }
-  .section-content ul, .section-content ol {
-    margin: 8px 0 12px 24px;
-  }
-  .section-content li { margin-bottom: 4px; }
-  .section-content table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 12px 0;
-    font-size: 13px;
-  }
-  .section-content th, .section-content td {
-    text-align: left;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-  }
-  .section-content th { background: var(--bg-surface-2); color: var(--text); font-weight: 600; }
-  .section-content hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+    .nav,
+    .right-panel {
+      transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    }
 
-  /* Review actions */
-  .review-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-  }
+    /* Section nav */
+    .nav {
+      width: 240px;
+      min-width: 140px;
+      background: var(--bg-surface);
+      overflow-y: auto;
+      padding: 12px 0;
+    }
 
-  .review-btn {
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-    background: var(--bg-surface);
-    color: var(--text-muted);
-    transition: all 0.15s;
-  }
-  .review-btn:hover { border-color: var(--border-light); color: var(--text); }
-  .review-btn.active-approved {
-    background: var(--green-bg);
-    border-color: var(--green);
-    color: var(--green);
-  }
-  .review-btn.active-revision {
-    background: var(--red-bg);
-    border-color: var(--red);
-    color: var(--red);
-  }
-  .review-btn.active-question {
-    background: rgba(188, 140, 255, 0.10);
-    border-color: var(--purple);
-    color: var(--purple);
-  }
+    .nav-item {
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
-  .comment-area {
-    margin-top: 10px;
-    display: none;
-  }
-  .comment-area.visible { display: block; }
-  .comment-area textarea {
-    width: 100%;
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    padding: 10px;
-    font-family: inherit;
-    font-size: 13px;
-    resize: vertical;
-    min-height: 60px;
-    outline: none;
-    margin-bottom: 0;
-    display: block;
-  }
-  .comment-area textarea:focus { border-color: var(--accent); }
-  .comment-area textarea::placeholder { color: var(--text-dim); }
-  .existing-comment {
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px;
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-top: 8px;
-    position: relative;
-  }
-  .existing-comment .edit-btn {
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    font-size: 11px;
-    color: var(--accent);
-    cursor: pointer;
-    background: none;
-    border: none;
-  }
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
 
-  /* Right panel: prompt output */
-  .right-panel {
-    width: 360px;
-    min-width: 200px;
-    background: var(--bg-surface);
-    display: flex;
-    flex-direction: column;
-  }
-  .right-panel-header {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .right-panel-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-  }
-  .right-panel-content::-webkit-scrollbar { width: 6px; }
-  .right-panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .nav-item.active {
+      background: var(--bg-hover);
+      border-left-color: var(--accent);
+      color: var(--text);
+    }
 
-  .prompt-output {
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--text-muted);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .prompt-placeholder {
-    color: var(--text-dim);
-    font-style: italic;
-    font-size: 13px;
-    text-align: center;
-    padding: 40px 20px;
-  }
+    .nav-item .status-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
 
-  .copy-btn {
-    padding: 8px 16px;
-    margin: 12px 16px 16px;
-    background: var(--accent);
-    color: #0d1117;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.15s;
-  }
-  .copy-btn:hover { opacity: 0.9; }
-  .copy-btn.copied { background: var(--green); }
+    .nav-item .label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-  /* Filter tabs in right panel */
-  .filter-tabs {
-    display: flex;
-    gap: 2px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-surface);
-  }
-  .filter-tab {
-    padding: 4px 10px;
-    font-size: 11px;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-    transition: all 0.15s;
-  }
-  .filter-tab:hover { background: var(--bg-hover); }
-  .filter-tab.active { background: var(--bg-hover); color: var(--text); }
+    /* Document panel */
+    .doc-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      min-width: 0;
+    }
 
-  /* Feedback summary items */
-  .feedback-item {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-  }
-  .feedback-item:last-child { border-bottom: none; }
-  .feedback-item .fb-section {
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 4px;
-    font-size: 12px;
-  }
-  .feedback-item .fb-status {
-    display: inline-block;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-weight: 600;
-    margin-right: 6px;
-  }
-  .fb-status.approved { background: var(--green-bg); color: var(--green); }
-  .fb-status.revision { background: var(--red-bg); color: var(--red); }
-  .fb-status.question { background: rgba(188,140,255,0.1); color: var(--purple); }
-  .feedback-item .fb-comment {
-    color: var(--text-muted);
-    font-size: 12px;
-    margin-top: 4px;
-  }
+    .doc-panel::-webkit-scrollbar {
+      width: 8px;
+    }
 
-  /* Revised section highlight */
-  .section.revised {
-    border-left: 3px solid var(--accent) !important;
-    background: rgba(88, 166, 255, 0.04) !important;
-  }
-  .revised-badge {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(88, 166, 255, 0.15);
-    color: var(--accent);
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
-</style>
+    .doc-panel::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .doc-panel::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    /* Section rendering */
+    .section {
+      margin-bottom: 16px;
+      scroll-margin-top: 20px;
+      padding: 16px 16px 10px;
+      border-radius: 6px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-header h3 {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-content {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+
+    .section-content p {
+      margin-bottom: 12px;
+    }
+
+    .section-content strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content code {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: var(--bg-surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .section-content pre {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin: 12px 0;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    .section-content pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    .section-content ul,
+    .section-content ol {
+      margin: 8px 0 12px 24px;
+    }
+
+    .section-content li {
+      margin-bottom: 4px;
+    }
+
+    .section-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+
+    .section-content th,
+    .section-content td {
+      text-align: left;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+    }
+
+    .section-content th {
+      background: var(--bg-surface-2);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    /* Review actions */
+    .review-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .review-btn {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .review-btn:hover {
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+
+    .review-btn.active-approved {
+      background: var(--green-bg);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .review-btn.active-revision {
+      background: var(--red-bg);
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .review-btn.active-question {
+      background: rgba(188, 140, 255, 0.10);
+      border-color: var(--purple);
+      color: var(--purple);
+    }
+
+    .comment-area {
+      margin-top: 10px;
+      display: none;
+    }
+
+    .comment-area.visible {
+      display: block;
+    }
+
+    .comment-area textarea {
+      width: 100%;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 60px;
+      outline: none;
+      margin-bottom: 0;
+      display: block;
+    }
+
+    .comment-area textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .comment-area textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    .existing-comment {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      position: relative;
+    }
+
+    .existing-comment .edit-btn {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    /* Right panel: prompt output */
+    .right-panel {
+      width: 360px;
+      min-width: 200px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .right-panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .right-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .right-panel-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .right-panel-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .prompt-output {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .prompt-placeholder {
+      color: var(--text-dim);
+      font-style: italic;
+      font-size: 13px;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .copy-btn {
+      padding: 8px 16px;
+      margin: 12px 16px 16px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .copy-btn:hover {
+      opacity: 0.9;
+    }
+
+    .copy-btn.copied {
+      background: var(--green);
+    }
+
+    /* Filter tabs in right panel */
+    .filter-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .filter-tab {
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .filter-tab:hover {
+      background: var(--bg-hover);
+    }
+
+    .filter-tab.active {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    /* Feedback summary items */
+    .feedback-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .feedback-item:last-child {
+      border-bottom: none;
+    }
+
+    .feedback-item .fb-section {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .feedback-item .fb-status {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .fb-status.approved {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .fb-status.revision {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .fb-status.question {
+      background: rgba(188, 140, 255, 0.1);
+      color: var(--purple);
+    }
+
+    .feedback-item .fb-comment {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    /* Revised section highlight */
+    .section.revised {
+      border-left: 3px solid var(--accent) !important;
+      background: rgba(88, 166, 255, 0.04) !important;
+    }
+
+    .revised-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+  </style>
 </head>
+
 <body>
 
-<div class="topbar">
-  <div class="topbar-toggles">
-    <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9"/><rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3"/></svg>
-    </button>
-  </div>
-  <h1>Plan Review: Futures Option Entry Price Reconciliation</h1>
-  <div class="stats" id="stats"></div>
-  <div class="topbar-toggles">
-    <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3"/><rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9"/></svg>
-    </button>
-  </div>
-</div>
-
-<div class="main">
-  <div class="nav" id="nav"></div>
-  <div class="resize-handle" id="leftHandle"></div>
-  <div class="doc-panel" id="docPanel"></div>
-  <div class="resize-handle" id="rightHandle"></div>
-  <div class="right-panel" id="rightPanel">
-    <div class="right-panel-header">
-      <span>Review Feedback</span>
-      <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+  <div class="topbar">
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9" />
+          <rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3" />
+        </svg>
+      </button>
     </div>
-    <div class="filter-tabs" id="filterTabs">
-      <div class="filter-tab active" data-filter="all">All</div>
-      <div class="filter-tab" data-filter="approved">Approved</div>
-      <div class="filter-tab" data-filter="revision">Needs Revision</div>
-      <div class="filter-tab" data-filter="question">Questions</div>
+    <h1>Plan Review: Futures Option Entry Price Reconciliation</h1>
+    <div class="stats" id="stats"></div>
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
+          <rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9" />
+        </svg>
+      </button>
     </div>
-    <div class="right-panel-content" id="feedbackList"></div>
-    <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
   </div>
-</div>
 
-<script>
-const docSections = [
-  {
-    id: "context",
-    title: "Context & Problem Statement",
-    content: `The TastyTrade Position API's \`average-open-price\` field has insufficient precision for futures options:
+  <div class="main">
+    <div class="nav" id="nav"></div>
+    <div class="resize-handle" id="leftHandle"></div>
+    <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="rightHandle"></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="right-panel-header">
+        <span>Review Feedback</span>
+        <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">All</div>
+        <div class="filter-tab" data-filter="approved">Approved</div>
+        <div class="filter-tab" data-filter="revision">Needs Revision</div>
+        <div class="filter-tab" data-filter="question">Questions</div>
+      </div>
+      <div class="right-panel-content" id="feedbackList"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+    </div>
+  </div>
+
+  <script>
+    const docSections = [
+      {
+        id: "context",
+        title: "Context & Problem Statement",
+        content: `The TastyTrade Position API's \`average-open-price\` field has insufficient precision for futures options:
 
 - **/6E options** — Price rounds to \`0.0\` because premiums are tiny fractions (e.g., 0.0032 USD/EUR x 125,000 = $400). The API cannot represent this.
 - **/ZB options** — Price truncated to ~2 decimals (\`0.23\` instead of \`0.234375\` = 15/64ths). Off by ~$5.62 on a $515.62 max profit.
@@ -509,11 +687,11 @@ const docSections = [
 This means \`max_profit\` and \`max_loss\` are wrong or missing for future option strategies. The Transactions API provides precise dollar \`value\` per fill, already accounting for multiplier and quantity.
 
 **User context:** "I do leg into positions. I don't want that to affect my accounting later." — This drives the LIFO cost basis approach.`
-  },
-  {
-    id: "transaction-model",
-    title: "Step 1: Transaction Data Model & API Client",
-    content: `**File:** \`src/tastytrade/accounts/transactions.py\`
+      },
+      {
+        id: "transaction-model",
+        title: "Step 1: Transaction Data Model & API Client",
+        content: `**File:** \`src/tastytrade/accounts/transactions.py\`
 
 A new Pydantic model and API client for fetching transaction history:
 
@@ -552,11 +730,11 @@ class TransactionsClient:
 - **CHOSEN:** Store dollar \`value\` directly (not per-unit prices)
 - Transaction \`value\` already accounts for multiplier x quantity
 - \`value_effect\` disambiguates credit vs debit (sign convention)`
-  },
-  {
-    id: "lifo-algorithm",
-    title: "Step 2: Reverse Replay (LIFO) Algorithm",
-    content: `**File:** \`src/tastytrade/accounts/transactions.py\`
+      },
+      {
+        id: "lifo-algorithm",
+        title: "Step 2: Reverse Replay (LIFO) Algorithm",
+        content: `**File:** \`src/tastytrade/accounts/transactions.py\`
 
 ### Why LIFO Reverse Replay
 
@@ -632,11 +810,11 @@ T1: Sell to Open 1 -> consumed=0, surviving=1, take=1
 \`\`\`
 
 **Key property:** If all legs were opened together in a single fill (the common case), this reduces to simply taking the fill value directly — no averaging needed.`
-  },
-  {
-    id: "dollar-normalization",
-    title: "Step 3: Dollar Normalization of P&L Formulas",
-    content: `**File:** \`src/tastytrade/analytics/strategies/models.py\`
+      },
+      {
+        id: "dollar-normalization",
+        title: "Step 3: Dollar Normalization of P&L Formulas",
+        content: `**File:** \`src/tastytrade/analytics/strategies/models.py\`
 
 ### Current Formula (per-unit prices)
 
@@ -687,11 +865,11 @@ def compute_net_entry_credit_dollars(
 - **Debit strategies:** \`max_loss = abs(net_credit_dollars)\`
 
 **Renaming:** \`_net_entry_credit()\` becomes \`compute_net_entry_credit_dollars()\`, \`_strategy_multiplier()\` becomes \`strategy_multiplier()\``
-  },
-  {
-    id: "redis-integration",
-    title: "Step 4: Redis Integration & Data Flow",
-    content: `**File:** \`src/tastytrade/accounts/publisher.py\`
+      },
+      {
+        id: "redis-integration",
+        title: "Step 4: Redis Integration & Data Flow",
+        content: `**File:** \`src/tastytrade/accounts/publisher.py\`
 
 ### New Redis Key
 
@@ -737,11 +915,11 @@ async def publish_entry_credits(
             credit.model_dump_json(),
         )
 \`\`\``
-  },
-  {
-    id: "orchestrator-classifier",
-    title: "Step 5: Orchestrator & Classifier Changes",
-    content: `**Files:** \`src/tastytrade/accounts/orchestrator.py\`, \`src/tastytrade/analytics/strategies/classifier.py\`
+      },
+      {
+        id: "orchestrator-classifier",
+        title: "Step 5: Orchestrator & Classifier Changes",
+        content: `**Files:** \`src/tastytrade/accounts/orchestrator.py\`, \`src/tastytrade/analytics/strategies/classifier.py\`
 
 ### Orchestrator: Fetch Transactions at Startup
 
@@ -790,160 +968,190 @@ The current workaround in \`classifier.py:81-87\` that treats \`average_open_pri
 | New | \`unit_tests/accounts/test_transactions.py\` |
 | Modified | \`unit_tests/analytics/strategies/test_classifier.py\` |
 | Modified | \`unit_tests/analytics/strategies/test_models.py\` |`
-  },
-  {
-    id: "verification",
-    title: "Verification",
-    content: `1. **Unit tests:** \`uv run pytest unit_tests/accounts/test_transactions.py unit_tests/analytics/strategies/ -v\`
+      },
+      {
+        id: "verification",
+        title: "Verification",
+        content: `1. **Unit tests:** \`uv run pytest unit_tests/accounts/test_transactions.py unit_tests/analytics/strategies/ -v\`
 2. **Type checking:** \`uv run mypy src/tastytrade/accounts/transactions.py src/tastytrade/analytics/strategies/\`
 3. **Linting:** \`uv run ruff check src/tastytrade/accounts/ src/tastytrade/analytics/strategies/\`
 4. **Functional test with live data:**
    - Start account-stream: \`just account-stream\` — verify entry credits HSET populated in Redis
    - Run strategies: \`just strategies\` — verify /6E and /ZB strategies show correct max_profit / max_loss
    - Compare against TT app position cards for accuracy`
-  }
-];
+      }
+    ];
 
-// State
-const state = {
-  sections: docSections.map(s => ({
-    ...s,
-    status: 'pending',
-    comment: ''
-  })),
-  activeSection: 'context',
-  activeFilter: 'all'
-};
+    const PLAN_NAME = "TT-63 Futures Option Entry Price Reconciliation";
 
-// Render markdown-like content to HTML
-function renderMarkdown(text) {
-  let html = '';
-  const lines = text.split('\n');
-  let inCode = false;
-  let codeLines = [];
-  let inList = false;
-  let inTable = false;
-  let tableRows = [];
+    // Persistence — save/restore review state across sessions
+    const STORAGE_KEY = 'review-state:' + PLAN_NAME;
+    const LAYOUT_KEY = 'review-layout:' + PLAN_NAME;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    function saveToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          sections: state.sections.map(s => ({ id: s.id, status: s.status, comment: s.comment })),
+          activeSection: state.activeSection,
+          activeFilter: state.activeFilter
+        }));
+      } catch (e) { }
+    }
 
-    // Code blocks
-    if (line.trim().startsWith('```')) {
-      if (inCode) {
-        html += '<pre><code>' + codeLines.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
-        codeLines = [];
-        inCode = false;
-      } else {
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.sections || []).forEach(saved => {
+          const s = state.sections.find(s => s.id === saved.id);
+          if (s) { s.status = saved.status || 'pending'; s.comment = saved.comment || ''; }
+        });
+        if (data.activeSection) state.activeSection = data.activeSection;
+        if (data.activeFilter) state.activeFilter = data.activeFilter;
+      } catch (e) { }
+    }
+
+    // State
+    const state = {
+      sections: docSections.map(s => ({
+        ...s,
+        status: 'pending',
+        comment: ''
+      })),
+      activeSection: 'context',
+      activeFilter: 'all'
+    };
+
+    // Render markdown-like content to HTML
+    function renderMarkdown(text) {
+      let html = '';
+      const lines = text.split('\n');
+      let inCode = false;
+      let codeLines = [];
+      let inList = false;
+      let inTable = false;
+      let tableRows = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Code blocks
+        if (line.trim().startsWith('```')) {
+          if (inCode) {
+            html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+            codeLines = [];
+            inCode = false;
+          } else {
+            if (inList) { html += '</ul>'; inList = false; }
+            if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) { codeLines.push(line); continue; }
+
+        // Table
+        if (line.trim().startsWith('|')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          if (!inTable) inTable = true;
+          if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+            tableRows.push(line);
+          }
+          continue;
+        } else if (inTable) {
+          html += renderTable(tableRows);
+          inTable = false;
+          tableRows = [];
+        }
+
+        // Empty line
+        if (line.trim() === '') {
+          if (inList) { html += '</ul>'; inList = false; }
+          continue;
+        }
+
+        // Headers
+        if (line.startsWith('### ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+          continue;
+        }
+
+        // List items
+        if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+          continue;
+        }
+        if (line.trim().match(/^\d+\.\s/)) {
+          if (!inList) { html += '<ol>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+          continue;
+        }
+
         if (inList) { html += '</ul>'; inList = false; }
-        if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
-        inCode = true;
+        html += '<p>' + inlineFormat(line) + '</p>';
       }
-      continue;
-    }
-    if (inCode) { codeLines.push(line); continue; }
 
-    // Table
-    if (line.trim().startsWith('|')) {
-      if (inList) { html += '</ul>'; inList = false; }
-      if (!inTable) inTable = true;
-      if (!line.trim().match(/^\|[\s-|]+\|$/)) {
-        tableRows.push(line);
-      }
-      continue;
-    } else if (inTable) {
-      html += renderTable(tableRows);
-      inTable = false;
-      tableRows = [];
+      if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+      if (inList) html += '</ul>';
+      if (inTable) html += renderTable(tableRows);
+
+      return html;
     }
 
-    // Empty line
-    if (line.trim() === '') {
-      if (inList) { html += '</ul>'; inList = false; }
-      continue;
+    function renderTable(rows) {
+      if (rows.length === 0) return '';
+      let html = '<table>';
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').filter(c => c.trim() !== '');
+        const tag = idx === 0 ? 'th' : 'td';
+        html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+      });
+      html += '</table>';
+      return html;
     }
 
-    // Headers
-    if (line.startsWith('### ')) {
-      if (inList) { html += '</ul>'; inList = false; }
-      html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
-      continue;
+    function inlineFormat(text) {
+      return text
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\\`/g, '`');
     }
 
-    // List items
-    if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-      if (!inList) { html += '<ul>'; inList = true; }
-      html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
-      continue;
-    }
-    if (line.trim().match(/^\d+\.\s/)) {
-      if (!inList) { html += '<ol>'; inList = true; }
-      html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
-      continue;
-    }
-
-    if (inList) { html += '</ul>'; inList = false; }
-    html += '<p>' + inlineFormat(line) + '</p>';
-  }
-
-  if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
-  if (inList) html += '</ul>';
-  if (inTable) html += renderTable(tableRows);
-
-  return html;
-}
-
-function renderTable(rows) {
-  if (rows.length === 0) return '';
-  let html = '<table>';
-  rows.forEach((row, idx) => {
-    const cells = row.split('|').filter(c => c.trim() !== '');
-    const tag = idx === 0 ? 'th' : 'td';
-    html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
-  });
-  html += '</table>';
-  return html;
-}
-
-function inlineFormat(text) {
-  return text
-    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\\`/g, '`');
-}
-
-// Render navigation
-function renderNav() {
-  const nav = document.getElementById('nav');
-  nav.innerHTML = state.sections.map(s => {
-    const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
-      : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
-      : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
-      : '<span style="color:var(--text-dim)">&bull;</span>';
-    return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+    // Render navigation
+    function renderNav() {
+      const nav = document.getElementById('nav');
+      nav.innerHTML = state.sections.map(s => {
+        const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+          : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+            : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+              : '<span style="color:var(--text-dim)">&bull;</span>';
+        return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
                  onclick="navigateTo('${s.id}')">
       <span class="status-icon">${icon}</span>
       <span class="label">${s.title}</span>
       ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
     </div>`;
-  }).join('');
-}
+      }).join('');
+    }
 
-// Render document
-function renderDoc() {
-  const panel = document.getElementById('docPanel');
-  panel.innerHTML = state.sections.map(s => {
-    const borderColor = s.status === 'approved' ? 'var(--green)'
-      : s.status === 'revision' ? 'var(--red)'
-      : s.status === 'question' ? 'var(--purple)' : 'transparent';
-    const bgColor = s.status === 'approved' ? 'var(--green-bg)'
-      : s.status === 'revision' ? 'var(--red-bg)'
-      : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+    // Render document
+    function renderDoc() {
+      const panel = document.getElementById('docPanel');
+      panel.innerHTML = state.sections.map(s => {
+        const borderColor = s.status === 'approved' ? 'var(--green)'
+          : s.status === 'revision' ? 'var(--red)'
+            : s.status === 'question' ? 'var(--purple)' : 'transparent';
+        const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+          : s.status === 'revision' ? 'var(--red-bg)'
+            : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
 
-    const revisedAndPending = s.revised && s.status === 'pending';
-    const revisedClass = revisedAndPending ? ' revised' : '';
-    return `<div class="section${revisedClass}" id="section-${s.id}"
+        const revisedAndPending = s.revised && s.status === 'pending';
+        const revisedClass = revisedAndPending ? ' revised' : '';
+        return `<div class="section${revisedClass}" id="section-${s.id}"
                  style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
       <div class="section-header">
         <h2>${s.title}</h2>
@@ -962,50 +1170,50 @@ function renderDoc() {
       </div>
       <div class="comment-area" id="comment-${s.id}">
         ${s.comment
-          ? `<div class="existing-comment">${s.comment.replace(/</g,'&lt;').replace(/\n/g,'<br>')}
+            ? `<div class="existing-comment">${s.comment.replace(/</g, '&lt;').replace(/\n/g, '<br>')}
                <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
-          : `<textarea placeholder="Add your feedback for this section..."
+            : `<textarea placeholder="Add your feedback for this section..."
                       onblur="saveComment('${s.id}', this.value)"
                       id="textarea-${s.id}"></textarea>`
-        }
+          }
       </div>
     </div>`;
-  }).join('');
-}
+      }).join('');
+    }
 
-// Render stats
-function renderStats() {
-  const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
-  state.sections.forEach(s => counts[s.status]++);
-  document.getElementById('stats').innerHTML = `
+    // Render stats
+    function renderStats() {
+      const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+      state.sections.forEach(s => counts[s.status]++);
+      document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
     <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
     <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
     <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
   `;
-}
+    }
 
-// Render feedback panel
-function renderFeedback() {
-  const list = document.getElementById('feedbackList');
-  const filtered = state.sections.filter(s => {
-    if (state.activeFilter === 'all') return s.status !== 'pending';
-    return s.status === state.activeFilter;
-  });
+    // Render feedback panel
+    function renderFeedback() {
+      const list = document.getElementById('feedbackList');
+      const filtered = state.sections.filter(s => {
+        if (state.activeFilter === 'all') return s.status !== 'pending';
+        return s.status === state.activeFilter;
+      });
 
-  const count = state.sections.filter(s => s.status !== 'pending').length;
-  document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+      const count = state.sections.filter(s => s.status !== 'pending').length;
+      document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
 
-  if (filtered.length === 0) {
-    list.innerHTML = `<div class="prompt-placeholder">
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="prompt-placeholder">
       ${state.activeFilter === 'all'
-        ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
-        : 'No sections with this status yet.'}
+            ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+            : 'No sections with this status yet.'}
     </div>`;
-    return;
-  }
+        return;
+      }
 
-  list.innerHTML = filtered.map(s => `
+      list.innerHTML = filtered.map(s => `
     <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
       <div class="fb-section">
         <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
@@ -1014,266 +1222,297 @@ function renderFeedback() {
       ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
     </div>
   `).join('');
-}
-
-// Actions
-function navigateTo(id) {
-  state.activeSection = id;
-  renderNav();
-  document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function setStatus(id, status) {
-  const section = state.sections.find(s => s.id === id);
-  if (section.status === status) {
-    section.status = 'pending';
-  } else {
-    section.status = status;
-    // Auto-show comment area for revision/question
-    if (status === 'revision' || status === 'question') {
-      setTimeout(() => {
-        const area = document.getElementById('comment-' + id);
-        if (area) area.classList.add('visible');
-      }, 50);
     }
-  }
-  renderAll();
-}
 
-function toggleComment(id) {
-  const area = document.getElementById('comment-' + id);
-  area.classList.toggle('visible');
-  if (area.classList.contains('visible')) {
-    const ta = document.getElementById('textarea-' + id);
-    if (ta) ta.focus();
-  }
-}
+    // Actions
+    function navigateTo(id) {
+      state.activeSection = id;
+      saveToStorage();
+      renderNav();
+      document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
-function saveComment(id, value) {
-  const section = state.sections.find(s => s.id === id);
-  section.comment = value.trim();
-  renderAll();
-}
+    function setStatus(id, status) {
+      const section = state.sections.find(s => s.id === id);
+      if (section.status === status) {
+        section.status = 'pending';
+      } else {
+        section.status = status;
+        // Auto-show comment area for revision/question
+        if (status === 'revision' || status === 'question') {
+          setTimeout(() => {
+            const area = document.getElementById('comment-' + id);
+            if (area) area.classList.add('visible');
+          }, 50);
+        }
+      }
+      renderAll();
+      saveToStorage();
+    }
 
-function editComment(id) {
-  const section = state.sections.find(s => s.id === id);
-  const area = document.getElementById('comment-' + id);
-  area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    function toggleComment(id) {
+      const area = document.getElementById('comment-' + id);
+      area.classList.toggle('visible');
+      if (area.classList.contains('visible')) {
+        const ta = document.getElementById('textarea-' + id);
+        if (ta) ta.focus();
+      }
+    }
+
+    function saveComment(id, value) {
+      const section = state.sections.find(s => s.id === id);
+      section.comment = value.trim();
+      renderAll();
+      saveToStorage();
+    }
+
+    function editComment(id) {
+      const section = state.sections.find(s => s.id === id);
+      const area = document.getElementById('comment-' + id);
+      area.innerHTML = `<textarea placeholder="Edit your feedback..."
     onblur="saveComment('${id}', this.value)"
     id="textarea-${id}">${section.comment}</textarea>`;
-  area.classList.add('visible');
-  document.getElementById('textarea-' + id).focus();
-}
-
-function generatePrompt() {
-  const approved = state.sections.filter(s => s.status === 'approved');
-  const revision = state.sections.filter(s => s.status === 'revision');
-  const questions = state.sections.filter(s => s.status === 'question');
-
-  if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
-    return '';
-  }
-
-  let prompt = 'Here is my review of the Futures Option Entry Price Reconciliation plan:\n\n';
-
-  if (approved.length > 0) {
-    prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
-    approved.forEach(s => {
-      prompt += `- **${s.title}**: Approved`;
-      if (s.comment) prompt += ` — ${s.comment}`;
-      prompt += '\n';
-    });
-    prompt += '\n';
-  }
-
-  if (revision.length > 0) {
-    prompt += `## Needs Revision (${revision.length})\n`;
-    revision.forEach(s => {
-      prompt += `- **${s.title}**`;
-      if (s.comment) prompt += `: ${s.comment}`;
-      else prompt += ': (no specific feedback provided)';
-      prompt += '\n';
-    });
-    prompt += '\n';
-  }
-
-  if (questions.length > 0) {
-    prompt += `## Questions (${questions.length})\n`;
-    questions.forEach(s => {
-      prompt += `- **${s.title}**`;
-      if (s.comment) prompt += `: ${s.comment}`;
-      else prompt += ': (question not specified)';
-      prompt += '\n';
-    });
-    prompt += '\n';
-  }
-
-  const remaining = state.sections.filter(s => s.status === 'pending');
-  if (remaining.length > 0) {
-    prompt += `## Not Yet Reviewed (${remaining.length})\n`;
-    remaining.forEach(s => prompt += `- ${s.title}\n`);
-  }
-
-  return prompt;
-}
-
-function copyPrompt() {
-  const prompt = generatePrompt();
-  if (!prompt) return;
-  navigator.clipboard.writeText(prompt).then(() => {
-    const btn = document.getElementById('copyBtn');
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
-  });
-}
-
-// Filter tabs
-document.getElementById('filterTabs').addEventListener('click', e => {
-  const tab = e.target.closest('.filter-tab');
-  if (!tab) return;
-  state.activeFilter = tab.dataset.filter;
-  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
-  renderFeedback();
-});
-
-function renderAll() {
-  renderNav();
-  renderDoc();
-  renderStats();
-  renderFeedback();
-}
-
-// Resizable & collapsible panels (mouse + touch)
-(function() {
-  const nav = document.getElementById('nav');
-  const rightPanel = document.getElementById('rightPanel');
-  const leftHandle = document.getElementById('leftHandle');
-  const rightHandle = document.getElementById('rightHandle');
-  const leftToggle = document.getElementById('leftToggle');
-  const rightToggle = document.getElementById('rightToggle');
-
-  let dragging = null;
-  let navWidth = 240;
-  let rightWidth = 360;
-
-  // --- Collapse toggles ---
-  function updateToggles() {
-    const navCollapsed = nav.classList.contains('collapsed');
-    const rightCollapsed = rightPanel.classList.contains('collapsed');
-    leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
-    leftToggle.classList.toggle('panel-collapsed', navCollapsed);
-    rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
-    rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
-  }
-
-  function toggleNav(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (nav.classList.contains('collapsed')) {
-      nav.classList.remove('collapsed');
-      nav.style.width = navWidth + 'px';
-    } else {
-      navWidth = nav.offsetWidth;
-      nav.classList.add('collapsed');
+      area.classList.add('visible');
+      document.getElementById('textarea-' + id).focus();
     }
-    updateToggles();
-  }
 
-  function toggleRight(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (rightPanel.classList.contains('collapsed')) {
-      rightPanel.classList.remove('collapsed');
-      rightPanel.style.width = rightWidth + 'px';
-    } else {
-      rightWidth = rightPanel.offsetWidth;
-      rightPanel.classList.add('collapsed');
+    function generatePrompt() {
+      const approved = state.sections.filter(s => s.status === 'approved');
+      const revision = state.sections.filter(s => s.status === 'revision');
+      const questions = state.sections.filter(s => s.status === 'question');
+
+      if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+        return '';
+      }
+
+      let prompt = 'Here is my review of the Futures Option Entry Price Reconciliation plan:\n\n';
+
+      if (approved.length > 0) {
+        prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+        approved.forEach(s => {
+          prompt += `- **${s.title}**: Approved`;
+          if (s.comment) prompt += ` — ${s.comment}`;
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (revision.length > 0) {
+        prompt += `## Needs Revision (${revision.length})\n`;
+        revision.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (no specific feedback provided)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (questions.length > 0) {
+        prompt += `## Questions (${questions.length})\n`;
+        questions.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (question not specified)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      const remaining = state.sections.filter(s => s.status === 'pending');
+      if (remaining.length > 0) {
+        prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+        remaining.forEach(s => prompt += `- ${s.title}\n`);
+      }
+
+      return prompt;
     }
-    updateToggles();
-  }
 
-  // Use both click (desktop) and touchend (iPad) — the flag prevents double-fire
-  let touchFiredLeft = false, touchFiredRight = false;
-
-  leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
-  leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
-
-  rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
-  rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
-
-  updateToggles();
-
-  // --- Drag resize (mouse) ---
-  function onDragStart(e, side) {
-    e.preventDefault();
-    dragging = side;
-    document.body.classList.add('resizing');
-    (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
-  }
-
-  leftHandle.addEventListener('mousedown', e => { if (e.target === leftHandle) onDragStart(e, 'left'); });
-  rightHandle.addEventListener('mousedown', e => { if (e.target === rightHandle) onDragStart(e, 'right'); });
-
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    applyDrag(e.clientX);
-  });
-
-  document.addEventListener('mouseup', endDrag);
-
-  // --- Drag resize (touch on handle bar itself) ---
-  leftHandle.addEventListener('touchstart', e => {
-    if (e.target !== leftHandle) return;
-    e.preventDefault();
-    onDragStart(e, 'left');
-  }, { passive: false });
-
-  rightHandle.addEventListener('touchstart', e => {
-    if (e.target !== rightHandle) return;
-    e.preventDefault();
-    onDragStart(e, 'right');
-  }, { passive: false });
-
-  document.addEventListener('touchmove', e => {
-    if (!dragging) return;
-    e.preventDefault();
-    applyDrag(e.touches[0].clientX);
-  }, { passive: false });
-
-  document.addEventListener('touchend', endDrag);
-
-  function applyDrag(clientX) {
-    if (dragging === 'left') {
-      const w = Math.max(140, Math.min(400, clientX));
-      nav.classList.remove('collapsed');
-      nav.style.width = w + 'px';
-      navWidth = w;
-    } else {
-      const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
-      rightPanel.classList.remove('collapsed');
-      rightPanel.style.width = w + 'px';
-      rightWidth = w;
+    function copyPrompt() {
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      navigator.clipboard.writeText(prompt).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+      });
     }
-    updateToggles();
-  }
 
-  function endDrag() {
-    if (!dragging) return;
-    document.body.classList.remove('resizing');
-    leftHandle.classList.remove('dragging');
-    rightHandle.classList.remove('dragging');
-    dragging = null;
-  }
-})();
+    // Filter tabs
+    document.getElementById('filterTabs').addEventListener('click', e => {
+      const tab = e.target.closest('.filter-tab');
+      if (!tab) return;
+      state.activeFilter = tab.dataset.filter;
+      document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderFeedback();
+      saveToStorage();
+    });
 
-// Init — suppress transitions on first paint to avoid layout thrash
-document.body.style.visibility = 'hidden';
-renderAll();
-requestAnimationFrame(() => {
-  document.body.style.visibility = '';
-});
-</script>
+    function renderAll() {
+      renderNav();
+      renderDoc();
+      renderStats();
+      renderFeedback();
+    }
+
+    // Resizable & collapsible panels (mouse + touch)
+    (function () {
+      const nav = document.getElementById('nav');
+      const rightPanel = document.getElementById('rightPanel');
+      const leftHandle = document.getElementById('leftHandle');
+      const rightHandle = document.getElementById('rightHandle');
+      const leftToggle = document.getElementById('leftToggle');
+      const rightToggle = document.getElementById('rightToggle');
+
+      let dragging = null;
+      let navWidth = 240;
+      let rightWidth = 360;
+
+      // Restore saved layout
+      const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })();
+      if (savedLayout.navWidth) navWidth = savedLayout.navWidth;
+      if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth;
+      if (savedLayout.navCollapsed) nav.classList.add('collapsed');
+      else nav.style.width = navWidth + 'px';
+      if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed');
+      else rightPanel.style.width = rightWidth + 'px';
+
+      function saveLayout() {
+        try {
+          localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+            navWidth, rightWidth,
+            navCollapsed: nav.classList.contains('collapsed'),
+            rightCollapsed: rightPanel.classList.contains('collapsed')
+          }));
+        } catch (e) { }
+      }
+
+      // --- Collapse toggles ---
+      function updateToggles() {
+        const navCollapsed = nav.classList.contains('collapsed');
+        const rightCollapsed = rightPanel.classList.contains('collapsed');
+        leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+        leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+        rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+        rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+      }
+
+      function toggleNav(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (nav.classList.contains('collapsed')) {
+          nav.classList.remove('collapsed');
+          nav.style.width = navWidth + 'px';
+        } else {
+          navWidth = nav.offsetWidth;
+          nav.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      function toggleRight(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightPanel.classList.contains('collapsed')) {
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = rightWidth + 'px';
+        } else {
+          rightWidth = rightPanel.offsetWidth;
+          rightPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      // Use both click (desktop) and touchend (iPad) — the flag prevents double-fire
+      let touchFiredLeft = false, touchFiredRight = false;
+
+      leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+      leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+      rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+      rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+      updateToggles();
+
+      // --- Drag resize (mouse) ---
+      function onDragStart(e, side) {
+        e.preventDefault();
+        dragging = side;
+        document.body.classList.add('resizing');
+        (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+      }
+
+      leftHandle.addEventListener('mousedown', e => { if (e.target === leftHandle) onDragStart(e, 'left'); });
+      rightHandle.addEventListener('mousedown', e => { if (e.target === rightHandle) onDragStart(e, 'right'); });
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        applyDrag(e.clientX);
+      });
+
+      document.addEventListener('mouseup', endDrag);
+
+      // --- Drag resize (touch on handle bar itself) ---
+      leftHandle.addEventListener('touchstart', e => {
+        if (e.target !== leftHandle) return;
+        e.preventDefault();
+        onDragStart(e, 'left');
+      }, { passive: false });
+
+      rightHandle.addEventListener('touchstart', e => {
+        if (e.target !== rightHandle) return;
+        e.preventDefault();
+        onDragStart(e, 'right');
+      }, { passive: false });
+
+      document.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        e.preventDefault();
+        applyDrag(e.touches[0].clientX);
+      }, { passive: false });
+
+      document.addEventListener('touchend', endDrag);
+
+      function applyDrag(clientX) {
+        if (dragging === 'left') {
+          const w = Math.max(140, Math.min(400, clientX));
+          nav.classList.remove('collapsed');
+          nav.style.width = w + 'px';
+          navWidth = w;
+        } else {
+          const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = w + 'px';
+          rightWidth = w;
+        }
+        updateToggles();
+      }
+
+      function endDrag() {
+        if (!dragging) return;
+        document.body.classList.remove('resizing');
+        leftHandle.classList.remove('dragging');
+        rightHandle.classList.remove('dragging');
+        dragging = null;
+        saveLayout();
+      }
+    })();
+
+    // Init — suppress transitions on first paint to avoid layout thrash
+    loadFromStorage();
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.filter === state.activeFilter);
+    });
+    document.body.style.visibility = 'hidden';
+    renderAll();
+    requestAnimationFrame(() => {
+      document.body.style.visibility = '';
+    });
+  </script>
 </body>
+
 </html>

@@ -6,6 +6,12 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 
 ## Sprint 5 — Account Streamer Hardening (Mar 4–6, 2026)
 
+### TT-77: Update plan review HTML files and review template
+
+- Update review template (`review-template.html`) with improved layout and review-saving capabilities
+- Update existing review files (TT-60, TT-62, TT-63, TT-64) to match new template format
+- Fix whitespace alignment in TT-65 plan ASCII diagrams
+
 ### TT-76: Change all inbound Pydantic models to extra="allow"
 
 - Position model was rejecting `update-type` field from brokerage, silently dropping 14 events at market close

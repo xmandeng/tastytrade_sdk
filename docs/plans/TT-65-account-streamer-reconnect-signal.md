@@ -19,7 +19,7 @@ AccountStreamer embeds its own reconnection state (`reconnect_event`, `reconnect
 
 ```
 ┌──────────────────────────────────────────────┐
-│           AccountStreamer (singleton)         │
+│           AccountStreamer (singleton)        │
 │                                              │
 │  reconnect_event: asyncio.Event  ← embedded  │
 │  reconnect_reason: ReconnectReason           │
@@ -29,7 +29,7 @@ AccountStreamer embeds its own reconnection state (`reconnect_event`, `reconnect
 │  send_keepalives ──► trigger_reconnect()     │
 │                          │                   │
 │                          ▼                   │
-│              wait_for_reconnect_signal()      │
+│              wait_for_reconnect_signal()     │
 └──────────────────┬───────────────────────────┘
                    │
                    ▼
@@ -50,7 +50,7 @@ AccountStreamer embeds its own reconnection state (`reconnect_event`, `reconnect
 │                          │     │    signals.py)         │
 │  signal = ReconnectSignal│────►│                        │
 │                          │     │  .trigger(reason)      │
-│  AccountStreamer(         │     │  .wait() → reason      │
+│  AccountStreamer(        │     │  .wait() → reason      │
 │    signal=signal)        │     │  .reset()              │
 │                          │     └───────────┬────────────┘
 │  await signal.wait()  ◄──────────────────-─┘
@@ -60,7 +60,7 @@ AccountStreamer embeds its own reconnection state (`reconnect_event`, `reconnect
 ┌─────────────────────────────────────────────┘
 │
 │  ┌──────────────────────────────────────────────┐
-│  │           AccountStreamer                     │
+│  │           AccountStreamer                    │
 │  │                                              │
 │  │  self.reconnect_signal: ReconnectSignal      │
 │  │                                              │
