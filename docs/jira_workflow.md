@@ -158,12 +158,12 @@ jira-workflow agent has read-only status awareness. Do not manually transition t
 
 ## Epic Governance
 
-Epics are strategic planning tools managed by the team.
+Epics are strategic planning tools that organize related work into initiatives.
 
-- Agent CAN link tickets to existing Epics
-- Agent CANNOT create new Epics
-
-If you need an Epic created, ask the team to create it manually in Jira, then use jira-workflow agent to link tickets to it.
+- Agent CAN create new Epic issues when requested
+- Agent CAN update Epic descriptions and fields
+- Agent CAN link Stories/Tasks/Bugs to Epics
+- Agent CAN search and retrieve Epic details
 
 ---
 

@@ -313,10 +313,6 @@ h2. Implementation Details
 * [ ] Step 2
 * [ ] Step 3
 
-h2. Estimated Time
-
-*Estimate*: [hours/days - rough estimate]
-
 h2. Priority
 
 *Priority*: [High/Medium/Low - default to Medium]

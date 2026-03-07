@@ -111,6 +111,12 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 - Log counts and status instead (e.g., "Fetched 3 positions" not "Fetched positions for account 5WT00001")
 - Exception messages must not contain account numbers or lists of valid accounts
 
+### Pydantic Model Config
+- Inbound brokerage models MUST use `extra="allow"` — preserve all fields the brokerage sends
+- Only outbound messages we construct (DXLink protocol, streamer connect/heartbeat) use `extra="forbid"`
+- Never filter, reject, or discard fields from brokerage data without a documented design objective
+- See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §1 for full design rule
+
 ### Concurrency
 - Prefer event-driven design over timers and polling loops
 - Avoid `while True` (infinite) loops — react to events instead (e.g., Redis pub/sub, asyncio.Event, queue.get)
