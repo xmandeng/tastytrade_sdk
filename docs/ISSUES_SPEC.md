@@ -737,35 +737,9 @@ Every PR must complete:
 
 ## Epic Governance
 
-### Can Create and Update Epics
+### Epic Governance
 
-**Epics are strategic planning tools** that organize related work into initiatives.
-
-**Agents CAN**:
-* Create new Epic issues when requested
-* Update Epic descriptions and fields
-* Link Stories/Tasks/Bugs to Epics
-* Search and retrieve Epic details
-
-**Epic Creation Guidelines**:
-* Use comprehensive descriptions with strategic context
-* Include: Overview, Components, Implementation Phases, Success Criteria
-* Properly format descriptions using Jira markup (not markdown)
-* Link child issues using parent-key parameter
-
-### Linking to Existing Epics
-
-**Decision logic**:
-
-1. **Epic explicitly specified** -> Link to it
-   - "Link to Epic TT-XXX"
-   - "This is for the [epic name] epic"
-
-2. **Epic obvious from context** -> Link automatically
-   - Match the work to the appropriate epic based on project context
-
-3. **Epic unclear** -> Leave blank
-   - Add note: "Epic assignment pending - team to assign during planning"
+Agents can create, update, link, and search Epics. See CLAUDE.md for the authoritative rule.
 
 
 ---
