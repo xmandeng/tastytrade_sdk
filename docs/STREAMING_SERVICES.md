@@ -6,7 +6,7 @@ Two independent services stream account and market data into Redis. A third comm
 ┌───────────────────────────┐     ┌─────────────────────────────┐
 │      account-stream       │     │         subscribe           │
 │                           │     │                             │
-│  AccountStreamer WS        │     │  DXLink WS                  │
+│  AccountStreamer WS       │     │  DXLink WS                  │
 │         │                 │     │       │                     │
 │         ▼                 │     │       ▼                     │
 │  AccountStream Publisher  │     │  RedisEventProcessor        │

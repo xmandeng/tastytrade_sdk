@@ -1118,6 +1118,7 @@ The current workaround in \`classifier.py:81-87\` that treats \`average_open_pri
         .replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:none">$1</a>')
         .replace(/\\`/g, '`');
     }
 
