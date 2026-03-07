@@ -164,8 +164,8 @@ Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket i
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture overview (start here)
 - [CHANGELOG.md](CHANGELOG.md) - Sprint-by-sprint change history
-- [docs/streaming_services.md](docs/streaming_services.md) - Streaming services operations guide
-- [docs/signal_architecture.md](docs/signal_architecture.md) - Signal detection pipeline
+- [docs/STREAMING_SERVICES.md](docs/STREAMING_SERVICES.md) - Streaming services operations guide
+- [docs/SIGNAL_ARCHITECTURE.md](docs/SIGNAL_ARCHITECTURE.md) - Signal detection pipeline
 - [docs/SERVICE_DISCOVERY.md](docs/SERVICE_DISCOVERY.md) - Configuration resolution
 - [docs/ISSUES_SPEC.md](docs/ISSUES_SPEC.md) - Jira issue specifications
 - [docs/GITHUB_WORKFLOW_SPEC.md](docs/GITHUB_WORKFLOW_SPEC.md) - GitHub workflow standards

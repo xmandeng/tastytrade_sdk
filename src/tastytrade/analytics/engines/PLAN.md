@@ -75,7 +75,7 @@ Inherits from `BaseAnnotation` (`src/tastytrade/analytics/visualizations/models.
 **SignalEngine** protocol using `typing.Protocol` (structural subtyping):
 - `name: str` property
 - `signals: list[TradeSignal]` property
-- `publisher: EventPublisher | None` property (getter/setter) -- optional event publisher for signal emission (see Service Boundary Principle in `docs/signal_architecture.md`)
+- `publisher: EventPublisher | None` property (getter/setter) -- optional event publisher for signal emission (see Service Boundary Principle in `docs/SIGNAL_ARCHITECTURE.md`)
 - `set_prior_close(event_symbol: str, price: float) -> None`
 - `on_candle_event(event: CandleEvent) -> None`
 

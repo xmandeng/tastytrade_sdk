@@ -2,7 +2,7 @@
 
 Start here. This document describes the current-state architecture of the tastytrade SDK — what the system does, how the pieces connect, and the design patterns that hold it together.
 
-For service-level operational details, see [streaming_services.md](streaming_services.md). For signal detection specifics, see [signal_architecture.md](signal_architecture.md).
+For service-level operational details, see [STREAMING_SERVICES.md](STREAMING_SERVICES.md). For signal detection specifics, see [SIGNAL_ARCHITECTURE.md](SIGNAL_ARCHITECTURE.md).
 
 ---
 
@@ -357,8 +357,8 @@ See [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) for full details.
 
 | Document | Covers |
 |----------|--------|
-| [streaming_services.md](streaming_services.md) | Operational guide for account-stream and subscribe services |
-| [signal_architecture.md](signal_architecture.md) | Signal detection pipeline, EngineRunner, TradeSignalFeed |
+| [STREAMING_SERVICES.md](STREAMING_SERVICES.md) | Operational guide for account-stream and subscribe services |
+| [SIGNAL_ARCHITECTURE.md](SIGNAL_ARCHITECTURE.md) | Signal detection pipeline, EngineRunner, TradeSignalFeed |
 | [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) | Layered configuration resolution across environments |
 | [CHANGELOG.md](../CHANGELOG.md) | Sprint-by-sprint record of changes |
 | [docs/plans/](plans/) | Per-ticket implementation plans |
