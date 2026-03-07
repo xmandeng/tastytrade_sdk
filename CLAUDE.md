@@ -167,6 +167,7 @@ Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket i
 - [docs/STREAMING_SERVICES.md](docs/STREAMING_SERVICES.md) - Streaming services operations guide
 - [docs/SIGNAL_ARCHITECTURE.md](docs/SIGNAL_ARCHITECTURE.md) - Signal detection pipeline
 - [docs/SERVICE_DISCOVERY.md](docs/SERVICE_DISCOVERY.md) - Configuration resolution
+- [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) - Grafana Cloud + OpenTelemetry logging
 - [docs/ISSUES_SPEC.md](docs/ISSUES_SPEC.md) - Jira issue specifications
 - [docs/GITHUB_WORKFLOW_SPEC.md](docs/GITHUB_WORKFLOW_SPEC.md) - GitHub workflow standards
 - [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) - PR evidence standards
