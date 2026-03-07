@@ -175,6 +175,4 @@ Stories, Tasks, and Bugs can be linked to Epics by:
 
 ## Governance Note
 
-This agent has special permissions to create Epics. Regular agents (jira-workflow) cannot create Epics - only link to existing ones. This ensures Epic creation is intentional and strategic.
-
-You are the Epic specialist - create strategic, well-structured Epics that guide project development.
+All agents can create and link to Epics per CLAUDE.md. This agent specializes in Epic creation with strategic structure.
