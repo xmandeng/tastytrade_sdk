@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TT-79: Live-Fill Entry Credits — Architecture</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --amber: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+      --cyan: #56d4dd;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px; background: var(--bg-surface);
+      border-bottom: 1px solid var(--border); height: 52px;
+    }
+    .topbar h1 { font-size: 14px; font-weight: 600; }
+    .topbar .meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 16px; }
+    .topbar .meta span { display: flex; align-items: center; gap: 5px; }
+    .meta .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    .container {
+      display: flex; height: calc(100vh - 52px);
+    }
+
+    /* Canvas area */
+    .canvas {
+      flex: 1; overflow: auto; padding: 32px;
+      display: flex; flex-direction: column; align-items: center;
+    }
+
+    /* Flow diagram */
+    .flow {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0; width: 100%; max-width: 900px;
+    }
+
+    .flow-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 16px; width: 100%;
+    }
+
+    .node {
+      border-radius: 8px; padding: 14px 20px; text-align: center;
+      font-size: 13px; position: relative; cursor: pointer;
+      transition: all 0.2s; min-width: 180px;
+      border: 1px solid var(--border);
+    }
+    .node:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .node.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88,166,255,0.2); }
+
+    .node .title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    .node .subtitle { font-size: 11px; color: var(--text-muted); }
+    .node .badge {
+      position: absolute; top: -8px; right: -8px;
+      font-size: 9px; font-weight: 700; padding: 2px 6px;
+      border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    .node-external { background: var(--bg-surface-2); }
+    .node-existing { background: var(--bg-surface); }
+    .node-new { background: rgba(63,185,80,0.08); border-color: var(--green); }
+    .node-new .badge { background: rgba(63,185,80,0.2); color: var(--green); }
+    .node-redis { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.3); }
+    .node-redis .title { color: var(--red); }
+    .node-downstream { background: rgba(188,140,255,0.06); border-color: rgba(188,140,255,0.3); }
+
+    /* Arrows */
+    .arrow {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 4px 0; color: var(--text-dim); font-size: 11px;
+    }
+    .arrow svg { width: 20px; height: 24px; }
+    .arrow .label { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+    .arrow-h { flex-direction: row; padding: 0 4px; }
+    .arrow-h svg { width: 32px; height: 16px; transform: rotate(-90deg); }
+
+    /* Branch connector */
+    .branch {
+      display: flex; width: 100%; max-width: 700px; position: relative;
+    }
+    .branch-left, .branch-right {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0;
+    }
+    .branch-connector {
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 60%; height: 1px; background: var(--border-light);
+    }
+    .branch-connector::before, .branch-connector::after {
+      content: ''; position: absolute; top: 0;
+      width: 1px; height: 16px; background: var(--border-light);
+    }
+    .branch-connector::before { left: 0; }
+    .branch-connector::after { right: 0; }
+
+    .branch-label {
+      font-size: 10px; color: var(--text-dim); padding: 4px 8px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      margin: 8px 0;
+    }
+
+    /* Detail panel */
+    .detail-panel {
+      width: 340px; background: var(--bg-surface);
+      border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .detail-header {
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600;
+    }
+    .detail-body {
+      flex: 1; overflow-y: auto; padding: 16px;
+      font-size: 13px; line-height: 1.7; color: var(--text-muted);
+    }
+    .detail-body h3 { font-size: 13px; font-weight: 600; color: var(--text); margin: 12px 0 6px; }
+    .detail-body h3:first-child { margin-top: 0; }
+    .detail-body code {
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px;
+      background: var(--bg-surface-2); padding: 2px 5px; border-radius: 3px;
+      color: var(--accent);
+    }
+    .detail-body ul { margin: 4px 0 8px 16px; }
+    .detail-body li { margin-bottom: 3px; font-size: 12px; }
+    .detail-body .dep-tag {
+      display: inline-block; font-size: 10px; padding: 1px 6px;
+      border-radius: 3px; margin: 1px 2px; font-weight: 500;
+    }
+    .dep-tag.reads { background: rgba(88,166,255,0.12); color: var(--accent); }
+    .dep-tag.writes { background: rgba(63,185,80,0.12); color: var(--green); }
+    .dep-tag.subscribes { background: rgba(210,153,34,0.12); color: var(--amber); }
+    .dep-tag.publishes { background: rgba(248,81,73,0.12); color: var(--red); }
+
+    .detail-placeholder {
+      color: var(--text-dim); font-style: italic; text-align: center;
+      padding: 40px 20px; font-size: 13px;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex; gap: 16px; margin-bottom: 24px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-swatch {
+      width: 14px; height: 14px; border-radius: 4px; border: 1px solid;
+    }
+    .swatch-existing { background: var(--bg-surface); border-color: var(--border); }
+    .swatch-new { background: rgba(63,185,80,0.08); border-color: var(--green); }
+    .swatch-redis { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.3); }
+    .swatch-downstream { background: rgba(188,140,255,0.06); border-color: rgba(188,140,255,0.3); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>TT-79: Live-Fill Entry Credits — Architecture</h1>
+    <div class="meta">
+      <span><div class="dot" style="background:var(--green)"></div>New Component</span>
+      <span><div class="dot" style="background:var(--accent)"></div>Existing</span>
+      <span><div class="dot" style="background:var(--red)"></div>Redis</span>
+      <span><div class="dot" style="background:var(--purple)"></div>Downstream</span>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="canvas">
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch swatch-existing"></div>Existing (unchanged)</div>
+        <div class="legend-item"><div class="legend-swatch swatch-new"></div>New (TT-79)</div>
+        <div class="legend-item"><div class="legend-swatch swatch-redis"></div>Redis</div>
+        <div class="legend-item"><div class="legend-swatch swatch-downstream"></div>Downstream Consumer</div>
+      </div>
+
+      <div class="flow" id="flow"></div>
+    </div>
+
+    <div class="detail-panel">
+      <div class="detail-header" id="detailHeader">Component Details</div>
+      <div class="detail-body" id="detailBody">
+        <div class="detail-placeholder">Click any component to see its details, dependencies, and wiring.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const components = {
+      websocket: {
+        title: "TastyTrade WebSocket",
+        subtitle: "wss://streamer.tastyworks.com",
+        type: "external",
+        details: {
+          description: "WebSocket connection to TastyTrade account streaming API. Delivers real-time events for positions, orders, and balances.",
+          file: null,
+          events: ["CurrentPosition", "AccountBalance", "Order", "ComplexOrder"],
+          deps: [],
+          notes: "Singleton connection managed by AccountStreamer. Self-healing via ReconnectSignal."
+        }
+      },
+      streamer: {
+        title: "AccountStreamer",
+        subtitle: "accounts/streamer.py",
+        type: "existing",
+        details: {
+          description: "Parses WebSocket messages into StreamerEventEnvelope objects and routes them to type-specific asyncio queues by AccountEventType.",
+          file: "src/tastytrade/accounts/streamer.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "WebSocket messages" },
+            { type: "writes", label: "asyncio.Queue per event type" }
+          ],
+          notes: "Routes ORDER events to streamer.queues[AccountEventType.ORDER]. Singleton pattern prevents multiple connections."
+        }
+      },
+      order_queue: {
+        title: "ORDER Queue",
+        subtitle: "asyncio.Queue",
+        type: "existing",
+        details: {
+          description: "In-memory async queue holding PlacedOrder events from the WebSocket. Consumed by consume_orders().",
+          file: "src/tastytrade/accounts/orchestrator.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "From AccountStreamer" },
+            { type: "writes", label: "To consume_orders" }
+          ],
+          notes: "Single consumer pattern — only consume_orders drains this queue. The fill monitor subscribes to the Redis pub/sub channel downstream instead."
+        }
+      },
+      consume_orders: {
+        title: "consume_orders()",
+        subtitle: "orchestrator.py:78-82",
+        type: "existing",
+        details: {
+          description: "Drains Order events from the asyncio queue and publishes each to Redis via the publisher.",
+          file: "src/tastytrade/accounts/orchestrator.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "ORDER asyncio.Queue" },
+            { type: "writes", label: "publisher.publish_order()" }
+          ],
+          notes: "Simple drain loop — unchanged by TT-79. The fill monitor reacts downstream via Redis pub/sub."
+        }
+      },
+      publisher: {
+        title: "AccountStreamPublisher",
+        subtitle: "publisher.py",
+        type: "existing",
+        details: {
+          description: "Publishes events to Redis HSET (persistent) and pub/sub channels (real-time). Provides publish_order(), publish_entry_credits(), and remove_entry_credit().",
+          file: "src/tastytrade/accounts/publisher.py",
+          events: [],
+          deps: [
+            { type: "writes", label: "tastytrade:orders HSET" },
+            { type: "publishes", label: "tastytrade:events:Order" },
+            { type: "writes", label: "tastytrade:entry_credits HSET" },
+            { type: "publishes", label: "tastytrade:events:EntryCreditsUpdated" }
+          ],
+          notes: "TT-79 may expose ORDER_CHANNEL and POSITIONS_KEY as class attributes if not already accessible."
+        }
+      },
+      redis_order_pubsub: {
+        title: "tastytrade:events:Order",
+        subtitle: "Redis Pub/Sub Channel",
+        type: "redis",
+        details: {
+          description: "Redis pub/sub channel carrying full PlacedOrder JSON payloads. Published by AccountStreamPublisher on every order event.",
+          file: null,
+          events: [],
+          deps: [
+            { type: "publishes", label: "From publisher.publish_order()" },
+            { type: "subscribes", label: "By monitor_fills_for_entry_credits()" }
+          ],
+          notes: "The fill monitor subscribes here rather than sharing the asyncio queue. This follows the existing decoupled pub/sub pattern."
+        }
+      },
+      fill_monitor: {
+        title: "monitor_fills_for_entry_credits()",
+        subtitle: "orchestrator.py — NEW",
+        type: "new",
+        details: {
+          description: "Subscribes to Order pub/sub. On FILLED orders with option legs: re-fetches transactions, runs LIFO replay, publishes updated entry credits. Cleans up closed positions.",
+          file: "src/tastytrade/accounts/orchestrator.py",
+          events: [],
+          deps: [
+            { type: "subscribes", label: "tastytrade:events:Order" },
+            { type: "reads", label: "tastytrade:positions HSET (qty lookup)" },
+            { type: "reads", label: "Transactions REST API" },
+            { type: "writes", label: "tastytrade:entry_credits HSET" },
+            { type: "publishes", label: "tastytrade:events:EntryCreditsUpdated" }
+          ],
+          notes: "Filters: status == FILLED, instrument_type in {EQUITY_OPTION, FUTURE_OPTION}. Handles ValidationError (bad message), aiohttp.ClientError (network), and unexpected exceptions without crashing."
+        }
+      },
+      extract_symbols: {
+        title: "extract_option_symbols()",
+        subtitle: "orchestrator.py — NEW helper",
+        type: "new",
+        details: {
+          description: "Extracts unique option symbols from a PlacedOrder's legs. Filters for EQUITY_OPTION and FUTURE_OPTION instrument types only.",
+          file: "src/tastytrade/accounts/orchestrator.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "PlacedOrder.legs" }
+          ],
+          notes: "Uses set comprehension for deduplication — a spread order might reference the same symbol on multiple legs."
+        }
+      },
+      resolve_qty: {
+        title: "resolve_position_quantities()",
+        subtitle: "orchestrator.py — NEW helper",
+        type: "new",
+        details: {
+          description: "Looks up current position quantities from Redis HSET for given symbols. Returns only symbols with non-zero quantity.",
+          file: "src/tastytrade/accounts/orchestrator.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "tastytrade:positions HSET" }
+          ],
+          notes: "Position data maintained by consume_positions() — typically current by the time we process the order through pub/sub."
+        }
+      },
+      redis_positions: {
+        title: "tastytrade:positions",
+        subtitle: "Redis HSET",
+        type: "redis",
+        details: {
+          description: "Persistent hash storing current position state. Key = streamer symbol, Value = Position JSON. Updated by consume_positions() on every position change event.",
+          file: null,
+          events: [],
+          deps: [
+            { type: "writes", label: "From consume_positions()" },
+            { type: "reads", label: "By resolve_position_quantities()" },
+            { type: "reads", label: "By PositionMetricsReader" }
+          ],
+          notes: "Positions with qty == 0 are removed (publisher.publish_position handles this). The fill monitor uses this to determine open vs closed positions."
+        }
+      },
+      txn_client: {
+        title: "TransactionsClient",
+        subtitle: "transactions.py (TT-63)",
+        type: "existing",
+        details: {
+          description: "REST client for TastyTrade Transactions API. Fetches trade history with client-side filtering for Trade-type items only (API returns non-Trade items even when filtered).",
+          file: "src/tastytrade/accounts/transactions.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "TastyTrade Transactions REST API" }
+          ],
+          notes: "Introduced in TT-63. Reused by the fill monitor — no changes needed."
+        }
+      },
+      lifo: {
+        title: "compute_entry_credits_for_positions()",
+        subtitle: "transactions.py (TT-63)",
+        type: "existing",
+        details: {
+          description: "Groups transactions by symbol, runs LIFO reverse replay per position, returns dict of symbol -> EntryCredit with value, fees, and weighted price.",
+          file: "src/tastytrade/accounts/transactions.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "Transaction list" },
+            { type: "reads", label: "Positions map (symbol -> qty)" }
+          ],
+          notes: "Introduced in TT-63. Same algorithm used at startup and on fills — correct by construction, no drift between paths."
+        }
+      },
+      redis_entry_credits: {
+        title: "tastytrade:entry_credits",
+        subtitle: "Redis HSET + Pub/Sub",
+        type: "redis",
+        details: {
+          description: "Persistent hash storing entry credit records. Key = streamer symbol, Value = EntryCredit JSON. Updated via publish_entry_credits() and cleaned up via remove_entry_credit().",
+          file: null,
+          events: [],
+          deps: [
+            { type: "writes", label: "From publish_entry_credits()" },
+            { type: "publishes", label: "tastytrade:events:EntryCreditsUpdated" },
+            { type: "reads", label: "By PositionMetricsReader" }
+          ],
+          notes: "On fill: updated values published. On close (qty=0): HDEL removes the key. Downstream consumers notified via pub/sub."
+        }
+      },
+      metrics_reader: {
+        title: "PositionMetricsReader",
+        subtitle: "analytics/positions.py",
+        type: "downstream",
+        details: {
+          description: "Reads positions, entry credits, instruments, quotes, and Greeks from Redis. Joins into a DataFrame for strategy classification and CLI display.",
+          file: "src/tastytrade/analytics/positions.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "tastytrade:positions HSET" },
+            { type: "reads", label: "tastytrade:entry_credits HSET" },
+            { type: "reads", label: "tastytrade:instruments HSET" },
+            { type: "reads", label: "quotes + greeks HSETs" }
+          ],
+          notes: "Benefits from TT-79 — entry credits are now kept current as fills occur, so strategy P&L is always up-to-date."
+        }
+      },
+      classifier: {
+        title: "Strategy Classifier",
+        subtitle: "strategies/classifier.py",
+        type: "downstream",
+        details: {
+          description: "Classifies option positions into strategy types (spreads, strangles, condors) and computes P&L metrics using entry credit values.",
+          file: "src/tastytrade/analytics/strategies/classifier.py",
+          events: [],
+          deps: [
+            { type: "reads", label: "Entry credits from PositionMetricsReader" },
+            { type: "reads", label: "Position data" }
+          ],
+          notes: "With TT-79, the classifier operates on current cost basis data instead of stale startup-time values. No code changes needed in the classifier itself."
+        }
+      }
+    };
+
+    // Flow layout definition
+    const flowLayout = [
+      { type: "node", id: "websocket" },
+      { type: "arrow", label: "WebSocket events" },
+      { type: "node", id: "streamer" },
+      { type: "arrow", label: "routes by type" },
+      { type: "node", id: "order_queue" },
+      { type: "arrow", label: "drains queue" },
+      { type: "node", id: "consume_orders" },
+      { type: "arrow", label: "publish_order()" },
+      { type: "node", id: "publisher" },
+      { type: "arrow", label: "pub/sub" },
+      { type: "node", id: "redis_order_pubsub" },
+      { type: "arrow", label: "subscribes" },
+      { type: "node", id: "fill_monitor" },
+      { type: "arrow-split", left: {
+          label: "qty > 0",
+          items: [
+            { type: "arrow", label: "fetches txns" },
+            { type: "row", ids: ["txn_client", "lifo"] },
+            { type: "arrow", label: "publish" },
+            { type: "node", id: "redis_entry_credits" },
+          ]
+        }, right: {
+          label: "qty == 0",
+          items: [
+            { type: "arrow", label: "remove" },
+            { type: "node-ref", id: "redis_entry_credits", text: "HDEL entry credit" },
+          ]
+        },
+        helpers: [
+          { type: "node", id: "extract_symbols" },
+          { type: "node", id: "resolve_qty" },
+          { type: "node", id: "redis_positions" },
+        ]
+      },
+      { type: "arrow", label: "pub/sub notify" },
+      { type: "row", ids: ["metrics_reader", "classifier"] },
+    ];
+
+    let activeNode = null;
+
+    function renderFlow() {
+      const flow = document.getElementById('flow');
+      let html = '';
+
+      // Render as a linear vertical flow with a branch
+      // Top section: linear nodes
+      const linearNodes = [
+        "websocket", "streamer", "order_queue", "consume_orders",
+        "publisher", "redis_order_pubsub", "fill_monitor"
+      ];
+      const arrowLabels = [
+        "WebSocket events", "routes by AccountEventType",
+        "drains queue", "publish_order()",
+        "pub/sub message", "subscribes to channel"
+      ];
+
+      for (let i = 0; i < linearNodes.length; i++) {
+        const c = components[linearNodes[i]];
+        html += renderNode(linearNodes[i], c);
+        if (i < linearNodes.length - 1) {
+          html += renderArrow(arrowLabels[i]);
+        }
+      }
+
+      // Helper nodes row
+      html += `<div style="margin-top:12px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">`;
+      html += renderNode("extract_symbols", components.extract_symbols);
+      html += renderNode("resolve_qty", components.resolve_qty);
+      html += renderNode("redis_positions", components.redis_positions);
+      html += `</div>`;
+
+      // Branch: qty > 0 vs qty == 0
+      html += `<div style="margin-top:16px; display:flex; gap:40px; justify-content:center; width:100%;">`;
+
+      // Left branch
+      html += `<div style="display:flex; flex-direction:column; align-items:center; flex:1; max-width:340px;">`;
+      html += `<div class="branch-label" style="background:rgba(63,185,80,0.1); border-color:var(--green); color:var(--green);">qty &gt; 0: recompute</div>`;
+      html += renderArrow("fetch transactions");
+      html += `<div style="display:flex; gap:12px; justify-content:center;">`;
+      html += renderNode("txn_client", components.txn_client);
+      html += renderNode("lifo", components.lifo);
+      html += `</div>`;
+      html += renderArrow("publish_entry_credits()");
+      html += renderNode("redis_entry_credits", components.redis_entry_credits);
+      html += `</div>`;
+
+      // Right branch
+      html += `<div style="display:flex; flex-direction:column; align-items:center; flex:1; max-width:300px;">`;
+      html += `<div class="branch-label" style="background:rgba(248,81,73,0.1); border-color:var(--red); color:var(--red);">qty == 0: cleanup</div>`;
+      html += renderArrow("remove_entry_credit()");
+      html += `<div class="node node-redis" onclick="selectNode('redis_entry_credits')" style="min-width:160px;">
+        <div class="title">HDEL entry credit</div>
+        <div class="subtitle">tastytrade:entry_credits</div>
+      </div>`;
+      html += `</div>`;
+
+      html += `</div>`;
+
+      // Downstream
+      html += renderArrow("pub/sub: EntryCreditsUpdated");
+      html += `<div style="display:flex; gap:16px; justify-content:center;">`;
+      html += renderNode("metrics_reader", components.metrics_reader);
+      html += renderNode("classifier", components.classifier);
+      html += `</div>`;
+
+      flow.innerHTML = html;
+    }
+
+    function renderNode(id, c) {
+      const typeClass = c.type === 'new' ? 'node-new'
+        : c.type === 'redis' ? 'node-redis'
+        : c.type === 'downstream' ? 'node-downstream'
+        : c.type === 'external' ? 'node-external'
+        : 'node-existing';
+      const badge = c.type === 'new' ? '<span class="badge">NEW</span>' : '';
+      return `<div class="node ${typeClass} ${activeNode === id ? 'active' : ''}"
+                   id="node-${id}" onclick="selectNode('${id}')">
+        ${badge}
+        <div class="title">${c.title}</div>
+        <div class="subtitle">${c.subtitle}</div>
+      </div>`;
+    }
+
+    function renderArrow(label) {
+      return `<div class="arrow">
+        <svg viewBox="0 0 20 24"><path d="M10 0 L10 18 M5 14 L10 20 L15 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        ${label ? `<span class="label">${label}</span>` : ''}
+      </div>`;
+    }
+
+    function selectNode(id) {
+      activeNode = id;
+      const c = components[id];
+      if (!c) return;
+
+      // Update active state
+      document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+      const el = document.getElementById('node-' + id);
+      if (el) el.classList.add('active');
+
+      const header = document.getElementById('detailHeader');
+      const body = document.getElementById('detailBody');
+
+      header.textContent = c.title;
+
+      let html = `<p>${c.details.description}</p>`;
+
+      if (c.details.file) {
+        html += `<h3>File</h3><p><code>${c.details.file}</code></p>`;
+      }
+
+      if (c.details.deps && c.details.deps.length > 0) {
+        html += `<h3>Dependencies</h3><ul>`;
+        c.details.deps.forEach(d => {
+          html += `<li><span class="dep-tag ${d.type}">${d.type}</span> ${d.label}</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      if (c.details.events && c.details.events.length > 0) {
+        html += `<h3>Event Types</h3><ul>`;
+        c.details.events.forEach(e => html += `<li>${e}</li>`);
+        html += `</ul>`;
+      }
+
+      if (c.details.notes) {
+        html += `<h3>Notes</h3><p>${c.details.notes}</p>`;
+      }
+
+      body.innerHTML = html;
+    }
+
+    renderFlow();
+  </script>
+</body>
+</html>

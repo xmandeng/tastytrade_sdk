@@ -11,9 +11,16 @@ import logging
 import time
 from datetime import datetime, timezone
 
+import aiohttp
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
+from pydantic import ValidationError
 
-from tastytrade.accounts.models import InstrumentType, Position
+from tastytrade.accounts.models import (
+    InstrumentType,
+    OrderStatus,
+    PlacedOrder,
+    Position,
+)
 from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
 from tastytrade.accounts.streamer import AccountStreamer
 from tastytrade.accounts.transactions import (
@@ -23,6 +30,7 @@ from tastytrade.accounts.transactions import (
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
+from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
 
@@ -95,6 +103,121 @@ async def consume_complex_orders(
         await publisher.publish_complex_order(order)
 
 
+OPTION_TYPES = {InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION}
+
+
+def extract_option_symbols(order: PlacedOrder) -> list[str]:
+    """Extract unique option symbols from a filled order's legs."""
+    return list(
+        {leg.symbol for leg in order.legs if leg.instrument_type in OPTION_TYPES}
+    )
+
+
+async def resolve_position_quantities(
+    redis_client: aioredis.Redis,  # type: ignore[type-arg]
+    symbols: list[str],
+    positions_key: str,
+) -> dict[str, int]:
+    """Look up current position quantities from Redis for the given symbols.
+
+    Returns only symbols with non-zero quantity.
+    """
+    positions_map: dict[str, int] = {}
+    for symbol in symbols:
+        raw = await redis_client.hget(positions_key, symbol)
+        if raw is None:
+            continue
+        position = Position.model_validate_json(raw)
+        qty = int(abs(position.quantity))
+        if qty > 0:
+            positions_map[symbol] = qty
+    return positions_map
+
+
+async def monitor_fills_for_entry_credits(
+    redis_client: aioredis.Redis,  # type: ignore[type-arg]
+    session: AsyncSessionHandler,
+    account_number: str,
+    publisher: AccountStreamPublisher,
+) -> None:
+    """React to filled orders by recomputing entry credits for affected option symbols.
+
+    Subscribes to the Order pub/sub channel. When a FILLED order with option legs
+    is detected, re-fetches transactions from the REST API and re-runs the LIFO
+    replay to compute updated entry credits. Cleans up entry credits for fully
+    closed positions (qty == 0).
+    """
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(publisher.ORDER_CHANNEL)
+    try:
+        async for message in pubsub.listen():
+            # Skip Redis subscription control messages (subscribe, psubscribe, etc.)
+            # These are expected on initial subscribe and carry no order data.
+            if message["type"] != "message":
+                continue
+
+            try:
+                order = PlacedOrder.model_validate_json(message["data"])
+            except ValidationError:
+                # Malformed or schema-incompatible order payload.
+                # Log and skip — do not crash the monitor for one bad message.
+                logger.warning("Failed to parse Order event, skipping message")
+                continue
+
+            # Only process filled orders — ROUTED, LIVE, CANCELLED, EXPIRED, etc.
+            # are intermediate states that do not represent executed trades.
+            if order.status != OrderStatus.FILLED:
+                continue
+
+            # Extract option symbols from filled legs.
+            # Orders with only equity or futures (non-option) legs are irrelevant
+            # since entry credits only apply to option positions.
+            option_symbols = extract_option_symbols(order)
+            if not option_symbols:
+                continue
+
+            try:
+                # Look up current position quantities from Redis
+                positions_map = await resolve_position_quantities(
+                    redis_client, option_symbols, publisher.POSITIONS_KEY
+                )
+
+                # Symbols with qty > 0: recompute entry credits
+                if positions_map:
+                    txn_client = TransactionsClient(session)
+                    all_txns = await txn_client.get_transactions(account_number)
+                    entry_credits = compute_entry_credits_for_positions(
+                        all_txns, positions_map
+                    )
+                    if entry_credits:
+                        await publisher.publish_entry_credits(entry_credits)
+                        logger.info(
+                            "Updated entry credits for %d symbols on fill",
+                            len(entry_credits),
+                        )
+
+                # Symbols with qty == 0: clean up
+                closed_symbols = set(option_symbols) - set(positions_map.keys())
+                for symbol in closed_symbols:
+                    await publisher.remove_entry_credit(symbol)
+
+            except aiohttp.ClientError:
+                # Network error fetching transactions from REST API.
+                # Non-fatal — the next fill or restart will correct the data.
+                logger.warning(
+                    "Transaction fetch failed for fill on %d symbols, will retry on next fill",
+                    len(option_symbols),
+                )
+            except Exception:
+                # Unexpected error during entry credit computation.
+                # Log and continue — don't let one failed update kill the monitor.
+                logger.exception("Unexpected error processing fill for entry credits")
+
+    finally:
+        await pubsub.unsubscribe(publisher.ORDER_CHANNEL)
+        await pubsub.close()
+
+
 async def account_failure_trigger_listener(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
     reconnect_signal: ReconnectSignal,
@@ -157,7 +280,9 @@ async def run_account_stream_once(
     publisher: AccountStreamPublisher | None = None
     consumer_tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
     failure_listener_task: asyncio.Task[None] | None = None
+    fill_monitor_task: asyncio.Task[None] | None = None
     failure_redis: aioredis.Redis | None = None  # type: ignore[type-arg]
+    fill_monitor_redis: aioredis.Redis | None = None  # type: ignore[type-arg]
     connection_established_at: float | None = None
 
     try:
@@ -309,6 +434,20 @@ async def run_account_stream_once(
             )
         )
 
+        # === Start fill monitor for live entry credit updates (TT-79) ===
+        if streamer.session is not None:
+            fill_monitor_redis = aioredis.Redis()
+            fill_monitor_task = asyncio.create_task(
+                monitor_fills_for_entry_credits(
+                    redis_client=fill_monitor_redis,
+                    session=streamer.session,
+                    account_number=credentials.account_number,
+                    publisher=publisher,
+                ),
+                name="fill_monitor",
+            )
+            logger.info("Fill monitor started for live entry credit updates")
+
         # === Start failure simulation listener ===
         failure_redis = aioredis.Redis()
         failure_listener_task = asyncio.create_task(
@@ -374,6 +513,18 @@ async def run_account_stream_once(
         # Close failure listener Redis client
         if failure_redis is not None:
             await failure_redis.close()
+
+        # Cancel fill monitor task
+        if fill_monitor_task is not None:
+            fill_monitor_task.cancel()
+            try:
+                await fill_monitor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Close fill monitor Redis client
+        if fill_monitor_redis is not None:
+            await fill_monitor_redis.close()
 
         # Cancel consumer tasks
         for task in consumer_tasks:

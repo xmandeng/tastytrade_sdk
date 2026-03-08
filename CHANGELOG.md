@@ -4,6 +4,28 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 
 ---
 
+## Sprint 6 — Entry Price Reconciliation (Mar 7–8, 2026)
+
+### TT-79: Live-fill entry credit updates for option positions
+
+- Subscribe to `tastytrade:events:Order` Redis pub/sub to react to filled orders in real time
+- Extract option symbols from filled order legs (equity options + future options)
+- Re-fetch transactions and recompute entry credits via LIFO replay on each fill
+- Clean up entry credits for fully closed positions (quantity == 0)
+- Dedicated Redis client for pub/sub isolation from the publisher's connection
+- Non-fatal exception handling: malformed messages, network errors, and unexpected exceptions are logged and skipped
+
+### TT-63: Entry price reconciliation via transaction LIFO replay
+
+- Add `TransactionsClient` for fetching option transactions from REST API
+- Implement LIFO replay algorithm (`compute_entry_credits_for_positions`) for entry credit computation
+- Add `EntryCredit` model with value, method, and transaction count
+- Compute entry credits at startup for all open option positions
+- Publish entry credits to Redis HSET + pub/sub for downstream consumers
+- Support equity options and future options uniformly
+
+---
+
 ## Sprint 5 — Account Streamer Hardening (Mar 4–6, 2026)
 
 ### TT-77: Update plan review HTML files and review template

@@ -45,6 +45,7 @@ class AccountStreamPublisher:
     BALANCES_KEY = "tastytrade:balances"
     INSTRUMENTS_KEY = "tastytrade:instruments"
     ORDERS_KEY = "tastytrade:orders"
+    ORDER_CHANNEL = "tastytrade:events:Order"
     COMPLEX_ORDERS_KEY = "tastytrade:complex-orders"
     ENTRY_CREDITS_KEY = "tastytrade:entry_credits"
     ENTRY_CREDITS_CHANNEL = "tastytrade:events:EntryCreditsUpdated"
@@ -91,7 +92,7 @@ class AccountStreamPublisher:
             order.model_dump_json(by_alias=True),
         )
         await self.redis.publish(
-            channel="tastytrade:events:Order",
+            channel=self.ORDER_CHANNEL,
             message=order.model_dump_json(by_alias=True),
         )
         logger.info(
