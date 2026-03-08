@@ -5,13 +5,12 @@ for on-demand reads, plus pub/sub for real-time consumers.
 Single responsibility: account events -> Redis.
 """
 
+import json
 import logging
 import os
-from typing import Optional
+from typing import Optional, Union
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
-
-from typing import Union
 
 from tastytrade.accounts.models import (
     AccountBalance,
@@ -19,6 +18,7 @@ from tastytrade.accounts.models import (
     PlacedOrder,
     Position,
 )
+from tastytrade.accounts.transactions import EntryCredit
 from tastytrade.market.models import (
     CryptocurrencyInstrument,
     EquityInstrument,
@@ -46,6 +46,8 @@ class AccountStreamPublisher:
     INSTRUMENTS_KEY = "tastytrade:instruments"
     ORDERS_KEY = "tastytrade:orders"
     COMPLEX_ORDERS_KEY = "tastytrade:complex-orders"
+    ENTRY_CREDITS_KEY = "tastytrade:entry_credits"
+    ENTRY_CREDITS_CHANNEL = "tastytrade:events:EntryCreditsUpdated"
 
     def __init__(
         self,
@@ -129,6 +131,28 @@ class AccountStreamPublisher:
             )
         await pipe.execute()
         logger.info("Published %d instruments to Redis", len(instruments))
+
+    async def publish_entry_credits(self, credits: dict[str, EntryCredit]) -> None:
+        """Write entry credits to Redis HSET and notify downstream consumers."""
+        if not credits:
+            return
+        pipe = self.redis.pipeline()
+        symbols = []
+        for symbol, credit in credits.items():
+            pipe.hset(self.ENTRY_CREDITS_KEY, symbol, credit.model_dump_json())
+            symbols.append(symbol)
+        await pipe.execute()
+
+        await self.redis.publish(
+            self.ENTRY_CREDITS_CHANNEL,
+            json.dumps({"symbols": symbols, "count": len(symbols)}),
+        )
+        logger.info("Published entry credits for %d symbols", len(symbols))
+
+    async def remove_entry_credit(self, symbol: str) -> None:
+        """Remove an entry credit record for a closed position."""
+        await self.redis.hdel(self.ENTRY_CREDITS_KEY, symbol)
+        logger.info("Removed entry credit for closed position: %s", symbol)
 
     async def close(self) -> None:
         """Close Redis connection."""

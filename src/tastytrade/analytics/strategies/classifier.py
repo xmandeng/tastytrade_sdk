@@ -29,6 +29,7 @@ class StrategyClassifier:
     def build_parsed_leg(
         security: SecurityMetrics,
         instruments: dict[str, Any],
+        entry_credits: Optional[dict[str, Decimal]] = None,
     ) -> ParsedLeg:
         """Build a ParsedLeg by joining SecurityMetrics + instrument data."""
         signed_qty = security.quantity
@@ -80,11 +81,16 @@ class StrategyClassifier:
 
         # The Position API returns 0.0 for average-open-price on some
         # future options (e.g. /6E) where the premium is too small to
-        # represent. Treat as missing data — the transactions API can
-        # provide precise entry prices (see future ticket).
+        # represent. Treat as missing data — the transactions API
+        # provides precise entry values via LIFO replay.
         avg_open = security.average_open_price
         if avg_open is not None and avg_open == 0.0:
             avg_open = None
+
+        # Look up transaction-derived entry value (dollar credit for this position)
+        entry_value: Optional[Decimal] = None
+        if entry_credits is not None:
+            entry_value = entry_credits.get(security.symbol)
 
         return ParsedLeg(
             streamer_symbol=security.streamer_symbol,
@@ -97,6 +103,7 @@ class StrategyClassifier:
             expiration=expiration,
             days_to_expiration=dte,
             multiplier=multiplier,
+            entry_value=entry_value,
             average_open_price=avg_open,
             delta=security.delta,
             gamma=security.gamma,
@@ -109,6 +116,7 @@ class StrategyClassifier:
         self,
         securities: dict[str, SecurityMetrics],
         instruments: dict[str, Any],
+        entry_credits: Optional[dict[str, Decimal]] = None,
     ) -> list[Strategy]:
         """Classify all positions into strategies.
 
@@ -120,7 +128,7 @@ class StrategyClassifier:
         # Build parsed legs
         all_legs: list[ParsedLeg] = []
         for security in securities.values():
-            leg = self.build_parsed_leg(security, instruments)
+            leg = self.build_parsed_leg(security, instruments, entry_credits)
             all_legs.append(leg)
 
         # Group by underlying
