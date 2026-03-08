@@ -9,6 +9,7 @@ No API calls, no socket connections.
 import json
 import logging
 import os
+from decimal import Decimal
 from typing import Any, Optional
 
 import pandas as pd
@@ -16,6 +17,7 @@ import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
 from tastytrade.accounts.models import Position
 from tastytrade.accounts.publisher import AccountStreamPublisher
+from tastytrade.accounts.transactions import EntryCredit
 from tastytrade.analytics.metrics import MetricsTracker
 from tastytrade.analytics.strategies.classifier import StrategyClassifier
 from tastytrade.analytics.strategies.health import StrategyHealthMonitor
@@ -42,6 +44,8 @@ class PositionMetricsReader:
         self.position_metrics_df: pd.DataFrame = pd.DataFrame()
         self.tracker: Optional[MetricsTracker] = None
         self.instruments: dict[str, Any] = {}
+        self.entry_credit_records: dict[str, EntryCredit] = {}
+        self.entry_credits: dict[str, Decimal] = {}
 
     @property
     def summary(self) -> pd.DataFrame:
@@ -79,7 +83,11 @@ class PositionMetricsReader:
         if self.tracker is None:
             return []
         classifier = StrategyClassifier()
-        return classifier.classify(self.tracker.securities, self.instruments)
+        return classifier.classify(
+            self.tracker.securities,
+            self.instruments,
+            self.entry_credits or None,
+        )
 
     @property
     def strategy_summary(self) -> pd.DataFrame:
@@ -208,7 +216,59 @@ class PositionMetricsReader:
         if self.instruments:
             logger.info("Loaded %d instruments from Redis", len(self.instruments))
 
-        self.position_metrics_df = tracker.df
+        # 6. Read entry credits (transaction-derived dollar values)
+        raw_credits = await self.redis.hgetall(AccountStreamPublisher.ENTRY_CREDITS_KEY)
+        self.entry_credit_records = {}
+        self.entry_credits = {}
+        for key, value in raw_credits.items():
+            try:
+                symbol = key.decode() if isinstance(key, bytes) else key
+                credit = EntryCredit.model_validate_json(value)
+                self.entry_credit_records[symbol] = credit
+                self.entry_credits[symbol] = credit.value
+            except Exception as e:
+                logger.debug("Skipped entry credit: %s", e)
+
+        if self.entry_credits:
+            logger.info("Loaded %d entry credits from Redis", len(self.entry_credits))
+
+        # 7. Enrich DataFrame with entry credit data
+        df = tracker.df
+        if not df.empty and self.entry_credit_records:
+            records = self.entry_credit_records
+
+            def get_entry_value(sym: str) -> float | None:
+                rec = records.get(sym)
+                return float(rec.value) if rec else None
+
+            def get_entry_price(sym: str) -> float | None:
+                rec = records.get(sym)
+                if rec and rec.per_unit_price is not None:
+                    return float(rec.per_unit_price)
+                return None
+
+            def get_fees(sym: str) -> float | None:
+                rec = records.get(sym)
+                return float(rec.fees) if rec else None
+
+            df["entry_value"] = df["symbol"].map(get_entry_value)
+            df["entry_price"] = df["symbol"].map(get_entry_price)
+            df["fees"] = df["symbol"].map(get_fees)
+
+        # 8. Enrich with DTE from instrument data
+        if not df.empty and self.instruments:
+            instruments = self.instruments
+
+            def get_dte(sym: str) -> int | None:
+                inst = instruments.get(sym)
+                if inst and isinstance(inst, dict):
+                    dte = inst.get("days-to-expiration")
+                    return int(dte) if dte is not None else None
+                return None
+
+            df["dte"] = df["symbol"].map(get_dte).astype("Int64")
+
+        self.position_metrics_df = df
         return self.position_metrics_df
 
     async def close(self) -> None:

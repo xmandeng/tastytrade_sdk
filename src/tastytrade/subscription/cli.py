@@ -306,6 +306,11 @@ def positions_cmd() -> None:
                 "quantity",
                 "quantity_direction",
                 "mid_price",
+                "entry_price",
+                "entry_value",
+                "multiplier",
+                "fees",
+                "dte",
                 "delta",
                 "implied_volatility",
             ]

@@ -414,3 +414,56 @@ class TestBuildParsedLegFutureOptions:
         leg = classifier.build_parsed_leg(sec, instruments)
         assert leg.average_open_price == 0.23
         assert leg.multiplier == Decimal("1000.0")
+
+    def test_entry_value_from_credits(self):
+        """entry_value is populated from entry_credits dict when provided."""
+        sec = make_security(
+            symbol="SPY   260320P00500000",
+            streamer_symbol=".SPY260320P500",
+            underlying_symbol="SPY",
+            instrument_type=InstrumentType.EQUITY_OPTION,
+            quantity=2,
+            quantity_direction=QuantityDirection.SHORT,
+        )
+        instruments = {
+            "SPY   260320P00500000": {
+                "option-type": "P",
+                "strike-price": "500.0",
+                "expiration-date": "2026-03-20",
+                "days-to-expiration": 30,
+                "shares-per-contract": 100,
+            }
+        }
+        entry_credits = {"SPY   260320P00500000": Decimal("350.00")}
+        classifier = StrategyClassifier()
+        leg = classifier.build_parsed_leg(sec, instruments, entry_credits)
+        assert leg.entry_value == Decimal("350.00")
+
+    def test_entry_value_none_without_credits(self):
+        """entry_value is None when no entry_credits provided."""
+        sec = make_security(
+            symbol="SPY   260320P00500000",
+            streamer_symbol=".SPY260320P500",
+            underlying_symbol="SPY",
+            instrument_type=InstrumentType.EQUITY_OPTION,
+            quantity=1,
+            quantity_direction=QuantityDirection.SHORT,
+        )
+        classifier = StrategyClassifier()
+        leg = classifier.build_parsed_leg(sec, {})
+        assert leg.entry_value is None
+
+    def test_entry_value_none_when_symbol_missing(self):
+        """entry_value is None when symbol not in entry_credits map."""
+        sec = make_security(
+            symbol="SPY   260320C00550000",
+            streamer_symbol=".SPY260320C550",
+            underlying_symbol="SPY",
+            instrument_type=InstrumentType.EQUITY_OPTION,
+            quantity=1,
+            quantity_direction=QuantityDirection.LONG,
+        )
+        entry_credits = {"OTHER_SYMBOL": Decimal("100.00")}
+        classifier = StrategyClassifier()
+        leg = classifier.build_parsed_leg(sec, {}, entry_credits)
+        assert leg.entry_value is None

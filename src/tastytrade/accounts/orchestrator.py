@@ -13,11 +13,13 @@ from datetime import datetime, timezone
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
-import redis.asyncio as aioredis
-
 from tastytrade.accounts.models import InstrumentType, Position
 from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
 from tastytrade.accounts.streamer import AccountStreamer
+from tastytrade.accounts.transactions import (
+    TransactionsClient,
+    compute_entry_credits_for_positions,
+)
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
@@ -250,6 +252,26 @@ async def run_account_stream_once(
 
             await publisher.publish_instruments(all_instruments)
             logger.info("Enriched positions with %d instruments", len(all_instruments))
+
+            # === Compute entry credits from transaction history ===
+            option_positions = [
+                p
+                for p in hydrated_positions
+                if p.instrument_type
+                in (InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION)
+            ]
+            if option_positions:
+                account_number = credentials.account_number
+                txn_client = TransactionsClient(streamer.session)
+                all_txns = await txn_client.get_transactions(account_number)
+                positions_map: dict[str, int] = {}
+                for p in option_positions:
+                    positions_map[p.symbol] = int(abs(p.quantity))
+
+                entry_credits = compute_entry_credits_for_positions(
+                    all_txns, positions_map
+                )
+                await publisher.publish_entry_credits(entry_credits)
 
         for item in hydrated_items:
             position_queue.put_nowait(item)
