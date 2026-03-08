@@ -143,6 +143,18 @@ consume_positions() / consume_balances() / consume_orders()
     │  straight-through consumers, one per event type
     ▼
 AccountStreamPublisher → Redis HSET + pub/sub
+    │
+    ├── tastytrade:events:Order (pub/sub)
+    │       │
+    │       ▼
+    │   monitor_fills_for_entry_credits()   ← reacts to filled orders
+    │       │  extract option symbols from legs
+    │       │  resolve position quantities from Redis
+    │       │
+    │       ├── qty > 0: re-fetch transactions → LIFO replay → publish_entry_credits()
+    │       └── qty == 0: remove_entry_credit() (closed position cleanup)
+    │
+    └── tastytrade:events:EntryCreditsUpdated (pub/sub, downstream)
 ```
 
 **Key properties:**
@@ -200,6 +212,8 @@ Each service is a black box: Redis in → process → output. The producer doesn
 - `market:{EventType}:{Symbol}` — Market data events
 - `market:TradeSignal:{engine}:{Symbol}` — Engine-specific signals
 - `tastytrade:events:CurrentPosition` — Position change events
+- `tastytrade:events:Order` — Order fill events (consumed by fill monitor)
+- `tastytrade:events:EntryCreditsUpdated` — Entry credit recomputation notifications
 - `account:simulate_failure` / `subscription:simulate_failure` — Failure simulation
 
 ### 4. Protocol-Based Design — Structural Subtyping
@@ -286,9 +300,10 @@ See [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) for full details.
 | File | Component | Purpose |
 |------|-----------|---------|
 | `accounts/streamer.py` | `AccountStreamer` | Account event WebSocket singleton |
-| `accounts/orchestrator.py` | `run_account_stream` | Self-healing lifecycle with consumers |
+| `accounts/orchestrator.py` | `run_account_stream` | Self-healing lifecycle with consumers + fill monitor |
 | `accounts/publisher.py` | `AccountStreamPublisher` | Publish to Redis HSET + pub/sub |
 | `accounts/models.py` | `Position`, `AccountBalance` | Account data models |
+| `accounts/transactions.py` | `TransactionsClient` | REST API for option transactions + LIFO entry credit computation |
 | `accounts/client.py` | `AccountsClient` | REST API for account operations |
 
 ### Market Data Subscription
