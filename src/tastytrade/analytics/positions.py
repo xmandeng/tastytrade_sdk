@@ -474,6 +474,11 @@ class PositionMetricsReader:
             df["chain_fees"] = df["symbol"].map(get_chain_fees)
         # -- end TradeChain position enrichment --
 
+        # Round Greeks and IV to 2dp — least significant bits don't drive decisions
+        for col in ("delta", "theta", "implied_volatility"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").round(2)
+
         self.position_metrics_df = df
         return self.position_metrics_df
 
