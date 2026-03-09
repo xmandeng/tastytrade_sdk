@@ -165,6 +165,61 @@ class PositionMetricsReader:
             df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
         return df
 
+    # -- TradeChain enrichment block (experimental) --
+    # Standalone view of trade chain lifecycle data. Each row is one chain
+    # with its strategy name, P&L, fees, rolls, and open legs.
+    # Can be removed without side effects.
+    @property
+    def chain_summary(self) -> pd.DataFrame:
+        """Trade chain lifecycle summary — one row per OrderChain."""
+        if not self.trade_chains:
+            return pd.DataFrame(
+                columns=[
+                    "chain_id",
+                    "underlying",
+                    "tt_strategy",
+                    "status",
+                    "rolls",
+                    "realized_pnl",
+                    "total_fees",
+                    "opened_at",
+                    "legs",
+                ]
+            )
+
+        rows = []
+        for chain in self.trade_chains.values():
+            cd = chain.computed_data
+            status = "open" if cd.open else "closed"
+
+            # Summarize open legs from open-entries
+            leg_parts = []
+            for entry in cd.open_entries:
+                direction = "-" if entry.quantity_type == "Short" else "+"
+                leg_parts.append(f"{direction}{entry.quantity}x {entry.symbol.strip()}")
+            legs_str = ", ".join(leg_parts) if leg_parts else ""
+
+            rows.append(
+                {
+                    "chain_id": chain.id,
+                    "underlying": chain.underlying_symbol,
+                    "tt_strategy": chain.description,
+                    "status": status,
+                    "rolls": cd.roll_count,
+                    "realized_pnl": cd.realized_gain_with_fees,
+                    "total_fees": cd.total_fees,
+                    "opened_at": cd.opened_at,
+                    "legs": legs_str,
+                }
+            )
+
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df["rolls"] = df["rolls"].astype("Int64")
+        return df
+
+    # -- end TradeChain enrichment block --
+
     async def read(self) -> pd.DataFrame:
         """Read positions + market data + instruments from Redis, return joined DataFrame."""
         # 1. Read positions
@@ -235,19 +290,14 @@ class PositionMetricsReader:
 
         # 7. Read trade chains (TT-80: OrderChain lifecycle data)
         # -- TradeChain enrichment block (experimental) --
-        # Reads trade chain data from Redis, builds a symbol→chain lookup,
-        # and enriches each position row with lifecycle data (rolls, P&L, fees).
+        # Reads trade chain data from Redis for the chain_summary view.
         # Can be removed without side effects if the enrichment proves unnecessary.
         raw_chains = await self.redis.hgetall(AccountStreamPublisher.TRADE_CHAINS_KEY)
         self.trade_chains = {}
-        chain_by_symbol: dict[str, TradeChain] = {}
         for _key, value in raw_chains.items():
             try:
                 chain = TradeChain.model_validate_json(value)
                 self.trade_chains[chain.id] = chain
-                if chain.computed_data.open:
-                    for entry in chain.computed_data.open_entries:
-                        chain_by_symbol[entry.symbol.strip()] = chain
             except Exception as e:
                 logger.debug("Skipped trade chain: %s", e)
 
@@ -290,50 +340,6 @@ class PositionMetricsReader:
                 return None
 
             df["dte"] = df["symbol"].map(get_dte).astype("Int64")
-
-        # 10. Enrich positions with trade chain lifecycle data
-        # -- TradeChain enrichment block (experimental) --
-        # Maps each position to its parent trade chain via open-entry symbols.
-        # Adds chain_id, tt_strategy, rolls, realized_pnl, total_fees, opened_at.
-        # Can be removed without side effects.
-        if not df.empty and chain_by_symbol:
-            lookup = chain_by_symbol
-
-            def get_chain_id(sym: str) -> str | None:
-                c = lookup.get(sym)
-                return c.id if c else None
-
-            def get_tt_strategy(sym: str) -> str | None:
-                c = lookup.get(sym)
-                return c.description if c else None
-
-            def get_rolls(sym: str) -> int | None:
-                c = lookup.get(sym)
-                return c.computed_data.roll_count if c else None
-
-            def get_realized_pnl(sym: str) -> str | None:
-                c = lookup.get(sym)
-                return c.computed_data.realized_gain_with_fees if c else None
-
-            def get_chain_fees(sym: str) -> str | None:
-                c = lookup.get(sym)
-                return c.computed_data.total_fees if c else None
-
-            def get_opened_at(sym: str) -> str | None:
-                c = lookup.get(sym)
-                return c.computed_data.opened_at if c else None
-
-            df["chain_id"] = df["symbol"].map(get_chain_id)
-            df["tt_strategy"] = df["symbol"].map(get_tt_strategy)
-            df["rolls"] = df["symbol"].map(get_rolls).astype("Int64")
-            df["realized_pnl"] = df["symbol"].map(get_realized_pnl)
-            df["chain_fees"] = df["symbol"].map(get_chain_fees)
-            df["opened_at"] = df["symbol"].map(get_opened_at)
-            logger.info(
-                "Enriched %d positions with trade chain data",
-                df["chain_id"].notna().sum(),
-            )
-        # -- end TradeChain enrichment block --
 
         self.position_metrics_df = df
         return self.position_metrics_df
