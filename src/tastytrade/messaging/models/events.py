@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
-MAX_PRECISION = 2
-
 
 class ControlEvent(BaseModel):
     model_config = ConfigDict(
@@ -44,7 +42,7 @@ class FloatFieldMixin:
                 or pd.isna(value)
             ):
                 return None
-            return round(float(value), MAX_PRECISION)
+            return round(float(value), 10)
 
         return convert_float
 
