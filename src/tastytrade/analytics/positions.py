@@ -27,26 +27,6 @@ from tastytrade.messaging.models.events import GreeksEvent, QuoteEvent
 logger = logging.getLogger(__name__)
 
 
-# -- TradeChain enrichment block (experimental) --
-def underlyings_match(chain_underlying: str, strategy_underlying: str) -> bool:
-    """Check if a chain's underlying matches a strategy's underlying.
-
-    Futures chains use the product root ("/6E") while positions use the
-    contract-month symbol ("/6EM6"). For futures (symbols starting with "/"),
-    match if either is a prefix of the other. For equities, require exact match.
-    """
-    a, b = chain_underlying.strip(), strategy_underlying.strip()
-    if a == b:
-        return True
-    # Prefix matching only for futures symbols
-    if a.startswith("/") and b.startswith("/"):
-        return a.startswith(b) or b.startswith(a)
-    return False
-
-
-# -- end TradeChain enrichment block --
-
-
 class PositionMetricsReader:
     """Reads position metrics from Redis. Pure consumer -- no connections."""
 
@@ -219,9 +199,10 @@ class PositionMetricsReader:
     def match_trade_chain(self, strategy: Strategy) -> Optional[TradeChain]:
         """Find the best-matching open TradeChain for a classified strategy.
 
-        Matches by underlying symbol, then scores by overlap between the
-        chain's open-entry symbols and the strategy's leg symbols. Returns
-        the chain with the highest overlap, or None if no match.
+        Matches purely on leg symbol overlap between the chain's open-entries
+        and the strategy's legs. No underlying comparison needed — the leg
+        symbols (full OCC / futures option symbols) are unique identifiers.
+        Returns the chain with the highest overlap, or None if no match.
         """
         if not self.trade_chains:
             return None
@@ -231,10 +212,6 @@ class PositionMetricsReader:
         best_overlap = 0
 
         for chain in self.trade_chains.values():
-            # Futures: chain uses product root ("/6E") while positions use
-            # contract month ("/6EM6"). Match if either is a prefix of the other.
-            if not underlyings_match(chain.underlying_symbol, strategy.underlying):
-                continue
             if not chain.computed_data.open:
                 continue
             chain_symbols = {e.symbol.strip() for e in chain.computed_data.open_entries}

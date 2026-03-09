@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from tastytrade.accounts.models import InstrumentType, TradeChain
-from tastytrade.analytics.positions import PositionMetricsReader, underlyings_match
+from tastytrade.analytics.positions import PositionMetricsReader
 from tastytrade.analytics.strategies.models import ParsedLeg, Strategy, StrategyType
 
 
@@ -219,9 +219,7 @@ def make_strategy(
 
 
 class TestMatchTradeChain:
-    def test_matches_by_underlying_and_open_entries(
-        self, reader: PositionMetricsReader
-    ) -> None:
+    def test_matches_by_open_entry_symbols(self, reader: PositionMetricsReader) -> None:
         chain = make_trade_chain(
             open_entry_symbols=[
                 "./6EM6 EUUJ6 260403C1.18",
@@ -235,10 +233,13 @@ class TestMatchTradeChain:
         assert match.id == "12345"
         assert match.computed_data.roll_count == 1
 
-    def test_no_match_wrong_underlying(self, reader: PositionMetricsReader) -> None:
-        chain = make_trade_chain(underlying="SPY")
+    def test_no_match_no_symbol_overlap(self, reader: PositionMetricsReader) -> None:
+        """Chain with different leg symbols does not match."""
+        chain = make_trade_chain(
+            open_entry_symbols=["SPY   260320C00700000"],
+        )
         reader.trade_chains = {chain.id: chain}
-        strat = make_strategy(underlying="/6E")
+        strat = make_strategy()
         assert reader.match_trade_chain(strat) is None
 
     def test_no_match_when_chain_closed(self, reader: PositionMetricsReader) -> None:
@@ -271,8 +272,10 @@ class TestMatchTradeChain:
         assert match is not None
         assert match.id == "full"
 
-    def test_futures_prefix_match(self, reader: PositionMetricsReader) -> None:
-        """Chain underlying '/6E' matches strategy underlying '/6EM6'."""
+    def test_matches_across_underlying_formats(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        """Chain underlying '/6E' still matches strategy '/6EM6' via symbol overlap."""
         chain = make_trade_chain(
             underlying="/6E",
             open_entry_symbols=[
@@ -285,20 +288,3 @@ class TestMatchTradeChain:
         match = reader.match_trade_chain(strat)
         assert match is not None
         assert match.id == "12345"
-
-
-class TestUnderlyingsMatch:
-    def test_exact_match(self) -> None:
-        assert underlyings_match("SPY", "SPY") is True
-
-    def test_futures_root_to_contract(self) -> None:
-        assert underlyings_match("/6E", "/6EM6") is True
-
-    def test_futures_contract_to_root(self) -> None:
-        assert underlyings_match("/6EM6", "/6E") is True
-
-    def test_no_match(self) -> None:
-        assert underlyings_match("/ES", "/6E") is False
-
-    def test_equity_no_false_positive(self) -> None:
-        assert underlyings_match("SPY", "SPYG") is False
