@@ -313,6 +313,10 @@ def positions_cmd() -> None:
                 "dte",
                 "delta",
                 "implied_volatility",
+                "tt_strategy",
+                "rolls",
+                "realized_pnl",
+                "chain_fees",
             ]
             available = [c for c in display_cols if c in df.columns]
             sort_cols = [c for c in ["underlying_symbol", "symbol"] if c in df.columns]
