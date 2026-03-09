@@ -101,7 +101,6 @@ class PositionMetricsReader:
                 columns=[
                     "underlying",
                     "strategy",
-                    "tt_strategy",
                     "qty",
                     "legs",
                     "net_delta",
@@ -111,6 +110,7 @@ class PositionMetricsReader:
                     "max_profit",
                     "max_loss",
                     "health",
+                    "tt_strategy",
                 ]
             )
 
@@ -166,7 +166,6 @@ class PositionMetricsReader:
                 {
                     "underlying": strat.underlying,
                     "strategy": strat.strategy_type.value,
-                    "tt_strategy": tt_strat,
                     "qty": qty,
                     "legs": leg_desc,
                     "net_delta": per_pos_delta,
@@ -181,6 +180,7 @@ class PositionMetricsReader:
                     else None,
                     "health": health_level,
                     "alerts": alert_str,
+                    "tt_strategy": tt_strat,
                 }
             )
         df = pd.DataFrame(rows)
