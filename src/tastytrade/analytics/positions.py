@@ -140,29 +140,6 @@ class PositionMetricsReader:
                 f"{'@' + str(leg.strike.normalize()) if leg.strike else ''}"
                 for leg in strat.legs
             )
-            # -- TradeChain enrichment block (experimental) --
-            # Match strategy to trade chain by underlying symbol + open entry legs.
-            # Can be removed without side effects if enrichment proves unnecessary.
-            chain_match = self.match_trade_chain(strat)
-            if chain_match is not None:
-                cd = chain_match.computed_data
-                chain_fields = {
-                    "rolls": cd.roll_count,
-                    "realized_pnl": cd.realized_gain_with_fees,
-                    "total_fees": cd.total_fees,
-                    "opened_at": cd.opened_at,
-                    "tt_strategy": chain_match.description,
-                }
-            else:
-                chain_fields = {
-                    "rolls": None,
-                    "realized_pnl": None,
-                    "total_fees": None,
-                    "opened_at": None,
-                    "tt_strategy": None,
-                }
-            # -- end TradeChain enrichment block --
-
             rows.append(
                 {
                     "underlying": strat.underlying,
@@ -181,48 +158,12 @@ class PositionMetricsReader:
                     else None,
                     "health": health_level,
                     "alerts": alert_str,
-                    **chain_fields,
                 }
             )
         df = pd.DataFrame(rows)
         if not df.empty and "dte" in df.columns:
             df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
-            # -- TradeChain enrichment block (experimental) --
-            if "rolls" in df.columns:
-                df["rolls"] = df["rolls"].astype("Int64")
-            # -- end TradeChain enrichment block --
         return df
-
-    # -- TradeChain enrichment block (experimental) --
-    # Matches a classified Strategy to a TradeChain by underlying symbol and
-    # open entry leg symbols. Can be removed without side effects.
-    def match_trade_chain(self, strategy: Strategy) -> Optional[TradeChain]:
-        """Find the best-matching open TradeChain for a classified strategy.
-
-        Matches purely on leg symbol overlap between the chain's open-entries
-        and the strategy's legs. No underlying comparison needed — the leg
-        symbols (full OCC / futures option symbols) are unique identifiers.
-        Returns the chain with the highest overlap, or None if no match.
-        """
-        if not self.trade_chains:
-            return None
-
-        strat_symbols = {leg.symbol.strip() for leg in strategy.legs}
-        best_chain: Optional[TradeChain] = None
-        best_overlap = 0
-
-        for chain in self.trade_chains.values():
-            if not chain.computed_data.open:
-                continue
-            chain_symbols = {e.symbol.strip() for e in chain.computed_data.open_entries}
-            overlap = len(strat_symbols & chain_symbols)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_chain = chain
-
-        return best_chain
-
-    # -- end TradeChain enrichment block --
 
     async def read(self) -> pd.DataFrame:
         """Read positions + market data + instruments from Redis, return joined DataFrame."""
@@ -294,15 +235,19 @@ class PositionMetricsReader:
 
         # 7. Read trade chains (TT-80: OrderChain lifecycle data)
         # -- TradeChain enrichment block (experimental) --
-        # This block reads trade chain data from Redis and indexes by underlying
-        # symbol for join into strategy_summary. Can be removed without side effects
-        # if the enrichment proves unnecessary.
+        # Reads trade chain data from Redis, builds a symbol→chain lookup,
+        # and enriches each position row with lifecycle data (rolls, P&L, fees).
+        # Can be removed without side effects if the enrichment proves unnecessary.
         raw_chains = await self.redis.hgetall(AccountStreamPublisher.TRADE_CHAINS_KEY)
         self.trade_chains = {}
+        chain_by_symbol: dict[str, TradeChain] = {}
         for _key, value in raw_chains.items():
             try:
                 chain = TradeChain.model_validate_json(value)
                 self.trade_chains[chain.id] = chain
+                if chain.computed_data.open:
+                    for entry in chain.computed_data.open_entries:
+                        chain_by_symbol[entry.symbol.strip()] = chain
             except Exception as e:
                 logger.debug("Skipped trade chain: %s", e)
 
@@ -310,7 +255,7 @@ class PositionMetricsReader:
             logger.info("Loaded %d trade chains from Redis", len(self.trade_chains))
         # -- end TradeChain enrichment block --
 
-        # 8. Enrich DataFrame with entry credit data (renumbered after trade chain step)
+        # 8. Enrich DataFrame with entry credit data
         df = tracker.df
         if not df.empty and self.entry_credit_records:
             records = self.entry_credit_records
@@ -345,6 +290,50 @@ class PositionMetricsReader:
                 return None
 
             df["dte"] = df["symbol"].map(get_dte).astype("Int64")
+
+        # 10. Enrich positions with trade chain lifecycle data
+        # -- TradeChain enrichment block (experimental) --
+        # Maps each position to its parent trade chain via open-entry symbols.
+        # Adds chain_id, tt_strategy, rolls, realized_pnl, total_fees, opened_at.
+        # Can be removed without side effects.
+        if not df.empty and chain_by_symbol:
+            lookup = chain_by_symbol
+
+            def get_chain_id(sym: str) -> str | None:
+                c = lookup.get(sym)
+                return c.id if c else None
+
+            def get_tt_strategy(sym: str) -> str | None:
+                c = lookup.get(sym)
+                return c.description if c else None
+
+            def get_rolls(sym: str) -> int | None:
+                c = lookup.get(sym)
+                return c.computed_data.roll_count if c else None
+
+            def get_realized_pnl(sym: str) -> str | None:
+                c = lookup.get(sym)
+                return c.computed_data.realized_gain_with_fees if c else None
+
+            def get_chain_fees(sym: str) -> str | None:
+                c = lookup.get(sym)
+                return c.computed_data.total_fees if c else None
+
+            def get_opened_at(sym: str) -> str | None:
+                c = lookup.get(sym)
+                return c.computed_data.opened_at if c else None
+
+            df["chain_id"] = df["symbol"].map(get_chain_id)
+            df["tt_strategy"] = df["symbol"].map(get_tt_strategy)
+            df["rolls"] = df["symbol"].map(get_rolls).astype("Int64")
+            df["realized_pnl"] = df["symbol"].map(get_realized_pnl)
+            df["chain_fees"] = df["symbol"].map(get_chain_fees)
+            df["opened_at"] = df["symbol"].map(get_opened_at)
+            logger.info(
+                "Enriched %d positions with trade chain data",
+                df["chain_id"].notna().sum(),
+            )
+        # -- end TradeChain enrichment block --
 
         self.position_metrics_df = df
         return self.position_metrics_df
