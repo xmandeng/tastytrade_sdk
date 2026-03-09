@@ -396,6 +396,47 @@ def strategies_cmd(as_json: bool) -> None:
     asyncio.run(_run())
 
 
+@cli.command(name="chains")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output in JSON format for machine consumption.",
+)
+def chains_cmd(as_json: bool) -> None:
+    """Show trade chain lifecycle summary from Redis.
+
+    Displays one row per OrderChain with strategy name, rolls,
+    realized P&L, fees, and open legs. Requires account-stream
+    to be running.
+
+    \b
+    Example:
+      tasty-subscription chains
+      tasty-subscription chains --json
+    """
+
+    async def _run() -> None:
+        from tastytrade.analytics.positions import PositionMetricsReader
+
+        reader = PositionMetricsReader()
+        try:
+            await reader.read()
+            df = reader.chain_summary
+            if df.empty:
+                click.echo("No trade chains found in Redis. Is account-stream running?")
+                return
+            if as_json:
+                click.echo(df.to_json(orient="records", indent=2))
+            else:
+                click.echo(df.to_string(index=False))
+        finally:
+            await reader.close()
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     """Entry point for the tasty-subscription CLI."""
     cli()
