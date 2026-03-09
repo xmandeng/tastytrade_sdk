@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from tastytrade.accounts.models import InstrumentType, TradeChain
-from tastytrade.analytics.positions import PositionMetricsReader
+from tastytrade.analytics.positions import PositionMetricsReader, underlyings_match
 from tastytrade.analytics.strategies.models import ParsedLeg, Strategy, StrategyType
 
 
@@ -270,3 +270,35 @@ class TestMatchTradeChain:
         match = reader.match_trade_chain(strat)
         assert match is not None
         assert match.id == "full"
+
+    def test_futures_prefix_match(self, reader: PositionMetricsReader) -> None:
+        """Chain underlying '/6E' matches strategy underlying '/6EM6'."""
+        chain = make_trade_chain(
+            underlying="/6E",
+            open_entry_symbols=[
+                "./6EM6 EUUJ6 260403C1.18",
+                "./6EM6 EUUJ6 260403P1.13",
+            ],
+        )
+        reader.trade_chains = {chain.id: chain}
+        strat = make_strategy(underlying="/6EM6")
+        match = reader.match_trade_chain(strat)
+        assert match is not None
+        assert match.id == "12345"
+
+
+class TestUnderlyingsMatch:
+    def test_exact_match(self) -> None:
+        assert underlyings_match("SPY", "SPY") is True
+
+    def test_futures_root_to_contract(self) -> None:
+        assert underlyings_match("/6E", "/6EM6") is True
+
+    def test_futures_contract_to_root(self) -> None:
+        assert underlyings_match("/6EM6", "/6E") is True
+
+    def test_no_match(self) -> None:
+        assert underlyings_match("/ES", "/6E") is False
+
+    def test_equity_no_false_positive(self) -> None:
+        assert underlyings_match("SPY", "SPYG") is False
