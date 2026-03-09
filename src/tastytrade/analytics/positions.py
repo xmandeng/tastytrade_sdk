@@ -231,12 +231,20 @@ class PositionMetricsReader:
         if not raw_positions:
             return MetricsTracker().df
 
-        positions = []
+        # Deduplicate by symbol — prefer the record with a streamer_symbol
+        # (live WebSocket events include it; REST hydration does not).
+        by_symbol: dict[str, Position] = {}
         for _key, value in raw_positions.items():
             try:
-                positions.append(Position.model_validate(json.loads(value)))
+                pos = Position.model_validate(json.loads(value))
+                existing = by_symbol.get(pos.symbol)
+                if existing is None or (
+                    existing.streamer_symbol is None and pos.streamer_symbol is not None
+                ):
+                    by_symbol[pos.symbol] = pos
             except Exception as e:
                 logger.warning("Failed to parse position: %s", e)
+        positions = list(by_symbol.values())
 
         # 2. Load into tracker
         tracker = MetricsTracker()
