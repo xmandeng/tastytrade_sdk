@@ -101,6 +101,7 @@ class PositionMetricsReader:
                 columns=[
                     "underlying",
                     "strategy",
+                    "tt_strategy",
                     "qty",
                     "legs",
                     "net_delta",
@@ -112,6 +113,18 @@ class PositionMetricsReader:
                     "health",
                 ]
             )
+
+        # Build symbol → tt_strategy lookup from positions DataFrame
+        # so we can show TastyTrade's original classification alongside ours
+        tt_strategy_by_symbol: dict[str, str] = {}
+        if (
+            not self.position_metrics_df.empty
+            and "tt_strategy" in self.position_metrics_df.columns
+        ):
+            for _, row in self.position_metrics_df.iterrows():
+                val = row.get("tt_strategy")
+                if pd.notna(val):
+                    tt_strategy_by_symbol[row["symbol"]] = str(val)
 
         monitor = StrategyHealthMonitor()
         rows = []
@@ -142,10 +155,18 @@ class PositionMetricsReader:
                 f"{'@' + str(leg.strike.normalize()) if leg.strike else ''}"
                 for leg in strat.legs
             )
+            # Look up TastyTrade's classification from any leg in this strategy
+            tt_strat = None
+            for leg in strat.legs:
+                tt_strat = tt_strategy_by_symbol.get(leg.symbol)
+                if tt_strat:
+                    break
+
             rows.append(
                 {
                     "underlying": strat.underlying,
                     "strategy": strat.strategy_type.value,
+                    "tt_strategy": tt_strat,
                     "qty": qty,
                     "legs": leg_desc,
                     "net_delta": per_pos_delta,
