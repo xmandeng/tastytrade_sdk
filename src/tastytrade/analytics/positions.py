@@ -274,6 +274,48 @@ class PositionMetricsReader:
         if self.instruments:
             logger.info("Loaded %d instruments from Redis", len(self.instruments))
 
+        # 5b. Fill instrument gaps from position symbols
+        # After a roll, new option positions may exist before instruments are
+        # re-fetched. Parse option_type, strike, and expiration from the symbol
+        # so downstream consumers (DTE column, strategy classifier) have
+        # complete data from a single source.
+        option_re = re.compile(r"(\d{6})([CP])(.+)$")
+        for pos in positions:
+            if pos.symbol in self.instruments:
+                continue
+            if pos.instrument_type not in ("Future Option", "Equity Option"):
+                continue
+            parts = pos.symbol.strip().split()
+            tail = parts[-1] if parts else pos.symbol
+            m = option_re.search(tail)
+            if not m:
+                continue
+            date_str, opt_char, strike_str = m.groups()
+            try:
+                exp_date = date(
+                    2000 + int(date_str[:2]),
+                    int(date_str[2:4]),
+                    int(date_str[4:6]),
+                )
+                dte_val = (exp_date - date.today()).days
+            except Exception:
+                continue
+            # OCC equity options encode strike * 1000 (8 digits)
+            if pos.instrument_type == "Equity Option" and len(strike_str) == 8:
+                try:
+                    strike_val = str(int(strike_str) / 1000)
+                except ValueError:
+                    strike_val = strike_str
+            else:
+                strike_val = strike_str
+            self.instruments[pos.symbol] = {
+                "option-type": opt_char,
+                "strike-price": strike_val,
+                "expiration-date": exp_date.isoformat(),
+                "days-to-expiration": dte_val,
+            }
+        # end 5b
+
         # 6. Read entry credits (transaction-derived dollar values)
         raw_credits = await self.redis.hgetall(AccountStreamPublisher.ENTRY_CREDITS_KEY)
         self.entry_credit_records = {}
@@ -335,28 +377,15 @@ class PositionMetricsReader:
             df["entry_price"] = df["symbol"].map(get_entry_price)
             df["fees"] = df["symbol"].map(get_fees)
 
-        # 9. Enrich with DTE from instrument data (fallback: parse from symbol)
-        if not df.empty:
+        # 9. Enrich with DTE from instrument data
+        if not df.empty and self.instruments:
             instruments = self.instruments
-            # Futures option: './6EM6 EUUJ6 260403C1.18' → date 260403
-            # OCC equity option: 'CSCO  260402C00083000' → date 260402
-            dte_date_re = re.compile(r"(\d{6})[CP]")
 
             def get_dte(sym: str) -> int | None:
                 inst = instruments.get(sym)
                 if inst and isinstance(inst, dict):
                     dte = inst.get("days-to-expiration")
-                    if dte is not None:
-                        return int(dte)
-                # Fallback: parse expiration from symbol
-                m = dte_date_re.search(sym.strip().split()[-1] if " " in sym else sym)
-                if m:
-                    try:
-                        ds = m.group(1)
-                        exp = date(2000 + int(ds[:2]), int(ds[2:4]), int(ds[4:6]))
-                        return (exp - date.today()).days
-                    except Exception:
-                        pass
+                    return int(dte) if dte is not None else None
                 return None
 
             df["dte"] = df["symbol"].map(get_dte).astype("Int64")
