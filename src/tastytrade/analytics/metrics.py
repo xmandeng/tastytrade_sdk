@@ -167,7 +167,7 @@ class MetricsTracker:
         metrics.bid_price = event.bidPrice
         metrics.ask_price = event.askPrice
         if event.bidPrice is not None and event.askPrice is not None:
-            metrics.mid_price = round((event.bidPrice + event.askPrice) / 2, 2)
+            metrics.mid_price = round((event.bidPrice + event.askPrice) / 2, 6)
         metrics.price_updated_at = datetime.now()
 
     def on_greeks_event(self, event: GreeksEvent) -> None:

@@ -312,6 +312,7 @@ def positions_cmd() -> None:
                 "fees",
                 "dte",
                 "delta",
+                "theta",
                 "implied_volatility",
                 "tt_strategy",
                 "rolls",

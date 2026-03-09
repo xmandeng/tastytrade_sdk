@@ -163,8 +163,10 @@ class PositionMetricsReader:
                 }
             )
         df = pd.DataFrame(rows)
-        if not df.empty and "dte" in df.columns:
-            df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
+        if not df.empty:
+            if "dte" in df.columns:
+                df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
+            df = df.sort_values("underlying").reset_index(drop=True)
         return df
 
     # -- TradeChain enrichment block (experimental) --
