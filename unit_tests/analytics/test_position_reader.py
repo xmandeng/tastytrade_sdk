@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pandas as pd
 import pytest
 
+from tastytrade.accounts.models import TradeChain
 from tastytrade.analytics.positions import PositionMetricsReader
 
 
@@ -95,6 +96,10 @@ def make_trade_chain_json(
     )
 
 
+CALL_SYMBOL = "./6EM6 EUUJ6 260403C1.18"
+PUT_SYMBOL = "./6EM6 EUUJ6 260403P1.13"
+
+
 @pytest.fixture
 def mock_redis() -> AsyncMock:
     return AsyncMock()
@@ -111,6 +116,11 @@ def reader(mock_redis: AsyncMock) -> PositionMetricsReader:
     r.entry_credits = {}
     r.trade_chains = {}
     return r
+
+
+# ---------------------------------------------------------------------------
+# Core reader tests
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -188,107 +198,95 @@ async def test_read_includes_required_columns(
 
 
 # ---------------------------------------------------------------------------
-# TradeChain position-level enrichment (experimental — TT-80)
+# chain_summary (experimental — TT-80)
 # ---------------------------------------------------------------------------
 
-CALL_SYMBOL = "./6EM6 EUUJ6 260403C1.18"
-PUT_SYMBOL = "./6EM6 EUUJ6 260403P1.13"
 
+class TestChainSummary:
+    def test_empty_when_no_chains(self, reader: PositionMetricsReader) -> None:
+        reader.trade_chains = {}
+        df = reader.chain_summary
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 0
+        assert "chain_id" in df.columns
 
-@pytest.mark.asyncio
-async def test_trade_chain_enriches_positions(
-    reader: PositionMetricsReader, mock_redis: AsyncMock
-) -> None:
-    """Positions matching chain open-entries get lifecycle columns."""
-    mock_redis.hgetall.side_effect = [
-        {  # positions
-            b"call": make_position_json(
-                CALL_SYMBOL,
-                CALL_SYMBOL,
-                qty="1.0",
-                direction="Short",
-                inst_type="Future Option",
-            ).encode(),
-            b"put": make_position_json(
-                PUT_SYMBOL,
-                PUT_SYMBOL,
-                qty="1.0",
-                direction="Short",
-                inst_type="Future Option",
-            ).encode(),
-        },
-        {},  # quotes
-        {},  # greeks
-        {},  # instruments
-        {},  # entry credits
-        {  # trade chains
-            b"12345": make_trade_chain_json(
+    def test_open_chain_produces_row(self, reader: PositionMetricsReader) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
                 open_entry_symbols=[CALL_SYMBOL, PUT_SYMBOL],
-            ).encode(),
-        },
-    ]
-    df = await reader.read()
-    assert len(df) == 2
-
-    # Both positions should have chain data
-    for _, row in df.iterrows():
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.chain_summary
+        assert len(df) == 1
+        row = df.iloc[0]
         assert row["chain_id"] == "12345"
+        assert row["underlying"] == "/6E"
         assert row["tt_strategy"] == "Strangle w/ a roll"
+        assert row["status"] == "open"
         assert row["rolls"] == 1
         assert row["realized_pnl"] == "7.68"
-        assert row["chain_fees"] == "7.68"
-        assert row["opened_at"] == "2026-03-07T15:30:00.000+0000"
+        assert row["total_fees"] == "7.68"
+        assert CALL_SYMBOL in row["legs"]
+        assert PUT_SYMBOL in row["legs"]
 
-
-@pytest.mark.asyncio
-async def test_no_chain_data_when_no_match(
-    reader: PositionMetricsReader, mock_redis: AsyncMock
-) -> None:
-    """Positions with no matching chain get None for lifecycle columns."""
-    mock_redis.hgetall.side_effect = [
-        {b"SPY": make_position_json("SPY", "SPY").encode()},
-        {},  # quotes
-        {},  # greeks
-        {},  # instruments
-        {},  # entry credits
-        {  # trade chain for different symbols
-            b"99999": make_trade_chain_json(
-                open_entry_symbols=[CALL_SYMBOL],
-            ).encode(),
-        },
-    ]
-    df = await reader.read()
-    assert len(df) == 1
-    assert pd.isna(df.iloc[0].get("chain_id")) or df.iloc[0].get("chain_id") is None
-
-
-@pytest.mark.asyncio
-async def test_closed_chain_does_not_enrich(
-    reader: PositionMetricsReader, mock_redis: AsyncMock
-) -> None:
-    """Closed chains are not mapped to positions."""
-    mock_redis.hgetall.side_effect = [
-        {
-            b"call": make_position_json(
-                CALL_SYMBOL,
-                CALL_SYMBOL,
-                qty="1.0",
-                direction="Short",
-                inst_type="Future Option",
-            ).encode(),
-        },
-        {},  # quotes
-        {},  # greeks
-        {},  # instruments
-        {},  # entry credits
-        {  # closed chain
-            b"12345": make_trade_chain_json(
+    def test_closed_chain_shows_closed_status(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="99999",
+                description="Vertical",
                 is_open=False,
+                roll_count=0,
+                realized_gain_with_fees="150.0",
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.chain_summary
+        assert len(df) == 1
+        assert df.iloc[0]["status"] == "closed"
+        assert df.iloc[0]["realized_pnl"] == "150.0"
+
+    def test_multiple_chains(self, reader: PositionMetricsReader) -> None:
+        chain_a = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="aaa",
+                description="Strangle",
                 open_entry_symbols=[CALL_SYMBOL],
-            ).encode(),
-        },
-    ]
-    df = await reader.read()
-    assert len(df) == 1
-    # No enrichment columns when chain is closed (no symbol lookup built)
-    assert "chain_id" not in df.columns or pd.isna(df.iloc[0].get("chain_id"))
+            )
+        )
+        chain_b = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="bbb",
+                description="Iron Condor",
+                underlying="RUT",
+                open_entry_symbols=[PUT_SYMBOL],
+            )
+        )
+        reader.trade_chains = {chain_a.id: chain_a, chain_b.id: chain_b}
+        df = reader.chain_summary
+        assert len(df) == 2
+        assert set(df["chain_id"]) == {"aaa", "bbb"}
+
+    @pytest.mark.asyncio
+    async def test_read_populates_trade_chains(
+        self, reader: PositionMetricsReader, mock_redis: AsyncMock
+    ) -> None:
+        """read() loads trade chains so chain_summary works after."""
+        mock_redis.hgetall.side_effect = [
+            {b"SPY": make_position_json("SPY", "SPY").encode()},
+            {},  # quotes
+            {},  # greeks
+            {},  # instruments
+            {},  # entry credits
+            {  # trade chains
+                b"12345": make_trade_chain_json(
+                    open_entry_symbols=[CALL_SYMBOL],
+                ).encode(),
+            },
+        ]
+        await reader.read()
+        df = reader.chain_summary
+        assert len(df) == 1
+        assert df.iloc[0]["chain_id"] == "12345"
