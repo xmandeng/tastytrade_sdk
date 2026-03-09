@@ -375,7 +375,7 @@ def test_on_quote_event_updates_bid_ask_mid() -> None:
     sec = tracker.securities["SPY"]
     assert sec.bid_price == 600.50
     assert sec.ask_price == 600.75
-    assert sec.mid_price == 600.62  # round((600.50 + 600.75) / 2, 2)
+    assert sec.mid_price == 600.625  # (600.50 + 600.75) / 2
 
 
 def test_on_quote_event_updates_price_timestamp() -> None:
