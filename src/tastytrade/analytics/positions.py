@@ -15,7 +15,7 @@ from typing import Any, Optional
 import pandas as pd
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
-from tastytrade.accounts.models import Position
+from tastytrade.accounts.models import Position, TradeChain
 from tastytrade.accounts.publisher import AccountStreamPublisher
 from tastytrade.accounts.transactions import EntryCredit
 from tastytrade.analytics.metrics import MetricsTracker
@@ -46,6 +46,7 @@ class PositionMetricsReader:
         self.instruments: dict[str, Any] = {}
         self.entry_credit_records: dict[str, EntryCredit] = {}
         self.entry_credits: dict[str, Decimal] = {}
+        self.trade_chains: dict[str, TradeChain] = {}
 
     @property
     def summary(self) -> pd.DataFrame:
@@ -139,6 +140,29 @@ class PositionMetricsReader:
                 f"{'@' + str(leg.strike.normalize()) if leg.strike else ''}"
                 for leg in strat.legs
             )
+            # -- TradeChain enrichment block (experimental) --
+            # Match strategy to trade chain by underlying symbol + open entry legs.
+            # Can be removed without side effects if enrichment proves unnecessary.
+            chain_match = self.match_trade_chain(strat)
+            if chain_match is not None:
+                cd = chain_match.computed_data
+                chain_fields = {
+                    "rolls": cd.roll_count,
+                    "realized_pnl": cd.realized_gain_with_fees,
+                    "total_fees": cd.total_fees,
+                    "opened_at": cd.opened_at,
+                    "tt_strategy": chain_match.description,
+                }
+            else:
+                chain_fields = {
+                    "rolls": None,
+                    "realized_pnl": None,
+                    "total_fees": None,
+                    "opened_at": None,
+                    "tt_strategy": None,
+                }
+            # -- end TradeChain enrichment block --
+
             rows.append(
                 {
                     "underlying": strat.underlying,
@@ -157,12 +181,49 @@ class PositionMetricsReader:
                     else None,
                     "health": health_level,
                     "alerts": alert_str,
+                    **chain_fields,
                 }
             )
         df = pd.DataFrame(rows)
         if not df.empty and "dte" in df.columns:
             df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
+            # -- TradeChain enrichment block (experimental) --
+            if "rolls" in df.columns:
+                df["rolls"] = df["rolls"].astype("Int64")
+            # -- end TradeChain enrichment block --
         return df
+
+    # -- TradeChain enrichment block (experimental) --
+    # Matches a classified Strategy to a TradeChain by underlying symbol and
+    # open entry leg symbols. Can be removed without side effects.
+    def match_trade_chain(self, strategy: Strategy) -> Optional[TradeChain]:
+        """Find the best-matching open TradeChain for a classified strategy.
+
+        Matches by underlying symbol, then scores by overlap between the
+        chain's open-entry symbols and the strategy's leg symbols. Returns
+        the chain with the highest overlap, or None if no match.
+        """
+        if not self.trade_chains:
+            return None
+
+        strat_symbols = {leg.symbol.strip() for leg in strategy.legs}
+        best_chain: Optional[TradeChain] = None
+        best_overlap = 0
+
+        for chain in self.trade_chains.values():
+            if chain.underlying_symbol != strategy.underlying:
+                continue
+            if not chain.computed_data.open:
+                continue
+            chain_symbols = {e.symbol.strip() for e in chain.computed_data.open_entries}
+            overlap = len(strat_symbols & chain_symbols)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_chain = chain
+
+        return best_chain
+
+    # -- end TradeChain enrichment block --
 
     async def read(self) -> pd.DataFrame:
         """Read positions + market data + instruments from Redis, return joined DataFrame."""
@@ -232,7 +293,25 @@ class PositionMetricsReader:
         if self.entry_credits:
             logger.info("Loaded %d entry credits from Redis", len(self.entry_credits))
 
-        # 7. Enrich DataFrame with entry credit data
+        # 7. Read trade chains (TT-80: OrderChain lifecycle data)
+        # -- TradeChain enrichment block (experimental) --
+        # This block reads trade chain data from Redis and indexes by underlying
+        # symbol for join into strategy_summary. Can be removed without side effects
+        # if the enrichment proves unnecessary.
+        raw_chains = await self.redis.hgetall(AccountStreamPublisher.TRADE_CHAINS_KEY)
+        self.trade_chains = {}
+        for _key, value in raw_chains.items():
+            try:
+                chain = TradeChain.model_validate_json(value)
+                self.trade_chains[chain.id] = chain
+            except Exception as e:
+                logger.debug("Skipped trade chain: %s", e)
+
+        if self.trade_chains:
+            logger.info("Loaded %d trade chains from Redis", len(self.trade_chains))
+        # -- end TradeChain enrichment block --
+
+        # 8. Enrich DataFrame with entry credit data (renumbered after trade chain step)
         df = tracker.df
         if not df.empty and self.entry_credit_records:
             records = self.entry_credit_records
@@ -255,7 +334,7 @@ class PositionMetricsReader:
             df["entry_price"] = df["symbol"].map(get_entry_price)
             df["fees"] = df["symbol"].map(get_fees)
 
-        # 8. Enrich with DTE from instrument data
+        # 9. Enrich with DTE from instrument data
         if not df.empty and self.instruments:
             instruments = self.instruments
 
