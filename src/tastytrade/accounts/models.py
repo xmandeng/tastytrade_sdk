@@ -881,3 +881,147 @@ class PlacedComplexOrder(BaseModel):
             logger.warning("Unknown complex order type '%s', mapping to UNKNOWN", value)
             return ComplexOrderType.UNKNOWN.value
         return value
+
+
+# ---------------------------------------------------------------------------
+# TradeChain — models the OrderChain event from the account streamer.
+# Captures the full trade lifecycle: opens, closes, rolls, and realized P&L.
+# Uses extra="allow" throughout — the brokerage schema may evolve and we
+# must not reject unknown fields.
+# ---------------------------------------------------------------------------
+
+
+class TradeChainEntry(TastyTradeApiModel):
+    """A position entry within a trade chain (open-entries or node entries)."""
+
+    symbol: str = Field(description="Position symbol")
+    instrument_type: str = Field(alias="instrument-type")
+    quantity: str = Field(description="Quantity as string")
+    quantity_type: str = Field(alias="quantity-type", description="Long or Short")
+    quantity_numeric: str = Field(
+        alias="quantity-numeric", description="Signed quantity"
+    )
+
+
+class TradeChainLeg(TastyTradeApiModel):
+    """A single leg within an order node of a trade chain."""
+
+    symbol: str = Field(description="Option/future symbol")
+    instrument_type: str = Field(alias="instrument-type")
+    action: str = Field(description="e.g. Buy to Open, Sell to Close")
+    fill_quantity: str = Field(alias="fill-quantity")
+    order_quantity: str = Field(alias="order-quantity")
+
+
+class TradeChainMarketData(TastyTradeApiModel):
+    """Market snapshot for a single symbol at time of order execution."""
+
+    symbol: str
+    instrument_type: str = Field(alias="instrument-type")
+    bid: Optional[str] = None
+    ask: Optional[str] = None
+    last: Optional[str] = None
+    delta: Optional[str] = None
+    gamma: Optional[str] = None
+    theta: Optional[str] = None
+    rho: Optional[str] = None
+    vega: Optional[str] = None
+
+
+class TradeChainMarketSnapshot(TastyTradeApiModel):
+    """Market state at time of order execution."""
+
+    market_datas: list[TradeChainMarketData] = Field(
+        alias="market-datas", default_factory=list
+    )
+    total_delta: Optional[str] = Field(default=None, alias="total-delta")
+    total_theta: Optional[str] = Field(default=None, alias="total-theta")
+
+
+class TradeChainNode(TastyTradeApiModel):
+    """A node in the trade chain — either open-positions or an order."""
+
+    node_type: str = Field(alias="node-type", description="'open-positions' or 'order'")
+    id: str = Field(description="Node ID")
+    description: str = Field(description="e.g. 'Iron Condor', 'Closing', 'Open Pos'")
+    occurred_at: Optional[str] = Field(default=None, alias="occurred-at")
+    total_fees: Optional[str] = Field(default=None, alias="total-fees")
+    total_fees_effect: Optional[str] = Field(default=None, alias="total-fees-effect")
+    total_fill_cost: Optional[str] = Field(default=None, alias="total-fill-cost")
+    total_fill_cost_effect: Optional[str] = Field(
+        default=None, alias="total-fill-cost-effect"
+    )
+    gcd_quantity: Optional[str] = Field(default=None, alias="gcd-quantity")
+    fill_cost_per_quantity: Optional[str] = Field(
+        default=None, alias="fill-cost-per-quantity"
+    )
+    fill_cost_per_quantity_effect: Optional[str] = Field(
+        default=None, alias="fill-cost-per-quantity-effect"
+    )
+    order_fill_count: Optional[int] = Field(default=None, alias="order-fill-count")
+    roll: Optional[bool] = None
+    legs: list[TradeChainLeg] = Field(default_factory=list)
+    entries: list[TradeChainEntry] = Field(default_factory=list)
+    market_state_snapshot: Optional[TradeChainMarketSnapshot] = Field(
+        default=None, alias="market-state-snapshot"
+    )
+
+
+class TradeChainComputedData(TastyTradeApiModel):
+    """Pre-computed trade P&L and lifecycle data from TastyTrade."""
+
+    open: bool = Field(description="True if the chain still has open legs")
+    total_fees: Optional[str] = Field(default=None, alias="total-fees")
+    total_fees_effect: Optional[str] = Field(default=None, alias="total-fees-effect")
+    total_commissions: Optional[str] = Field(default=None, alias="total-commissions")
+    total_commissions_effect: Optional[str] = Field(
+        default=None, alias="total-commissions-effect"
+    )
+    realized_gain: Optional[str] = Field(default=None, alias="realized-gain")
+    realized_gain_effect: Optional[str] = Field(
+        default=None, alias="realized-gain-effect"
+    )
+    realized_gain_with_fees: Optional[str] = Field(
+        default=None, alias="realized-gain-with-fees"
+    )
+    realized_gain_with_fees_effect: Optional[str] = Field(
+        default=None, alias="realized-gain-with-fees-effect"
+    )
+    winner_realized_and_closed: Optional[bool] = Field(
+        default=None, alias="winner-realized-and-closed"
+    )
+    winner_realized: Optional[bool] = Field(default=None, alias="winner-realized")
+    winner_realized_with_fees: Optional[bool] = Field(
+        default=None, alias="winner-realized-with-fees"
+    )
+    roll_count: int = Field(default=0, alias="roll-count")
+    opened_at: Optional[str] = Field(default=None, alias="opened-at")
+    last_occurred_at: Optional[str] = Field(default=None, alias="last-occurred-at")
+    total_opening_cost: Optional[str] = Field(default=None, alias="total-opening-cost")
+    total_opening_cost_effect: Optional[str] = Field(
+        default=None, alias="total-opening-cost-effect"
+    )
+    total_closing_cost: Optional[str] = Field(default=None, alias="total-closing-cost")
+    total_closing_cost_effect: Optional[str] = Field(
+        default=None, alias="total-closing-cost-effect"
+    )
+    total_cost: Optional[str] = Field(default=None, alias="total-cost")
+    total_cost_effect: Optional[str] = Field(default=None, alias="total-cost-effect")
+    open_entries: list[TradeChainEntry] = Field(
+        default_factory=list, alias="open-entries"
+    )
+
+
+class TradeChain(TastyTradeApiModel):
+    """Full trade lifecycle from the TastyTrade OrderChain event.
+
+    Captures the complete history of a trade including opens, closes, rolls,
+    realized P&L, fees, and market snapshots at time of execution.
+    """
+
+    id: str = Field(description="Chain ID from TastyTrade")
+    description: str = Field(description="Strategy name, e.g. 'Iron Condor'")
+    underlying_symbol: str = Field(alias="underlying-symbol")
+    computed_data: TradeChainComputedData = Field(alias="computed-data")
+    lite_nodes_sizes: Optional[int] = Field(default=None, alias="lite-nodes-sizes")
+    lite_nodes: list[TradeChainNode] = Field(default_factory=list, alias="lite-nodes")

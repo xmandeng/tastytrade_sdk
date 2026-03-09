@@ -103,6 +103,16 @@ async def consume_complex_orders(
         await publisher.publish_complex_order(order)
 
 
+async def consume_order_chains(
+    queue: asyncio.Queue,  # type: ignore[type-arg]
+    publisher: AccountStreamPublisher,
+) -> None:
+    """Drain OrderChain events from the queue and publish to Redis."""
+    while True:
+        chain = await queue.get()
+        await publisher.publish_trade_chain(chain)
+
+
 OPTION_TYPES = {InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION}
 
 
@@ -417,9 +427,10 @@ async def run_account_stream_once(
             )
         )
 
-        # === Start consumer tasks for order + complex order queues ===
+        # === Start consumer tasks for order + complex order + order chain queues ===
         order_queue = streamer.queues[AccountEventType.ORDER]
         complex_order_queue = streamer.queues[AccountEventType.COMPLEX_ORDER]
+        order_chain_queue = streamer.queues[AccountEventType.ORDER_CHAIN]
 
         consumer_tasks.append(
             asyncio.create_task(
@@ -431,6 +442,12 @@ async def run_account_stream_once(
             asyncio.create_task(
                 consume_complex_orders(complex_order_queue, publisher),
                 name="complex_order_consumer",
+            )
+        )
+        consumer_tasks.append(
+            asyncio.create_task(
+                consume_order_chains(order_chain_queue, publisher),
+                name="order_chain_consumer",
             )
         )
 

@@ -82,3 +82,4 @@ class AccountEventType(str, Enum):
     ACCOUNT_BALANCE = "AccountBalance"
     ORDER = "Order"
     COMPLEX_ORDER = "ComplexOrder"
+    ORDER_CHAIN = "OrderChain"
