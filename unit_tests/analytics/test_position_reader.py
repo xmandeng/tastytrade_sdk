@@ -1,15 +1,12 @@
 """Tests for PositionMetricsReader -- pure Redis consumer."""
 
 import json
-from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pandas as pd
 import pytest
 
-from tastytrade.accounts.models import InstrumentType, TradeChain
 from tastytrade.analytics.positions import PositionMetricsReader
-from tastytrade.analytics.strategies.models import ParsedLeg, Strategy, StrategyType
 
 
 def make_position_json(
@@ -53,6 +50,47 @@ def make_greeks_json(symbol: str, delta: float, iv: float) -> str:
             "vega": 0.10,
             "rho": -0.02,
             "volatility": iv,
+        }
+    )
+
+
+def make_trade_chain_json(
+    chain_id: str = "12345",
+    underlying: str = "/6E",
+    description: str = "Strangle w/ a roll",
+    is_open: bool = True,
+    roll_count: int = 1,
+    realized_gain_with_fees: str = "7.68",
+    total_fees: str = "7.68",
+    opened_at: str = "2026-03-07T15:30:00.000+0000",
+    open_entry_symbols: list[str] | None = None,
+) -> str:
+    """Build a trade chain JSON payload for Redis mock."""
+    entries = []
+    for sym in open_entry_symbols or []:
+        entries.append(
+            {
+                "symbol": sym,
+                "instrument-type": "Future Option",
+                "quantity": "1",
+                "quantity-type": "Short",
+                "quantity-numeric": "-1",
+            }
+        )
+    return json.dumps(
+        {
+            "id": chain_id,
+            "description": description,
+            "underlying-symbol": underlying,
+            "computed-data": {
+                "open": is_open,
+                "roll-count": roll_count,
+                "realized-gain-with-fees": realized_gain_with_fees,
+                "total-fees": total_fees,
+                "opened-at": opened_at,
+                "open-entries": entries,
+            },
+            "lite-nodes": [],
         }
     )
 
@@ -150,141 +188,107 @@ async def test_read_includes_required_columns(
 
 
 # ---------------------------------------------------------------------------
-# TradeChain enrichment (experimental — TT-80)
+# TradeChain position-level enrichment (experimental — TT-80)
 # ---------------------------------------------------------------------------
 
+CALL_SYMBOL = "./6EM6 EUUJ6 260403C1.18"
+PUT_SYMBOL = "./6EM6 EUUJ6 260403P1.13"
 
-def make_trade_chain(
-    chain_id: str = "12345",
-    underlying: str = "/6E",
-    description: str = "Strangle w/ a roll",
-    is_open: bool = True,
-    roll_count: int = 1,
-    realized_gain_with_fees: str = "7.68",
-    total_fees: str = "7.68",
-    open_entry_symbols: list[str] | None = None,
-) -> TradeChain:
-    """Build a minimal TradeChain for testing."""
-    entries = []
-    for sym in open_entry_symbols or []:
-        entries.append(
-            {
-                "symbol": sym,
-                "instrument-type": "Future Option",
-                "quantity": "1",
-                "quantity-type": "Short",
-                "quantity-numeric": "-1",
-            }
-        )
-    return TradeChain.model_validate(
+
+@pytest.mark.asyncio
+async def test_trade_chain_enriches_positions(
+    reader: PositionMetricsReader, mock_redis: AsyncMock
+) -> None:
+    """Positions matching chain open-entries get lifecycle columns."""
+    mock_redis.hgetall.side_effect = [
+        {  # positions
+            b"call": make_position_json(
+                CALL_SYMBOL,
+                CALL_SYMBOL,
+                qty="1.0",
+                direction="Short",
+                inst_type="Future Option",
+            ).encode(),
+            b"put": make_position_json(
+                PUT_SYMBOL,
+                PUT_SYMBOL,
+                qty="1.0",
+                direction="Short",
+                inst_type="Future Option",
+            ).encode(),
+        },
+        {},  # quotes
+        {},  # greeks
+        {},  # instruments
+        {},  # entry credits
+        {  # trade chains
+            b"12345": make_trade_chain_json(
+                open_entry_symbols=[CALL_SYMBOL, PUT_SYMBOL],
+            ).encode(),
+        },
+    ]
+    df = await reader.read()
+    assert len(df) == 2
+
+    # Both positions should have chain data
+    for _, row in df.iterrows():
+        assert row["chain_id"] == "12345"
+        assert row["tt_strategy"] == "Strangle w/ a roll"
+        assert row["rolls"] == 1
+        assert row["realized_pnl"] == "7.68"
+        assert row["chain_fees"] == "7.68"
+        assert row["opened_at"] == "2026-03-07T15:30:00.000+0000"
+
+
+@pytest.mark.asyncio
+async def test_no_chain_data_when_no_match(
+    reader: PositionMetricsReader, mock_redis: AsyncMock
+) -> None:
+    """Positions with no matching chain get None for lifecycle columns."""
+    mock_redis.hgetall.side_effect = [
+        {b"SPY": make_position_json("SPY", "SPY").encode()},
+        {},  # quotes
+        {},  # greeks
+        {},  # instruments
+        {},  # entry credits
+        {  # trade chain for different symbols
+            b"99999": make_trade_chain_json(
+                open_entry_symbols=[CALL_SYMBOL],
+            ).encode(),
+        },
+    ]
+    df = await reader.read()
+    assert len(df) == 1
+    assert pd.isna(df.iloc[0].get("chain_id")) or df.iloc[0].get("chain_id") is None
+
+
+@pytest.mark.asyncio
+async def test_closed_chain_does_not_enrich(
+    reader: PositionMetricsReader, mock_redis: AsyncMock
+) -> None:
+    """Closed chains are not mapped to positions."""
+    mock_redis.hgetall.side_effect = [
         {
-            "id": chain_id,
-            "description": description,
-            "underlying-symbol": underlying,
-            "computed-data": {
-                "open": is_open,
-                "roll-count": roll_count,
-                "realized-gain-with-fees": realized_gain_with_fees,
-                "total-fees": total_fees,
-                "open-entries": entries,
-            },
-            "lite-nodes": [],
-        }
-    )
-
-
-def make_strategy(
-    underlying: str = "/6E",
-    leg_symbols: list[str] | None = None,
-) -> Strategy:
-    """Build a minimal Strategy for testing chain matching."""
-    symbols = leg_symbols or ["./6EM6 EUUJ6 260403C1.18", "./6EM6 EUUJ6 260403P1.13"]
-    legs = tuple(
-        ParsedLeg(
-            streamer_symbol=sym,
-            symbol=sym,
-            underlying=underlying,
-            instrument_type=InstrumentType.FUTURE_OPTION,
-            signed_quantity=-1.0,
-            option_type="C",
-            strike=Decimal("1.18"),
-        )
-        for sym in symbols
-    )
-    return Strategy(
-        strategy_type=StrategyType.SHORT_STRANGLE,
-        underlying=underlying,
-        legs=legs,
-    )
-
-
-class TestMatchTradeChain:
-    def test_matches_by_open_entry_symbols(self, reader: PositionMetricsReader) -> None:
-        chain = make_trade_chain(
-            open_entry_symbols=[
-                "./6EM6 EUUJ6 260403C1.18",
-                "./6EM6 EUUJ6 260403P1.13",
-            ],
-        )
-        reader.trade_chains = {chain.id: chain}
-        strat = make_strategy()
-        match = reader.match_trade_chain(strat)
-        assert match is not None
-        assert match.id == "12345"
-        assert match.computed_data.roll_count == 1
-
-    def test_no_match_no_symbol_overlap(self, reader: PositionMetricsReader) -> None:
-        """Chain with different leg symbols does not match."""
-        chain = make_trade_chain(
-            open_entry_symbols=["SPY   260320C00700000"],
-        )
-        reader.trade_chains = {chain.id: chain}
-        strat = make_strategy()
-        assert reader.match_trade_chain(strat) is None
-
-    def test_no_match_when_chain_closed(self, reader: PositionMetricsReader) -> None:
-        chain = make_trade_chain(is_open=False)
-        reader.trade_chains = {chain.id: chain}
-        strat = make_strategy()
-        assert reader.match_trade_chain(strat) is None
-
-    def test_no_match_empty_chains(self, reader: PositionMetricsReader) -> None:
-        reader.trade_chains = {}
-        strat = make_strategy()
-        assert reader.match_trade_chain(strat) is None
-
-    def test_best_overlap_wins(self, reader: PositionMetricsReader) -> None:
-        """When multiple chains match, pick the one with most leg overlap."""
-        partial = make_trade_chain(
-            chain_id="partial",
-            open_entry_symbols=["./6EM6 EUUJ6 260403C1.18"],
-        )
-        full = make_trade_chain(
-            chain_id="full",
-            open_entry_symbols=[
-                "./6EM6 EUUJ6 260403C1.18",
-                "./6EM6 EUUJ6 260403P1.13",
-            ],
-        )
-        reader.trade_chains = {partial.id: partial, full.id: full}
-        strat = make_strategy()
-        match = reader.match_trade_chain(strat)
-        assert match is not None
-        assert match.id == "full"
-
-    def test_matches_across_underlying_formats(
-        self, reader: PositionMetricsReader
-    ) -> None:
-        """Chain underlying '/6E' still matches strategy '/6EM6' via symbol overlap."""
-        chain = make_trade_chain(
-            underlying="/6E",
-            open_entry_symbols=[
-                "./6EM6 EUUJ6 260403C1.18",
-                "./6EM6 EUUJ6 260403P1.13",
-            ],
-        )
-        reader.trade_chains = {chain.id: chain}
-        strat = make_strategy(underlying="/6EM6")
-        match = reader.match_trade_chain(strat)
-        assert match is not None
-        assert match.id == "12345"
+            b"call": make_position_json(
+                CALL_SYMBOL,
+                CALL_SYMBOL,
+                qty="1.0",
+                direction="Short",
+                inst_type="Future Option",
+            ).encode(),
+        },
+        {},  # quotes
+        {},  # greeks
+        {},  # instruments
+        {},  # entry credits
+        {  # closed chain
+            b"12345": make_trade_chain_json(
+                is_open=False,
+                open_entry_symbols=[CALL_SYMBOL],
+            ).encode(),
+        },
+    ]
+    df = await reader.read()
+    assert len(df) == 1
+    # No enrichment columns when chain is closed (no symbol lookup built)
+    assert "chain_id" not in df.columns or pd.isna(df.iloc[0].get("chain_id"))
