@@ -231,17 +231,23 @@ class PositionMetricsReader:
         if not raw_positions:
             return MetricsTracker().df
 
-        # Deduplicate by symbol — prefer the record with a streamer_symbol
-        # (live WebSocket events include it; REST hydration does not).
+        # Correlate by symbol — REST hydration omits streamer_symbol,
+        # live WebSocket events include it. Merge so every position has both.
         by_symbol: dict[str, Position] = {}
         for _key, value in raw_positions.items():
             try:
                 pos = Position.model_validate(json.loads(value))
                 existing = by_symbol.get(pos.symbol)
-                if existing is None or (
+                if existing is None:
+                    by_symbol[pos.symbol] = pos
+                elif (
                     existing.streamer_symbol is None and pos.streamer_symbol is not None
                 ):
                     by_symbol[pos.symbol] = pos
+                elif (
+                    pos.streamer_symbol is None and existing.streamer_symbol is not None
+                ):
+                    pass  # keep the one with streamer_symbol
             except Exception as e:
                 logger.warning("Failed to parse position: %s", e)
         positions = list(by_symbol.values())
