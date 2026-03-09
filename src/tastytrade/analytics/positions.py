@@ -459,6 +459,11 @@ class PositionMetricsReader:
                 c = lookup.get(sym)
                 return c.computed_data.roll_count if c else None
 
+            # TODO: P&L accounting needs work. realized_gain_with_fees is
+            # misleading — it's realized_gain PLUS fees (not minus). For the
+            # /6EM6 strangle: realized_gain=0.0, fees=7.68, with_fees=7.68.
+            # Consider showing realized_gain (before fees) separately, or
+            # computing net P&L = realized_gain - total_fees.
             def get_realized_pnl(sym: str) -> str | None:
                 c = lookup.get(sym)
                 return c.computed_data.realized_gain_with_fees if c else None
