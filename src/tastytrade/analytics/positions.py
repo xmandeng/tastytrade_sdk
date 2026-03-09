@@ -17,7 +17,7 @@ from typing import Any, Optional
 import pandas as pd
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
-from tastytrade.accounts.models import Position, TradeChain
+from tastytrade.accounts.models import Position, QuantityDirection, TradeChain
 from tastytrade.accounts.publisher import AccountStreamPublisher
 from tastytrade.accounts.transactions import EntryCredit
 from tastytrade.analytics.metrics import MetricsTracker
@@ -427,12 +427,17 @@ class PositionMetricsReader:
 
             df["dte"] = df["symbol"].map(get_dte).astype("Int64")
 
-        # 10. Compute dollar-denominated theta (theta * quantity * multiplier)
-        # Raw theta from DXLink is per-unit; scaling by multiplier makes it
-        # comparable across instrument types (e.g. /6E @ 125k vs /GC @ 100).
+        # 10. Compute dollar-denominated theta (theta * signed_qty * multiplier)
+        # Raw theta from DXLink is always negative for options (decay erodes value).
+        # Signed quantity flips the sign for short positions so dollar_theta is
+        # positive when theta works in your favor (short) and negative when it
+        # works against you (long). Matches Strategy.net_theta semantics.
         if not df.empty and "theta" in df.columns:
+            sign = df["quantity_direction"].map(
+                lambda d: -1.0 if d == QuantityDirection.SHORT else 1.0
+            )
             df["dollar_theta"] = (
-                df["theta"] * df["quantity"] * df["multiplier"]
+                df["theta"] * sign * df["quantity"] * df["multiplier"]
             ).round(2)
 
         # 11. Enrich positions with trade chain lifecycle data
