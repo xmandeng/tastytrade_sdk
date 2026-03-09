@@ -9,6 +9,8 @@ No API calls, no socket connections.
 import json
 import logging
 import os
+import re
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -333,15 +335,28 @@ class PositionMetricsReader:
             df["entry_price"] = df["symbol"].map(get_entry_price)
             df["fees"] = df["symbol"].map(get_fees)
 
-        # 9. Enrich with DTE from instrument data
-        if not df.empty and self.instruments:
+        # 9. Enrich with DTE from instrument data (fallback: parse from symbol)
+        if not df.empty:
             instruments = self.instruments
+            # Futures option: './6EM6 EUUJ6 260403C1.18' → date 260403
+            # OCC equity option: 'CSCO  260402C00083000' → date 260402
+            dte_date_re = re.compile(r"(\d{6})[CP]")
 
             def get_dte(sym: str) -> int | None:
                 inst = instruments.get(sym)
                 if inst and isinstance(inst, dict):
                     dte = inst.get("days-to-expiration")
-                    return int(dte) if dte is not None else None
+                    if dte is not None:
+                        return int(dte)
+                # Fallback: parse expiration from symbol
+                m = dte_date_re.search(sym.strip().split()[-1] if " " in sym else sym)
+                if m:
+                    try:
+                        ds = m.group(1)
+                        exp = date(2000 + int(ds[:2]), int(ds[2:4]), int(ds[4:6]))
+                        return (exp - date.today()).days
+                    except Exception:
+                        pass
                 return None
 
             df["dte"] = df["symbol"].map(get_dte).astype("Int64")
