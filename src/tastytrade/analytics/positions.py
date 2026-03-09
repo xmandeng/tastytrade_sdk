@@ -406,7 +406,15 @@ class PositionMetricsReader:
 
             df["dte"] = df["symbol"].map(get_dte).astype("Int64")
 
-        # 10. Enrich positions with trade chain lifecycle data
+        # 10. Compute dollar-denominated theta (theta * quantity * multiplier)
+        # Raw theta from DXLink is per-unit; scaling by multiplier makes it
+        # comparable across instrument types (e.g. /6E @ 125k vs /GC @ 100).
+        if not df.empty and "theta" in df.columns:
+            df["dollar_theta"] = (
+                df["theta"] * df["quantity"] * df["multiplier"]
+            ).round(2)
+
+        # 11. Enrich positions with trade chain lifecycle data
         # -- TradeChain position enrichment (experimental) --
         # Maps each position to its parent trade chain via open-entry symbols.
         # Can be removed without side effects.
