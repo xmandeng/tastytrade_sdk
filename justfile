@@ -56,6 +56,14 @@ strategies:
 strategies-json:
     uv run tasty-subscription strategies --json
 
+# Trade chain lifecycle summary (rolls, P&L, fees)
+chains:
+    uv run tasty-subscription chains
+
+# Trade chain lifecycle summary in JSON format
+chains-json:
+    uv run tasty-subscription chains --json
+
 # Position summary with LLM strategy identification (legacy)
 positions-strategies:
     uv run tasty-subscription positions-summary | claude --print \
