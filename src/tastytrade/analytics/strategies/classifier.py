@@ -7,7 +7,9 @@ legs become single-leg strategies.
 
 import json
 import logging
+import re
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -18,6 +20,10 @@ from tastytrade.analytics.strategies.patterns import (
     MULTI_LEG_MATCHERS,
     match_single_leg,
 )
+
+# Futures option symbol: './6EM6 EUUJ6 260403C1.18'
+# Last segment: YYMMDD + C/P + strike
+FUTURES_OPTION_RE = re.compile(r"(\d{6})([CP])(.+)$")
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +60,36 @@ class StrategyClassifier:
                 strike = Decimal(str(strike_raw))
             exp_raw = instrument_data.get("expiration-date")
             if exp_raw is not None:
-                from datetime import date
-
                 expiration = (
                     date.fromisoformat(exp_raw) if isinstance(exp_raw, str) else exp_raw
                 )
             dte_raw = instrument_data.get("days-to-expiration")
             dte = int(dte_raw) if dte_raw is not None else None
+
+        # Fallback: parse option_type/strike/expiration from symbol string
+        # when instrument data is missing (e.g. after a roll before re-fetch)
+        if (
+            option_type is None
+            and security.instrument_type == InstrumentType.FUTURE_OPTION
+        ):
+            parts = security.symbol.strip().split()
+            if parts:
+                m = FUTURES_OPTION_RE.search(parts[-1])
+                if m:
+                    date_str, opt_char, strike_str = m.groups()
+                    option_type = opt_char
+                    try:
+                        strike = Decimal(strike_str)
+                    except Exception:
+                        pass
+                    try:
+                        expiration = date(
+                            2000 + int(date_str[:2]),
+                            int(date_str[2:4]),
+                            int(date_str[4:6]),
+                        )
+                    except Exception:
+                        pass
 
         # Determine contract multiplier for dollar P&L
         multiplier = Decimal("1")
