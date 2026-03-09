@@ -323,7 +323,7 @@ def positions_cmd() -> None:
             sort_cols = [c for c in ["underlying_symbol", "symbol"] if c in df.columns]
             if sort_cols:
                 df = df.sort_values(sort_cols)
-            click.echo(df[available].to_string(index=False))
+            click.echo(df[available].astype(object).fillna("").to_string(index=False))
         finally:
             await reader.close()
 
@@ -353,7 +353,7 @@ def positions_summary_cmd() -> None:
             if summary.empty:
                 click.echo("No positions found in Redis. Is account-stream running?")
                 return
-            click.echo(summary.to_string(index=False))
+            click.echo(summary.astype(object).fillna("").to_string(index=False))
         finally:
             await reader.close()
 
@@ -394,7 +394,7 @@ def strategies_cmd(as_json: bool) -> None:
             if as_json:
                 click.echo(summary.to_json(orient="records", indent=2))
             else:
-                click.echo(summary.to_string(index=False))
+                click.echo(summary.astype(object).fillna("").to_string(index=False))
         finally:
             await reader.close()
 
@@ -435,7 +435,7 @@ def chains_cmd(as_json: bool) -> None:
             if as_json:
                 click.echo(df.to_json(orient="records", indent=2))
             else:
-                click.echo(df.to_string(index=False))
+                click.echo(df.astype(object).fillna("").to_string(index=False))
         finally:
             await reader.close()
 
