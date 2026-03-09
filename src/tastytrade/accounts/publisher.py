@@ -17,6 +17,7 @@ from tastytrade.accounts.models import (
     PlacedComplexOrder,
     PlacedOrder,
     Position,
+    TradeChain,
 )
 from tastytrade.accounts.transactions import EntryCredit
 from tastytrade.market.models import (
@@ -49,6 +50,8 @@ class AccountStreamPublisher:
     COMPLEX_ORDERS_KEY = "tastytrade:complex-orders"
     ENTRY_CREDITS_KEY = "tastytrade:entry_credits"
     ENTRY_CREDITS_CHANNEL = "tastytrade:events:EntryCreditsUpdated"
+    TRADE_CHAINS_KEY = "tastytrade:trade_chains"
+    TRADE_CHAIN_CHANNEL = "tastytrade:events:OrderChain"
 
     def __init__(
         self,
@@ -149,6 +152,26 @@ class AccountStreamPublisher:
             json.dumps({"symbols": symbols, "count": len(symbols)}),
         )
         logger.info("Published entry credits for %d symbols", len(symbols))
+
+    async def publish_trade_chain(self, chain: TradeChain) -> None:
+        """Write trade chain to Redis HSET keyed by chain ID and notify via pub/sub."""
+        await self.redis.hset(
+            self.TRADE_CHAINS_KEY,
+            chain.id,
+            chain.model_dump_json(by_alias=True),
+        )
+        await self.redis.publish(
+            channel=self.TRADE_CHAIN_CHANNEL,
+            message=chain.model_dump_json(by_alias=True),
+        )
+        status = "open" if chain.computed_data.open else "closed"
+        logger.info(
+            "Published trade chain %s %s — %s (%s)",
+            chain.id,
+            chain.description,
+            chain.underlying_symbol,
+            status,
+        )
 
     async def remove_entry_credit(self, symbol: str) -> None:
         """Remove an entry credit record for a closed position."""

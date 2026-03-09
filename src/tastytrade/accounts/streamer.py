@@ -37,6 +37,7 @@ from tastytrade.accounts.models import (
     PlacedComplexOrder,
     PlacedOrder,
     Position,
+    TradeChain,
 )
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
@@ -167,7 +168,13 @@ class AccountStreamer:
             self.queues: dict[
                 AccountEventType,
                 asyncio.Queue[
-                    Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder]
+                    Union[
+                        Position,
+                        AccountBalance,
+                        PlacedOrder,
+                        PlacedComplexOrder,
+                        TradeChain,
+                    ]
                 ],
             ] = {event_type: asyncio.Queue() for event_type in AccountEventType}
 
@@ -374,7 +381,9 @@ class AccountStreamer:
     @staticmethod
     def log_event(
         event_type: AccountEventType,
-        parsed: Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder],
+        parsed: Union[
+            Position, AccountBalance, PlacedOrder, PlacedComplexOrder, TradeChain
+        ],
     ) -> None:
         """Log a human-readable summary of the event."""
         if event_type == AccountEventType.ORDER and isinstance(parsed, PlacedOrder):
@@ -405,12 +414,26 @@ class AccountStreamer:
             )
         elif event_type == AccountEventType.ACCOUNT_BALANCE:
             logger.info("AccountBalance updated")
+        elif event_type == AccountEventType.ORDER_CHAIN and isinstance(
+            parsed, TradeChain
+        ):
+            status = "open" if parsed.computed_data.open else "closed"
+            logger.info(
+                "OrderChain %s %s — %s (%s, rolls=%d)",
+                parsed.id,
+                parsed.description,
+                parsed.underlying_symbol,
+                status,
+                parsed.computed_data.roll_count,
+            )
 
     @staticmethod
     def parse_event(
         event_type: str,
         data: dict,  # type: ignore[type-arg]
-    ) -> Union[Position, AccountBalance, PlacedOrder, PlacedComplexOrder, None]:
+    ) -> Union[
+        Position, AccountBalance, PlacedOrder, PlacedComplexOrder, TradeChain, None
+    ]:
         """Parse event data into the corresponding Pydantic model."""
         try:
             if event_type == AccountEventType.CURRENT_POSITION:
@@ -421,6 +444,8 @@ class AccountStreamer:
                 return PlacedOrder.model_validate(data)
             elif event_type == AccountEventType.COMPLEX_ORDER:
                 return PlacedComplexOrder.model_validate(data)
+            elif event_type == AccountEventType.ORDER_CHAIN:
+                return TradeChain.model_validate(data)
             else:
                 logger.warning("Unknown event type for parsing: %s", event_type)
                 return None
