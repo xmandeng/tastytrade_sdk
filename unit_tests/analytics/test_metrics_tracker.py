@@ -75,7 +75,8 @@ def make_greeks(symbol: str, **overrides: Any) -> GreeksEvent:
     """Create a GreeksEvent with realistic option Greeks values.
 
     Note: FloatFieldMixin sanitizes NaN/Infinity to None and rounds to
-    10 decimal places to prevent float noise while preserving exchange precision.
+    FLOAT_PRECISION decimal places to prevent float noise while preserving
+    exchange precision.
     """
     defaults: dict[str, Any] = {
         "eventSymbol": symbol,

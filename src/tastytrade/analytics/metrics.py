@@ -13,7 +13,7 @@ from typing import Optional
 import pandas as pd
 
 from tastytrade.accounts.models import InstrumentType, Position, QuantityDirection
-from tastytrade.messaging.models.events import GreeksEvent, QuoteEvent
+from tastytrade.messaging.models.events import FLOAT_PRECISION, GreeksEvent, QuoteEvent
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,9 @@ class MetricsTracker:
         metrics.bid_price = event.bidPrice
         metrics.ask_price = event.askPrice
         if event.bidPrice is not None and event.askPrice is not None:
-            metrics.mid_price = round((event.bidPrice + event.askPrice) / 2, 6)
+            metrics.mid_price = round(
+                (event.bidPrice + event.askPrice) / 2, FLOAT_PRECISION
+            )
         metrics.price_updated_at = datetime.now()
 
     def on_greeks_event(self, event: GreeksEvent) -> None:

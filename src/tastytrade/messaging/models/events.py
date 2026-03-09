@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
+# Maximum decimal places preserved on DXLink float fields (prices, sizes, Greeks).
+# Must be high enough to retain micro-premium prices from FX futures options
+# (e.g. /6E puts at 0.00390) while still trimming IEEE 754 representation noise
+# (e.g. 600.2499999999999998). 10 digits covers all exchange tick sizes.
+FLOAT_PRECISION: int = 10
+
 
 class ControlEvent(BaseModel):
     model_config = ConfigDict(
@@ -42,7 +48,7 @@ class FloatFieldMixin:
                 or pd.isna(value)
             ):
                 return None
-            return round(float(value), 10)
+            return round(float(value), FLOAT_PRECISION)
 
         return convert_float
 
