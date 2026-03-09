@@ -6,6 +6,7 @@ Single responsibility: position symbols -> DXLink subscriptions.
 """
 
 import asyncio
+import json
 import logging
 import os
 from typing import Optional, Protocol
@@ -44,7 +45,15 @@ class PositionSymbolResolver:
     async def resolve(self) -> None:
         """Read positions from Redis, diff, subscribe/unsubscribe."""
         raw = await self.redis.hgetall(AccountStreamPublisher.POSITIONS_KEY)
-        current_symbols = {key.decode("utf-8") for key in raw.keys()}
+        # Extract streamer-symbol from position data; fall back to hash key
+        current_symbols: set[str] = set()
+        for key, value in raw.items():
+            try:
+                pos = json.loads(value)
+                sym = pos.get("streamer-symbol") or key.decode("utf-8")
+                current_symbols.add(sym)
+            except Exception:
+                current_symbols.add(key.decode("utf-8"))
 
         to_subscribe = current_symbols - self.subscribed_symbols
         to_unsubscribe = self.subscribed_symbols - current_symbols
