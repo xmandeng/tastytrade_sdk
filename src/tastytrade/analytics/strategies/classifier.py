@@ -88,6 +88,8 @@ class StrategyClassifier:
                             int(date_str[2:4]),
                             int(date_str[4:6]),
                         )
+                        if dte is None:
+                            dte = (expiration - date.today()).days
                     except Exception:
                         pass
 
