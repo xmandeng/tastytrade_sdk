@@ -58,27 +58,24 @@ class TradeEvent(BaseEvent, FloatFieldMixin):
     price: Optional[float] = Field(
         default=None,
         description="Execution price of the trade",
-        ge=0,
     )
     dayVolume: Optional[float] = Field(
         default=None,
         description="Cumulative volume for the trading day",
-        ge=0,
     )
     size: Optional[float] = Field(
         default=None,
         description="Size of the trade execution",
-        ge=0,
     )
 
     convert_float = FloatFieldMixin.validate_float_fields("price", "dayVolume", "size")
 
 
 class QuoteEvent(BaseEvent, FloatFieldMixin):
-    bidPrice: float = Field(description="Best bid price", ge=0)
-    askPrice: float = Field(description="Best ask price", ge=0)
-    bidSize: Optional[float] = Field(description="Size available at bid price", ge=0)
-    askSize: Optional[float] = Field(description="Size available at ask price", ge=0)
+    bidPrice: float = Field(description="Best bid price")
+    askPrice: float = Field(description="Best ask price")
+    bidSize: Optional[float] = Field(description="Size available at bid price")
+    askSize: Optional[float] = Field(description="Size available at ask price")
 
     convert_float = FloatFieldMixin.validate_float_fields(
         "bidPrice", "askPrice", "bidSize", "askSize"
@@ -87,12 +84,12 @@ class QuoteEvent(BaseEvent, FloatFieldMixin):
 
 class GreeksEvent(BaseEvent, FloatFieldMixin):
     time: Optional[datetime] = Field(default=None, description="Event timestamp")
-    volatility: Optional[float] = Field(description="Implied volatility", ge=0)
-    delta: Optional[float] = Field(description="Delta greek", ge=-1, le=1)
-    gamma: Optional[float] = Field(description="Gamma greek", ge=0)
+    volatility: Optional[float] = Field(description="Implied volatility")
+    delta: Optional[float] = Field(description="Delta greek")
+    gamma: Optional[float] = Field(description="Gamma greek")
     theta: Optional[float] = Field(description="Theta greek")
     rho: Optional[float] = Field(description="Rho greek")
-    vega: Optional[float] = Field(description="Vega greek", ge=0)
+    vega: Optional[float] = Field(description="Vega greek")
 
     convert_float = FloatFieldMixin.validate_float_fields(
         "volatility", "delta", "gamma", "theta", "rho", "vega"
@@ -113,16 +110,16 @@ class ProfileEvent(BaseEvent, FloatFieldMixin):
         default=None, description="Trading halt end timestamp"
     )
     highLimitPrice: Optional[float] = Field(
-        default=None, description="Upper price limit", ge=0
+        default=None, description="Upper price limit"
     )
     lowLimitPrice: Optional[float] = Field(
-        default=None, description="Lower price limit", ge=0
+        default=None, description="Lower price limit"
     )
     high52WeekPrice: Optional[float] = Field(
-        default=None, description="52-week high price", ge=0
+        default=None, description="52-week high price"
     )
     low52WeekPrice: Optional[float] = Field(
-        default=None, description="52-week low price", ge=0
+        default=None, description="52-week low price"
     )
 
     convert_float = FloatFieldMixin.validate_float_fields(
@@ -131,14 +128,12 @@ class ProfileEvent(BaseEvent, FloatFieldMixin):
 
 
 class SummaryEvent(BaseEvent, FloatFieldMixin):
-    openInterest: Optional[float] = Field(
-        default=None, description="Open interest", ge=0
-    )
-    dayOpenPrice: Optional[float] = Field(description="Opening price for the day", ge=0)
-    dayHighPrice: Optional[float] = Field(description="Highest price for the day", ge=0)
-    dayLowPrice: Optional[float] = Field(description="Lowest price for the day", ge=0)
+    openInterest: Optional[float] = Field(default=None, description="Open interest")
+    dayOpenPrice: Optional[float] = Field(description="Opening price for the day")
+    dayHighPrice: Optional[float] = Field(description="Highest price for the day")
+    dayLowPrice: Optional[float] = Field(description="Lowest price for the day")
     prevDayClosePrice: Optional[float] = Field(
-        description="Previous day's closing price", ge=0
+        description="Previous day's closing price"
     )
 
     convert_float = FloatFieldMixin.validate_float_fields(
@@ -163,34 +158,32 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
         default=None, description="Total number of events in the candle"
     )
     open: Optional[float] = Field(
-        default=None, description="Opening price for the interval", ge=0
+        default=None, description="Opening price for the interval"
     )
     high: Optional[float] = Field(
-        default=None, description="Highest price during the interval", ge=0
+        default=None, description="Highest price during the interval"
     )
     low: Optional[float] = Field(
-        default=None, description="Lowest price during the interval", ge=0
+        default=None, description="Lowest price during the interval"
     )
     close: Optional[float] = Field(
-        default=None, description="Closing price for the interval", ge=0
+        default=None, description="Closing price for the interval"
     )
     volume: Optional[float] = Field(
-        default=None, description="Volume of trades during the interval", ge=0
+        default=None, description="Volume of trades during the interval"
     )
     bidVolume: Optional[float] = Field(
-        default=None, description="Bid volume of trades during the interval", ge=0
+        default=None, description="Bid volume of trades during the interval"
     )
     askVolume: Optional[float] = Field(
-        default=None, description="Ask volume of trades during the interval", ge=0
+        default=None, description="Ask volume of trades during the interval"
     )
-    openInterest: Optional[float] = Field(
-        default=None, description="Open interest", ge=0
-    )
+    openInterest: Optional[float] = Field(default=None, description="Open interest")
     vwap: Optional[float] = Field(
-        default=None, description="Volume Weighted Average Price", ge=0
+        default=None, description="Volume Weighted Average Price"
     )
     impVolatility: Optional[float] = Field(
-        default=None, description="Implied volatility", ge=0
+        default=None, description="Implied volatility"
     )
 
     model_config = ConfigDict(
