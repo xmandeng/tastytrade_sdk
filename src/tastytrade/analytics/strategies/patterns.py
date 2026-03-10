@@ -3,7 +3,7 @@
 Each matcher: match_X(legs: list[ParsedLeg]) -> MatchResult | None
 
 Priority order (greedy -- most legs first):
-1. 4+ legs: Iron Condor, Iron Butterfly, Iron BWB, Covered Jade Lizard, Big Lizard, Butterfly, BWB
+1. 4+ legs: Iron Condor, Iron Butterfly, Iron BWB, Covered Jade Lizard, Big Lizard, Butterfly, Broken Wing Butterfly
 2. 3 legs: Jade Lizard, Collar
 3. 2 legs (with stock): Covered Call, Protective Put
 4. 2 legs (same exp, same type): Vertical spreads, Ratio Spread
@@ -245,66 +245,37 @@ def match_iron_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
     return None
 
 
-def match_call_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
-    """Broken Wing Call Butterfly: 3 calls, same exp, 1:2:1 ratio, unequal spacing."""
-    options = [leg for leg in legs if leg.is_option and leg.is_call]
-    if len(options) < 3:
-        return None
-
-    for combo in combinations(options, 3):
-        combo_list = sorted(combo, key=lambda x: x.strike or 0)
-        if not same_expiration(list(combo_list)):
+def match_broken_wing_butterfly(legs: list[ParsedLeg]) -> MatchResult | None:
+    """Broken Wing Butterfly: 3 options of same type, same exp, 1:2:1 ratio, unequal spacing."""
+    for opt_filter in (lambda x: x.is_call, lambda x: x.is_put):
+        options = [leg for leg in legs if leg.is_option and opt_filter(leg)]
+        if len(options) < 3:
             continue
 
-        low, mid, high = combo_list
-        if low.strike is None or mid.strike is None or high.strike is None:
-            continue
+        for combo in combinations(options, 3):
+            combo_list = sorted(combo, key=lambda x: x.strike or 0)
+            if not same_expiration(list(combo_list)):
+                continue
 
-        # Require unequal spacing (equal = regular butterfly)
-        if mid.strike - low.strike == high.strike - mid.strike:
-            continue
+            low, mid, high = combo_list
+            if low.strike is None or mid.strike is None or high.strike is None:
+                continue
 
-        # Buy 1 low, sell 2 middle, buy 1 high
-        if (
-            low.is_long
-            and mid.is_short
-            and high.is_long
-            and low.abs_quantity == high.abs_quantity
-            and mid.abs_quantity == 2 * low.abs_quantity
-        ):
-            return MatchResult(StrategyType.CALL_BWB, tuple(combo_list))
+            # Require unequal spacing (equal = regular butterfly)
+            if mid.strike - low.strike == high.strike - mid.strike:
+                continue
 
-    return None
-
-
-def match_put_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
-    """Broken Wing Put Butterfly: 3 puts, same exp, 1:2:1 ratio, unequal spacing."""
-    options = [leg for leg in legs if leg.is_option and leg.is_put]
-    if len(options) < 3:
-        return None
-
-    for combo in combinations(options, 3):
-        combo_list = sorted(combo, key=lambda x: x.strike or 0)
-        if not same_expiration(list(combo_list)):
-            continue
-
-        low, mid, high = combo_list
-        if low.strike is None or mid.strike is None or high.strike is None:
-            continue
-
-        # Require unequal spacing (equal = regular butterfly)
-        if mid.strike - low.strike == high.strike - mid.strike:
-            continue
-
-        # Buy 1 low, sell 2 middle, buy 1 high
-        if (
-            low.is_long
-            and mid.is_short
-            and high.is_long
-            and low.abs_quantity == high.abs_quantity
-            and mid.abs_quantity == 2 * low.abs_quantity
-        ):
-            return MatchResult(StrategyType.PUT_BWB, tuple(combo_list))
+            # Buy 1 low, sell 2 middle, buy 1 high
+            if (
+                low.is_long
+                and mid.is_short
+                and high.is_long
+                and low.abs_quantity == high.abs_quantity
+                and mid.abs_quantity == 2 * low.abs_quantity
+            ):
+                return MatchResult(
+                    StrategyType.BROKEN_WING_BUTTERFLY, tuple(combo_list)
+                )
 
     return None
 
@@ -715,8 +686,7 @@ MULTI_LEG_MATCHERS: list[Callable[[list[ParsedLeg]], MatchResult | None]] = [
     match_big_lizard,
     match_call_butterfly,
     match_put_butterfly,
-    match_call_bwb,
-    match_put_bwb,
+    match_broken_wing_butterfly,
     # 3 legs
     match_jade_lizard,
     match_collar,

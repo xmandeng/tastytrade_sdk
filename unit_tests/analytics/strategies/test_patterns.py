@@ -7,8 +7,8 @@ from tastytrade.accounts.models import InstrumentType
 from tastytrade.analytics.strategies.models import ParsedLeg, StrategyType
 from tastytrade.analytics.strategies.patterns import (
     match_big_lizard,
+    match_broken_wing_butterfly,
     match_call_butterfly,
-    match_call_bwb,
     match_calendar_spread,
     match_collar,
     match_covered_call,
@@ -20,7 +20,6 @@ from tastytrade.analytics.strategies.patterns import (
     match_jade_lizard,
     match_protective_put,
     match_put_butterfly,
-    match_put_bwb,
     match_ratio_spread,
     match_single_leg,
     match_straddle,
@@ -302,66 +301,32 @@ class TestPutButterfly:
         assert result.strategy_type == StrategyType.PUT_BUTTERFLY
 
 
-# ===== Call BWB =====
+# ===== Broken Wing Butterfly =====
 
 
-class TestCallBWB:
-    def test_match(self):
-        """BWB: +1 C@100, -2 C@103, +1 C@105 (3-wide lower, 2-wide upper)."""
+class TestBrokenWingButterfly:
+    def test_match_calls(self):
+        """Call BWB: +1 C@100, -2 C@103, +1 C@105."""
         legs = [
             make_option("C", Decimal("100"), 1),
             make_option("C", Decimal("103"), -2),
             make_option("C", Decimal("105"), 1),
         ]
-        result = match_call_bwb(legs)
+        result = match_broken_wing_butterfly(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.CALL_BWB
+        assert result.strategy_type == StrategyType.BROKEN_WING_BUTTERFLY
         assert len(result.matched_legs) == 3
 
-    def test_no_match_equal_spacing(self):
-        """Equal spacing = regular butterfly, not BWB."""
-        legs = [
-            make_option("C", Decimal("290"), 1),
-            make_option("C", Decimal("300"), -2),
-            make_option("C", Decimal("310"), 1),
-        ]
-        result = match_call_bwb(legs)
-        assert result is None
-
-    def test_no_match_wrong_ratio(self):
-        legs = [
-            make_option("C", Decimal("100"), 1),
-            make_option("C", Decimal("103"), -1),
-            make_option("C", Decimal("105"), 1),
-        ]
-        result = match_call_bwb(legs)
-        assert result is None
-
-    def test_no_match_puts(self):
-        """Call BWB only matches calls."""
-        legs = [
-            make_option("P", Decimal("100"), 1),
-            make_option("P", Decimal("103"), -2),
-            make_option("P", Decimal("105"), 1),
-        ]
-        result = match_call_bwb(legs)
-        assert result is None
-
-
-# ===== Put BWB =====
-
-
-class TestPutBWB:
-    def test_match_real_world(self):
+    def test_match_puts_real_world(self):
         """Real-world BWB: +1 P@111, -2 P@114, +1 P@115 (/ZBM6)."""
         legs = [
             make_option("P", Decimal("111"), 1),
             make_option("P", Decimal("114"), -2),
             make_option("P", Decimal("115"), 1),
         ]
-        result = match_put_bwb(legs)
+        result = match_broken_wing_butterfly(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.PUT_BWB
+        assert result.strategy_type == StrategyType.BROKEN_WING_BUTTERFLY
         assert len(result.matched_legs) == 3
 
     def test_match_wider_lower_wing(self):
@@ -371,18 +336,37 @@ class TestPutBWB:
             make_option("P", Decimal("295"), -2),
             make_option("P", Decimal("300"), 1),
         ]
-        result = match_put_bwb(legs)
+        result = match_broken_wing_butterfly(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.PUT_BWB
+        assert result.strategy_type == StrategyType.BROKEN_WING_BUTTERFLY
 
-    def test_no_match_equal_spacing(self):
+    def test_no_match_equal_spacing_calls(self):
+        """Equal spacing = regular butterfly, not BWB."""
+        legs = [
+            make_option("C", Decimal("290"), 1),
+            make_option("C", Decimal("300"), -2),
+            make_option("C", Decimal("310"), 1),
+        ]
+        result = match_broken_wing_butterfly(legs)
+        assert result is None
+
+    def test_no_match_equal_spacing_puts(self):
         """Equal spacing = regular butterfly, not BWB."""
         legs = [
             make_option("P", Decimal("290"), 1),
             make_option("P", Decimal("300"), -2),
             make_option("P", Decimal("310"), 1),
         ]
-        result = match_put_bwb(legs)
+        result = match_broken_wing_butterfly(legs)
+        assert result is None
+
+    def test_no_match_wrong_ratio(self):
+        legs = [
+            make_option("C", Decimal("100"), 1),
+            make_option("C", Decimal("103"), -1),
+            make_option("C", Decimal("105"), 1),
+        ]
+        result = match_broken_wing_butterfly(legs)
         assert result is None
 
     def test_no_match_wrong_direction(self):
@@ -392,17 +376,7 @@ class TestPutBWB:
             make_option("P", Decimal("114"), 2),
             make_option("P", Decimal("115"), -1),
         ]
-        result = match_put_bwb(legs)
-        assert result is None
-
-    def test_no_match_calls(self):
-        """Put BWB only matches puts."""
-        legs = [
-            make_option("C", Decimal("111"), 1),
-            make_option("C", Decimal("114"), -2),
-            make_option("C", Decimal("115"), 1),
-        ]
-        result = match_put_bwb(legs)
+        result = match_broken_wing_butterfly(legs)
         assert result is None
 
 
