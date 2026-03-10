@@ -72,11 +72,13 @@ class AccountStreamPublisher:
             await self.redis.hset(
                 self.POSITIONS_KEY, key, position.model_dump_json(by_alias=True)
             )
-            await self.redis.publish(
-                channel="tastytrade:events:CurrentPosition",
-                message=position.model_dump_json(by_alias=True),
-            )
-            logger.debug("Published position: %s qty=%s", key, position.quantity)
+        # Always publish event so downstream consumers (e.g. PositionSymbolResolver)
+        # can react to both opens and closures
+        await self.redis.publish(
+            channel="tastytrade:events:CurrentPosition",
+            message=position.model_dump_json(by_alias=True),
+        )
+        logger.debug("Published position: %s qty=%s", key, position.quantity)
 
     async def publish_balance(self, balance: AccountBalance) -> None:
         """Write balance to Redis HSET."""

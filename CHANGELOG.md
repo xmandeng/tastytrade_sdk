@@ -13,6 +13,8 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 - Move `EventHandler.stop_listener` from class variable (shared across all instances) to instance variable — class-level sharing caused cross-instance interference during reconnect teardown
 - Reset singleton state (`instance = None`) in `DXLinkManager.close()` and `MessageRouter.close()` for clean reconstruction
 - Orchestrator explicitly resets `DXLinkManager.instance = None` before reconnect construction
+- Fix closed positions not triggering DXLink unsubscription — `publish_position()` now publishes `CurrentPosition` event for all updates including closures (qty=0), so `PositionSymbolResolver` can diff and unsubscribe stale symbols
+- Remove all `ge=0` / `ge=-1` / `le=1` Pydantic constraints from inbound event models (`TradeEvent`, `QuoteEvent`, `GreeksEvent`, `ProfileEvent`, `SummaryEvent`, `CandleEvent`) — brokerage data must not be rejected at the ingestion layer
 
 ### TT-79: Live-fill entry credit updates for option positions
 

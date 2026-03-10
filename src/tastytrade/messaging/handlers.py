@@ -223,7 +223,7 @@ class EventHandler:
             return events if events else None
 
         except Exception as e:
-            logger.warning("Skipped invalid event on %s channel", channel_name)
+            logger.warning("Skipped invalid event on %s channel: %s", channel_name, e)
             raise MessageProcessingError("Skipped invalid event", e) from e
 
 

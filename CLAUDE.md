@@ -113,6 +113,7 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 
 ### Pydantic Model Config
 - Inbound brokerage models MUST use `extra="allow"` — preserve all fields the brokerage sends
+- Inbound models MUST NOT use value-range constraints (`ge`, `le`, `gt`, `lt`) — these reject valid brokerage data (e.g. negative futures marks, edge-case Greeks). Value validation belongs in analytics/display layers, not ingestion
 - Only outbound messages we construct (DXLink protocol, streamer connect/heartbeat) use `extra="forbid"`
 - Never filter, reject, or discard fields from brokerage data without a documented design objective
 - See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §1 for full design rule
