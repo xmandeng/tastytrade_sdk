@@ -204,7 +204,7 @@ class TestIronBWB:
         ]
         result = match_iron_bwb(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.IRON_BWB
+        assert result.strategy_type == StrategyType.IRON_BROKEN_FLY
         assert len(result.matched_legs) == 4
 
     def test_match_wider_put_wing(self):
@@ -217,7 +217,7 @@ class TestIronBWB:
         ]
         result = match_iron_bwb(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.IRON_BWB
+        assert result.strategy_type == StrategyType.IRON_BROKEN_FLY
 
     def test_no_match_equal_wings(self):
         """Equal wing widths = regular iron butterfly, not BWB."""
@@ -314,7 +314,7 @@ class TestBrokenWingButterfly:
         ]
         result = match_broken_wing_butterfly(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.BROKEN_WING_BUTTERFLY
+        assert result.strategy_type == StrategyType.BROKEN_FLY
         assert len(result.matched_legs) == 3
 
     def test_match_puts_real_world(self):
@@ -326,7 +326,7 @@ class TestBrokenWingButterfly:
         ]
         result = match_broken_wing_butterfly(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.BROKEN_WING_BUTTERFLY
+        assert result.strategy_type == StrategyType.BROKEN_FLY
         assert len(result.matched_legs) == 3
 
     def test_match_wider_lower_wing(self):
@@ -338,7 +338,7 @@ class TestBrokenWingButterfly:
         ]
         result = match_broken_wing_butterfly(legs)
         assert result is not None
-        assert result.strategy_type == StrategyType.BROKEN_WING_BUTTERFLY
+        assert result.strategy_type == StrategyType.BROKEN_FLY
 
     def test_no_match_equal_spacing_calls(self):
         """Equal spacing = regular butterfly, not BWB."""
