@@ -98,7 +98,7 @@ class DXLinkManager:
         subscription_store: Optional[SubscriptionStore] = None,
         reconnect_signal: Optional[ReconnectSignal] = None,
     ) -> None:
-        if not hasattr(self, "initialized"):
+        if not getattr(self, "initialized", False):
             config = DXLinkConfig()
             self.queues = {channel.value: asyncio.Queue() for channel in Channels}
             self.subscription_semaphore = Semaphore(config.max_subscriptions)
@@ -495,8 +495,9 @@ class DXLinkManager:
         # Reset active subscriptions
         self.active_subscriptions = {}
 
-        # Reset Initialized
+        # Reset singleton so next construction runs __init__ fully
         self.initialized = False
+        DXLinkManager.instance = None
 
         # Close websocket connection
         if self.websocket is not None:

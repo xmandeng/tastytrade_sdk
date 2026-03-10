@@ -119,6 +119,9 @@ class MessageRouter:
         for _, handler in self.handler.items():
             handler.stop_listener.clear()
 
+        # Reset singleton so next construction runs __init__ fully
+        MessageRouter.instance = None
+
         logger.info("Cleanup completed")
 
     async def drain_queue(self, channel: Channels) -> None:

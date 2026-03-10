@@ -4,7 +4,15 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 
 ---
 
-## Sprint 6 — Entry Price Reconciliation (Mar 7–8, 2026)
+## Sprint 6 — Entry Price Reconciliation (Mar 7–9, 2026)
+
+### TT-81: Fix subscription reconnection after DXLink auth expiry
+
+- Fix `DXLinkManager` singleton guard: `hasattr(self, "initialized")` always returned True (even when False), preventing re-initialization on reconnect — changed to `getattr(self, "initialized", False)`
+- Convert `RedisEventProcessor` from synchronous `redis.Redis` to async `redis.asyncio.Redis` — synchronous calls were blocking the asyncio event loop during `publish()` and `hset()`
+- Move `EventHandler.stop_listener` from class variable (shared across all instances) to instance variable — class-level sharing caused cross-instance interference during reconnect teardown
+- Reset singleton state (`instance = None`) in `DXLinkManager.close()` and `MessageRouter.close()` for clean reconstruction
+- Orchestrator explicitly resets `DXLinkManager.instance = None` before reconnect construction
 
 ### TT-79: Live-fill entry credit updates for option positions
 
