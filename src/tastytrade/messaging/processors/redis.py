@@ -1,6 +1,6 @@
 import os
 
-import redis  # type: ignore
+import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
 from tastytrade.messaging.models.events import BaseEvent
 from tastytrade.messaging.processors.default import BaseEventProcessor
@@ -21,21 +21,31 @@ class RedisEventProcessor(BaseEventProcessor):
             if redis_port is not None
             else int(os.environ.get("REDIS_PORT", "6379"))
         )
-        self.redis = redis.Redis(host=host, port=port)
+        self.redis: aioredis.Redis = aioredis.Redis(host=host, port=port)  # type: ignore[type-arg, arg-type]
 
-    def process_event(self, event: BaseEvent) -> None:
+    async def process_event(self, event: BaseEvent) -> None:  # type: ignore[override]
         """Process an event: publish to pub/sub AND store latest in HSET."""
         event_json = event.model_dump_json()
         event_type = event.__class__.__name__
         symbol = event.eventSymbol
 
-        # Pub/sub for real-time streaming (existing behavior)
+        # Pub/sub for real-time streaming
         channel = f"market:{event_type}:{symbol}"
-        self.redis.publish(channel=channel, message=event_json)
+        await self.redis.publish(channel=channel, message=event_json)
 
-        # HSET for latest-value reads (new behavior)
+        # HSET for latest-value reads
         hset_key = f"tastytrade:latest:{event_type}"
-        self.redis.hset(hset_key, symbol, event_json)
+        await self.redis.hset(hset_key, symbol, event_json)
+
+    def close(self) -> None:
+        """Schedule Redis connection close."""
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.redis.close())
+        except RuntimeError:
+            pass
 
 
 """

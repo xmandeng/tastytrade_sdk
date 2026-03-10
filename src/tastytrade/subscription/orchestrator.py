@@ -260,6 +260,7 @@ async def _run_subscription_once(
 
         logger.info("Opening DXLink connection")
         reconnect_signal = ReconnectSignal()
+        DXLinkManager.instance = None
         dxlink = DXLinkManager(
             subscription_store=RedisSubscriptionStore(),
             reconnect_signal=reconnect_signal,

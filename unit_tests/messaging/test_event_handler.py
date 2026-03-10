@@ -106,12 +106,12 @@ async def test_queue_listener_continues_after_validation_error(
     await queue.put(bad_raw)
     await queue.put(good_raw)
 
-    EventHandler.stop_listener.clear()
+    quote_handler.stop_listener.clear()
     with caplog.at_level(logging.DEBUG, logger="tastytrade.messaging.handlers"):
         task = asyncio.create_task(quote_handler.queue_listener(queue))
         await asyncio.wait_for(queue.join(), timeout=5.0)
 
-        EventHandler.stop_listener.set()
+        quote_handler.stop_listener.set()
         task.cancel()
         try:
             await task

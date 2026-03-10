@@ -125,7 +125,7 @@ class TestCodeDefaultsAreHostFriendly:
         """config.get() for INFLUX_DB_URL must fall through to localhost default."""
         manager = _make_manager()
         # Mock Redis hget to return None (key not in Redis)
-        manager.redis_client.hget = MagicMock(return_value=None)
+        manager.redis_client.hget = MagicMock(return_value=None)  # type: ignore[method-assign]
 
         url = manager.get("INFLUX_DB_URL", "http://localhost:8086")
         assert url == "http://localhost:8086"
@@ -136,7 +136,7 @@ class TestCodeDefaultsAreHostFriendly:
         Reverting to the Docker DNS URL would break host-side usage.
         """
         manager = _make_manager()
-        manager.redis_client.hget = MagicMock(return_value=None)
+        manager.redis_client.hget = MagicMock(return_value=None)  # type: ignore[method-assign]
 
         # The default passed by callers must use localhost
         url = manager.get("INFLUX_DB_URL", "http://localhost:8086")
@@ -168,7 +168,7 @@ class TestOsEnvironTakesPrecedence:
         """config.get() must return os.environ value even when Redis has a
         different value for the same key."""
         manager = _make_manager()
-        manager.redis_client.hget = MagicMock(return_value=b"from_redis")
+        manager.redis_client.hget = MagicMock(return_value=b"from_redis")  # type: ignore[method-assign]
 
         with patch.dict(os.environ, {"MY_KEY": "from_environ"}, clear=False):
             assert manager.get("MY_KEY") == "from_environ"
@@ -190,7 +190,7 @@ class TestOsEnvironTakesPrecedence:
         already known from the runtime environment.
         """
         manager = _make_manager()
-        manager.redis_client.hget = MagicMock()
+        manager.redis_client.hget = MagicMock()  # type: ignore[method-assign]
 
         with patch.dict(os.environ, {"SOME_KEY": "env_value"}, clear=False):
             manager.get("SOME_KEY")
@@ -259,7 +259,7 @@ class TestDotenvFallback:
         env_clean = {k: v for k, v in os.environ.items() if k != "MY_KEY"}
         with patch.dict(os.environ, env_clean, clear=True):
             manager = _make_manager()
-            manager.redis_client.hget = MagicMock(return_value=b"redis_value")
+            manager.redis_client.hget = MagicMock(return_value=b"redis_value")  # type: ignore[method-assign]
 
             result = manager.get("MY_KEY")
             assert result == "redis_value"
@@ -372,7 +372,7 @@ class TestRedisEventProcessorDefaults:
         """With no env vars, RedisEventProcessor must connect to localhost."""
         env_clean = {k: v for k, v in os.environ.items() if k != "REDIS_HOST"}
         with (
-            patch("tastytrade.messaging.processors.redis.redis.Redis") as mock_redis,
+            patch("tastytrade.messaging.processors.redis.aioredis.Redis") as mock_redis,
             patch.dict(os.environ, env_clean, clear=True),
         ):
             from tastytrade.messaging.processors.redis import RedisEventProcessor
@@ -384,7 +384,7 @@ class TestRedisEventProcessorDefaults:
     def test_respects_environ_override(self) -> None:
         """REDIS_HOST in os.environ must override the localhost default."""
         with (
-            patch("tastytrade.messaging.processors.redis.redis.Redis") as mock_redis,
+            patch("tastytrade.messaging.processors.redis.aioredis.Redis") as mock_redis,
             patch.dict(os.environ, {"REDIS_HOST": "redis"}, clear=False),
         ):
             from tastytrade.messaging.processors.redis import RedisEventProcessor

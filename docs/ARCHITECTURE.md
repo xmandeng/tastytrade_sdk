@@ -251,6 +251,8 @@ while attempt < max_attempts:
 
 **Why:** WebSocket connections fail for many reasons (auth expiry, network blips, server maintenance). The `was_healthy` flag distinguishes between "worked for hours then dropped" (reset counter, reconnect immediately) and "failed on startup" (increment counter, back off). This prevents infinite rapid retries on configuration errors while being aggressive about recovering from transient failures.
 
+**Singleton lifecycle:** `DXLinkManager` and `MessageRouter` are singletons. On reconnect, the orchestrator resets singletons (`DXLinkManager.instance = None`) before constructing new instances, ensuring `__init__` runs fresh. The `close()` methods on both classes also reset their singleton state. The singleton guard uses `getattr(self, "initialized", False)` (not `hasattr`) to correctly detect uninitialized instances.
+
 ### 6. Event-Driven Position Resolution
 
 The subscription service discovers which symbols to stream by listening to position changes — not by polling.
@@ -322,7 +324,7 @@ See [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) for full details.
 | `messaging/handlers.py` | `EventHandler` | Route WebSocket messages to processors |
 | `messaging/publisher.py` | `EventPublisher` | Protocol for event publishing |
 | `messaging/models/events.py` | `BaseEvent`, `QuoteEvent`, etc. | Typed event models |
-| `messaging/processors/redis.py` | `RedisEventProcessor` | Redis HSET + pub/sub writer |
+| `messaging/processors/redis.py` | `RedisEventProcessor` | Async Redis HSET + pub/sub writer |
 | `messaging/processors/influxdb.py` | `TelegrafHTTPEventProcessor` | InfluxDB batch writer |
 
 ### Analytics

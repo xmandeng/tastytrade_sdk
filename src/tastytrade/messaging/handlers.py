@@ -39,7 +39,6 @@ class QueueMetrics:
 
 
 class EventHandler:
-    stop_listener = asyncio.Event()
     diagnostic = True
 
     def __init__(
@@ -48,6 +47,7 @@ class EventHandler:
         processor: Optional[BaseEventProcessor] = None,
         subscription_store: Optional[SubscriptionStore] = None,
     ) -> None:
+        self.stop_listener = asyncio.Event()
         if channel not in CHANNEL_SPECS:
             channel = Channels.Control
             logger.error("Channel %s not found in channel_specs", channel)
@@ -197,10 +197,14 @@ class EventHandler:
                     ", ".join(map(str, remaining)),
                 )
 
-            # Process events through registered processors
+            # Process events through registered processors.
+            # Supports both sync and async processors — async processors
+            # (e.g. RedisEventProcessor) return a coroutine that must be awaited.
             for event in events:
                 for _, processor in self.processors.items():
-                    processor.process_event(event)
+                    result = processor.process_event(event)  # type: ignore[func-returns-value]
+                    if asyncio.iscoroutine(result):
+                        await result  # type: ignore[arg-type]
 
                 # Update subscription status with last_update timestamp
                 if self.subscription_store and hasattr(event, "eventSymbol"):
