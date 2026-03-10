@@ -240,7 +240,7 @@ def match_iron_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
                 call_width = calls[1].strike - calls[0].strike
                 # Require UNequal wing widths (equal = regular iron butterfly)
                 if put_width != call_width:
-                    return MatchResult(StrategyType.IRON_BWB, tuple(combo_list))
+                    return MatchResult(StrategyType.IRON_BROKEN_FLY, tuple(combo_list))
 
     return None
 
@@ -273,9 +273,7 @@ def match_broken_wing_butterfly(legs: list[ParsedLeg]) -> MatchResult | None:
                 and low.abs_quantity == high.abs_quantity
                 and mid.abs_quantity == 2 * low.abs_quantity
             ):
-                return MatchResult(
-                    StrategyType.BROKEN_WING_BUTTERFLY, tuple(combo_list)
-                )
+                return MatchResult(StrategyType.BROKEN_FLY, tuple(combo_list))
 
     return None
 
