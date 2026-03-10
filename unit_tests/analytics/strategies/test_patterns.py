@@ -8,16 +8,19 @@ from tastytrade.analytics.strategies.models import ParsedLeg, StrategyType
 from tastytrade.analytics.strategies.patterns import (
     match_big_lizard,
     match_call_butterfly,
+    match_call_bwb,
     match_calendar_spread,
     match_collar,
     match_covered_call,
     match_covered_jade_lizard,
     match_diagonal_spread,
     match_iron_butterfly,
+    match_iron_bwb,
     match_iron_condor,
     match_jade_lizard,
     match_protective_put,
     match_put_butterfly,
+    match_put_bwb,
     match_ratio_spread,
     match_single_leg,
     match_straddle,
@@ -176,6 +179,79 @@ class TestIronButterfly:
         result = match_iron_butterfly(legs)
         assert result is None
 
+    def test_no_match_unequal_wings(self):
+        """Iron butterfly requires equal wing widths (unequal = iron BWB)."""
+        legs = [
+            make_option("P", Decimal("290"), 1),  # 10-wide put wing
+            make_option("P", Decimal("300"), -1),  # short put at center
+            make_option("C", Decimal("300"), -1),  # short call at center
+            make_option("C", Decimal("315"), 1),  # 15-wide call wing
+        ]
+        result = match_iron_butterfly(legs)
+        assert result is None
+
+
+# ===== Iron BWB =====
+
+
+class TestIronBWB:
+    def test_match_wider_call_wing(self):
+        """Iron BWB with wider call wing."""
+        legs = [
+            make_option("P", Decimal("295"), 1),  # long put (5-wide)
+            make_option("P", Decimal("300"), -1),  # short put at center
+            make_option("C", Decimal("300"), -1),  # short call at center
+            make_option("C", Decimal("308"), 1),  # long call (8-wide)
+        ]
+        result = match_iron_bwb(legs)
+        assert result is not None
+        assert result.strategy_type == StrategyType.IRON_BWB
+        assert len(result.matched_legs) == 4
+
+    def test_match_wider_put_wing(self):
+        """Iron BWB with wider put wing."""
+        legs = [
+            make_option("P", Decimal("285"), 1),  # long put (15-wide)
+            make_option("P", Decimal("300"), -1),  # short put at center
+            make_option("C", Decimal("300"), -1),  # short call at center
+            make_option("C", Decimal("310"), 1),  # long call (10-wide)
+        ]
+        result = match_iron_bwb(legs)
+        assert result is not None
+        assert result.strategy_type == StrategyType.IRON_BWB
+
+    def test_no_match_equal_wings(self):
+        """Equal wing widths = regular iron butterfly, not BWB."""
+        legs = [
+            make_option("P", Decimal("280"), 1),
+            make_option("P", Decimal("300"), -1),
+            make_option("C", Decimal("300"), -1),
+            make_option("C", Decimal("320"), 1),
+        ]
+        result = match_iron_bwb(legs)
+        assert result is None
+
+    def test_no_match_different_center_strikes(self):
+        """Iron BWB requires same center strike."""
+        legs = [
+            make_option("P", Decimal("280"), 1),
+            make_option("P", Decimal("295"), -1),
+            make_option("C", Decimal("305"), -1),
+            make_option("C", Decimal("320"), 1),
+        ]
+        result = match_iron_bwb(legs)
+        assert result is None
+
+    def test_no_match_different_quantities(self):
+        legs = [
+            make_option("P", Decimal("290"), 1),
+            make_option("P", Decimal("300"), -2),
+            make_option("C", Decimal("300"), -1),
+            make_option("C", Decimal("310"), 1),
+        ]
+        result = match_iron_bwb(legs)
+        assert result is None
+
 
 # ===== Call Butterfly =====
 
@@ -224,6 +300,110 @@ class TestPutButterfly:
         result = match_put_butterfly(legs)
         assert result is not None
         assert result.strategy_type == StrategyType.PUT_BUTTERFLY
+
+
+# ===== Call BWB =====
+
+
+class TestCallBWB:
+    def test_match(self):
+        """BWB: +1 C@100, -2 C@103, +1 C@105 (3-wide lower, 2-wide upper)."""
+        legs = [
+            make_option("C", Decimal("100"), 1),
+            make_option("C", Decimal("103"), -2),
+            make_option("C", Decimal("105"), 1),
+        ]
+        result = match_call_bwb(legs)
+        assert result is not None
+        assert result.strategy_type == StrategyType.CALL_BWB
+        assert len(result.matched_legs) == 3
+
+    def test_no_match_equal_spacing(self):
+        """Equal spacing = regular butterfly, not BWB."""
+        legs = [
+            make_option("C", Decimal("290"), 1),
+            make_option("C", Decimal("300"), -2),
+            make_option("C", Decimal("310"), 1),
+        ]
+        result = match_call_bwb(legs)
+        assert result is None
+
+    def test_no_match_wrong_ratio(self):
+        legs = [
+            make_option("C", Decimal("100"), 1),
+            make_option("C", Decimal("103"), -1),
+            make_option("C", Decimal("105"), 1),
+        ]
+        result = match_call_bwb(legs)
+        assert result is None
+
+    def test_no_match_puts(self):
+        """Call BWB only matches calls."""
+        legs = [
+            make_option("P", Decimal("100"), 1),
+            make_option("P", Decimal("103"), -2),
+            make_option("P", Decimal("105"), 1),
+        ]
+        result = match_call_bwb(legs)
+        assert result is None
+
+
+# ===== Put BWB =====
+
+
+class TestPutBWB:
+    def test_match_real_world(self):
+        """Real-world BWB: +1 P@111, -2 P@114, +1 P@115 (/ZBM6)."""
+        legs = [
+            make_option("P", Decimal("111"), 1),
+            make_option("P", Decimal("114"), -2),
+            make_option("P", Decimal("115"), 1),
+        ]
+        result = match_put_bwb(legs)
+        assert result is not None
+        assert result.strategy_type == StrategyType.PUT_BWB
+        assert len(result.matched_legs) == 3
+
+    def test_match_wider_lower_wing(self):
+        """BWB with wider lower wing."""
+        legs = [
+            make_option("P", Decimal("280"), 1),
+            make_option("P", Decimal("295"), -2),
+            make_option("P", Decimal("300"), 1),
+        ]
+        result = match_put_bwb(legs)
+        assert result is not None
+        assert result.strategy_type == StrategyType.PUT_BWB
+
+    def test_no_match_equal_spacing(self):
+        """Equal spacing = regular butterfly, not BWB."""
+        legs = [
+            make_option("P", Decimal("290"), 1),
+            make_option("P", Decimal("300"), -2),
+            make_option("P", Decimal("310"), 1),
+        ]
+        result = match_put_bwb(legs)
+        assert result is None
+
+    def test_no_match_wrong_direction(self):
+        """Wrong direction: sell low, buy middle, sell high."""
+        legs = [
+            make_option("P", Decimal("111"), -1),
+            make_option("P", Decimal("114"), 2),
+            make_option("P", Decimal("115"), -1),
+        ]
+        result = match_put_bwb(legs)
+        assert result is None
+
+    def test_no_match_calls(self):
+        """Put BWB only matches puts."""
+        legs = [
+            make_option("C", Decimal("111"), 1),
+            make_option("C", Decimal("114"), -2),
+            make_option("C", Decimal("115"), 1),
+        ]
+        result = match_put_bwb(legs)
+        assert result is None
 
 
 # ===== Jade Lizard =====

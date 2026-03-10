@@ -58,6 +58,9 @@ class StrategyType(str, Enum):
     # Butterfly/Condor
     CALL_BUTTERFLY = "Call Butterfly"
     PUT_BUTTERFLY = "Put Butterfly"
+    CALL_BWB = "Call BWB"
+    PUT_BWB = "Put BWB"
+    IRON_BWB = "Iron BWB"
     CONDOR = "Condor"
 
     # Calendar/Diagonal

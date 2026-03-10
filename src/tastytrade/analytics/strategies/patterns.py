@@ -3,7 +3,7 @@
 Each matcher: match_X(legs: list[ParsedLeg]) -> MatchResult | None
 
 Priority order (greedy -- most legs first):
-1. 4+ legs: Iron Condor, Iron Butterfly, Covered Jade Lizard, Big Lizard, Butterfly
+1. 4+ legs: Iron Condor, Iron Butterfly, Iron BWB, Covered Jade Lizard, Big Lizard, Butterfly, BWB
 2. 3 legs: Jade Lizard, Collar
 3. 2 legs (with stock): Covered Call, Protective Put
 4. 2 legs (same exp, same type): Vertical spreads, Ratio Spread
@@ -88,7 +88,8 @@ def match_iron_condor(legs: list[ParsedLeg]) -> MatchResult | None:
 
 def match_iron_butterfly(legs: list[ParsedLeg]) -> MatchResult | None:
     """Iron Butterfly: 4 options, same exp, same qty.
-    Like iron condor but short put strike == short call strike.
+    Like iron condor but short put strike == short call strike,
+    and equal wing widths.
     """
     options = [leg for leg in legs if leg.is_option]
     if len(options) < 4:
@@ -117,8 +118,17 @@ def match_iron_butterfly(legs: list[ParsedLeg]) -> MatchResult | None:
             and calls[0].is_short
             and calls[1].is_long
         ):
-            if puts[1].strike is not None and calls[0].strike is not None:
-                if puts[1].strike == calls[0].strike:
+            if (
+                puts[0].strike is not None
+                and puts[1].strike is not None
+                and calls[0].strike is not None
+                and calls[1].strike is not None
+                and puts[1].strike == calls[0].strike
+            ):
+                # Require equal wing widths
+                put_width = puts[1].strike - puts[0].strike
+                call_width = calls[1].strike - calls[0].strike
+                if put_width == call_width:
                     return MatchResult(StrategyType.IRON_BUTTERFLY, tuple(combo_list))
 
     return None
@@ -184,6 +194,117 @@ def match_put_butterfly(legs: list[ParsedLeg]) -> MatchResult | None:
             and mid.abs_quantity == 2 * low.abs_quantity
         ):
             return MatchResult(StrategyType.PUT_BUTTERFLY, tuple(combo_list))
+
+    return None
+
+
+def match_iron_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
+    """Iron Broken Wing Butterfly: 4 options, same exp, same qty.
+    Short put strike == short call strike but unequal wing widths.
+    """
+    options = [leg for leg in legs if leg.is_option]
+    if len(options) < 4:
+        return None
+
+    for combo in combinations(options, 4):
+        combo_list = list(combo)
+        if not same_expiration(combo_list) or not same_abs_quantity(combo_list):
+            continue
+
+        puts = sorted(
+            [leg for leg in combo_list if leg.is_put],
+            key=lambda x: x.strike or 0,
+        )
+        calls = sorted(
+            [leg for leg in combo_list if leg.is_call],
+            key=lambda x: x.strike or 0,
+        )
+
+        if len(puts) != 2 or len(calls) != 2:
+            continue
+
+        if (
+            puts[0].is_long
+            and puts[1].is_short
+            and calls[0].is_short
+            and calls[1].is_long
+        ):
+            if (
+                puts[0].strike is not None
+                and puts[1].strike is not None
+                and calls[0].strike is not None
+                and calls[1].strike is not None
+                and puts[1].strike == calls[0].strike
+            ):
+                put_width = puts[1].strike - puts[0].strike
+                call_width = calls[1].strike - calls[0].strike
+                # Require UNequal wing widths (equal = regular iron butterfly)
+                if put_width != call_width:
+                    return MatchResult(StrategyType.IRON_BWB, tuple(combo_list))
+
+    return None
+
+
+def match_call_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
+    """Broken Wing Call Butterfly: 3 calls, same exp, 1:2:1 ratio, unequal spacing."""
+    options = [leg for leg in legs if leg.is_option and leg.is_call]
+    if len(options) < 3:
+        return None
+
+    for combo in combinations(options, 3):
+        combo_list = sorted(combo, key=lambda x: x.strike or 0)
+        if not same_expiration(list(combo_list)):
+            continue
+
+        low, mid, high = combo_list
+        if low.strike is None or mid.strike is None or high.strike is None:
+            continue
+
+        # Require unequal spacing (equal = regular butterfly)
+        if mid.strike - low.strike == high.strike - mid.strike:
+            continue
+
+        # Buy 1 low, sell 2 middle, buy 1 high
+        if (
+            low.is_long
+            and mid.is_short
+            and high.is_long
+            and low.abs_quantity == high.abs_quantity
+            and mid.abs_quantity == 2 * low.abs_quantity
+        ):
+            return MatchResult(StrategyType.CALL_BWB, tuple(combo_list))
+
+    return None
+
+
+def match_put_bwb(legs: list[ParsedLeg]) -> MatchResult | None:
+    """Broken Wing Put Butterfly: 3 puts, same exp, 1:2:1 ratio, unequal spacing."""
+    options = [leg for leg in legs if leg.is_option and leg.is_put]
+    if len(options) < 3:
+        return None
+
+    for combo in combinations(options, 3):
+        combo_list = sorted(combo, key=lambda x: x.strike or 0)
+        if not same_expiration(list(combo_list)):
+            continue
+
+        low, mid, high = combo_list
+        if low.strike is None or mid.strike is None or high.strike is None:
+            continue
+
+        # Require unequal spacing (equal = regular butterfly)
+        if mid.strike - low.strike == high.strike - mid.strike:
+            continue
+
+        # Buy 1 low, sell 2 middle, buy 1 high
+        if (
+            low.is_long
+            and mid.is_short
+            and high.is_long
+            and low.abs_quantity == high.abs_quantity
+            and mid.abs_quantity == 2 * low.abs_quantity
+        ):
+            return MatchResult(StrategyType.PUT_BWB, tuple(combo_list))
 
     return None
 
@@ -586,13 +707,16 @@ def match_single_leg(leg: ParsedLeg) -> StrategyType:
 # ===== Ordered matcher list =====
 
 MULTI_LEG_MATCHERS: list[Callable[[list[ParsedLeg]], MatchResult | None]] = [
-    # 4+ legs first
+    # 4+ legs first (regular variants before BWB)
     match_iron_condor,
     match_iron_butterfly,
+    match_iron_bwb,
     match_covered_jade_lizard,
     match_big_lizard,
     match_call_butterfly,
     match_put_butterfly,
+    match_call_bwb,
+    match_put_bwb,
     # 3 legs
     match_jade_lizard,
     match_collar,
