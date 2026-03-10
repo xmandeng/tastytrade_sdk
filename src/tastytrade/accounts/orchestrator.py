@@ -27,6 +27,7 @@ from tastytrade.accounts.transactions import (
     TransactionsClient,
     compute_entry_credits_for_positions,
 )
+from tastytrade.common.exceptions import AsyncUnauthorizedError
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
@@ -184,6 +185,7 @@ async def monitor_fills_for_entry_credits(
 
                 # Symbols with qty > 0: recompute entry credits
                 if positions_map:
+                    await session.refresh_token_if_needed()
                     txn_client = TransactionsClient(session)
                     all_txns = await txn_client.get_transactions(account_number)
                     entry_credits = compute_entry_credits_for_positions(
@@ -201,6 +203,12 @@ async def monitor_fills_for_entry_credits(
                 for symbol in closed_symbols:
                     await publisher.remove_entry_credit(symbol)
 
+            except AsyncUnauthorizedError:
+                # Auth token expired between refreshes — non-fatal.
+                # The next fill will re-trigger refresh_token_if_needed().
+                logger.warning(
+                    "Token expired during transaction fetch, will refresh on next fill"
+                )
             except aiohttp.ClientError:
                 # Network error fetching transactions from REST API.
                 # Non-fatal — the next fill or restart will correct the data.

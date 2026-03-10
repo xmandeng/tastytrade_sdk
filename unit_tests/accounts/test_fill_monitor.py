@@ -446,6 +446,52 @@ class TestMonitorFillsForEntryCredits:
         publisher.publish_entry_credits.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_token_expiry_is_non_fatal(self) -> None:
+        """AsyncUnauthorizedError (401) should not crash the monitor."""
+        from tastytrade.common.exceptions import AsyncUnauthorizedError
+
+        order = make_order(
+            status=OrderStatus.FILLED,
+            legs=[make_leg("SPY  250321C00500000", InstrumentType.EQUITY_OPTION)],
+        )
+
+        pubsub_mock = AsyncMock()
+        pubsub_mock.listen = MagicMock(
+            return_value=_async_iter(
+                [
+                    make_pubsub_message(order),
+                ]
+            )
+        )
+
+        redis_client = AsyncMock()
+        redis_client.pubsub = MagicMock(return_value=pubsub_mock)
+
+        position_json = (
+            '{"symbol": "SPY  250321C00500000", "quantity": 2.0, '
+            '"quantity-direction": "Long", "instrument-type": "Equity Option", '
+            '"account-number": "TEST123"}'
+        )
+        redis_client.hget.return_value = position_json.encode()
+
+        publisher = AsyncMock()
+        publisher.ORDER_CHANNEL = "tastytrade:events:Order"
+        publisher.POSITIONS_KEY = "tastytrade:positions"
+
+        session = AsyncMock()
+
+        with patch(
+            "tastytrade.accounts.orchestrator.TransactionsClient"
+        ) as mock_txn_cls:
+            mock_txn = AsyncMock()
+            mock_txn.get_transactions.side_effect = AsyncUnauthorizedError()
+            mock_txn_cls.return_value = mock_txn
+
+            await run_monitor_briefly(redis_client, session, publisher)
+
+        publisher.publish_entry_credits.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_subscribe_message_is_skipped(self) -> None:
         """Redis subscribe control messages should be silently ignored."""
         pubsub_mock = AsyncMock()
