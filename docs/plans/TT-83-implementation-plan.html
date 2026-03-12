@@ -600,9 +600,9 @@ Route 5 account event types through the existing \`TelegrafHTTPEventProcessor\` 
       {
         id: "design-decisions",
         title: "Design Decisions",
-        content: `### 1. TelegrafHTTPEventProcessor unchanged — prepare events upstream
+        content: `### 1. TelegrafHTTPEventProcessor unchanged — models own their representation
 
-The existing InfluxDB writer stays **completely untouched**. Account events are prepared before reaching the processor via \`prepare_for_influx()\` in \`accounts/influxdb.py\`. This helper reads \`INFLUX_JSON_FIELDS\` and \`INFLUX_EXCLUDE\` from the model class, pre-serializes nested fields to JSON strings, and returns a flat SimpleNamespace. The processor sees only scalars and JSON strings in \`__dict__\` — identical to DXLink events. Any unexpected nested field (from \`extra="allow"\`) defaults to JSON serialization.
+The existing InfluxDB writer stays **completely untouched**. Account models inherit \`InfluxMixin\` which provides \`for_influx()\` — a method that returns a flat SimpleNamespace. The processor sees only scalars and JSON strings in \`__dict__\` — identical to DXLink events. Any unexpected nested field (from \`extra="allow"\`) defaults to JSON serialization. No helper files, no preparation functions.
 
 **What does NOT change:** The processor — constructor, process_event, write_api, bucket, connection, close logic. Zero modifications.
 
@@ -622,9 +622,9 @@ DXLink events have \`eventSymbol\` as a native field from the brokerage. We keep
 
 **Why not a fallback chain?** Each model knows exactly what its symbol is. No \`getattr\` chain, no branching, no fallback — just a property.
 
-### 3. Preparation happens once, upstream
+### 3. Model owns its InfluxDB representation
 
-\`prepare_for_influx()\` iterates \`__dict__\` once and produces a flat SimpleNamespace. No \`model_dump()\` on the top-level event. Pydantic serialization is only invoked on fields declared in \`INFLUX_JSON_FIELDS\`. The processor then iterates the prepared namespace's \`__dict__\` — all scalars, no surprises.
+\`for_influx()\` iterates \`__dict__\` once and produces a flat SimpleNamespace. No \`model_dump()\` on the top-level event. Pydantic serialization is only invoked on fields declared in \`INFLUX_JSON_FIELDS\`. The processor then iterates the namespace's \`__dict__\` — all scalars, no surprises. No helper files, no standalone functions — the model knows how to present itself.
 
 ### 4. No AccountBalance in InfluxDB
 
@@ -707,78 +707,95 @@ class EntryCredit(BaseModel):
 - \`INFLUX_EXCLUDE\` is empty for all models currently — account_number is needed to distinguish multiple simultaneous account streams`
       },
       {
-        id: "step-2-prepare",
-        title: "Step 2: Create prepare_for_influx helper",
+        id: "step-2-mixin",
+        title: "Step 2: Add InfluxMixin to account models",
         revised: true,
-        content: `**File:** \`src/tastytrade/accounts/influxdb.py\` (new — thin adapter in accounts module)
+        content: `**File:** \`src/tastytrade/accounts/models.py\`
 
-\`TelegrafHTTPEventProcessor\` stays **completely unchanged**. Instead, a helper function in the accounts module prepares account events before they reach the processor. The model's \`INFLUX_JSON_FIELDS\` and \`INFLUX_EXCLUDE\` class vars drive the transformation — no runtime isinstance guessing.
+No separate helper file. No preparation function. The model owns its InfluxDB representation via \`InfluxMixin\`. \`TelegrafHTTPEventProcessor\` stays **completely unchanged**.
 
-### Why outside the Telegraf module?
-
-- The processor works. Don't touch it.
-- Account models already declare which fields need JSON (\`INFLUX_JSON_FIELDS\`) — the preparation logic belongs near the models, not in the processor.
-- DXLink events continue flowing through \`process_event()\` exactly as before — zero risk to existing market data pipeline.
-
-### Implementation
+### InfluxMixin
 
 \`\`\`python
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
 
-def prepare_for_influx(event: Any) -> SimpleNamespace:
-    """Flatten an account event for TelegrafHTTPEventProcessor.
+class InfluxMixin:
+    """Makes account models compatible with TelegrafHTTPEventProcessor."""
 
-    Reads INFLUX_JSON_FIELDS and INFLUX_EXCLUDE from the model class.
-    Pre-serializes nested fields to JSON strings so the processor
-    sees only scalar values in __dict__. Returns a lightweight
-    SimpleNamespace with eventSymbol and the model's class name.
-    """
-    json_fields = getattr(event, "INFLUX_JSON_FIELDS", set())
-    exclude = getattr(event, "INFLUX_EXCLUDE", set())
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
 
-    fields: dict[str, Any] = {}
-    for attr, value in event.__dict__.items():
-        if attr in exclude:
-            continue
-        if attr in json_fields or not isinstance(value, (str, int, float, bool, type(None))):
-            # Declared JSON fields + any unexpected non-scalar (from extra="allow")
-            if isinstance(value, BaseModel):
-                fields[attr] = value.model_dump_json(by_alias=True)
-            elif isinstance(value, (list, dict)):
-                fields[attr] = json.dumps(value, default=str)
+    def for_influx(self) -> SimpleNamespace:
+        """Return a flat representation for InfluxDB.
+
+        Declared JSON fields and any unexpected non-scalar fields
+        (from extra='allow') are serialized to JSON strings.
+        Returns a SimpleNamespace that process_event() can iterate
+        via __dict__ with no surprises.
+        """
+        fields: dict[str, Any] = {}
+        for attr, value in self.__dict__.items():
+            if attr in self.INFLUX_EXCLUDE:
+                continue
+            if attr in self.INFLUX_JSON_FIELDS or not isinstance(
+                value, (str, int, float, bool, type(None))
+            ):
+                if isinstance(value, BaseModel):
+                    fields[attr] = value.model_dump_json(by_alias=True)
+                elif isinstance(value, (list, dict)):
+                    fields[attr] = json.dumps(value, default=str)
+                else:
+                    fields[attr] = value
             else:
                 fields[attr] = value
-        else:
-            fields[attr] = value
 
-    ns = SimpleNamespace(**fields, eventSymbol=event.eventSymbol)
-    # Preserve class name so Point() uses it as the measurement name
-    ns.__class__ = type(event.__class__.__name__, (), {})
-    return ns
+        ns = SimpleNamespace(**fields, eventSymbol=self.eventSymbol)
+        ns.__class__ = type(self.__class__.__name__, (), {})
+        return ns
 \`\`\`
+
+### Usage in models
+
+\`\`\`python
+class PlacedOrder(TastyTradeApiModel, FloatFieldMixin, InfluxMixin):
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"legs"}
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.underlying_symbol or ""
+\`\`\`
+
+### Usage in orchestrator
+
+\`\`\`python
+influx.process_event(order.for_influx())
+\`\`\`
+
+One line. The model knows how to present itself for InfluxDB. No helper function, no separate file.
 
 ### How it flows
 
 \`\`\`
-queue.get() → prepare_for_influx(event) → influx.process_event(prepared)
-                 ↓                              ↓
-          JSON fields flattened          Unchanged processor sees
-          Excluded fields removed        only scalars + JSON strings
-          eventSymbol attached           in __dict__
+queue.get() → event.for_influx() → influx.process_event(namespace)
+                 ↓                        ↓
+          Model serializes itself   Unchanged processor sees
+          JSON fields flattened     only scalars + JSON strings
+          eventSymbol attached      in __dict__
 \`\`\`
 
 ### Key design choices
 
-- **Model-declared JSON fields** — the model declared \`INFLUX_JSON_FIELDS = {"legs"}\` at class level. The helper reads that set.
-- **Default to JSON for unknowns** — any field that isn't a scalar (str, int, float, bool, None) is automatically JSON-serialized, even if not in \`INFLUX_JSON_FIELDS\`. This handles unexpected nested fields from \`extra="allow"\` defensively.
-- **isinstance only for serialization dispatch** — within a JSON field, we need to know whether to call \`model_dump_json()\` (BaseModel) or \`json.dumps()\` (list/dict). This is targeted, not speculative.
+- **Model owns its representation** — \`for_influx()\` lives on the model via mixin, not in a separate helper. The model declares \`INFLUX_JSON_FIELDS\` and provides the conversion — single responsibility.
+- **Default to JSON for unknowns** — any field that isn't a scalar (str, int, float, bool, None) is automatically JSON-serialized. Handles unexpected nested fields from \`extra="allow"\` defensively.
 - **SimpleNamespace** — lightweight, no Pydantic overhead. Has \`__dict__\` and attributes, which is all \`process_event()\` reads.
-- **Class name preserved** — \`ns.__class__\` is set to a dynamic type with the original class name so \`Point(event.__class__.__name__)\` produces the correct measurement name.`
+- **Class name preserved** — \`ns.__class__\` is set to a dynamic type with the original class name so \`Point(event.__class__.__name__)\` produces the correct measurement name.
+- **No new files** — \`InfluxMixin\` lives in \`models.py\` alongside the models that use it.`
       },
       {
         id: "step-3-orchestrator",
@@ -816,8 +833,7 @@ async def consume_orders(
         except asyncio.TimeoutError:
             continue
         await publisher.publish_order(order)
-        prepared = prepare_for_influx(order)
-        influx.process_event(prepared)
+        influx.process_event(order.for_influx())
 \`\`\`
 
 **Why \`stop.is_set()\` over \`while True\`?**
@@ -934,15 +950,16 @@ Field exclusion is handled at the **model level**, not in the processor. Each mo
         title: "Testing",
         content: `### Unit tests
 
-**File:** \`unit_tests/accounts/test_influxdb.py\` (new)
+**File:** \`unit_tests/accounts/test_models.py\` (extend — \`for_influx()\` tests)
 
-1. **JSON field serialization** — pass a PlacedOrder with legs to \`prepare_for_influx()\`, verify \`legs\` is a JSON string in the result
+1. **JSON field serialization** — call \`order.for_influx()\`, verify \`legs\` is a JSON string in the result
 2. **List serialization** — verify lists of Pydantic models serialize via json.dumps
 3. **Scalar passthrough** — verify int/float/str/bool/datetime values pass through unchanged
-4. **eventSymbol preserved** — verify the prepared namespace has \`eventSymbol\` from the model property
-5. **Class name preserved** — verify \`prepared.__class__.__name__\` matches the original model
-6. **INFLUX_EXCLUDE** — verify excluded fields are not in the prepared namespace
+4. **eventSymbol preserved** — verify the namespace has \`eventSymbol\` from the model property
+5. **Class name preserved** — verify \`ns.__class__.__name__\` matches the original model
+6. **INFLUX_EXCLUDE** — verify excluded fields are not in the namespace
 7. **Empty JSON fields** — Position (no nested fields) passes through fully native
+8. **Unknown non-scalar** — verify unexpected nested field from \`extra="allow"\` defaults to JSON
 
 **File:** \`unit_tests/accounts/test_models.py\` (extend existing)
 
@@ -973,16 +990,14 @@ uv run pytest -q
         title: "Files Changed",
         content: `| File | Change |
 |---|---|
-| \`src/tastytrade/accounts/models.py\` | Add \`@property eventSymbol\`, \`INFLUX_JSON_FIELDS\`, \`INFLUX_EXCLUDE\` to Position, PlacedOrder, PlacedComplexOrder, TradeChain |
-| \`src/tastytrade/accounts/transactions.py\` | Add \`@property eventSymbol\`, \`INFLUX_JSON_FIELDS\`, \`INFLUX_EXCLUDE\` to EntryCredit |
-| \`src/tastytrade/accounts/influxdb.py\` | **New** — \`prepare_for_influx()\` helper that flattens account events using model-declared field metadata |
-| \`src/tastytrade/accounts/orchestrator.py\` | Pass TelegrafHTTPEventProcessor + stop event to 5 consume_* tasks, replace \`while True\` with \`while not stop.is_set()\`, instantiate influx in run_account_stream_once |
-| \`unit_tests/accounts/test_influxdb.py\` | Tests for prepare_for_influx: JSON field serialization, exclude handling, eventSymbol preservation |
-| \`unit_tests/accounts/test_models.py\` | Tests for eventSymbol property on each model |
+| \`src/tastytrade/accounts/models.py\` | Add \`InfluxMixin\` class, add mixin + \`@property eventSymbol\` + \`INFLUX_JSON_FIELDS\` + \`INFLUX_EXCLUDE\` to Position, PlacedOrder, PlacedComplexOrder, TradeChain |
+| \`src/tastytrade/accounts/transactions.py\` | Add \`InfluxMixin\`, \`@property eventSymbol\`, \`INFLUX_JSON_FIELDS\`, \`INFLUX_EXCLUDE\` to EntryCredit |
+| \`src/tastytrade/accounts/orchestrator.py\` | Pass TelegrafHTTPEventProcessor + stop event to 5 consume_* tasks, replace \`while True\` with \`while not stop.is_set()\`, call \`event.for_influx()\` |
+| \`unit_tests/accounts/test_models.py\` | Tests for \`for_influx()\`: JSON field serialization, exclude handling, eventSymbol preservation, class name, unknown field defaulting |
 
 ### Files NOT changed
 
-- \`src/tastytrade/messaging/processors/influxdb.py\` — **unchanged**, processor works as-is for both DXLink and prepared account events
+- \`src/tastytrade/messaging/processors/influxdb.py\` — **unchanged**, processor works as-is — \`for_influx()\` returns a namespace it can iterate natively
 - \`src/tastytrade/accounts/publisher.py\` — unchanged, Redis path untouched
 - \`src/tastytrade/accounts/streamer.py\` — unchanged, queue system untouched
 - \`src/tastytrade/messaging/models/events.py\` — unchanged, DXLink BaseEvent untouched`
