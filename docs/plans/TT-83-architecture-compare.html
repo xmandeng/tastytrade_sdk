@@ -709,12 +709,6 @@ const BEFORE_NODES = [
     badge: 'tastytrade:entry_credits',
     desc: 'LIFO cost basis for option positions. Key = option symbol. Recomputed on each fill. Removed when position closes (qty=0).',
   },
-  { id: 'gap', x: 620, y: 430, layer: 'signal',
-    label: 'No InfluxDB', type: 'Persistence Gap',
-    badge: '6 event types \u2014 no history',
-    desc: 'Account events have no time-series persistence. When Redis keys are overwritten, historical data is permanently lost. The existing TelegrafHTTPEventProcessor handles market data (quotes, greeks, candles) but is not wired to account events.',
-    note: 'TelegrafHTTPEventProcessor already exists and writes market data to InfluxDB. Account events simply are not routed through it.',
-  },
 ];
 
 const BEFORE_EDGES = [
@@ -727,7 +721,6 @@ const BEFORE_EDGES = [
   { from: 'publisher', to: 'redis-complex', label: 'ComplexOrder' },
   { from: 'publisher', to: 'redis-chains', label: 'TradeChain' },
   { from: 'publisher', to: 'redis-credits', label: 'EntryCredit' },
-  { from: 'publisher', to: 'gap', label: 'no InfluxDB path', style: 'callback' },
 ];
 
 const AFTER_NODES = [
