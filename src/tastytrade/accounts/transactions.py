@@ -17,7 +17,7 @@ automatically via a ``transaction-type`` check on each item.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import ClassVar, Optional
 
@@ -264,6 +264,7 @@ def compute_entry_credits_for_positions(
                 fees=result.fees,
                 per_unit_price=result.weighted_price,
                 transaction_count=len(symbol_txns),
+                computed_at=datetime.now(timezone.utc),
             )
 
     logger.info(
