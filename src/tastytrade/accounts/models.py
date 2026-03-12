@@ -59,6 +59,7 @@ class InfluxMixin:
 
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
     INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_TIME_FIELD: ClassVar[str] = ""
 
     def for_influx(self) -> SimpleNamespace:
         """Return a flat representation for InfluxDB.
@@ -67,6 +68,12 @@ class InfluxMixin:
         (from extra='allow') are serialized to JSON strings.
         Returns a SimpleNamespace that process_event() can iterate
         via __dict__ with no surprises.
+
+        The ``INFLUX_TIME_FIELD`` class variable names the model field
+        whose value should become the InfluxDB point timestamp (``time``).
+        The processor checks ``hasattr(event, 'time')`` and calls
+        ``point.time(event.time)`` when present, so the value is kept
+        as a ``datetime`` rather than serialized to a string.
         """
         fields: dict[str, Any] = {}
         # Include declared fields from __dict__ and extra fields from model_extra
@@ -75,8 +82,18 @@ class InfluxMixin:
         if extra:
             all_fields.update(extra)
 
+        # Resolve event time from the designated field
+        time_value: datetime | None = None
+        if self.INFLUX_TIME_FIELD:
+            raw = all_fields.get(self.INFLUX_TIME_FIELD)
+            if isinstance(raw, datetime):
+                time_value = raw
+
         for attr, value in all_fields.items():
             if attr in self.INFLUX_EXCLUDE:
+                continue
+            # Skip the time source field — it becomes `time` on the namespace
+            if attr == self.INFLUX_TIME_FIELD and time_value is not None:
                 continue
             if attr in self.INFLUX_JSON_FIELDS or not isinstance(
                 value, (str, int, float, bool, type(None))
@@ -102,13 +119,18 @@ class InfluxMixin:
             else:
                 fields[attr] = value
 
+        extras: dict[str, Any] = {"eventSymbol": self.eventSymbol}  # type: ignore[attr-defined]
+        if time_value is not None:
+            extras["time"] = time_value
+
         cls = type(self.__class__.__name__, (SimpleNamespace,), {})
-        return cls(**fields, eventSymbol=self.eventSymbol)  # type: ignore[attr-defined, return-value]
+        return cls(**fields, **extras)  # type: ignore[return-value]
 
 
 class Position(TastyTradeApiModel, FloatFieldMixin, InfluxMixin):
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
     INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_TIME_FIELD: ClassVar[str] = "updated_at"
 
     # Identity
     account_number: str = Field(alias="account-number", description="Account number")
@@ -847,6 +869,7 @@ class PlacedOrder(BaseModel, FloatFieldMixin, InfluxMixin):
     model_config = ORDER_MODEL_CONFIG
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"legs"}
     INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_TIME_FIELD: ClassVar[str] = "updated_at"
 
     # Identity
     id: int = Field(alias="id")
@@ -926,6 +949,7 @@ class PlacedComplexOrder(BaseModel, InfluxMixin):
     model_config = ORDER_MODEL_CONFIG
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"orders", "trigger_order"}
     INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_TIME_FIELD: ClassVar[str] = "terminal_at"
 
     # Identity
     id: int = Field(alias="id")
