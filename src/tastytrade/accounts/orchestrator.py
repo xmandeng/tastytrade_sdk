@@ -31,6 +31,7 @@ from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
+from tastytrade.common.metrics import record_reconnection, set_connection_status
 from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
 
@@ -61,6 +62,7 @@ async def update_account_connection_status(
     if reason:
         status["error"] = reason
     await redis_client.hset("tastytrade:account_connection", mapping=status)  # type: ignore[arg-type]
+    set_connection_status("account_stream", state)
 
 
 async def consume_positions(
@@ -608,6 +610,7 @@ async def run_account_stream(
             logger.info("Account stream cancelled by user")
             raise  # User interrupt - don't reconnect
         except AccountStreamError as e:
+            record_reconnection("account_stream")
             if e.was_healthy:
                 logger.info(
                     "Connection was healthy before failure, resetting retry counter"
@@ -625,6 +628,7 @@ async def run_account_stream(
             )
             await asyncio.sleep(delay)
         except Exception as e:
+            record_reconnection("account_stream")
             attempt += 1
             delay = min(base_delay * (2**attempt), max_delay)
             logger.warning(

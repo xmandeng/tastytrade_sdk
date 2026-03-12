@@ -15,9 +15,9 @@ AsyncIO Trading Service
         |
    +----+----+
    |         |
- Logging   Metrics
+ Logging   Metrics (event-driven)
    |         |
-Queue     Observable Gauges (sync Redis callbacks)
+Queue     Gauges set at point of state change
    |         |
 Worker    PeriodicExportingMetricReader
    |         |
@@ -31,7 +31,7 @@ stdout OTLP  OTLP
 
 **Key constraints:**
 - The trading loop must never block on logging — records enqueued via `put_nowait()`, dropped if full
-- Metrics use a separate sync Redis connection — gauge callbacks never touch the async event loop
+- Metrics are event-driven — gauges are set at the point of state change, no polling or Redis reads
 
 ---
 
@@ -75,8 +75,7 @@ Variables must be set before `init_observability()` is called. In Docker, use `e
 | Daemon thread | Automatic cleanup on process exit |
 | No Alloy (Phase 1) | Single host, low volume — direct OTLP is sufficient |
 | No local Loki | CPU/disk/WAL overhead not justified for single host |
-| Sync Redis for metrics | Gauge callbacks run in SDK thread, not async loop — separate connection avoids event loop coupling |
-| Observable gauges | Read-only from Redis — no metrics state to manage, always reflects current system state |
+| Event-driven gauges | Metrics set at point of change — no polling, no separate Redis connection, always current |
 | Separate metrics credentials | Grafana Cloud uses different instances for Loki (logs) vs Mimir (metrics) |
 
 ---
@@ -94,13 +93,17 @@ Variables must be set before `init_observability()` is called. In Docker, use `e
 | Metric | Type | Description | Attributes |
 |--------|------|-------------|------------|
 | `tastytrade.connection.status` | Gauge | 1=connected, 0=disconnected, -1=error | `service` |
-| `tastytrade.positions.count` | Gauge | Open positions in Redis | — |
+| `tastytrade.positions.count` | Gauge | Open positions | — |
 | `tastytrade.subscriptions.count` | Gauge | Active DXLink subscriptions | — |
-| `tastytrade.orders.count` | Gauge | Tracked orders in Redis | — |
-| `tastytrade.data.freshness_seconds` | Gauge | Age of newest data per feed type | `feed_type` |
+| `tastytrade.orders.count` | Gauge | Tracked orders | — |
 | `tastytrade.reconnections.total` | Counter | Reconnection events | `service` |
 
-Observable gauges read from Redis on each collection cycle (default 15s). The reconnection counter is incremented by orchestrators via `record_reconnection()`.
+All gauges are event-driven — set at the point of state change by the owning code:
+- `set_connection_status()` — called by orchestrators when connection state changes
+- `set_position_count()` — called by `AccountStreamPublisher` after each position write
+- `set_subscription_count()` — called by `RedisSubscriptionStore` after add/remove
+- `set_order_count()` — called by `AccountStreamPublisher` after each order write
+- `record_reconnection()` — called by orchestrators on reconnect attempts
 
 ---
 
@@ -121,6 +124,5 @@ Observable gauges read from Redis on each collection cycle (default 15s). The re
 tastytrade_connection_status{service="subscription"}
 tastytrade_positions_count
 tastytrade_subscriptions_count
-tastytrade_data_freshness_seconds{feed_type="Ticker"}
 rate(tastytrade_reconnections_total[5m])
 ```

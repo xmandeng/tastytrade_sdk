@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
+from tastytrade.common.metrics import record_reconnection, set_connection_status
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections import Credentials
@@ -73,6 +74,7 @@ async def update_redis_connection_status(
         status["error"] = reason
 
     await store.redis.hset("tastytrade:connection", mapping=status)  # type: ignore[arg-type]
+    set_connection_status("subscription", state)
 
 
 def log_health_status(
@@ -637,6 +639,7 @@ async def run_subscription(
             logger.info("Subscription cancelled by user")
             raise  # User interrupt - don't reconnect
         except SubscriptionError as e:
+            record_reconnection("subscription")
             is_first_run = False
             if e.was_healthy:
                 logger.info(
@@ -655,6 +658,7 @@ async def run_subscription(
             )
             await asyncio.sleep(delay)
         except Exception as e:
+            record_reconnection("subscription")
             is_first_run = False
             attempt += 1
             delay = min(base_delay * (2**attempt), max_delay)
