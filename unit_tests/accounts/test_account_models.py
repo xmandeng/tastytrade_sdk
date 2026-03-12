@@ -622,7 +622,6 @@ class TestForInflux:
     def test_influx_exclude_removes_fields(self) -> None:
         """Fields in INFLUX_EXCLUDE are not in the namespace."""
         pos = Position.model_validate(make_position_json())
-        # Position has empty exclude by default, manually test the mechanism
         original_exclude = Position.INFLUX_EXCLUDE
         try:
             Position.INFLUX_EXCLUDE = {"symbol"}
