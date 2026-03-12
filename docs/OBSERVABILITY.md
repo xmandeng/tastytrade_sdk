@@ -2,7 +2,9 @@
 
 Non-blocking observability for AsyncIO trading services via Grafana Cloud + OpenTelemetry.
 
-**Implementation:** `src/tastytrade/common/observability.py`
+**Implementation:**
+- Logs: `src/tastytrade/common/observability.py`
+- Metrics: `src/tastytrade/common/metrics.py`
 
 ---
 
@@ -11,18 +13,25 @@ Non-blocking observability for AsyncIO trading services via Grafana Cloud + Open
 ```
 AsyncIO Trading Service
         |
-Python Logging Queue (non-blocking, drops on overflow)
-        |
-Background Worker Thread
-        |
-    +---+---+
-    |       |
-  stdout  OTLP HTTP Exporter
-  (JSON)    |
-            Grafana Cloud (Loki)
+   +----+----+
+   |         |
+ Logging   Metrics
+   |         |
+Queue     Observable Gauges (sync Redis callbacks)
+   |         |
+Worker    PeriodicExportingMetricReader
+   |         |
++--+--+      |
+|     |      |
+stdout OTLP  OTLP
+(JSON)  |     |
+     Grafana Cloud
+     (Loki)  (Mimir)
 ```
 
-**Key constraint:** The trading loop must never block on logging. All log records are enqueued via `put_nowait()` and dropped if the queue is full.
+**Key constraints:**
+- The trading loop must never block on logging — records enqueued via `put_nowait()`, dropped if full
+- Metrics use a separate sync Redis connection — gauge callbacks never touch the async event loop
 
 ---
 
@@ -34,6 +43,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-<region>.grafana.net/otlp
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 GRAFANA_CLOUD_INSTANCE_ID=<numeric>
 GRAFANA_CLOUD_TOKEN=<token with logs:write scope>
+
+# Grafana Cloud Metrics (Mimir) — separate instance
+GRAFANA_CLOUD_METRICS_INSTANCE_ID=<numeric>
+GRAFANA_CLOUD_METRICS_TOKEN=<token with metrics:write scope>
 
 # Service identification
 OTEL_SERVICE_NAME=tastytrade-subscription
@@ -62,6 +75,9 @@ Variables must be set before `init_observability()` is called. In Docker, use `e
 | Daemon thread | Automatic cleanup on process exit |
 | No Alloy (Phase 1) | Single host, low volume — direct OTLP is sufficient |
 | No local Loki | CPU/disk/WAL overhead not justified for single host |
+| Sync Redis for metrics | Gauge callbacks run in SDK thread, not async loop — separate connection avoids event loop coupling |
+| Observable gauges | Read-only from Redis — no metrics state to manage, always reflects current system state |
+| Separate metrics credentials | Grafana Cloud uses different instances for Loki (logs) vs Mimir (metrics) |
 
 ---
 
@@ -73,11 +89,38 @@ Variables must be set before `init_observability()` is called. In Docker, use `e
 
 ---
 
+## Metrics
+
+| Metric | Type | Description | Attributes |
+|--------|------|-------------|------------|
+| `tastytrade.connection.status` | Gauge | 1=connected, 0=disconnected, -1=error | `service` |
+| `tastytrade.positions.count` | Gauge | Open positions in Redis | — |
+| `tastytrade.subscriptions.count` | Gauge | Active DXLink subscriptions | — |
+| `tastytrade.orders.count` | Gauge | Tracked orders in Redis | — |
+| `tastytrade.data.freshness_seconds` | Gauge | Age of newest data per feed type | `feed_type` |
+| `tastytrade.reconnections.total` | Counter | Reconnection events | `service` |
+
+Observable gauges read from Redis on each collection cycle (default 15s). The reconnection counter is incremented by orchestrators via `record_reconnection()`.
+
+---
+
 ## Grafana Cloud Queries
+
+### Logs (Loki)
 
 ```
 {service_name="tastytrade-subscription"}
 {service_name="tastytrade-subscription"} |= "ERROR"
 {service_name="tastytrade-subscription"} | json | name="orchestrator"
 {deployment_environment="prod"}
+```
+
+### Metrics (Mimir / PromQL)
+
+```promql
+tastytrade_connection_status{service="subscription"}
+tastytrade_positions_count
+tastytrade_subscriptions_count
+tastytrade_data_freshness_seconds{feed_type="Ticker"}
+rate(tastytrade_reconnections_total[5m])
 ```

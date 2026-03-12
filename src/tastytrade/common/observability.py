@@ -75,12 +75,17 @@ def init_observability() -> None:
     )
     _listener_thread.start()
 
+    # Initialize metrics export alongside logs
+    from tastytrade.common.metrics import init_metrics
+
+    init_metrics()
+
     # Register shutdown handler
     atexit.register(shutdown_observability)
 
 
 def shutdown_observability() -> None:
-    """Gracefully shutdown observability, flushing pending logs."""
+    """Gracefully shutdown observability, flushing pending logs and metrics."""
     global _shutdown_event, _logger_provider
 
     if _shutdown_event is not None:
@@ -89,6 +94,10 @@ def shutdown_observability() -> None:
     if _logger_provider is not None:
         _logger_provider.force_flush()
         _logger_provider.shutdown()
+
+    from tastytrade.common.metrics import shutdown_metrics
+
+    shutdown_metrics()
 
 
 def _create_otel_provider() -> LoggerProvider:
