@@ -94,34 +94,41 @@ class TestConsumePositions:
         """Each Position pulled from the queue is published."""
         queue: asyncio.Queue[Position] = asyncio.Queue()
         mock_publisher = AsyncMock()
+        mock_influx = MagicMock()
+        stop = asyncio.Event()
 
         pos = MagicMock(spec=Position)
         queue.put_nowait(pos)
 
-        task = asyncio.create_task(consume_positions(queue, mock_publisher))
+        task = asyncio.create_task(
+            consume_positions(queue, mock_publisher, mock_influx, stop)
+        )
         await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        stop.set()
+        await task
 
         mock_publisher.publish_position.assert_awaited_once_with(pos)
+        mock_influx.process_event.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handles_multiple_positions(self) -> None:
         """Multiple positions are consumed in order."""
         queue: asyncio.Queue[Position] = asyncio.Queue()
         mock_publisher = AsyncMock()
+        mock_influx = MagicMock()
+        stop = asyncio.Event()
 
         pos1 = MagicMock(spec=Position)
         pos2 = MagicMock(spec=Position)
         queue.put_nowait(pos1)
         queue.put_nowait(pos2)
 
-        task = asyncio.create_task(consume_positions(queue, mock_publisher))
+        task = asyncio.create_task(
+            consume_positions(queue, mock_publisher, mock_influx, stop)
+        )
         await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        stop.set()
+        await task
 
         assert mock_publisher.publish_position.await_count == 2
 
@@ -137,15 +144,15 @@ class TestConsumeBalances:
         """Each AccountBalance pulled from the queue is published."""
         queue: asyncio.Queue[AccountBalance] = asyncio.Queue()
         mock_publisher = AsyncMock()
+        stop = asyncio.Event()
 
         bal = MagicMock(spec=AccountBalance)
         queue.put_nowait(bal)
 
-        task = asyncio.create_task(consume_balances(queue, mock_publisher))
+        task = asyncio.create_task(consume_balances(queue, mock_publisher, stop))
         await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        stop.set()
+        await task
 
         mock_publisher.publish_balance.assert_awaited_once_with(bal)
 
@@ -167,6 +174,7 @@ class TestRunAccountStreamOnce:
             patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
             patch("tastytrade.accounts.orchestrator.ReconnectSignal") as MockSignal,
+            patch("tastytrade.accounts.orchestrator.TelegrafHTTPEventProcessor"),
         ):
             mock_config = MagicMock()
             mock_config.initialize = MagicMock()
@@ -204,6 +212,7 @@ class TestRunAccountStreamOnce:
             patch("tastytrade.accounts.orchestrator.AccountStreamPublisher"),
             patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
+            patch("tastytrade.accounts.orchestrator.TelegrafHTTPEventProcessor"),
         ):
             mock_config = MagicMock()
             mock_config.initialize = MagicMock()
@@ -238,6 +247,7 @@ class TestRunAccountStreamOnce:
             patch("tastytrade.accounts.orchestrator.RedisConfigManager") as MockConfig,
             patch("tastytrade.accounts.orchestrator.Credentials"),
             patch("tastytrade.accounts.orchestrator.ReconnectSignal") as MockSignal,
+            patch("tastytrade.accounts.orchestrator.TelegrafHTTPEventProcessor"),
         ):
             mock_config = MagicMock()
             mock_config.initialize = MagicMock()

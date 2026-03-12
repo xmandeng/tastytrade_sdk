@@ -1,5 +1,6 @@
-"""Tests for Account, Position, and AccountBalance models (TT-28)."""
+"""Tests for Account, Position, and AccountBalance models (TT-28, TT-83)."""
 
+from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
@@ -11,10 +12,14 @@ from tastytrade.accounts.models import (
     Account,
     AccountBalance,
     InstrumentType,
+    PlacedComplexOrder,
+    PlacedOrder,
     Position,
     QuantityDirection,
     TastyTradeApiModel,
+    TradeChain,
 )
+from tastytrade.accounts.transactions import EntryCredit
 from tastytrade.connections.requests import AsyncSessionHandler
 
 
@@ -450,3 +455,248 @@ def test_tastytrade_api_model_config() -> None:
     assert config["frozen"] is True
     assert config["extra"] == "allow"
     assert config["populate_by_name"] is True
+
+
+# ---------------------------------------------------------------------------
+# TT-83: eventSymbol property tests
+# ---------------------------------------------------------------------------
+
+
+class TestEventSymbol:
+    def test_position_returns_streamer_symbol(self) -> None:
+        pos = Position.model_validate(
+            make_position_json(**{"streamer-symbol": ".AAPL260220C185"})
+        )
+        assert pos.eventSymbol == ".AAPL260220C185"
+
+    def test_position_falls_back_to_symbol(self) -> None:
+        data = make_position_json()
+        del data["streamer-symbol"]
+        pos = Position.model_validate(data)
+        assert pos.eventSymbol == "AAPL"
+
+    def test_placed_order_returns_underlying(self) -> None:
+        order = PlacedOrder.model_validate(
+            {
+                "id": 1,
+                "account-number": "TEST",
+                "order-type": "Limit",
+                "time-in-force": "Day",
+                "status": "Filled",
+                "underlying-symbol": "SPY",
+                "legs": [],
+            }
+        )
+        assert order.eventSymbol == "SPY"
+
+    def test_placed_order_returns_empty_without_underlying(self) -> None:
+        order = PlacedOrder.model_validate(
+            {
+                "id": 1,
+                "account-number": "TEST",
+                "order-type": "Limit",
+                "time-in-force": "Day",
+                "status": "Filled",
+                "legs": [],
+            }
+        )
+        assert order.eventSymbol == ""
+
+    def test_complex_order_returns_child_underlying(self) -> None:
+        order = PlacedComplexOrder.model_validate(
+            {
+                "id": 1,
+                "account-number": "TEST",
+                "type": "OCO",
+                "orders": [
+                    {
+                        "id": 2,
+                        "account-number": "TEST",
+                        "order-type": "Limit",
+                        "time-in-force": "Day",
+                        "status": "Filled",
+                        "underlying-symbol": "AAPL",
+                        "legs": [],
+                    }
+                ],
+            }
+        )
+        assert order.eventSymbol == "AAPL"
+
+    def test_complex_order_returns_empty_without_orders(self) -> None:
+        order = PlacedComplexOrder.model_validate(
+            {
+                "id": 1,
+                "account-number": "TEST",
+                "type": "OCO",
+                "orders": [],
+            }
+        )
+        assert order.eventSymbol == ""
+
+    def test_trade_chain_returns_underlying(self) -> None:
+        chain = TradeChain.model_validate(
+            {
+                "id": "chain-1",
+                "description": "Iron Condor",
+                "underlying-symbol": "SPY",
+                "computed-data": {"open": True},
+                "lite-nodes": [],
+            }
+        )
+        assert chain.eventSymbol == "SPY"
+
+    def test_entry_credit_returns_symbol(self) -> None:
+        credit = EntryCredit(
+            symbol=".AAPL260220C185",
+            value=Decimal("100"),
+            transaction_count=3,
+        )
+        assert credit.eventSymbol == ".AAPL260220C185"
+
+
+# ---------------------------------------------------------------------------
+# TT-83: InfluxMixin.for_influx() tests
+# ---------------------------------------------------------------------------
+
+
+class TestForInflux:
+    def test_scalar_passthrough(self) -> None:
+        """int/float/str/bool values pass through unchanged."""
+        pos = Position.model_validate(make_position_json())
+        ns = pos.for_influx()
+        assert ns.quantity == 100.0
+        assert ns.symbol == "AAPL"
+        assert isinstance(ns.quantity, float)
+
+    def test_event_symbol_attached(self) -> None:
+        """Namespace has eventSymbol from the model property."""
+        pos = Position.model_validate(make_position_json())
+        ns = pos.for_influx()
+        assert ns.eventSymbol == "AAPL"
+
+    def test_class_name_preserved(self) -> None:
+        """ns.__class__.__name__ matches the original model for InfluxDB measurement."""
+        pos = Position.model_validate(make_position_json())
+        ns = pos.for_influx()
+        assert ns.__class__.__name__ == "Position"
+
+    def test_json_field_serialization(self) -> None:
+        """Fields in INFLUX_JSON_FIELDS are serialized to JSON strings."""
+        import json
+
+        order = PlacedOrder.model_validate(
+            {
+                "id": 1,
+                "account-number": "TEST",
+                "order-type": "Limit",
+                "time-in-force": "Day",
+                "status": "Filled",
+                "underlying-symbol": "SPY",
+                "legs": [
+                    {
+                        "instrument-type": "Equity Option",
+                        "symbol": "SPY  250321C00500000",
+                        "action": "Buy to Open",
+                        "quantity": "1",
+                        "fills": [],
+                    }
+                ],
+            }
+        )
+        ns = order.for_influx()
+        # legs should be a JSON string, not a list
+        assert isinstance(ns.legs, str)
+        parsed = json.loads(ns.legs)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+
+    def test_position_no_json_fields(self) -> None:
+        """Position has no INFLUX_JSON_FIELDS — all fields pass through natively."""
+        pos = Position.model_validate(make_position_json())
+        ns = pos.for_influx()
+        # No fields should be JSON strings (except enum values which are str)
+        assert not isinstance(ns.quantity, str)
+        assert isinstance(ns.account_number, str)
+
+    def test_influx_exclude_removes_fields(self) -> None:
+        """Fields in INFLUX_EXCLUDE are not in the namespace."""
+        pos = Position.model_validate(make_position_json())
+        # Position has empty exclude by default, manually test the mechanism
+        original_exclude = Position.INFLUX_EXCLUDE
+        try:
+            Position.INFLUX_EXCLUDE = {"symbol"}
+            ns = pos.for_influx()
+            assert not hasattr(ns, "symbol")
+        finally:
+            Position.INFLUX_EXCLUDE = original_exclude
+
+    def test_unknown_non_scalar_defaults_to_json(self) -> None:
+        """Unexpected nested fields from extra='allow' are JSON-serialized."""
+        import json
+
+        data = make_position_json(**{"nested-data": {"key": "value"}})
+        pos = Position.model_validate(data)
+        ns = pos.for_influx()
+        # The extra field should be JSON-serialized since it's a dict
+        extra_val = getattr(ns, "nested-data")
+        assert isinstance(extra_val, str)
+        parsed = json.loads(extra_val)
+        assert parsed == {"key": "value"}
+
+    def test_frozen_model_property_compatibility(self) -> None:
+        """@property eventSymbol works on frozen models without mutation."""
+        pos = Position.model_validate(make_position_json())
+        # Model is frozen — eventSymbol is read-only property
+        ns = pos.for_influx()
+        assert ns.eventSymbol == pos.eventSymbol
+
+    def test_trade_chain_json_fields(self) -> None:
+        """TradeChain serializes computed_data and lite_nodes as JSON."""
+        import json
+
+        chain = TradeChain.model_validate(
+            {
+                "id": "chain-1",
+                "description": "Iron Condor",
+                "underlying-symbol": "SPY",
+                "computed-data": {"open": True, "total-fees": "2.50"},
+                "lite-nodes": [],
+            }
+        )
+        ns = chain.for_influx()
+        assert ns.__class__.__name__ == "TradeChain"
+        assert ns.eventSymbol == "SPY"
+        # computed_data is a Pydantic model — should be model_dump_json
+        assert isinstance(ns.computed_data, str)
+        parsed = json.loads(ns.computed_data)
+        assert parsed["open"] is True
+
+    def test_entry_credit_for_influx(self) -> None:
+        """EntryCredit for_influx produces correct namespace."""
+        credit = EntryCredit(
+            symbol=".AAPL260220C185",
+            value=Decimal("150"),
+            method="transaction_lifo",
+            transaction_count=3,
+        )
+        ns = credit.for_influx()
+        assert ns.__class__.__name__ == "EntryCredit"
+        assert ns.eventSymbol == ".AAPL260220C185"
+        assert ns.method == "transaction_lifo"
+
+    def test_datetime_serialized_to_isoformat(self) -> None:
+        """datetime fields are converted to ISO strings for InfluxDB compatibility."""
+        data = make_position_json(**{"created-at": "2026-03-07T15:30:00+00:00"})
+        pos = Position.model_validate(data)
+        ns = pos.for_influx()
+        assert isinstance(ns.created_at, str)
+        assert "2026-03-07" in ns.created_at
+
+    def test_enum_serialized_to_value(self) -> None:
+        """Enum fields are converted to their string values."""
+        pos = Position.model_validate(make_position_json())
+        ns = pos.for_influx()
+        # instrument_type is an Enum field
+        assert ns.instrument_type == "Equity"
+        assert isinstance(ns.instrument_type, str)

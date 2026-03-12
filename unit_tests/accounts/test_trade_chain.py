@@ -303,32 +303,39 @@ class TestConsumeOrderChains:
     async def test_drains_queue_and_publishes(self) -> None:
         queue: asyncio.Queue[TradeChain] = asyncio.Queue()
         mock_publisher = AsyncMock()
+        mock_influx = MagicMock()
+        stop = asyncio.Event()
 
         chain = MagicMock(spec=TradeChain)
         queue.put_nowait(chain)
 
-        task = asyncio.create_task(consume_order_chains(queue, mock_publisher))
+        task = asyncio.create_task(
+            consume_order_chains(queue, mock_publisher, mock_influx, stop)
+        )
         await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        stop.set()
+        await task
 
         mock_publisher.publish_trade_chain.assert_awaited_once_with(chain)
+        mock_influx.process_event.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handles_multiple_chains(self) -> None:
         queue: asyncio.Queue[TradeChain] = asyncio.Queue()
         mock_publisher = AsyncMock()
+        mock_influx = MagicMock()
+        stop = asyncio.Event()
 
         chain1 = MagicMock(spec=TradeChain)
         chain2 = MagicMock(spec=TradeChain)
         queue.put_nowait(chain1)
         queue.put_nowait(chain2)
 
-        task = asyncio.create_task(consume_order_chains(queue, mock_publisher))
+        task = asyncio.create_task(
+            consume_order_chains(queue, mock_publisher, mock_influx, stop)
+        )
         await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        stop.set()
+        await task
 
         assert mock_publisher.publish_trade_chain.await_count == 2

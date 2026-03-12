@@ -230,6 +230,7 @@ class TestMonitorFillsForEntryCredits:
         session = AsyncMock()
 
         entry_credit = EntryCredit(
+            symbol=".AAPL260220C185",
             value=Decimal("150.00"),
             method="transaction_lifo",
             transaction_count=3,
@@ -488,8 +489,11 @@ async def run_monitor_briefly(
     timeout: float = 0.05,
 ) -> None:
     """Run the fill monitor and cancel it after a brief timeout."""
+    influx = MagicMock()
     task = asyncio.create_task(
-        monitor_fills_for_entry_credits(redis_client, session, "ACCT123", publisher)
+        monitor_fills_for_entry_credits(
+            redis_client, session, "ACCT123", publisher, influx
+        )
     )
     await asyncio.sleep(timeout)
     task.cancel()

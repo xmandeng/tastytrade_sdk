@@ -1,7 +1,9 @@
+import json
 import logging
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Optional
+from types import SimpleNamespace
+from typing import Any, ClassVar, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -52,7 +54,62 @@ class TastyTradeApiModel(BaseModel):
     )
 
 
-class Position(TastyTradeApiModel, FloatFieldMixin):
+class InfluxMixin:
+    """Makes account models compatible with TelegrafHTTPEventProcessor."""
+
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+
+    def for_influx(self) -> SimpleNamespace:
+        """Return a flat representation for InfluxDB.
+
+        Declared JSON fields and any unexpected non-scalar fields
+        (from extra='allow') are serialized to JSON strings.
+        Returns a SimpleNamespace that process_event() can iterate
+        via __dict__ with no surprises.
+        """
+        fields: dict[str, Any] = {}
+        # Include declared fields from __dict__ and extra fields from model_extra
+        all_fields = dict(self.__dict__)
+        extra = getattr(self, "model_extra", None)
+        if extra:
+            all_fields.update(extra)
+
+        for attr, value in all_fields.items():
+            if attr in self.INFLUX_EXCLUDE:
+                continue
+            if attr in self.INFLUX_JSON_FIELDS or not isinstance(
+                value, (str, int, float, bool, type(None))
+            ):
+                if isinstance(value, (datetime, date)):
+                    fields[attr] = value.isoformat()
+                elif isinstance(value, BaseModel):
+                    fields[attr] = value.model_dump_json(by_alias=True)
+                elif isinstance(value, Enum):
+                    fields[attr] = value.value
+                elif isinstance(value, list):
+                    items = [
+                        item.model_dump(by_alias=True)
+                        if isinstance(item, BaseModel)
+                        else item
+                        for item in value
+                    ]
+                    fields[attr] = json.dumps(items, default=str)
+                elif isinstance(value, dict):
+                    fields[attr] = json.dumps(value, default=str)
+                else:
+                    fields[attr] = value
+            else:
+                fields[attr] = value
+
+        cls = type(self.__class__.__name__, (SimpleNamespace,), {})
+        return cls(**fields, eventSymbol=self.eventSymbol)  # type: ignore[attr-defined, return-value]
+
+
+class Position(TastyTradeApiModel, FloatFieldMixin, InfluxMixin):
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+
     # Identity
     account_number: str = Field(alias="account-number", description="Account number")
     symbol: str = Field(alias="symbol", description="Position symbol")
@@ -188,6 +245,10 @@ class Position(TastyTradeApiModel, FloatFieldMixin):
             logger.warning("Unknown instrument type '%s', mapping to UNKNOWN", value)
             return InstrumentType.UNKNOWN.value
         return value
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.streamer_symbol or self.symbol
 
 
 class Account(TastyTradeApiModel):
@@ -780,10 +841,12 @@ class OrderLeg(BaseModel, FloatFieldMixin):
         return value
 
 
-class PlacedOrder(BaseModel, FloatFieldMixin):
+class PlacedOrder(BaseModel, FloatFieldMixin, InfluxMixin):
     """A single order from the Account Streamer."""
 
     model_config = ORDER_MODEL_CONFIG
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"legs"}
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
 
     # Identity
     id: int = Field(alias="id")
@@ -852,11 +915,17 @@ class PlacedOrder(BaseModel, FloatFieldMixin):
             return TimeInForce.UNKNOWN.value
         return value
 
+    @property
+    def eventSymbol(self) -> str:
+        return self.underlying_symbol or ""
 
-class PlacedComplexOrder(BaseModel):
+
+class PlacedComplexOrder(BaseModel, InfluxMixin):
     """A complex (multi-leg) order from the Account Streamer."""
 
     model_config = ORDER_MODEL_CONFIG
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"orders", "trigger_order"}
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
 
     # Identity
     id: int = Field(alias="id")
@@ -881,6 +950,12 @@ class PlacedComplexOrder(BaseModel):
             logger.warning("Unknown complex order type '%s', mapping to UNKNOWN", value)
             return ComplexOrderType.UNKNOWN.value
         return value
+
+    @property
+    def eventSymbol(self) -> str:
+        if self.orders:
+            return self.orders[0].underlying_symbol or ""
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1012,12 +1087,15 @@ class TradeChainComputedData(TastyTradeApiModel):
     )
 
 
-class TradeChain(TastyTradeApiModel):
+class TradeChain(TastyTradeApiModel, InfluxMixin):
     """Full trade lifecycle from the TastyTrade OrderChain event.
 
     Captures the complete history of a trade including opens, closes, rolls,
     realized P&L, fees, and market snapshots at time of execution.
     """
+
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"computed_data", "lite_nodes"}
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
 
     id: str = Field(description="Chain ID from TastyTrade")
     description: str = Field(description="Strategy name, e.g. 'Iron Condor'")
@@ -1025,3 +1103,7 @@ class TradeChain(TastyTradeApiModel):
     computed_data: TradeChainComputedData = Field(alias="computed-data")
     lite_nodes_sizes: Optional[int] = Field(default=None, alias="lite-nodes-sizes")
     lite_nodes: list[TradeChainNode] = Field(default_factory=list, alias="lite-nodes")
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.underlying_symbol

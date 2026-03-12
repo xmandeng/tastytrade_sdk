@@ -19,9 +19,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from tastytrade.accounts.models import InfluxMixin
 
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.utils.validators import validate_async_response
@@ -54,17 +56,24 @@ class Transaction(BaseModel):
     leg_count: int = Field(alias="leg-count")
 
 
-class EntryCredit(BaseModel):
+class EntryCredit(BaseModel, InfluxMixin):
     """Computed entry credit for a single position, stored in Redis."""
 
     model_config = ConfigDict(populate_by_name=True)
+    INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
+    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
 
+    symbol: str
     value: Decimal
     fees: Decimal = Decimal("0")
     per_unit_price: Optional[Decimal] = None
     method: str = "transaction_lifo"
     transaction_count: int
     computed_at: Optional[datetime] = None
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.symbol
 
 
 class TransactionsClient:
@@ -249,6 +258,7 @@ def compute_entry_credits_for_positions(
         result = compute_entry_credit_lifo(symbol_txns, qty)
         if result is not None:
             results[symbol] = EntryCredit(
+                symbol=symbol,
                 value=result.entry_credit,
                 fees=result.fees,
                 per_unit_price=result.weighted_price,
