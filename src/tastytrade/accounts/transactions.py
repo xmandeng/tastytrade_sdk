@@ -62,6 +62,7 @@ class EntryCredit(BaseModel, InfluxMixin):
     model_config = ConfigDict(populate_by_name=True)
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = set()
     INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_TIME_FIELD: ClassVar[str] = "computed_at"
 
     symbol: str
     value: Decimal

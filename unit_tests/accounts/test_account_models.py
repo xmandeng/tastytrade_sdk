@@ -700,3 +700,45 @@ class TestForInflux:
         # instrument_type is an Enum field
         assert ns.instrument_type == "Equity"
         assert isinstance(ns.instrument_type, str)
+
+    def test_influx_time_field_sets_point_time(self) -> None:
+        """INFLUX_TIME_FIELD value becomes `time` on the namespace as a datetime."""
+        from datetime import datetime
+
+        data = make_position_json(**{"updated-at": "2026-03-07T15:30:00+00:00"})
+        pos = Position.model_validate(data)
+        ns = pos.for_influx()
+        # time should be a datetime, not a string — processor uses point.time(event.time)
+        assert hasattr(ns, "time")
+        assert isinstance(ns.time, datetime)
+        assert ns.time.year == 2026
+        # updated_at should NOT appear as a separate field
+        assert not hasattr(ns, "updated_at")
+
+    def test_influx_time_field_absent_when_none(self) -> None:
+        """When the time field is None, no `time` attribute is set."""
+        data = make_position_json()
+        del data["updated-at"]
+        pos = Position.model_validate(data)
+        ns = pos.for_influx()
+        assert not hasattr(ns, "time")
+
+    def test_order_influx_time_field(self) -> None:
+        """PlacedOrder uses updated_at as the InfluxDB point timestamp."""
+        from datetime import datetime
+
+        order = PlacedOrder.model_validate(
+            {
+                "id": 1,
+                "account-number": "TEST",
+                "order-type": "Limit",
+                "time-in-force": "Day",
+                "status": "Filled",
+                "underlying-symbol": "SPY",
+                "updated-at": "2026-03-07T14:00:00+00:00",
+                "legs": [],
+            }
+        )
+        ns = order.for_influx()
+        assert hasattr(ns, "time")
+        assert isinstance(ns.time, datetime)
