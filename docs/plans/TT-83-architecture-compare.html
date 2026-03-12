@@ -759,7 +759,7 @@ const AFTER_NODES = [
     badge: 'MODIFIED',
     file: 'messaging/processors/influxdb.py',
     desc: 'Existing InfluxDB writer generalized to accept account models. Symbol resolution: eventSymbol → underlying_symbol → symbol. Nested fields (lists/dicts) auto-serialized to JSON. Same instance, same write_api, same bucket.',
-    details: 'process_event() updated to: (1) resolve symbol tag from eventSymbol / underlying_symbol / symbol, (2) use model_dump(mode="json", by_alias=True) to get a JSON-safe dict — Pydantic handles all nested serialization. Lists/dicts become json.dumps() string fields, scalars stay native.',
+    details: 'process_event() updated to: (1) resolve symbol tag from eventSymbol / underlying_symbol / symbol, (2) existing __dict__ iteration unchanged — nested BaseModel fields call model_dump_json(), lists use json.dumps(), scalars pass through natively. No intermediate dict allocation.',
     change: 'modified',
   },
   { id: 'redis-pos', x: 20, y: 580, layer: 'redis',
