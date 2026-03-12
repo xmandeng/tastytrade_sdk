@@ -20,6 +20,7 @@ from tastytrade.accounts.models import (
     TradeChain,
 )
 from tastytrade.accounts.transactions import EntryCredit
+from tastytrade.common.metrics import set_order_count, set_position_count
 from tastytrade.market.models import (
     CryptocurrencyInstrument,
     EquityInstrument,
@@ -80,6 +81,10 @@ class AccountStreamPublisher:
         )
         logger.debug("Published position: %s qty=%s", key, position.quantity)
 
+        # Emit position count metric at the point of change
+        count: int = await self.redis.hlen(self.POSITIONS_KEY)
+        set_position_count(count)
+
     async def publish_balance(self, balance: AccountBalance) -> None:
         """Write balance to Redis HSET."""
         await self.redis.hset(
@@ -107,6 +112,10 @@ class AccountStreamPublisher:
             order.underlying_symbol,
             len(order.legs),
         )
+
+        # Emit order count metric at the point of change
+        count: int = await self.redis.hlen(self.ORDERS_KEY)
+        set_order_count(count)
 
     async def publish_complex_order(self, order: PlacedComplexOrder) -> None:
         """Write complex order to Redis HSET keyed by complex order ID."""

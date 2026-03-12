@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 import redis.asyncio as redis  # type: ignore
 
+from tastytrade.common.metrics import set_subscription_count
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +75,10 @@ class RedisSubscriptionStore(SubscriptionStore):
         # Use HSET instead of SET
         await self.redis.hset(self.hash_key, symbol, json.dumps(data))
 
+        # Emit subscription count metric at the point of change
+        active_subs = await self.get_active_subscriptions()
+        set_subscription_count(len(active_subs))
+
     async def remove_subscription(self, symbol: str) -> None:
         # Get the current data from the hash, update active status, and save back
         if data_str := await self.redis.hget(self.hash_key, symbol):
@@ -80,6 +86,10 @@ class RedisSubscriptionStore(SubscriptionStore):
             data["active"] = False
             data["last_update"] = datetime.now(timezone.utc).isoformat()
             await self.redis.hset(self.hash_key, symbol, json.dumps(data))
+
+            # Emit subscription count metric at the point of change
+            active_subs = await self.get_active_subscriptions()
+            set_subscription_count(len(active_subs))
 
     async def get_active_subscriptions(self) -> dict:
         # Get all subscriptions from the hash at once
