@@ -33,6 +33,7 @@ from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
+from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -66,51 +67,79 @@ async def update_account_connection_status(
 async def consume_positions(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
+    stop: asyncio.Event,
 ) -> None:
-    """Drain Position events from the queue and publish to Redis."""
-    while True:
-        position = await queue.get()
+    """Drain Position events from the queue and publish to Redis + InfluxDB."""
+    while not stop.is_set():
+        try:
+            position = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except asyncio.TimeoutError:
+            continue
         await publisher.publish_position(position)
+        influx.process_event(position.for_influx())  # type: ignore[arg-type]
 
 
 async def consume_balances(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
+    stop: asyncio.Event,
 ) -> None:
     """Drain AccountBalance events from the queue and publish to Redis."""
-    while True:
-        balance = await queue.get()
+    while not stop.is_set():
+        try:
+            balance = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except asyncio.TimeoutError:
+            continue
         await publisher.publish_balance(balance)
 
 
 async def consume_orders(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
+    stop: asyncio.Event,
 ) -> None:
-    """Drain Order events from the queue and publish to Redis."""
-    while True:
-        order = await queue.get()
+    """Drain Order events from the queue and publish to Redis + InfluxDB."""
+    while not stop.is_set():
+        try:
+            order = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except asyncio.TimeoutError:
+            continue
         await publisher.publish_order(order)
+        influx.process_event(order.for_influx())  # type: ignore[arg-type]
 
 
 async def consume_complex_orders(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
+    stop: asyncio.Event,
 ) -> None:
-    """Drain ComplexOrder events from the queue and publish to Redis."""
-    while True:
-        order = await queue.get()
+    """Drain ComplexOrder events from the queue and publish to Redis + InfluxDB."""
+    while not stop.is_set():
+        try:
+            order = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except asyncio.TimeoutError:
+            continue
         await publisher.publish_complex_order(order)
+        influx.process_event(order.for_influx())  # type: ignore[arg-type]
 
 
 async def consume_order_chains(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
+    stop: asyncio.Event,
 ) -> None:
-    """Drain OrderChain events from the queue and publish to Redis."""
-    while True:
-        chain = await queue.get()
+    """Drain OrderChain events from the queue and publish to Redis + InfluxDB."""
+    while not stop.is_set():
+        try:
+            chain = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except asyncio.TimeoutError:
+            continue
         await publisher.publish_trade_chain(chain)
+        influx.process_event(chain.for_influx())  # type: ignore[arg-type]
 
 
 OPTION_TYPES = {InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION}
@@ -149,6 +178,7 @@ async def monitor_fills_for_entry_credits(
     session: AsyncSessionHandler,
     account_number: str,
     publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
 ) -> None:
     """React to filled orders by recomputing entry credits for affected option symbols.
 
@@ -201,6 +231,8 @@ async def monitor_fills_for_entry_credits(
                     )
                     if entry_credits:
                         await publisher.publish_entry_credits(entry_credits)
+                        for credit in entry_credits.values():
+                            influx.process_event(credit.for_influx())  # type: ignore[arg-type]
                         logger.info(
                             "Updated entry credits for %d symbols on fill",
                             len(entry_credits),
@@ -288,6 +320,8 @@ async def run_account_stream_once(
     """
     streamer: AccountStreamer | None = None
     publisher: AccountStreamPublisher | None = None
+    influx: TelegrafHTTPEventProcessor | None = None
+    stop = asyncio.Event()
     consumer_tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
     failure_listener_task: asyncio.Task[None] | None = None
     fill_monitor_task: asyncio.Task[None] | None = None
@@ -317,6 +351,15 @@ async def run_account_stream_once(
 
         # === Create publisher ===
         publisher = AccountStreamPublisher()
+
+        # === Create InfluxDB processor for time-series persistence (TT-83) ===
+        influx = TelegrafHTTPEventProcessor(
+            url=config.get("INFLUX_DB_URL", "http://localhost:8086"),
+            token=config.get("INFLUX_DB_TOKEN"),
+            org=config.get("INFLUX_DB_ORG"),
+            bucket=config.get("INFLUX_DB_BUCKET"),
+        )
+        logger.info("TelegrafHTTPEventProcessor initialized for account events")
 
         # === Enrich positions with instrument details ===
         position_queue = streamer.queues[AccountEventType.CURRENT_POSITION]
@@ -407,6 +450,8 @@ async def run_account_stream_once(
                     all_txns, positions_map
                 )
                 await publisher.publish_entry_credits(entry_credits)
+                for credit in entry_credits.values():
+                    influx.process_event(credit.for_influx())  # type: ignore[arg-type]
 
         for item in hydrated_items:
             position_queue.put_nowait(item)
@@ -416,13 +461,13 @@ async def run_account_stream_once(
 
         consumer_tasks.append(
             asyncio.create_task(
-                consume_positions(position_queue, publisher),
+                consume_positions(position_queue, publisher, influx, stop),
                 name="position_consumer",
             )
         )
         consumer_tasks.append(
             asyncio.create_task(
-                consume_balances(balance_queue, publisher),
+                consume_balances(balance_queue, publisher, stop),
                 name="balance_consumer",
             )
         )
@@ -434,19 +479,19 @@ async def run_account_stream_once(
 
         consumer_tasks.append(
             asyncio.create_task(
-                consume_orders(order_queue, publisher),
+                consume_orders(order_queue, publisher, influx, stop),
                 name="order_consumer",
             )
         )
         consumer_tasks.append(
             asyncio.create_task(
-                consume_complex_orders(complex_order_queue, publisher),
+                consume_complex_orders(complex_order_queue, publisher, influx, stop),
                 name="complex_order_consumer",
             )
         )
         consumer_tasks.append(
             asyncio.create_task(
-                consume_order_chains(order_chain_queue, publisher),
+                consume_order_chains(order_chain_queue, publisher, influx, stop),
                 name="order_chain_consumer",
             )
         )
@@ -460,6 +505,7 @@ async def run_account_stream_once(
                     session=streamer.session,
                     account_number=credentials.account_number,
                     publisher=publisher,
+                    influx=influx,
                 ),
                 name="fill_monitor",
             )
@@ -519,6 +565,9 @@ async def run_account_stream_once(
         )
         raise AccountStreamError(str(e), was_healthy=was_healthy) from e
     finally:
+        # Signal consumers to stop gracefully
+        stop.set()
+
         # Cancel failure listener task
         if failure_listener_task is not None:
             failure_listener_task.cancel()
@@ -550,6 +599,10 @@ async def run_account_stream_once(
                 await task
             except asyncio.CancelledError:
                 pass
+
+        # Close InfluxDB processor (TT-83)
+        if influx is not None:
+            influx.close()
 
         if streamer is not None:
             logger.info("Closing AccountStreamer")
