@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan Review: TT-83 — Wire Account Events to InfluxDB</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.10);
+      --amber: #d29922;
+      --amber-bg: rgba(210, 153, 34, 0.10);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.08);
+      --purple: #bc8cff;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      height: 52px;
+    }
+
+    .topbar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .topbar .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-pending { background: var(--amber); }
+    .dot-approved { background: var(--green); }
+    .dot-revision { background: var(--red); }
+    .dot-question { background: var(--purple); }
+
+    .main {
+      display: flex;
+      height: calc(100vh - 52px);
+    }
+
+    .resize-handle {
+      width: 1px;
+      cursor: col-resize;
+      background: var(--border);
+      position: relative;
+      flex-shrink: 0;
+      z-index: 10;
+      overflow: visible;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.dragging {
+      background: var(--accent);
+      width: 3px;
+    }
+
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    .topbar-toggles {
+      display: flex;
+      gap: 6px;
+    }
+
+    .collapse-toggle {
+      width: 36px;
+      height: 32px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    @media (hover: hover) {
+      .collapse-toggle:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+        border-color: var(--accent);
+      }
+    }
+
+    .collapse-toggle.panel-collapsed {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    .nav.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed>* { display: none; }
+    .nav.collapsed>* { display: none; }
+
+    .nav, .right-panel {
+      transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    }
+
+    .nav {
+      width: 240px;
+      min-width: 140px;
+      background: var(--bg-surface);
+      overflow-y: auto;
+      padding: 12px 0;
+    }
+
+    .nav-item {
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--bg-hover);
+      border-left-color: var(--accent);
+      color: var(--text);
+    }
+
+    .nav-item .status-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+
+    .nav-item .label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .doc-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      min-width: 0;
+    }
+
+    .doc-panel::-webkit-scrollbar { width: 8px; }
+    .doc-panel::-webkit-scrollbar-track { background: transparent; }
+    .doc-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .section {
+      margin-bottom: 16px;
+      scroll-margin-top: 20px;
+      padding: 16px 16px 10px;
+      border-radius: 6px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-content {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+
+    .section-content p { margin-bottom: 12px; }
+    .section-content strong { color: var(--text); font-weight: 600; }
+
+    .section-content code {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: var(--bg-surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .section-content pre {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin: 12px 0;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    .section-content pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    .section-content ul, .section-content ol {
+      margin: 8px 0 12px 24px;
+    }
+
+    .section-content li { margin-bottom: 4px; }
+
+    .section-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+
+    .section-content th, .section-content td {
+      text-align: left;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+    }
+
+    .section-content th {
+      background: var(--bg-surface-2);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    .review-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .review-btn {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .review-btn:hover {
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+
+    .review-btn.active-approved { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+    .review-btn.active-revision { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+    .review-btn.active-question { background: rgba(188, 140, 255, 0.10); border-color: var(--purple); color: var(--purple); }
+
+    .comment-area { margin-top: 10px; display: none; }
+    .comment-area.visible { display: block; }
+
+    .comment-area textarea {
+      width: 100%;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 60px;
+      outline: none;
+      margin-bottom: 0;
+      display: block;
+    }
+
+    .comment-area textarea:focus { border-color: var(--accent); }
+    .comment-area textarea::placeholder { color: var(--text-dim); }
+
+    .existing-comment {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      position: relative;
+    }
+
+    .existing-comment .edit-btn {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    .right-panel {
+      width: 360px;
+      min-width: 200px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .right-panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .right-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .right-panel-content::-webkit-scrollbar { width: 6px; }
+    .right-panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .prompt-output {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .prompt-placeholder {
+      color: var(--text-dim);
+      font-style: italic;
+      font-size: 13px;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .copy-btn {
+      padding: 8px 16px;
+      margin: 12px 16px 16px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .copy-btn:hover { opacity: 0.9; }
+    .copy-btn.copied { background: var(--green); }
+
+    .filter-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .filter-tab {
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .filter-tab:hover { background: var(--bg-hover); }
+    .filter-tab.active { background: var(--bg-hover); color: var(--text); }
+
+    .feedback-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .feedback-item:last-child { border-bottom: none; }
+
+    .feedback-item .fb-section {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .feedback-item .fb-status {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .fb-status.approved { background: var(--green-bg); color: var(--green); }
+    .fb-status.revision { background: var(--red-bg); color: var(--red); }
+    .fb-status.question { background: rgba(188, 140, 255, 0.1); color: var(--purple); }
+
+    .feedback-item .fb-comment {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .section.revised {
+      border-left: 3px solid var(--accent) !important;
+      background: rgba(88, 166, 255, 0.04) !important;
+    }
+
+    .revised-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="topbar">
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9" />
+          <rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3" />
+        </svg>
+      </button>
+    </div>
+    <h1>TT-83: Wire Account Events to InfluxDB — Implementation Plan</h1>
+    <div class="stats" id="stats"></div>
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
+          <rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="nav" id="nav"></div>
+    <div class="resize-handle" id="leftHandle"></div>
+    <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="rightHandle"></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="right-panel-header">
+        <span>Review Feedback</span>
+        <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">All</div>
+        <div class="filter-tab" data-filter="approved">Approved</div>
+        <div class="filter-tab" data-filter="revision">Needs Revision</div>
+        <div class="filter-tab" data-filter="question">Questions</div>
+      </div>
+      <div class="right-panel-content" id="feedbackList"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+    </div>
+  </div>
+
+  <script>
+    const docSections = [
+      {
+        id: "context",
+        title: "Context & Problem",
+        content: `**Jira:** [TT-83](https://mandeng.atlassian.net/browse/TT-83)
+**Branch:** \`feature/TT-83-influxdb-account-events\`
+**Architecture:** \`docs/plans/TT-83-architecture-compare.html\`
+
+---
+
+### Problem
+
+Account events flow through the AccountStreamer WebSocket to Redis (HSET + pub/sub) but have **no time-series persistence**. When Redis keys are overwritten, historical data is permanently lost.
+
+Market data (quotes, greeks, candles) already flows to both Redis and InfluxDB via \`TelegrafHTTPEventProcessor\`. Account events do not.
+
+### Goal
+
+Route 5 account event types through the existing \`TelegrafHTTPEventProcessor\` to InfluxDB, alongside the existing Redis path. No new components — reuse existing infrastructure.
+
+### Event Types (5 of 6)
+
+| Event Type | eventSymbol | Nested Fields (JSON) |
+|---|---|---|
+| PlacedOrder | underlying_symbol | legs |
+| PlacedComplexOrder | underlying (from child orders) | orders, trigger_order |
+| TradeChain | underlying_symbol | computed_data, lite_nodes |
+| CurrentPosition | derivative symbol | none (fully native) |
+| EntryCredit | derivative symbol | none (fully native) |
+
+**Excluded:** AccountBalance — account-level snapshot, no instrument correlation, high-volume tick data (changes on every mark). Not useful for time-series analysis.`
+      },
+      {
+        id: "design-decisions",
+        title: "Design Decisions",
+        content: `### 1. Reuse TelegrafHTTPEventProcessor — no new component
+
+The existing InfluxDB writer at \`messaging/processors/influxdb.py\` already handles market data. Its \`process_event()\` method iterates \`event.__dict__\`, creates an InfluxDB \`Point\`, and writes it. Account events are also Pydantic models with \`__dict__\` — same pattern applies.
+
+**What changes:** Two small modifications to \`process_event()\`:
+- Symbol resolution via \`event.eventSymbol\` (already works for DXLink; account models add a \`@property\`)
+- Nested field serialization — if a value is a \`BaseModel\`, call \`model_dump_json()\`; if a \`list\`, call \`json.dumps()\`
+
+**What does NOT change:** The constructor, write_api, bucket, connection, close logic.
+
+### 2. Account models expose \`eventSymbol\` as a @property
+
+DXLink events have \`eventSymbol\` as a native field from the brokerage. We keep that. Account models add a \`@property eventSymbol\` that returns their natural symbol:
+
+| Model | eventSymbol returns |
+|---|---|
+| Position | \`symbol\` (derivative — e.g., the option contract) |
+| EntryCredit | \`symbol\` (derivative) |
+| PlacedOrder | \`underlying_symbol\` (multi-leg, no single derivative) |
+| PlacedComplexOrder | underlying from child orders |
+| TradeChain | \`underlying_symbol\` |
+
+**Why derivative symbol?** DXLink market data is tagged by derivative symbol in InfluxDB. Using the same key enables direct correlation ("what were the Greeks when this position opened?").
+
+**Why not a fallback chain?** Each model knows exactly what its symbol is. No \`getattr\` chain, no branching, no fallback — just a property.
+
+### 3. No intermediate dict allocation
+
+The existing \`__dict__\` iteration has zero overhead — it reads the object's attributes directly. We do NOT call \`model_dump()\` on the top-level event (CPU + memory for a redundant dict). Pydantic serialization is only invoked on nested fields that need it.
+
+### 4. No AccountBalance in InfluxDB
+
+- Account-level, not instrument-level — no correlation with market data
+- Changes on every market tick (net liq recomputation) — high volume, low signal
+- Brokerage already provides historical balance curves
+- The 5 remaining event types all tie to specific instruments or trades
+
+### 5. Parallel dual-output in consume_* tasks
+
+The orchestrator's \`consume_*\` coroutines already drain typed queues and call the Redis publisher. We add a second call to \`TelegrafHTTPEventProcessor.process_event()\` — same pattern, no new queues, no new tasks.`
+      },
+      {
+        id: "step-1-event-symbol",
+        title: "Step 1: Add eventSymbol property to account models",
+        content: `**File:** \`src/tastytrade/accounts/models.py\`
+
+Add \`@property eventSymbol\` to each account model that will flow to InfluxDB. This gives \`TelegrafHTTPEventProcessor\` a uniform interface — it reads \`event.eventSymbol\` for both DXLink and account events with zero branching.
+
+\`\`\`python
+class Position(TastyTradeApiModel, FloatFieldMixin):
+    # ... existing fields ...
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.streamer_symbol or self.symbol
+
+
+class PlacedOrder(TastyTradeApiModel, FloatFieldMixin):
+    # ... existing fields ...
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.underlying_symbol or ""
+
+
+class PlacedComplexOrder(TastyTradeApiModel):
+    # ... existing fields ...
+
+    @property
+    def eventSymbol(self) -> str:
+        if self.orders:
+            return self.orders[0].underlying_symbol or ""
+        return ""
+
+
+class TradeChain(TastyTradeApiModel, FloatFieldMixin):
+    # ... existing fields ...
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.underlying_symbol
+\`\`\`
+
+**File:** \`src/tastytrade/accounts/transactions.py\`
+
+\`\`\`python
+class EntryCredit(BaseModel):
+    # ... existing fields ...
+
+    @property
+    def eventSymbol(self) -> str:
+        return self.symbol
+\`\`\`
+
+**Key point:** These are read-only properties. They don't modify the frozen models or interfere with \`extra="allow"\`. The \`eventSymbol\` name matches DXLink convention intentionally.`
+      },
+      {
+        id: "step-2-processor",
+        title: "Step 2: Generalize TelegrafHTTPEventProcessor",
+        content: `**File:** \`src/tastytrade/messaging/processors/influxdb.py\`
+
+The current \`process_event()\` iterates \`__dict__\` and writes every value as a native InfluxDB field. This works for DXLink events (all scalar fields). Account events have nested Pydantic models and lists — these need targeted serialization.
+
+### Current code
+
+\`\`\`python
+def process_event(self, event: BaseEvent) -> None:
+    point = Point(event.__class__.__name__)
+    point.tag("eventSymbol", event.eventSymbol)
+
+    if hasattr(event, "time"):
+        assert isinstance(event.time, datetime)
+        point.time(event.time)
+
+    for attr, value in event.__dict__.items():
+        if attr not in ["eventSymbol", "time"]:
+            point.field(attr, value)
+
+    self.write_api.write(bucket=self.bucket, record=point)
+\`\`\`
+
+### Updated code
+
+\`\`\`python
+def process_event(self, event) -> None:
+    point = Point(event.__class__.__name__)
+    point.tag("eventSymbol", event.eventSymbol)
+
+    if hasattr(event, "time"):
+        assert isinstance(event.time, datetime)
+        point.time(event.time)
+
+    for attr, value in event.__dict__.items():
+        if attr in ("eventSymbol", "time"):
+            continue
+        if isinstance(value, BaseModel):
+            point.field(attr, value.model_dump_json(by_alias=True))
+        elif isinstance(value, list):
+            point.field(attr, json.dumps(value, default=str))
+        else:
+            point.field(attr, value)
+
+    self.write_api.write(bucket=self.bucket, record=point)
+\`\`\`
+
+### What changed
+
+1. **Type hint relaxed** — \`event: BaseEvent\` to \`event\` (or a Protocol). Account models don't inherit \`BaseEvent\`.
+2. **Nested BaseModel** — \`model_dump_json(by_alias=True)\` produces a JSON string field. Called only on nested models, not the top-level event.
+3. **Lists** — \`json.dumps(value, default=str)\` handles lists of Pydantic models, enums, datetimes.
+4. **Scalars** — pass through unchanged (existing behavior).
+
+**No new imports needed beyond** \`json\` and \`BaseModel\` from pydantic.
+
+### Performance
+
+- Existing DXLink events have no nested models — the new isinstance checks short-circuit immediately (\`BaseModel\` check fails, \`list\` check fails, scalar path taken)
+- Account events with nested fields (PlacedOrder.legs, TradeChain.computed_data) serialize only those fields
+- No intermediate dict allocation — \`__dict__\` iteration is zero-cost`
+      },
+      {
+        id: "step-3-orchestrator",
+        title: "Step 3: Wire into AccountOrchestrator",
+        content: `**File:** \`src/tastytrade/accounts/orchestrator.py\`
+
+The orchestrator's \`consume_*\` tasks drain typed queues and call the publisher. Add a second call to \`TelegrafHTTPEventProcessor.process_event()\` for the 5 event types that go to InfluxDB.
+
+### Current pattern (example: consume_orders)
+
+\`\`\`python
+async def consume_orders(
+    queue: asyncio.Queue,
+    publisher: AccountStreamPublisher,
+) -> None:
+    while True:
+        order = await queue.get()
+        await publisher.publish_order(order)
+\`\`\`
+
+### Updated pattern
+
+\`\`\`python
+async def consume_orders(
+    queue: asyncio.Queue,
+    publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
+) -> None:
+    while True:
+        order = await queue.get()
+        await publisher.publish_order(order)
+        influx.process_event(order)
+\`\`\`
+
+### Tasks that get the influx parameter (5 of 6)
+
+| Consumer | Gets influx? | Reason |
+|---|---|---|
+| consume_positions | Yes | Per-contract position changes |
+| consume_orders | Yes | Order lifecycle events |
+| consume_complex_orders | Yes | OCO/OTOCO lifecycle |
+| consume_order_chains | Yes | Trade chain snapshots |
+| monitor_fills_for_entry_credits | Yes | LIFO cost basis updates |
+| consume_balances | **No** | Account-level, excluded from InfluxDB |
+
+### Instantiation
+
+\`TelegrafHTTPEventProcessor\` is instantiated once in \`run_account_stream_once()\` using the same env vars as the market data pipeline (\`INFLUX_DB_URL\`, \`INFLUX_DB_TOKEN\`, \`INFLUX_DB_ORG\`, \`INFLUX_DB_BUCKET\`). The same bucket stores both market and account data — InfluxDB measurements are separated by class name (\`PlacedOrder\`, \`Position\`, etc.).
+
+\`\`\`python
+influx = TelegrafHTTPEventProcessor()
+
+# Pass to each consumer task
+consumer_tasks.append(
+    asyncio.create_task(
+        consume_orders(order_queue, publisher, influx),
+        name="order_consumer",
+    )
+)
+# ... repeat for positions, complex_orders, order_chains, entry_credits
+\`\`\`
+
+### Cleanup
+
+Add \`influx.close()\` to the cleanup path alongside \`publisher.close()\`.`
+      },
+      {
+        id: "influxdb-measurements",
+        title: "InfluxDB Measurement Details",
+        content: `Each account event becomes an InfluxDB measurement named after the class. Tags and fields are derived from \`__dict__\` iteration.
+
+### PlacedOrder
+
+- **Measurement:** \`PlacedOrder\`
+- **Tag:** \`eventSymbol\` = underlying_symbol
+- **Native fields:** id, status, order_type, time_in_force, price, price_effect, size, cancellable, editable, received_at, updated_at, terminal_at, destination_venue
+- **JSON fields:** \`legs\` (list of OrderLeg models with fills)
+
+### PlacedComplexOrder
+
+- **Measurement:** \`PlacedComplexOrder\`
+- **Tag:** \`eventSymbol\` = underlying from first child order
+- **Native fields:** id, type, terminal_at
+- **JSON fields:** \`orders\` (list of PlacedOrder), \`trigger_order\` (PlacedOrder or null)
+
+### TradeChain
+
+- **Measurement:** \`TradeChain\`
+- **Tag:** \`eventSymbol\` = underlying_symbol
+- **Native fields:** id, description, underlying_symbol
+- **JSON fields:** \`computed_data\` (P&L, fees, status), \`lite_nodes\` (order history)
+
+### CurrentPosition (Position)
+
+- **Measurement:** \`Position\`
+- **Tag:** \`eventSymbol\` = derivative symbol (streamer_symbol or symbol)
+- **Native fields:** quantity, quantity_direction, instrument_type, average_open_price, close_price, mark, mark_price, multiplier, cost_effect, average_yearly_market_close, realized_day_gain, realized_today
+- **JSON fields:** none (fully native)
+
+### EntryCredit
+
+- **Measurement:** \`EntryCredit\`
+- **Tag:** \`eventSymbol\` = derivative symbol
+- **Native fields:** symbol, net_credit, quantity, method
+- **JSON fields:** none (fully native)`
+      },
+      {
+        id: "skip-fields",
+        title: "Fields to Skip",
+        content: `Some fields should be excluded from InfluxDB writes:
+
+### PII fields (CLAUDE.md requirement)
+
+- \`account_number\` — appears on PlacedOrder, PlacedComplexOrder, AccountBalance
+- Must be added to the skip set in \`process_event()\`
+
+### Non-data fields
+
+- \`eventSymbol\` — already used as a tag, don't duplicate as a field
+- \`time\` — already used as the point timestamp
+
+### Updated skip set
+
+\`\`\`python
+SKIP_FIELDS = {"eventSymbol", "time", "account_number"}
+
+for attr, value in event.__dict__.items():
+    if attr in SKIP_FIELDS:
+        continue
+    # ... field/tag logic
+\`\`\`
+
+**Note:** \`account_number\` is the only PII field on these models. No monetary balances are logged because AccountBalance is excluded entirely.`
+      },
+      {
+        id: "testing",
+        title: "Testing",
+        content: `### Unit tests
+
+**File:** \`unit_tests/messaging/processors/test_influxdb.py\` (extend existing)
+
+1. **Nested BaseModel serialization** — pass a PlacedOrder with legs, verify \`legs\` field is a JSON string
+2. **List serialization** — verify lists of Pydantic models serialize via json.dumps
+3. **Scalar passthrough** — verify int/float/str/bool/datetime values pass through unchanged
+4. **eventSymbol tag** — verify Position.eventSymbol returns derivative symbol, PlacedOrder.eventSymbol returns underlying
+5. **PII exclusion** — verify account_number is not written as a field
+
+**File:** \`unit_tests/accounts/test_models.py\` (extend existing)
+
+6. **eventSymbol property** — each model returns the correct symbol
+7. **Frozen model compatibility** — property works on frozen models without mutation
+
+### Type checking & linting
+
+\`\`\`
+uv run pyright src/tastytrade/messaging/processors/influxdb.py
+uv run pyright src/tastytrade/accounts/models.py
+uv run ruff check src/
+uv run pytest -q
+\`\`\`
+
+### Functional testing
+
+1. Start account-stream with updated code
+2. Place an option order — verify PlacedOrder measurement appears in InfluxDB
+3. Let a fill land — verify EntryCredit measurement appears
+4. Check position update — verify Position measurement with derivative symbol as eventSymbol
+5. Query InfluxDB: \`from(bucket: "...") |> filter(fn: (r) => r._measurement == "PlacedOrder")\`
+6. Verify nested \`legs\` field is valid JSON that can be parsed back`
+      },
+      {
+        id: "files-changed",
+        title: "Files Changed",
+        content: `| File | Change |
+|---|---|
+| \`src/tastytrade/accounts/models.py\` | Add \`@property eventSymbol\` to Position, PlacedOrder, PlacedComplexOrder, TradeChain |
+| \`src/tastytrade/accounts/transactions.py\` | Add \`@property eventSymbol\` to EntryCredit |
+| \`src/tastytrade/messaging/processors/influxdb.py\` | Generalize \`process_event()\`: relax type hint, add nested field serialization, add SKIP_FIELDS |
+| \`src/tastytrade/accounts/orchestrator.py\` | Pass TelegrafHTTPEventProcessor to 5 consume_* tasks, instantiate in run_account_stream_once, add cleanup |
+| \`unit_tests/messaging/processors/test_influxdb.py\` | Tests for nested serialization, PII exclusion |
+| \`unit_tests/accounts/test_models.py\` | Tests for eventSymbol property |
+
+### Files NOT changed
+
+- \`src/tastytrade/accounts/publisher.py\` — unchanged, Redis path untouched
+- \`src/tastytrade/accounts/streamer.py\` — unchanged, queue system untouched
+- \`src/tastytrade/messaging/models/events.py\` — unchanged, DXLink BaseEvent untouched`
+      },
+      {
+        id: "risks",
+        title: "Risks & Mitigations",
+        content: `| Risk | Mitigation |
+|---|---|
+| InfluxDB down blocks account event processing | process_event() is sync and fast. If write_api is buffered (default), failures are logged but don't block the queue consumer. Verify write_api error handling. |
+| isinstance checks add latency to DXLink hot path | DXLink events have no nested models — isinstance(value, BaseModel) fails immediately on scalars. Two failed isinstance checks per field is negligible vs. the network write. |
+| account_number leaks to InfluxDB | Explicit SKIP_FIELDS set, unit test verifies exclusion, AccountBalance entirely excluded |
+| High cardinality on eventSymbol tag | Account events are low volume (orders, fills, position changes). Not a concern vs. market data tick volume. |
+| Frozen model prevents adding eventSymbol | @property is read-only, works on frozen models. Not a stored field — no conflict with extra="allow". |
+
+### Dependencies
+
+- **TT-84 (backfill)** depends on TT-83. Once the InfluxDB pipeline is live, TT-84 backfills historical data from REST API + Redis.
+- No other dependencies. All infrastructure (InfluxDB, TelegrafHTTPEventProcessor, typed queues) already exists.`
+      },
+      {
+        id: "execution-order",
+        title: "Execution Order",
+        content: `\`\`\`
+Step 1 → Step 2 → Step 3 → Tests → Functional Validation → PR
+models    processor  orchestrator
+\`\`\`
+
+**Step 1** (models) has no dependencies — pure property additions.
+
+**Step 2** (processor) depends on Step 1 only conceptually (needs eventSymbol to exist). Can be developed in parallel.
+
+**Step 3** (orchestrator) depends on Steps 1 + 2 — wires everything together.
+
+**Tests** validate each step independently.
+
+**Functional validation** requires all steps complete + a running InfluxDB instance.`
+      }
+    ];
+
+    const priorApprovals = {};
+
+    const PLAN_NAME = "TT-83: Wire Account Events to InfluxDB";
+
+    const STORAGE_KEY = 'review-state:' + PLAN_NAME;
+    const LAYOUT_KEY = 'review-layout:' + PLAN_NAME;
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          sections: state.sections.map(s => ({ id: s.id, status: s.status, comment: s.comment })),
+          activeSection: state.activeSection,
+          activeFilter: state.activeFilter
+        }));
+      } catch (e) { }
+    }
+
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.sections || []).forEach(saved => {
+          const s = state.sections.find(s => s.id === saved.id);
+          if (s) { s.status = saved.status || 'pending'; s.comment = saved.comment || ''; }
+        });
+        if (data.activeSection) state.activeSection = data.activeSection;
+        if (data.activeFilter) state.activeFilter = data.activeFilter;
+      } catch (e) { }
+    }
+
+    const state = {
+      sections: docSections.map(s => ({
+        ...s,
+        status: priorApprovals[s.id] || 'pending',
+        comment: ''
+      })),
+      activeSection: docSections[0]?.id || '',
+      activeFilter: 'all'
+    };
+
+    function renderMarkdown(text) {
+      let html = '';
+      const lines = text.split('\n');
+      let inCode = false;
+      let codeLines = [];
+      let inList = false;
+      let inTable = false;
+      let tableRows = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.trim().startsWith('```')) {
+          if (inCode) {
+            html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+            codeLines = [];
+            inCode = false;
+          } else {
+            if (inList) { html += '</ul>'; inList = false; }
+            if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) { codeLines.push(line); continue; }
+
+        if (line.trim().startsWith('|')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          if (!inTable) inTable = true;
+          if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+            tableRows.push(line);
+          }
+          continue;
+        } else if (inTable) {
+          html += renderTable(tableRows);
+          inTable = false;
+          tableRows = [];
+        }
+
+        if (line.trim() === '') {
+          if (inList) { html += '</ul>'; inList = false; }
+          continue;
+        }
+
+        if (line.startsWith('### ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+          continue;
+        }
+
+        if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+          continue;
+        }
+        if (line.trim().match(/^\d+\.\s/)) {
+          if (!inList) { html += '<ol>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+          continue;
+        }
+
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<p>' + inlineFormat(line) + '</p>';
+      }
+
+      if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+      if (inList) html += '</ul>';
+      if (inTable) html += renderTable(tableRows);
+
+      return html;
+    }
+
+    function renderTable(rows) {
+      if (rows.length === 0) return '';
+      let html = '<table>';
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').filter(c => c.trim() !== '');
+        const tag = idx === 0 ? 'th' : 'td';
+        html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+      });
+      html += '</table>';
+      return html;
+    }
+
+    function inlineFormat(text) {
+      return text
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:none">$1</a>')
+        .replace(/\\`/g, '`');
+    }
+
+    function renderNav() {
+      const nav = document.getElementById('nav');
+      nav.innerHTML = state.sections.map(s => {
+        const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+          : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+            : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+              : '<span style="color:var(--text-dim)">&bull;</span>';
+        return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+                 onclick="navigateTo('${s.id}')">
+      <span class="status-icon">${icon}</span>
+      <span class="label">${s.title}</span>
+      ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
+    </div>`;
+      }).join('');
+    }
+
+    function renderDoc() {
+      const panel = document.getElementById('docPanel');
+      panel.innerHTML = state.sections.map(s => {
+        const borderColor = s.status === 'approved' ? 'var(--green)'
+          : s.status === 'revision' ? 'var(--red)'
+            : s.status === 'question' ? 'var(--purple)' : 'transparent';
+        const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+          : s.status === 'revision' ? 'var(--red-bg)'
+            : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+
+        const revisedAndPending = s.revised && s.status === 'pending';
+        const revisedClass = revisedAndPending ? ' revised' : '';
+        return `<div class="section${revisedClass}" id="section-${s.id}"
+                 style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
+      <div class="section-header">
+        <h2>${s.title}</h2>
+        ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
+      </div>
+      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="review-bar">
+        <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
+                onclick="setStatus('${s.id}','approved')">Approve</button>
+        <button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}"
+                onclick="setStatus('${s.id}','revision')">Needs Revision</button>
+        <button class="review-btn ${s.status === 'question' ? 'active-question' : ''}"
+                onclick="setStatus('${s.id}','question')">Question</button>
+        <button class="review-btn" onclick="toggleComment('${s.id}')"
+                style="margin-left:auto">Comment</button>
+      </div>
+      <div class="comment-area" id="comment-${s.id}">
+        ${s.comment
+            ? `<div class="existing-comment">${s.comment.replace(/</g, '&lt;').replace(/\n/g, '<br>')}
+               <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
+            : `<textarea placeholder="Add your feedback for this section..."
+                      onblur="saveComment('${s.id}', this.value)"
+                      id="textarea-${s.id}"></textarea>`
+          }
+      </div>
+    </div>`;
+      }).join('');
+    }
+
+    function renderStats() {
+      const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+      state.sections.forEach(s => counts[s.status]++);
+      document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
+    <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
+    <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
+    <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
+  `;
+    }
+
+    function renderFeedback() {
+      const list = document.getElementById('feedbackList');
+      const filtered = state.sections.filter(s => {
+        if (state.activeFilter === 'all') return s.status !== 'pending';
+        return s.status === state.activeFilter;
+      });
+
+      const count = state.sections.filter(s => s.status !== 'pending').length;
+      document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="prompt-placeholder">
+      ${state.activeFilter === 'all'
+            ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+            : 'No sections with this status yet.'}
+    </div>`;
+        return;
+      }
+
+      list.innerHTML = filtered.map(s => `
+    <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
+      <div class="fb-section">
+        <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
+        ${s.title}
+      </div>
+      ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
+    </div>
+  `).join('');
+    }
+
+    function navigateTo(id) {
+      state.activeSection = id;
+      saveToStorage();
+      renderNav();
+      document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function setStatus(id, status) {
+      const section = state.sections.find(s => s.id === id);
+      if (section.status === status) {
+        section.status = 'pending';
+      } else {
+        section.status = status;
+        if (status === 'revision' || status === 'question') {
+          setTimeout(() => {
+            const area = document.getElementById('comment-' + id);
+            if (area) area.classList.add('visible');
+          }, 50);
+        }
+      }
+      renderAll();
+      saveToStorage();
+    }
+
+    function toggleComment(id) {
+      const area = document.getElementById('comment-' + id);
+      area.classList.toggle('visible');
+      if (area.classList.contains('visible')) {
+        const ta = document.getElementById('textarea-' + id);
+        if (ta) ta.focus();
+      }
+    }
+
+    function saveComment(id, value) {
+      const section = state.sections.find(s => s.id === id);
+      section.comment = value.trim();
+      renderAll();
+      saveToStorage();
+    }
+
+    function editComment(id) {
+      const section = state.sections.find(s => s.id === id);
+      const area = document.getElementById('comment-' + id);
+      area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    onblur="saveComment('${id}', this.value)"
+    id="textarea-${id}">${section.comment}</textarea>`;
+      area.classList.add('visible');
+      document.getElementById('textarea-' + id).focus();
+    }
+
+    function generatePrompt() {
+      const approved = state.sections.filter(s => s.status === 'approved');
+      const revision = state.sections.filter(s => s.status === 'revision');
+      const questions = state.sections.filter(s => s.status === 'question');
+
+      if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+        return '';
+      }
+
+      let prompt = `Here is my review of the ${PLAN_NAME} plan:\n\n`;
+
+      if (approved.length > 0) {
+        prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+        approved.forEach(s => {
+          prompt += `- **${s.title}**: Approved`;
+          if (s.comment) prompt += ` \u2014 ${s.comment}`;
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (revision.length > 0) {
+        prompt += `## Needs Revision (${revision.length})\n`;
+        revision.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (no specific feedback provided)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (questions.length > 0) {
+        prompt += `## Questions (${questions.length})\n`;
+        questions.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (question not specified)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      const remaining = state.sections.filter(s => s.status === 'pending');
+      if (remaining.length > 0) {
+        prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+        remaining.forEach(s => prompt += `- ${s.title}\n`);
+      }
+
+      return prompt;
+    }
+
+    function copyPrompt() {
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      navigator.clipboard.writeText(prompt).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+
+    document.getElementById('filterTabs').addEventListener('click', e => {
+      const tab = e.target.closest('.filter-tab');
+      if (!tab) return;
+      state.activeFilter = tab.dataset.filter;
+      document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderFeedback();
+      saveToStorage();
+    });
+
+    function renderAll() {
+      renderNav();
+      renderDoc();
+      renderStats();
+      renderFeedback();
+    }
+
+    (function () {
+      const nav = document.getElementById('nav');
+      const rightPanel = document.getElementById('rightPanel');
+      const leftHandle = document.getElementById('leftHandle');
+      const rightHandle = document.getElementById('rightHandle');
+      const leftToggle = document.getElementById('leftToggle');
+      const rightToggle = document.getElementById('rightToggle');
+
+      let dragging = null;
+      let navWidth = 240;
+      let rightWidth = 360;
+
+      const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })();
+      if (savedLayout.navWidth) navWidth = savedLayout.navWidth;
+      if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth;
+      if (savedLayout.navCollapsed) nav.classList.add('collapsed');
+      else nav.style.width = navWidth + 'px';
+      if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed');
+      else rightPanel.style.width = rightWidth + 'px';
+
+      function saveLayout() {
+        try {
+          localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+            navWidth, rightWidth,
+            navCollapsed: nav.classList.contains('collapsed'),
+            rightCollapsed: rightPanel.classList.contains('collapsed')
+          }));
+        } catch (e) { }
+      }
+
+      function updateToggles() {
+        const navCollapsed = nav.classList.contains('collapsed');
+        const rightCollapsed = rightPanel.classList.contains('collapsed');
+        leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+        leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+        rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+        rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+      }
+
+      function toggleNav(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (nav.classList.contains('collapsed')) {
+          nav.classList.remove('collapsed');
+          nav.style.width = navWidth + 'px';
+        } else {
+          navWidth = nav.offsetWidth;
+          nav.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      function toggleRight(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightPanel.classList.contains('collapsed')) {
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = rightWidth + 'px';
+        } else {
+          rightWidth = rightPanel.offsetWidth;
+          rightPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      let touchFiredLeft = false, touchFiredRight = false;
+
+      leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+      leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+      rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+      rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+      updateToggles();
+
+      function onDragStart(e, side) {
+        e.preventDefault();
+        dragging = side;
+        document.body.classList.add('resizing');
+        (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+      }
+
+      leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left'));
+      rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right'));
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        applyDrag(e.clientX);
+      });
+
+      document.addEventListener('mouseup', endDrag);
+
+      leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false });
+      rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false });
+
+      document.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        e.preventDefault();
+        applyDrag(e.touches[0].clientX);
+      }, { passive: false });
+
+      document.addEventListener('touchend', endDrag);
+
+      function applyDrag(clientX) {
+        if (dragging === 'left') {
+          const w = Math.max(140, Math.min(400, clientX));
+          nav.classList.remove('collapsed');
+          nav.style.width = w + 'px';
+          navWidth = w;
+        } else {
+          const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = w + 'px';
+          rightWidth = w;
+        }
+        updateToggles();
+      }
+
+      function endDrag() {
+        if (!dragging) return;
+        document.body.classList.remove('resizing');
+        leftHandle.classList.remove('dragging');
+        rightHandle.classList.remove('dragging');
+        dragging = null;
+        saveLayout();
+      }
+    })();
+
+    loadFromStorage();
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.filter === state.activeFilter);
+    });
+    renderAll();
+  </script>
+</body>
+
+</html>
