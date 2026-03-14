@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TT-85: Before / After Architecture</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1c2128;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --amber: #d29922;
+      --purple: #bc8cff;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar h1 {
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .topbar .subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 12px;
+    }
+
+    /* Toggle */
+    .toggle-group {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .toggle-btn {
+      padding: 6px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      background: var(--surface2);
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .toggle-btn:not(:last-child) {
+      border-right: 1px solid var(--border);
+    }
+    .toggle-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .toggle-btn:hover:not(.active) {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    /* Content area */
+    .content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+
+    /* View containers */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* Diagram canvas */
+    .diagram {
+      position: relative;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      flex: 1;
+      min-width: 160px;
+      padding: 16px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .stat-card.problem {
+      border-color: rgba(248, 81, 73, 0.3);
+      background: rgba(248, 81, 73, 0.04);
+    }
+    .stat-card.fixed {
+      border-color: rgba(63, 185, 80, 0.3);
+      background: rgba(63, 185, 80, 0.04);
+    }
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .stat-value.red { color: var(--red); }
+    .stat-value.green { color: var(--green); }
+    .stat-value.amber { color: var(--amber); }
+    .stat-detail {
+      font-size: 11px;
+      color: var(--dim);
+      margin-top: 2px;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* Annotation callouts */
+    .callouts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 28px;
+    }
+    .callout {
+      padding: 14px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+    .callout.problem { border-left-color: var(--red); }
+    .callout.fix { border-left-color: var(--green); }
+    .callout h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .callout p {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .callout code {
+      font-size: 11px;
+      background: var(--surface2);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent);
+    }
+
+    /* Section headers */
+    .section-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--dim);
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div style="display:flex;align-items:baseline;">
+    <h1>TT-85: Shared InfluxDB Processor</h1>
+    <span class="subtitle">Architecture — Before / After</span>
+  </div>
+  <div class="toggle-group">
+    <button class="toggle-btn active" onclick="showView('before')">Before</button>
+    <button class="toggle-btn" onclick="showView('after')">After</button>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- ===== BEFORE VIEW ===== -->
+  <div class="view active" id="view-before">
+    <div class="stats-bar">
+      <div class="stat-card problem">
+        <div class="stat-label">Influx Processors</div>
+        <div class="stat-value red">7</div>
+        <div class="stat-detail">One per channel handler</div>
+      </div>
+      <div class="stat-card problem">
+        <div class="stat-label">HTTP Connections</div>
+        <div class="stat-value red">7</div>
+        <div class="stat-detail">Independent connection pools</div>
+      </div>
+      <div class="stat-card problem">
+        <div class="stat-label">Shutdown Flushes</div>
+        <div class="stat-value red">7</div>
+        <div class="stat-detail">close_processors() per handler</div>
+      </div>
+      <div class="stat-card problem">
+        <div class="stat-label">During Outage</div>
+        <div class="stat-value amber">7x retry</div>
+        <div class="stat-detail">Parallel retry storms</div>
+      </div>
+    </div>
+
+    <div class="section-label">Resource Flow</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#58a6ff"></div>Orchestrator</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#bc8cff"></div>Channel Handlers</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#f85149"></div>Influx Processor (duplicated)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#3fb950"></div>Redis Processor (shared OK)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#d29922"></div>InfluxDB</div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow-red" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#f85149"/>
+          </marker>
+          <marker id="arrow-green" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#3fb950"/>
+          </marker>
+          <marker id="arrow-muted" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#6e7681"/>
+          </marker>
+          <filter id="glow-red">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+          </filter>
+        </defs>
+
+        <!-- Orchestrator box -->
+        <rect x="30" y="20" width="180" height="50" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="120" y="42" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Subscription</text>
+        <text x="120" y="57" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Orchestrator</text>
+
+        <!-- "for handler in handlers_dict.values():" label -->
+        <text x="120" y="92" text-anchor="middle" fill="#6e7681" font-size="10" font-style="italic">for handler in handlers.values():</text>
+
+        <!-- 7 Channel handlers with individual influx processors -->
+        <!-- Control (ch 0) -->
+        <g transform="translate(30, 110)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Control</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 0</text>
+        </g>
+        <rect x="170" y="114" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="133" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor①</text>
+
+        <!-- Profile (ch 1) -->
+        <g transform="translate(30, 160)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Profile</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 1</text>
+        </g>
+        <rect x="170" y="164" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="183" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor②</text>
+
+        <!-- Summary (ch 3) -->
+        <g transform="translate(30, 210)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Summary</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 3</text>
+        </g>
+        <rect x="170" y="214" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="233" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor③</text>
+
+        <!-- Trade (ch 5) -->
+        <g transform="translate(30, 260)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Trade</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 5</text>
+        </g>
+        <rect x="170" y="264" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="283" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor④</text>
+
+        <!-- Quote (ch 7) -->
+        <g transform="translate(30, 310)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Quote</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 7</text>
+        </g>
+        <rect x="170" y="314" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="333" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor⑤</text>
+
+        <!-- Candle (ch 9) -->
+        <g transform="translate(30, 360)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Candle</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 9</text>
+        </g>
+        <rect x="170" y="364" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="383" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor⑥</text>
+
+        <!-- Greeks (ch 11) -->
+        <g transform="translate(30, 410)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Greeks</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 11</text>
+        </g>
+        <rect x="170" y="414" width="110" height="30" rx="5" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1" filter="url(#glow-red)"/>
+        <text x="225" y="433" text-anchor="middle" fill="#f85149" font-size="9" font-weight="500">InfluxProcessor⑦</text>
+
+        <!-- 7 arrows from processors to InfluxDB -->
+        <line x1="280" y1="129" x2="380" y2="270" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.6"/>
+        <line x1="280" y1="179" x2="380" y2="273" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.6"/>
+        <line x1="280" y1="229" x2="380" y2="276" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.6"/>
+        <line x1="280" y1="279" x2="380" y2="280" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.8"/>
+        <line x1="280" y1="329" x2="380" y2="284" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.6"/>
+        <line x1="280" y1="379" x2="380" y2="287" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.6"/>
+        <line x1="280" y1="429" x2="380" y2="290" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-red)" opacity="0.6"/>
+
+        <!-- InfluxDB -->
+        <g transform="translate(385, 245)">
+          <rect width="130" height="70" rx="10" fill="rgba(210,153,34,0.08)" stroke="#d29922" stroke-width="1.5"/>
+          <text x="65" y="30" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">InfluxDB</text>
+          <text x="65" y="48" text-anchor="middle" fill="#6e7681" font-size="10">7 connections</text>
+          <text x="65" y="60" text-anchor="middle" fill="#f85149" font-size="9">7x retry on outage</text>
+        </g>
+
+        <!-- Redis processors (right side - these are fine) -->
+        <g transform="translate(560, 110)">
+          <text x="0" y="-8" fill="#6e7681" font-size="10" font-style="italic">Redis processors (1 per handler — stateless, OK)</text>
+          <!-- Stacked Redis boxes -->
+          <rect x="0" y="0" width="100" height="24" rx="4" fill="rgba(63,185,80,0.06)" stroke="#3fb950" stroke-width="0.8" opacity="0.5"/>
+          <text x="50" y="16" text-anchor="middle" fill="#3fb950" font-size="9" opacity="0.6">Redis①</text>
+          <rect x="0" y="30" width="100" height="24" rx="4" fill="rgba(63,185,80,0.06)" stroke="#3fb950" stroke-width="0.8" opacity="0.5"/>
+          <text x="50" y="46" text-anchor="middle" fill="#3fb950" font-size="9" opacity="0.6">Redis②</text>
+          <rect x="0" y="60" width="100" height="24" rx="4" fill="rgba(63,185,80,0.06)" stroke="#3fb950" stroke-width="0.8" opacity="0.5"/>
+          <text x="50" y="76" text-anchor="middle" fill="#3fb950" font-size="9" opacity="0.6">Redis③–⑦</text>
+        </g>
+
+        <!-- Shutdown sequence -->
+        <g transform="translate(30, 480)">
+          <rect width="940" height="120" rx="10" fill="rgba(248,81,73,0.03)" stroke="rgba(248,81,73,0.2)" stroke-width="1" stroke-dasharray="6,4"/>
+          <text x="20" y="24" fill="#f85149" font-size="12" font-weight="600">Shutdown Sequence (finally block)</text>
+          <text x="20" y="46" fill="#6e7681" font-size="11" font-family="monospace">for handler in dxlink.router.handler.values():</text>
+          <text x="20" y="62" fill="#6e7681" font-size="11" font-family="monospace">    handler.close_processors()  <tspan fill="#f85149"># called 7 times</tspan></text>
+
+          <!-- 7 flush boxes -->
+          <g transform="translate(20, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ①</text>
+          </g>
+          <g transform="translate(145, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ②</text>
+          </g>
+          <g transform="translate(270, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ③</text>
+          </g>
+          <g transform="translate(395, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ④</text>
+          </g>
+          <g transform="translate(520, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ⑤</text>
+          </g>
+          <g transform="translate(645, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ⑥</text>
+          </g>
+          <g transform="translate(770, 74)">
+            <rect width="115" height="28" rx="4" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="0.8"/>
+            <text x="57" y="18" text-anchor="middle" fill="#f85149" font-size="9">flush + close ⑦</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+
+    <div class="callouts">
+      <div class="callout problem">
+        <h3>7x Resource Duplication</h3>
+        <p>Each <code>ChannelHandler</code> gets its own <code>TelegrafHTTPEventProcessor</code> with independent HTTP connection pool, write buffer, and retry logic.</p>
+      </div>
+      <div class="callout problem">
+        <h3>Retry Storms</h3>
+        <p>When InfluxDB is unreachable, all 7 processors retry independently — 7x the error logs, 7x the backoff timers, 7x the reconnection attempts.</p>
+      </div>
+      <div class="callout problem">
+        <h3>Wasteful Control Channel</h3>
+        <p>Control (ch 0) handles auth/keepalive messages with no market data, yet still gets an InfluxDB processor it will never use.</p>
+      </div>
+      <div class="callout problem">
+        <h3>7x Shutdown Flush</h3>
+        <p><code>close_processors()</code> called per handler in the finally block. Each flush independently drains its write buffer and closes its HTTP session.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== AFTER VIEW ===== -->
+  <div class="view" id="view-after">
+    <div class="stats-bar">
+      <div class="stat-card fixed">
+        <div class="stat-label">Influx Processors</div>
+        <div class="stat-value green">1</div>
+        <div class="stat-detail">Shared across all handlers</div>
+      </div>
+      <div class="stat-card fixed">
+        <div class="stat-label">HTTP Connections</div>
+        <div class="stat-value green">1</div>
+        <div class="stat-detail">Single connection pool</div>
+      </div>
+      <div class="stat-card fixed">
+        <div class="stat-label">Shutdown Flushes</div>
+        <div class="stat-value green">1</div>
+        <div class="stat-detail">Single close in finally block</div>
+      </div>
+      <div class="stat-card fixed">
+        <div class="stat-label">During Outage</div>
+        <div class="stat-value green">1x retry</div>
+        <div class="stat-detail">Unified retry logic</div>
+      </div>
+    </div>
+
+    <div class="section-label">Resource Flow</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#58a6ff"></div>Orchestrator</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#bc8cff"></div>Channel Handlers</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#3fb950"></div>Shared Influx Processor</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#d29922"></div>InfluxDB</div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 1000 580" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow-green2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#3fb950"/>
+          </marker>
+          <marker id="arrow-blue" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
+          </marker>
+          <marker id="arrow-muted2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#484f58"/>
+          </marker>
+        </defs>
+
+        <!-- Orchestrator box -->
+        <rect x="30" y="20" width="180" height="50" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="120" y="42" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Subscription</text>
+        <text x="120" y="57" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Orchestrator</text>
+
+        <!-- Creates shared processor -->
+        <text x="300" y="35" fill="#3fb950" font-size="10" font-weight="500">Creates once ↓</text>
+
+        <!-- Shared influx processor - prominent -->
+        <rect x="260" y="46" width="180" height="44" rx="8" fill="rgba(63,185,80,0.08)" stroke="#3fb950" stroke-width="2"/>
+        <text x="350" y="66" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">TelegrafHTTPEventProcessor</text>
+        <text x="350" y="80" text-anchor="middle" fill="#6e7681" font-size="9">single shared instance</text>
+
+        <!-- Arrow from orchestrator to shared processor -->
+        <line x1="210" y1="50" x2="258" y2="60" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+        <!-- "Injected into handlers:" label -->
+        <text x="120" y="108" text-anchor="middle" fill="#6e7681" font-size="10" font-style="italic">handler.add_processor(influx)</text>
+
+        <!-- Control (ch 0) — NO influx -->
+        <g transform="translate(30, 125)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#484f58" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="65" y="17" text-anchor="middle" fill="#484f58" font-size="11" font-weight="500">Control</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 0 — no influx</text>
+        </g>
+
+        <!-- Profile (ch 1) -->
+        <g transform="translate(30, 175)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Profile</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 1</text>
+        </g>
+
+        <!-- Summary (ch 3) -->
+        <g transform="translate(30, 225)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Summary</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 3</text>
+        </g>
+
+        <!-- Trade (ch 5) -->
+        <g transform="translate(30, 275)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Trade</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 5</text>
+        </g>
+
+        <!-- Quote (ch 7) -->
+        <g transform="translate(30, 325)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Quote</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 7</text>
+        </g>
+
+        <!-- Candle (ch 9) -->
+        <g transform="translate(30, 375)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Candle</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 9</text>
+        </g>
+
+        <!-- Greeks (ch 11) -->
+        <g transform="translate(30, 425)">
+          <rect width="130" height="38" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1"/>
+          <text x="65" y="17" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="500">Greeks</text>
+          <text x="65" y="30" text-anchor="middle" fill="#6e7681" font-size="9">ch 11</text>
+        </g>
+
+        <!-- Reference arrows from handlers to shared processor -->
+        <line x1="160" y1="194" x2="258" y2="78" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-green2)" opacity="0.5"/>
+        <line x1="160" y1="244" x2="258" y2="80" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-green2)" opacity="0.5"/>
+        <line x1="160" y1="294" x2="258" y2="82" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-green2)" opacity="0.5"/>
+        <line x1="160" y1="344" x2="258" y2="84" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-green2)" opacity="0.5"/>
+        <line x1="160" y1="394" x2="258" y2="86" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-green2)" opacity="0.5"/>
+        <line x1="160" y1="444" x2="258" y2="88" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-green2)" opacity="0.5"/>
+
+        <!-- Single arrow from shared processor to InfluxDB -->
+        <line x1="440" y1="68" x2="530" y2="68" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow-green2)"/>
+
+        <!-- InfluxDB -->
+        <g transform="translate(535, 38)">
+          <rect width="130" height="60" rx="10" fill="rgba(210,153,34,0.08)" stroke="#d29922" stroke-width="1.5"/>
+          <text x="65" y="28" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">InfluxDB</text>
+          <text x="65" y="46" text-anchor="middle" fill="#3fb950" font-size="10">1 connection</text>
+        </g>
+
+        <!-- Shutdown sequence - clean -->
+        <g transform="translate(30, 490)">
+          <rect width="940" height="75" rx="10" fill="rgba(63,185,80,0.03)" stroke="rgba(63,185,80,0.2)" stroke-width="1" stroke-dasharray="6,4"/>
+          <text x="20" y="24" fill="#3fb950" font-size="12" font-weight="600">Shutdown Sequence (finally block)</text>
+          <text x="20" y="46" fill="#6e7681" font-size="11" font-family="monospace">for handler in handlers: handler.close()  <tspan fill="#8b949e"># closes Redis only</tspan></text>
+          <text x="20" y="62" fill="#6e7681" font-size="11" font-family="monospace">influx.close()  <tspan fill="#3fb950"># single flush + close</tspan></text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="callouts">
+      <div class="callout fix">
+        <h3>Single Shared Instance</h3>
+        <p>One <code>TelegrafHTTPEventProcessor</code> created in <code>run()</code> and injected into 6 handlers (all except Control). Single connection pool, single write buffer.</p>
+      </div>
+      <div class="callout fix">
+        <h3>Unified Retry</h3>
+        <p>During InfluxDB outages, only one processor retries. No parallel retry storms — clean, predictable backoff behavior.</p>
+      </div>
+      <div class="callout fix">
+        <h3>Control Channel Skipped</h3>
+        <p>Control handler (ch 0) handles auth/keepalive only — no market data, no InfluxDB processor needed. Explicit skip with <code>if ch == Channels.Control: continue</code>.</p>
+      </div>
+      <div class="callout fix">
+        <h3>Clean Shutdown</h3>
+        <p>Handlers close their own processors (Redis only). The shared InfluxDB processor is closed once in the <code>finally</code> block — single flush, single HTTP session teardown.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function showView(view) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>
