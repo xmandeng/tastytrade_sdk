@@ -244,6 +244,7 @@ async def _run_subscription_once(
         health_interval: Seconds between health log entries (default: 300)
     """
     dxlink: DXLinkManager | None = None
+    influx: TelegrafHTTPEventProcessor | None = None
     session_symbols: set[str] = set()
     connection_established_at: float | None = None
 
@@ -267,7 +268,7 @@ async def _run_subscription_once(
         )
         await dxlink.open(credentials=credentials)
 
-        # Attach processors to all handlers
+        # Attach processors to handlers
         router = dxlink.router
         if router is None:
             raise RuntimeError("DXLink router not initialized after open()")
@@ -276,18 +277,20 @@ async def _run_subscription_once(
         if handlers_dict is None:
             raise RuntimeError("DXLink router.handler mapping not initialized")
 
-        for handler in handlers_dict.values():
-            handler.add_processor(
-                TelegrafHTTPEventProcessor(
-                    url=config.get("INFLUX_DB_URL", "http://localhost:8086"),
-                    token=config.get("INFLUX_DB_TOKEN"),
-                    org=config.get("INFLUX_DB_ORG"),
-                    bucket=config.get("INFLUX_DB_BUCKET"),
-                )
-            )
+        # Single shared InfluxDB processor for all market data handlers
+        influx = TelegrafHTTPEventProcessor(
+            url=config.get("INFLUX_DB_URL", "http://localhost:8086"),
+            token=config.get("INFLUX_DB_TOKEN"),
+            org=config.get("INFLUX_DB_ORG"),
+            bucket=config.get("INFLUX_DB_BUCKET"),
+        )
+
+        for channel, handler in handlers_dict.items():
+            if channel != Channels.Control:
+                handler.add_processor(influx)
             handler.add_processor(RedisEventProcessor())
 
-        logger.info("Processors attached to all handlers")
+        logger.info("Processors attached to all handlers (shared InfluxDB)")
 
         # === Market Data Subscriptions (notebook cell-4) ===
         # Ticker subscriptions (Quote/Trade/Greeks)
@@ -492,12 +495,18 @@ async def _run_subscription_once(
                     except Exception as e:
                         logger.warning("Failed to deactivate %s: %s", sym, e)
 
-            # Flush all processors before closing DXLink
-            # This ensures InfluxDB batched writes are flushed
+            # Remove shared InfluxDB processor from handlers before close loop
+            # to prevent multiple close() calls on the same instance
             if dxlink.router is not None:
-                logger.info("Flushing processors...")
                 for handler in dxlink.router.handler.values():
+                    if influx is not None:
+                        handler.remove_processor(influx)
                     handler.close_processors()
+
+            # Close shared InfluxDB processor once (single flush + close)
+            if influx is not None:
+                logger.info("Flushing shared InfluxDB processor...")
+                influx.close()
 
             logger.info("Closing DXLink connection")
             await dxlink.close()
