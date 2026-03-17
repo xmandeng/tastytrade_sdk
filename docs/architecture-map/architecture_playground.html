@@ -1365,9 +1365,9 @@ const nodes = [
     label: 'AccountStreamPublisher', type: 'Redis Writer',
     badge: 'TT-62',
     file: 'accounts/publisher.py',
-    desc: 'Publishes account events (positions, balances, instruments) to Redis HSET for on-demand reads. Single responsibility: account data → Redis.',
-    details: `Three Redis HSET keys:\n• tastytrade:positions — keyed by streamer_symbol\n• tastytrade:balances — keyed by account\n• tastytrade:instruments — keyed by symbol\n\nPositions: removes closed (qty=0) positions.\nInstruments: accepts any instrument model type\n(EquityOptionInstrument, FutureOptionInstrument, etc.)`,
-    code: `class AccountStreamPublisher:\n  POSITIONS_KEY = "tastytrade:positions"\n  BALANCES_KEY = "tastytrade:balances"\n  INSTRUMENTS_KEY = "tastytrade:instruments"\n\n  async def publish_position(self, position):\n    if position.quantity == 0.0:\n      await redis.hdel(POSITIONS_KEY, key)\n    else:\n      await redis.hset(POSITIONS_KEY, key, json)\n\n  async def publish_instruments(self, instruments):\n    for inst in instruments:\n      await redis.hset(INSTRUMENTS_KEY, inst.symbol, json)`,
+    desc: 'Publishes account events (positions, balances, instruments, entry credits) to Redis HSET for on-demand reads. Single responsibility: account data → Redis.',
+    details: `Four Redis HSET keys:\n• tastytrade:positions — keyed by streamer_symbol\n• tastytrade:balances — keyed by account\n• tastytrade:instruments — keyed by symbol\n• tastytrade:entry_credits — keyed by symbol (dollar cost basis per option leg)\n\nPositions: removes closed (qty=0) positions.\nEntry credits: computed directly from order fill data (TT-87) — fill monitor reacts to FILLED orders, extracts fill prices × multiplier, publishes immediately. No REST API call or position lookup needed.\nInstruments: accepts any instrument model type\n(EquityOptionInstrument, FutureOptionInstrument, etc.)`,
+    code: `class AccountStreamPublisher:\n  POSITIONS_KEY = "tastytrade:positions"\n  BALANCES_KEY = "tastytrade:balances"\n  INSTRUMENTS_KEY = "tastytrade:instruments"\n  ENTRY_CREDITS_KEY = "tastytrade:entry_credits"\n\n  async def publish_position(self, position):\n    if position.quantity == 0.0:\n      await redis.hdel(POSITIONS_KEY, key)\n    else:\n      await redis.hset(POSITIONS_KEY, key, json)\n\n  async def publish_entry_credits(self, credits):\n    for symbol, credit in credits.items():\n      await redis.hset(ENTRY_CREDITS_KEY, symbol, json)`,
     insights: [
       { author: 'claude', text: 'Instruments are keyed by the Position symbol (OCC format for equity options, broker format for futures). This allows PositionMetricsReader to look up instrument data by the same key used for positions.' },
     ],
@@ -1596,8 +1596,8 @@ const edges = [
   { from: 'proc-metrics', to: 'metrics-tracker', label: 'on_quote / on_greeks' },
 
   // Account data → Redis → Strategy Engine (TT-62)
-  { from: 'acct-streamer', to: 'acct-publisher', label: 'positions + instruments' },
-  { from: 'acct-publisher', to: 'redis', label: 'HSET positions/instruments' },
+  { from: 'acct-streamer', to: 'acct-publisher', label: 'positions + instruments + fills' },
+  { from: 'acct-publisher', to: 'redis', label: 'HSET positions/instruments/entry_credits' },
   { from: 'redis', to: 'pos-reader', label: 'HGETALL positions/quotes/greeks/instruments' },
   { from: 'pos-reader', to: 'metrics-tracker', label: 'load_positions + events' },
   { from: 'pos-reader', to: 'strategy-classifier', label: '.strategies property' },
