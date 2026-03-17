@@ -148,11 +148,11 @@ AccountStreamPublisher → Redis HSET + pub/sub
     │       │
     │       ▼
     │   monitor_fills_for_entry_credits()   ← reacts to filled orders
-    │       │  extract option symbols from legs
-    │       │  resolve position quantities from Redis
+    │       │  for each option leg with "X to Open" action:
+    │       │    compute entry_value from fill prices × multiplier
+    │       │    (multiplier resolved from instruments in Redis)
     │       │
-    │       ├── qty > 0: re-fetch transactions → LIFO replay → publish_entry_credits()
-    │       └── qty == 0: remove_entry_credit() (closed position cleanup)
+    │       └── publish_entry_credits() (close fills ignored — position removal handles cleanup)
     │
     └── tastytrade:events:EntryCreditsUpdated (pub/sub, downstream)
 ```
@@ -305,7 +305,7 @@ See [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) for full details.
 | `accounts/orchestrator.py` | `run_account_stream` | Self-healing lifecycle with consumers + fill monitor |
 | `accounts/publisher.py` | `AccountStreamPublisher` | Publish to Redis HSET + pub/sub |
 | `accounts/models.py` | `Position`, `AccountBalance` | Account data models |
-| `accounts/transactions.py` | `TransactionsClient` | REST API for option transactions + LIFO entry credit computation |
+| `accounts/transactions.py` | `TransactionsClient` | REST API for option transactions + LIFO entry credit computation (startup backfill) |
 | `accounts/client.py` | `AccountsClient` | REST API for account operations |
 
 ### Market Data Subscription
