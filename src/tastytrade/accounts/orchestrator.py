@@ -152,33 +152,25 @@ OPEN_ACTIONS = {OrderAction.BUY_TO_OPEN, OrderAction.SELL_TO_OPEN}
 async def resolve_multiplier(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
     leg: OrderLeg,
-    underlying_symbol: str,
 ) -> Decimal:
     """Resolve the contract multiplier for an option leg from instruments in Redis.
 
     Equity options: shares-per-contract (default 100).
-    Future options: underlying future's notional-multiplier.
+    Future options: multiplier from the future option instrument itself.
     """
+    raw = await redis_client.hget(AccountStreamPublisher.INSTRUMENTS_KEY, leg.symbol)
+    inst = json.loads(raw) if raw is not None else {}
+
     if leg.instrument_type == InstrumentType.EQUITY_OPTION:
-        raw = await redis_client.hget(
-            AccountStreamPublisher.INSTRUMENTS_KEY, leg.symbol
-        )
-        if raw is not None:
-            inst = json.loads(raw)
-            spc = inst.get("shares-per-contract")
-            if spc is not None:
-                return Decimal(str(spc))
+        spc = inst.get("shares-per-contract")
+        if spc is not None:
+            return Decimal(str(spc))
         return Decimal("100")
 
     if leg.instrument_type == InstrumentType.FUTURE_OPTION:
-        raw = await redis_client.hget(
-            AccountStreamPublisher.INSTRUMENTS_KEY, underlying_symbol
-        )
-        if raw is not None:
-            inst = json.loads(raw)
-            nm = inst.get("notional-multiplier")
-            if nm is not None:
-                return Decimal(str(nm))
+        m = inst.get("multiplier")
+        if m is not None:
+            return Decimal(str(m))
 
     return Decimal("1")
 
@@ -255,9 +247,7 @@ async def monitor_fills_for_entry_credits(
                 if not leg.fills:
                     continue
 
-                multiplier = await resolve_multiplier(
-                    redis_client, leg, order.underlying_symbol or ""
-                )
+                multiplier = await resolve_multiplier(redis_client, leg)
                 credit = compute_leg_entry_credit(leg, multiplier)
                 entry_credits[leg.symbol] = credit
 
@@ -407,18 +397,6 @@ async def run_account_stream_once(
                 for p in hydrated_positions
                 if p.instrument_type == InstrumentType.FUTURE
             ]
-            # Also fetch underlying futures for future option positions
-            # so we have their notional-multiplier for P&L calculations.
-            future_option_underlying_syms = list(
-                {
-                    p.underlying_symbol
-                    for p in hydrated_positions
-                    if p.instrument_type == InstrumentType.FUTURE_OPTION
-                    and p.underlying_symbol
-                    and p.underlying_symbol not in future_syms
-                }
-            )
-            future_syms = future_syms + future_option_underlying_syms
             crypto_syms = [
                 p.symbol
                 for p in hydrated_positions

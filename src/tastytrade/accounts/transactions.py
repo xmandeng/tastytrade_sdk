@@ -53,7 +53,7 @@ class Transaction(BaseModel):
     net_value_effect: str = Field(alias="net-value-effect")
     quantity: Decimal = Field(alias="quantity")
     order_id: int = Field(alias="order-id")
-    leg_count: int = Field(alias="leg-count")
+    leg_count: Optional[int] = Field(default=None, alias="leg-count")
 
 
 class EntryCredit(BaseModel, InfluxMixin):

@@ -68,16 +68,12 @@ class StrategyClassifier:
             if instrument_data and instrument_data.get("shares-per-contract"):
                 multiplier = Decimal(str(instrument_data["shares-per-contract"]))
         elif security.instrument_type == InstrumentType.FUTURE_OPTION:
-            # Look up the underlying future's notional-multiplier
-            underlying_sym = security.underlying_symbol
-            if underlying_sym:
-                underlying_data = instruments.get(underlying_sym)
-                if underlying_data is not None:
-                    if isinstance(underlying_data, str):
-                        underlying_data = json.loads(underlying_data)
-                    nm = underlying_data.get("notional-multiplier")
-                    if nm is not None:
-                        multiplier = Decimal(str(nm))
+            # Read the multiplier from the future option instrument itself.
+            # Always available — fetched at startup for every held option.
+            if instrument_data:
+                m = instrument_data.get("multiplier")
+                if m is not None:
+                    multiplier = Decimal(str(m))
 
         # The Position API returns 0.0 for average-open-price on some
         # future options (e.g. /6E) where the premium is too small to
