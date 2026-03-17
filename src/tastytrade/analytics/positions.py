@@ -107,7 +107,7 @@ class PositionMetricsReader:
                     "net_theta",
                     "net_vega",
                     "dte",
-                    "max_profit",
+                    "credit",
                     "max_loss",
                     "health",
                     "tt_strategy",
@@ -172,7 +172,7 @@ class PositionMetricsReader:
                     "net_theta": strat.net_theta,
                     "net_vega": strat.net_vega,
                     "dte": strat.days_to_expiration,
-                    "max_profit": f"{strat.max_profit:,}"
+                    "credit": f"{strat.max_profit:,}"
                     if strat.max_profit is not None
                     else None,
                     "max_loss": f"{strat.max_loss:,}"
