@@ -152,7 +152,7 @@ class TestResolveMultiplier:
         redis_client.hget.return_value = inst_data
 
         leg = make_leg(instrument_type=InstrumentType.EQUITY_OPTION)
-        result = await resolve_multiplier(redis_client, leg, "SPY")
+        result = await resolve_multiplier(redis_client, leg)
         assert result == Decimal("100")
 
     @pytest.mark.asyncio
@@ -162,31 +162,31 @@ class TestResolveMultiplier:
         redis_client.hget.return_value = None
 
         leg = make_leg(instrument_type=InstrumentType.EQUITY_OPTION)
-        result = await resolve_multiplier(redis_client, leg, "SPY")
+        result = await resolve_multiplier(redis_client, leg)
         assert result == Decimal("100")
 
     @pytest.mark.asyncio
-    async def test_future_option_from_underlying(self) -> None:
-        """Future option reads notional-multiplier from underlying future."""
+    async def test_future_option_from_instrument(self) -> None:
+        """Future option reads multiplier from its own instrument data."""
         redis_client = AsyncMock()
-        inst_data = json.dumps({"notional-multiplier": 125000.0}).encode()
+        inst_data = json.dumps({"multiplier": "125000"}).encode()
         redis_client.hget.return_value = inst_data
 
         leg = make_leg(
             symbol="./6EM6 EUUK6 260508C1.2",
             instrument_type=InstrumentType.FUTURE_OPTION,
         )
-        result = await resolve_multiplier(redis_client, leg, "/6EM6")
+        result = await resolve_multiplier(redis_client, leg)
         assert result == Decimal("125000")
 
     @pytest.mark.asyncio
-    async def test_future_option_missing_underlying_defaults_to_1(self) -> None:
-        """Future option defaults to 1 when underlying not in Redis."""
+    async def test_future_option_missing_instrument_defaults_to_1(self) -> None:
+        """Future option defaults to 1 when instrument not in Redis."""
         redis_client = AsyncMock()
         redis_client.hget.return_value = None
 
         leg = make_leg(instrument_type=InstrumentType.FUTURE_OPTION)
-        result = await resolve_multiplier(redis_client, leg, "/6EM6")
+        result = await resolve_multiplier(redis_client, leg)
         assert result == Decimal("1")
 
 
@@ -314,10 +314,8 @@ class TestMonitorFillsForEntryCredits:
 
         redis_client = AsyncMock()
         redis_client.pubsub = MagicMock(return_value=pubsub_mock)
-        # /RTYM6 underlying → notional-multiplier = 50
-        redis_client.hget.return_value = json.dumps(
-            {"notional-multiplier": 50.0}
-        ).encode()
+        # Future option instrument multiplier = 50
+        redis_client.hget.return_value = json.dumps({"multiplier": "50"}).encode()
 
         publisher = AsyncMock()
         publisher.ORDER_CHANNEL = "tastytrade:events:Order"

@@ -379,9 +379,7 @@ class TestBuildParsedLegFutureOptions:
                 "strike-price": "1.16",
                 "expiration-date": "2026-04-03",
                 "days-to-expiration": 33,
-            },
-            "/6EM6": {
-                "notional-multiplier": "125000.0",
+                "multiplier": "125000.0",
             },
         }
         classifier = StrategyClassifier()
@@ -405,9 +403,7 @@ class TestBuildParsedLegFutureOptions:
                 "strike-price": "115.0",
                 "expiration-date": "2026-03-27",
                 "days-to-expiration": 26,
-            },
-            "/ZBM6": {
-                "notional-multiplier": "1000.0",
+                "multiplier": "1000.0",
             },
         }
         classifier = StrategyClassifier()

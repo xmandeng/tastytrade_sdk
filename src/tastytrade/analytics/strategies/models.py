@@ -95,7 +95,7 @@ class ParsedLeg:
 
     # Contract multiplier for dollar P&L.
     # Equity options: shares-per-contract (100).
-    # Future options: underlying future's notional-multiplier.
+    # Future options: multiplier from the future option instrument.
     multiplier: Decimal = Decimal("1")
 
     # Entry value in dollars (from transactions API LIFO replay)

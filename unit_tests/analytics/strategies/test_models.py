@@ -218,7 +218,7 @@ class TestMaxLoss:
         assert strat.max_loss is None
 
     def test_futures_option_multiplier(self) -> None:
-        """Future option spread uses the future's notional multiplier."""
+        """Future option spread uses the future option's multiplier."""
         legs = (
             # Sold P@1.05 for $625 credit
             make_option_leg(
