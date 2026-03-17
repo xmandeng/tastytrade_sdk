@@ -7,16 +7,19 @@ Mirrors the pattern from ``subscription.orchestrator.run_subscription``.
 """
 
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 
-import aiohttp
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 from pydantic import ValidationError
 
 from tastytrade.accounts.models import (
     InstrumentType,
+    OrderAction,
+    OrderLeg,
     OrderStatus,
     PlacedOrder,
     Position,
@@ -24,13 +27,13 @@ from tastytrade.accounts.models import (
 from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
 from tastytrade.accounts.streamer import AccountStreamer
 from tastytrade.accounts.transactions import (
+    EntryCredit,
     TransactionsClient,
     compute_entry_credits_for_positions,
 )
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import AccountEventType, ReconnectReason
 from tastytrade.connections import Credentials
-from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
@@ -143,117 +146,129 @@ async def consume_order_chains(
 
 
 OPTION_TYPES = {InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION}
+OPEN_ACTIONS = {OrderAction.BUY_TO_OPEN, OrderAction.SELL_TO_OPEN}
 
 
-def extract_option_symbols(order: PlacedOrder) -> list[str]:
-    """Extract unique option symbols from a filled order's legs."""
-    return list(
-        {leg.symbol for leg in order.legs if leg.instrument_type in OPTION_TYPES}
-    )
-
-
-async def resolve_position_quantities(
+async def resolve_multiplier(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
-    symbols: list[str],
-    positions_key: str,
-) -> dict[str, int]:
-    """Look up current position quantities from Redis for the given symbols.
+    leg: OrderLeg,
+    underlying_symbol: str,
+) -> Decimal:
+    """Resolve the contract multiplier for an option leg from instruments in Redis.
 
-    Returns only symbols with non-zero quantity.
+    Equity options: shares-per-contract (default 100).
+    Future options: underlying future's notional-multiplier.
     """
-    positions_map: dict[str, int] = {}
-    for symbol in symbols:
-        raw = await redis_client.hget(positions_key, symbol)
-        if raw is None:
-            continue
-        position = Position.model_validate_json(raw)
-        qty = int(abs(position.quantity))
-        if qty > 0:
-            positions_map[symbol] = qty
-    return positions_map
+    if leg.instrument_type == InstrumentType.EQUITY_OPTION:
+        raw = await redis_client.hget(
+            AccountStreamPublisher.INSTRUMENTS_KEY, leg.symbol
+        )
+        if raw is not None:
+            inst = json.loads(raw)
+            spc = inst.get("shares-per-contract")
+            if spc is not None:
+                return Decimal(str(spc))
+        return Decimal("100")
+
+    if leg.instrument_type == InstrumentType.FUTURE_OPTION:
+        raw = await redis_client.hget(
+            AccountStreamPublisher.INSTRUMENTS_KEY, underlying_symbol
+        )
+        if raw is not None:
+            inst = json.loads(raw)
+            nm = inst.get("notional-multiplier")
+            if nm is not None:
+                return Decimal(str(nm))
+
+    return Decimal("1")
+
+
+def compute_leg_entry_credit(leg: OrderLeg, multiplier: Decimal) -> EntryCredit:
+    """Compute entry credit for a single option leg from its fill data.
+
+    Uses the fill prices and quantities directly from the order event.
+    Sign convention: Sell to Open = credit (positive), Buy to Open = debit (negative).
+    """
+    sign = Decimal("1") if leg.action == OrderAction.SELL_TO_OPEN else Decimal("-1")
+
+    total_value = Decimal("0")
+    total_qty = Decimal("0")
+    price_x_qty = Decimal("0")
+
+    for fill in leg.fills:
+        fp = Decimal(str(fill.fill_price))
+        fq = Decimal(str(fill.quantity))
+        total_value += fp * fq * multiplier * sign
+        total_qty += fq
+        price_x_qty += fp * fq
+
+    weighted_price = price_x_qty / total_qty if total_qty > 0 else None
+
+    return EntryCredit(
+        symbol=leg.symbol,
+        value=total_value,
+        per_unit_price=weighted_price,
+        method="order_fill",
+        transaction_count=len(leg.fills),
+        computed_at=datetime.now(timezone.utc),
+    )
 
 
 async def monitor_fills_for_entry_credits(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
-    session: AsyncSessionHandler,
-    account_number: str,
     publisher: AccountStreamPublisher,
     influx: TelegrafHTTPEventProcessor,
 ) -> None:
-    """React to filled orders by recomputing entry credits for affected option symbols.
+    """Compute entry credits directly from filled order data.
 
-    Subscribes to the Order pub/sub channel. When a FILLED order with option legs
-    is detected, re-fetches transactions from the REST API and re-runs the LIFO
-    replay to compute updated entry credits. Cleans up entry credits for fully
-    closed positions (qty == 0).
+    Subscribes to the Order pub/sub channel. When a FILLED order with option
+    open-fills is detected, computes entry credits from the fill prices in
+    the order event itself — no position lookup or REST API call needed.
+
+    Close fills are ignored; position removal is handled by the position
+    consumer (publish_position removes qty=0 positions from Redis).
     """
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(publisher.ORDER_CHANNEL)
     try:
         async for message in pubsub.listen():
-            # Skip Redis subscription control messages (subscribe, psubscribe, etc.)
-            # These are expected on initial subscribe and carry no order data.
             if message["type"] != "message":
                 continue
 
             try:
                 order = PlacedOrder.model_validate_json(message["data"])
             except ValidationError:
-                # Malformed or schema-incompatible order payload.
-                # Log and skip — do not crash the monitor for one bad message.
                 logger.warning("Failed to parse Order event, skipping message")
                 continue
 
-            # Only process filled orders — ROUTED, LIVE, CANCELLED, EXPIRED, etc.
-            # are intermediate states that do not represent executed trades.
             if order.status != OrderStatus.FILLED:
                 continue
 
-            # Extract option symbols from filled legs.
-            # Orders with only equity or futures (non-option) legs are irrelevant
-            # since entry credits only apply to option positions.
-            option_symbols = extract_option_symbols(order)
-            if not option_symbols:
-                continue
+            # Compute entry credits for option legs with open fills.
+            # Close fills are ignored — position removal handles cleanup.
+            entry_credits: dict[str, EntryCredit] = {}
+            for leg in order.legs:
+                if leg.instrument_type not in OPTION_TYPES:
+                    continue
+                if leg.action not in OPEN_ACTIONS:
+                    continue
+                if not leg.fills:
+                    continue
 
-            try:
-                # Look up current position quantities from Redis
-                positions_map = await resolve_position_quantities(
-                    redis_client, option_symbols, publisher.POSITIONS_KEY
+                multiplier = await resolve_multiplier(
+                    redis_client, leg, order.underlying_symbol or ""
                 )
+                credit = compute_leg_entry_credit(leg, multiplier)
+                entry_credits[leg.symbol] = credit
 
-                # Symbols with qty > 0: recompute entry credits
-                if positions_map:
-                    txn_client = TransactionsClient(session)
-                    all_txns = await txn_client.get_transactions(account_number)
-                    entry_credits = compute_entry_credits_for_positions(
-                        all_txns, positions_map
-                    )
-                    if entry_credits:
-                        await publisher.publish_entry_credits(entry_credits)
-                        for credit in entry_credits.values():
-                            influx.process_event(credit.for_influx())  # type: ignore[arg-type]
-                        logger.info(
-                            "Updated entry credits for %d symbols on fill",
-                            len(entry_credits),
-                        )
-
-                # Symbols with qty == 0: clean up
-                closed_symbols = set(option_symbols) - set(positions_map.keys())
-                for symbol in closed_symbols:
-                    await publisher.remove_entry_credit(symbol)
-
-            except aiohttp.ClientError:
-                # Network error fetching transactions from REST API.
-                # Non-fatal — the next fill or restart will correct the data.
-                logger.warning(
-                    "Transaction fetch failed for fill on %d symbols, will retry on next fill",
-                    len(option_symbols),
+            if entry_credits:
+                await publisher.publish_entry_credits(entry_credits)
+                for credit in entry_credits.values():
+                    influx.process_event(credit.for_influx())  # type: ignore[arg-type]
+                logger.info(
+                    "Computed entry credits for %d symbols from fill data",
+                    len(entry_credits),
                 )
-            except Exception:
-                # Unexpected error during entry credit computation.
-                # Log and continue — don't let one failed update kill the monitor.
-                logger.exception("Unexpected error processing fill for entry credits")
 
     finally:
         await pubsub.unsubscribe(publisher.ORDER_CHANNEL)
@@ -496,20 +511,17 @@ async def run_account_stream_once(
             )
         )
 
-        # === Start fill monitor for live entry credit updates (TT-79) ===
-        if streamer.session is not None:
-            fill_monitor_redis = aioredis.Redis()
-            fill_monitor_task = asyncio.create_task(
-                monitor_fills_for_entry_credits(
-                    redis_client=fill_monitor_redis,
-                    session=streamer.session,
-                    account_number=credentials.account_number,
-                    publisher=publisher,
-                    influx=influx,
-                ),
-                name="fill_monitor",
-            )
-            logger.info("Fill monitor started for live entry credit updates")
+        # === Start fill monitor for live entry credit updates (TT-79/TT-87) ===
+        fill_monitor_redis = aioredis.Redis()
+        fill_monitor_task = asyncio.create_task(
+            monitor_fills_for_entry_credits(
+                redis_client=fill_monitor_redis,
+                publisher=publisher,
+                influx=influx,
+            ),
+            name="fill_monitor",
+        )
+        logger.info("Fill monitor started for live entry credit updates")
 
         # === Start failure simulation listener ===
         failure_redis = aioredis.Redis()

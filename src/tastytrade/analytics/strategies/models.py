@@ -318,6 +318,20 @@ def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
             return None
         return max(w * mult + net_credit, Decimal("0")).quantize(Decimal("1"))
 
+    if st in (
+        StrategyType.CALL_BUTTERFLY,
+        StrategyType.PUT_BUTTERFLY,
+        StrategyType.BROKEN_FLY,
+    ):
+        # Butterfly: max profit at the body = narrow_width × multiplier + net credit
+        strikes = sorted({leg.strike for leg in option_legs if leg.strike is not None})
+        if len(strikes) < 3:
+            return None
+        narrow_width = min(strikes[1] - strikes[0], strikes[2] - strikes[1])
+        return max(narrow_width * mult + net_credit, Decimal("0")).quantize(
+            Decimal("1")
+        )
+
     return None
 
 
@@ -384,5 +398,24 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         if w is None:
             return None
         return max(w * mult - net_credit, Decimal("0")).quantize(Decimal("1"))
+
+    if st in (
+        StrategyType.CALL_BUTTERFLY,
+        StrategyType.PUT_BUTTERFLY,
+        StrategyType.BROKEN_FLY,
+    ):
+        # Butterfly: max loss is the greater of upside risk and downside (wide wing) risk
+        strikes = sorted({leg.strike for leg in option_legs if leg.strike is not None})
+        if len(strikes) < 3:
+            return None
+        lower_width = strikes[1] - strikes[0]
+        upper_width = strikes[2] - strikes[1]
+        narrow_width = min(lower_width, upper_width)
+        wide_width = max(lower_width, upper_width)
+        # Downside risk: loss on the wide wing beyond what the narrow wing covers
+        downside = (wide_width - narrow_width) * mult - net_credit
+        # Upside risk: net debit paid (all expire worthless)
+        upside = -net_credit
+        return max(downside, upside, Decimal("0")).quantize(Decimal("1"))
 
     return None
