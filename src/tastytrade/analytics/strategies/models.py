@@ -93,9 +93,9 @@ class ParsedLeg:
     expiration: Optional[date] = None
     days_to_expiration: Optional[int] = None
 
-    # Contract multiplier for dollar P&L.
-    # Equity options: shares-per-contract (100).
-    # Future options: multiplier from the future option instrument.
+    # Contract multiplier for dollar P&L — from the Position API.
+    # Equity options: 100 (shares per contract).
+    # Future options: notional multiplier (e.g. 100 for /GC, 125000 for /6E).
     multiplier: Decimal = Decimal("1")
 
     # Entry value in dollars (from transactions API LIFO replay)
@@ -259,6 +259,18 @@ def strategy_multiplier(strategy: Strategy) -> Decimal:
     return Decimal("1")
 
 
+def strategy_quantity(strategy: Strategy) -> Decimal:
+    """Get the per-leg contract quantity for a strategy.
+
+    All option legs in a strategy share the same absolute quantity.
+    Uses the first option leg's abs_quantity.
+    """
+    for leg in strategy.legs:
+        if leg.is_option:
+            return Decimal(str(leg.abs_quantity))
+    return Decimal("1")
+
+
 def compute_net_entry_credit_dollars(
     option_legs: list[ParsedLeg],
 ) -> Optional[Decimal]:
@@ -293,10 +305,14 @@ def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
 
     st = strategy.strategy_type
     mult = strategy_multiplier(strategy)
+    qty = strategy_quantity(strategy)
     net_credit = compute_net_entry_credit_dollars(option_legs)
 
     if net_credit is None:
         return None
+
+    # Dollar risk per point = mult * qty (e.g. 2 contracts of /GC = 100 * 2 = $200/pt)
+    dollar_per_point = mult * qty
 
     if st in (
         StrategyType.BEAR_CALL_SPREAD,
@@ -312,23 +328,25 @@ def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
         return max(net_credit, Decimal("0")).quantize(Decimal("1"))
 
     if st in (StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD):
-        # Debit spread: max profit = (width * multiplier) - net debit paid
+        # Debit spread: max profit = (width * dollar_per_point) - net debit paid
         w = strategy.width
         if w is None:
             return None
-        return max(w * mult + net_credit, Decimal("0")).quantize(Decimal("1"))
+        return max(w * dollar_per_point + net_credit, Decimal("0")).quantize(
+            Decimal("1")
+        )
 
     if st in (
         StrategyType.CALL_BUTTERFLY,
         StrategyType.PUT_BUTTERFLY,
         StrategyType.BROKEN_FLY,
     ):
-        # Butterfly: max profit at the body = narrow_width × multiplier + net credit
+        # Butterfly: max profit at the body = narrow_width × dollar_per_point + net credit
         strikes = sorted({leg.strike for leg in option_legs if leg.strike is not None})
         if len(strikes) < 3:
             return None
         narrow_width = min(strikes[1] - strikes[0], strikes[2] - strikes[1])
-        return max(narrow_width * mult + net_credit, Decimal("0")).quantize(
+        return max(narrow_width * dollar_per_point + net_credit, Decimal("0")).quantize(
             Decimal("1")
         )
 
@@ -347,10 +365,14 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
 
     st = strategy.strategy_type
     mult = strategy_multiplier(strategy)
+    qty = strategy_quantity(strategy)
     net_credit = compute_net_entry_credit_dollars(option_legs)
 
     if net_credit is None:
         return None
+
+    # Dollar risk per point = mult * qty (e.g. 2 contracts of /GC = 100 * 2 = $200/pt)
+    dollar_per_point = mult * qty
 
     # Unlimited risk strategies
     if st in (
@@ -361,11 +383,13 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         return None
 
     if st in (StrategyType.BEAR_CALL_SPREAD, StrategyType.BULL_PUT_SPREAD):
-        # Credit spread: max loss = (width * multiplier) - net credit
+        # Credit spread: max loss = (width * dollar_per_point) - net credit
         w = strategy.width
         if w is None:
             return None
-        return max(w * mult - net_credit, Decimal("0")).quantize(Decimal("1"))
+        return max(w * dollar_per_point - net_credit, Decimal("0")).quantize(
+            Decimal("1")
+        )
 
     if st in (StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD):
         # Debit spread: max loss = net debit paid (already in dollars)
@@ -391,13 +415,17 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
             else Decimal("0")
         )
         wing_width = max(put_width, call_width)
-        return max(wing_width * mult - net_credit, Decimal("0")).quantize(Decimal("1"))
+        return max(wing_width * dollar_per_point - net_credit, Decimal("0")).quantize(
+            Decimal("1")
+        )
 
     if st == StrategyType.JADE_LIZARD:
         w = strategy.width
         if w is None:
             return None
-        return max(w * mult - net_credit, Decimal("0")).quantize(Decimal("1"))
+        return max(w * dollar_per_point - net_credit, Decimal("0")).quantize(
+            Decimal("1")
+        )
 
     if st in (
         StrategyType.CALL_BUTTERFLY,
@@ -413,7 +441,7 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         narrow_width = min(lower_width, upper_width)
         wide_width = max(lower_width, upper_width)
         # Downside risk: loss on the wide wing beyond what the narrow wing covers
-        downside = (wide_width - narrow_width) * mult - net_credit
+        downside = (wide_width - narrow_width) * dollar_per_point - net_credit
         # Upside risk: net debit paid (all expire worthless)
         upside = -net_credit
         return max(downside, upside, Decimal("0")).quantize(Decimal("1"))
