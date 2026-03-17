@@ -249,3 +249,107 @@ class TestMaxLoss:
         assert strat.max_loss == Decimal("1125")
         # Max profit = net credit = 125
         assert strat.max_profit == Decimal("125")
+
+
+class TestButterflyMaxProfitLoss:
+    """Test max profit/loss for butterfly and broken fly strategies."""
+
+    def test_balanced_put_butterfly_debit(self) -> None:
+        """Balanced butterfly (debit): max profit = width*mult - debit, max loss = debit."""
+        legs = (
+            # +P@240 for $100 debit
+            make_option_leg("P", Decimal("240"), 1, entry_value=Decimal("-100")),
+            # -2P@245 for $350 credit (each)
+            make_option_leg("P", Decimal("245"), -2, entry_value=Decimal("350")),
+            # +P@250 for $400 debit
+            make_option_leg("P", Decimal("250"), 1, entry_value=Decimal("-400")),
+        )
+        strat = Strategy(
+            strategy_type=StrategyType.PUT_BUTTERFLY,
+            underlying="SPY",
+            legs=legs,
+        )
+        # Net credit = -100 + 350 + (-400) = -150 (net debit of $150)
+        # Narrow width = 5 (both wings equal), mult = 100
+        # Max profit = 5 * 100 + (-150) = 350
+        assert strat.max_profit == Decimal("350")
+        # Max loss = max(-(-150), 0*100 - (-150), 0) = max(150, 150, 0) = 150
+        assert strat.max_loss == Decimal("150")
+
+    def test_broken_fly_credit(self) -> None:
+        """Broken wing butterfly (credit): wide wing has more risk."""
+        legs = (
+            # +P@111 for $281 debit
+            make_option_leg("P", Decimal("111"), 1, entry_value=Decimal("-281")),
+            # -2P@114 for $734 credit (each, total $1468)
+            make_option_leg("P", Decimal("114"), -2, entry_value=Decimal("1468")),
+            # +P@115 for $1031 debit
+            make_option_leg("P", Decimal("115"), 1, entry_value=Decimal("-1031")),
+        )
+        strat = Strategy(
+            strategy_type=StrategyType.BROKEN_FLY,
+            underlying="/ZB",
+            legs=legs,
+        )
+        # Net credit = -281 + 1468 + (-1031) = 156
+        # Narrow width = 1 (115-114), wide width = 3 (114-111), mult = 100
+        # Max profit = 1 * 100 + 156 = 256
+        assert strat.max_profit == Decimal("256")
+        # Max loss: downside = (3-1)*100 - 156 = 44, upside = -156 (negative)
+        # max(44, -156, 0) = 44
+        assert strat.max_loss == Decimal("44")
+
+    def test_broken_fly_futures_multiplier(self) -> None:
+        """Broken fly with futures multiplier ($1000 per point for /ZB)."""
+        legs = (
+            make_option_leg(
+                "P",
+                Decimal("111"),
+                1,
+                entry_value=Decimal("-281"),
+                multiplier=Decimal("1000"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+            make_option_leg(
+                "P",
+                Decimal("114"),
+                -2,
+                entry_value=Decimal("1468"),
+                multiplier=Decimal("1000"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+            make_option_leg(
+                "P",
+                Decimal("115"),
+                1,
+                entry_value=Decimal("-1031"),
+                multiplier=Decimal("1000"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+        )
+        strat = Strategy(
+            strategy_type=StrategyType.BROKEN_FLY,
+            underlying="/ZB",
+            legs=legs,
+        )
+        # Net credit = 156, narrow_width = 1, wide_width = 3, mult = 1000
+        # Max profit = 1 * 1000 + 156 = 1156
+        assert strat.max_profit == Decimal("1156")
+        # Max loss: downside = (3-1)*1000 - 156 = 1844, upside = -156
+        # max(1844, -156, 0) = 1844
+        assert strat.max_loss == Decimal("1844")
+
+    def test_missing_entry_value_returns_none(self) -> None:
+        """Butterfly with missing entry value → None."""
+        legs = (
+            make_option_leg("P", Decimal("240"), 1, entry_value=None),
+            make_option_leg("P", Decimal("245"), -2, entry_value=Decimal("350")),
+            make_option_leg("P", Decimal("250"), 1, entry_value=Decimal("-400")),
+        )
+        strat = Strategy(
+            strategy_type=StrategyType.BROKEN_FLY,
+            underlying="SPY",
+            legs=legs,
+        )
+        assert strat.max_profit is None
+        assert strat.max_loss is None
