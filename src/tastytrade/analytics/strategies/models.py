@@ -432,18 +432,14 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         StrategyType.PUT_BUTTERFLY,
         StrategyType.BROKEN_FLY,
     ):
-        # Butterfly: max loss is the greater of upside risk and downside (wide wing) risk
+        # Butterfly: max loss = wider wing risk - credit received
         strikes = sorted({leg.strike for leg in option_legs if leg.strike is not None})
         if len(strikes) < 3:
             return None
-        lower_width = strikes[1] - strikes[0]
-        upper_width = strikes[2] - strikes[1]
-        narrow_width = min(lower_width, upper_width)
-        wide_width = max(lower_width, upper_width)
-        # Downside risk: loss on the wide wing beyond what the narrow wing covers
-        downside = (wide_width - narrow_width) * dollar_per_point - net_credit
-        # Upside risk: net debit paid (all expire worthless)
-        upside = -net_credit
-        return max(downside, upside, Decimal("0")).quantize(Decimal("1"))
+        wider_wing = max(strikes[1] - strikes[0], strikes[2] - strikes[1])
+        credit = compute_max_profit(strategy) or Decimal("0")
+        return max(wider_wing * dollar_per_point - credit, Decimal("0")).quantize(
+            Decimal("1")
+        )
 
     return None
