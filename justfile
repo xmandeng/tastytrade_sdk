@@ -64,6 +64,10 @@ chains:
 chains-json:
     uv run tasty-subscription chains --json
 
+# Backfill historical account events into InfluxDB (idempotent)
+backfill:
+    uv run python scripts/backfill_influxdb.py
+
 # Position summary with LLM strategy identification (legacy)
 positions-strategies:
     uv run tasty-subscription positions-summary | claude --print \
