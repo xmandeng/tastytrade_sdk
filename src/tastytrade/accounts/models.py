@@ -5,7 +5,7 @@ from enum import Enum
 from types import SimpleNamespace
 from typing import Any, ClassVar, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tastytrade.messaging.models.events import FloatFieldMixin
 
@@ -1120,6 +1120,7 @@ class TradeChain(TastyTradeApiModel, InfluxMixin):
 
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"computed_data", "lite_nodes"}
     INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_TIME_FIELD: ClassVar[str] = "last_occurred_at"
 
     id: str = Field(description="Chain ID from TastyTrade")
     description: str = Field(description="Strategy name, e.g. 'Iron Condor'")
@@ -1127,6 +1128,17 @@ class TradeChain(TastyTradeApiModel, InfluxMixin):
     computed_data: TradeChainComputedData = Field(alias="computed-data")
     lite_nodes_sizes: Optional[int] = Field(default=None, alias="lite-nodes-sizes")
     lite_nodes: list[TradeChainNode] = Field(default_factory=list, alias="lite-nodes")
+    last_occurred_at: Optional[datetime] = Field(
+        default=None, description="Parsed from computed_data.last_occurred_at"
+    )
+
+    @model_validator(mode="after")
+    def populate_last_occurred_at(self) -> "TradeChain":
+        raw = self.computed_data.last_occurred_at
+        if raw and self.last_occurred_at is None:
+            parsed = datetime.fromisoformat(raw)
+            object.__setattr__(self, "last_occurred_at", parsed)
+        return self
 
     @property
     def eventSymbol(self) -> str:

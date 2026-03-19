@@ -1,6 +1,7 @@
 import logging
+from typing import Optional
 
-from tastytrade.accounts.models import Account, AccountBalance, Position
+from tastytrade.accounts.models import Account, AccountBalance, PlacedOrder, Position
 from tastytrade.connections.requests import AsyncSessionHandler
 from tastytrade.utils.validators import validate_async_response
 
@@ -61,6 +62,62 @@ class AccountsClient:
             positions = [Position.model_validate(item) for item in items]
             logger.info("Fetched %d positions", len(positions))
             return positions
+
+    async def get_orders(
+        self,
+        account_number: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        per_page: int = 250,
+    ) -> list[PlacedOrder]:
+        """Fetch orders for an account with pagination.
+
+        API shape: GET /accounts/{account_number}/orders
+        Response: {"data": {"items": [...]}, "pagination": {"total-pages": N}}
+
+        Args:
+            account_number: The account to query.
+            start_date: Optional start date filter (YYYY-MM-DD).
+            end_date: Optional end date filter (YYYY-MM-DD).
+            per_page: Page size for pagination.
+
+        Returns:
+            All orders across all pages, newest first.
+        """
+        all_orders: list[PlacedOrder] = []
+        page_offset = 0
+
+        while True:
+            params: dict[str, str | int] = {
+                "per-page": per_page,
+                "page-offset": page_offset,
+                "sort": "Desc",
+            }
+            if start_date:
+                params["start-date"] = start_date
+            if end_date:
+                params["end-date"] = end_date
+
+            async with self.session.session.get(
+                f"{self.session.base_url}/accounts/{account_number}/orders",
+                params=params,
+            ) as response:
+                await validate_async_response(response)
+                data = await response.json()
+
+            items = data["data"]["items"]
+            for item in items:
+                all_orders.append(PlacedOrder.model_validate(item))
+
+            pagination = data.get("pagination", {})
+            total_pages = pagination.get("total-pages", 1)
+            page_offset += 1
+
+            if page_offset >= total_pages:
+                break
+
+        logger.info("Fetched %d orders", len(all_orders))
+        return all_orders
 
     async def get_balances(self, account_number: str) -> AccountBalance:
         """Fetch balances for a specific account.
