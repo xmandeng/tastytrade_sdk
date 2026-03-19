@@ -46,7 +46,12 @@ async def main() -> None:
 
     accounts_client = AccountsClient(session)
     transactions_client = TransactionsClient(session)
-    influx = TelegrafHTTPEventProcessor()
+    influx = TelegrafHTTPEventProcessor(
+        url=config.get("INFLUX_DB_URL"),
+        token=config.get("INFLUX_DB_TOKEN"),
+        org=config.get("INFLUX_DB_ORG"),
+        bucket=config.get("INFLUX_DB_BUCKET"),
+    )
 
     account = credentials.account_number
     counts: dict[str, int] = {}
@@ -74,7 +79,7 @@ async def main() -> None:
             chain_count += 1
         counts["trade_chains"] = chain_count
         logger.info("Wrote %d trade chains to InfluxDB", chain_count)
-        await redis_client.close()
+        await redis_client.aclose()  # type: ignore[attr-defined]
 
         # --- 3. Backfill entry credits ---
         logger.info("Backfilling entry credits...")

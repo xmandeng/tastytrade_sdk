@@ -772,6 +772,8 @@ class OrderStatus(str, Enum):
 
 
 class OrderAction(str, Enum):
+    BUY = "Buy"
+    SELL = "Sell"
     BUY_TO_OPEN = "Buy to Open"
     BUY_TO_CLOSE = "Buy to Close"
     SELL_TO_OPEN = "Sell to Open"
@@ -868,7 +870,7 @@ class PlacedOrder(BaseModel, FloatFieldMixin, InfluxMixin):
 
     model_config = ORDER_MODEL_CONFIG
     INFLUX_JSON_FIELDS: ClassVar[set[str]] = {"legs"}
-    INFLUX_EXCLUDE: ClassVar[set[str]] = set()
+    INFLUX_EXCLUDE: ClassVar[set[str]] = {"size"}
     INFLUX_TIME_FIELD: ClassVar[str] = "updated_at"
 
     # Identity
@@ -880,7 +882,7 @@ class PlacedOrder(BaseModel, FloatFieldMixin, InfluxMixin):
     time_in_force: TimeInForce = Field(alias="time-in-force")
     price: Optional[float] = Field(default=None, alias="price")
     price_effect: Optional[PriceEffect] = Field(default=None, alias="price-effect")
-    size: Optional[int] = Field(default=None, alias="size")
+    size: Optional[float] = Field(default=None, alias="size")
 
     # Status
     status: OrderStatus = Field(alias="status")
@@ -906,7 +908,7 @@ class PlacedOrder(BaseModel, FloatFieldMixin, InfluxMixin):
     # Exchange routing
     destination_venue: Optional[str] = Field(default=None, alias="destination-venue")
 
-    convert_float = FloatFieldMixin.validate_float_fields("price")
+    convert_float = FloatFieldMixin.validate_float_fields("price", "size")
 
     @field_validator("status", mode="before")
     @classmethod

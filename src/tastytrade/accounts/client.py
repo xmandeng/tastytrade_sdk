@@ -68,7 +68,7 @@ class AccountsClient:
         account_number: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        per_page: int = 250,
+        per_page: int = 50,
     ) -> list[PlacedOrder]:
         """Fetch orders for an account with pagination.
 
