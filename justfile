@@ -68,6 +68,10 @@ chains-json:
 backfill:
     uv run python scripts/backfill_influxdb.py
 
+# Fetch option chain snapshot for any underlying
+options symbol *args:
+    uv run tasty-subscription options --symbol "{{symbol}}" {{args}}
+
 # Position summary with LLM strategy identification (legacy)
 positions-strategies:
     uv run tasty-subscription positions-summary | claude --print \

@@ -442,6 +442,103 @@ def chains_cmd(as_json: bool) -> None:
     asyncio.run(_run())
 
 
+@cli.command(name="options")
+@click.option(
+    "--symbol",
+    required=True,
+    help="Underlying symbol (e.g., SPX, CSCO, /GC, /ES).",
+)
+@click.option(
+    "--dte",
+    default=None,
+    help="Comma-separated target DTEs (e.g., 0,30,45). Returns closest match for each.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output in JSON format for machine consumption.",
+)
+def options_cmd(symbol: str, dte: str | None, as_json: bool) -> None:
+    """Fetch option chain snapshot for any underlying.
+
+    Supports equities (SPX, CSCO, XLE), ETFs (SPY, QQQ), and
+    futures (/GC, /ES, /CL). Auto-detects instrument type by
+    symbol prefix.
+
+    \b
+    Examples:
+      tasty-subscription options --symbol SPX
+      tasty-subscription options --symbol /GC --dte 0,30,45
+      tasty-subscription options --symbol CSCO --dte 30 --json
+    """
+    target_dtes: list[int] | None = None
+    if dte:
+        try:
+            target_dtes = [int(d.strip()) for d in dte.split(",")]
+        except ValueError:
+            raise click.BadParameter(
+                f"Invalid DTE values: '{dte}'. Expected comma-separated integers."
+            ) from None
+
+    async def _run() -> None:
+        from tastytrade.config.manager import RedisConfigManager
+        from tastytrade.connections import Credentials
+        from tastytrade.connections.auth import create_auth_strategy
+        from tastytrade.connections.requests import AsyncSessionHandler
+        from tastytrade.market.option_chains import get_option_chain
+
+        config = RedisConfigManager()
+        credentials = Credentials(config=config, env="Live")
+        auth_strategy = create_auth_strategy(credentials)
+        session = AsyncSessionHandler(credentials, auth_strategy)
+        await session.create_session()
+
+        try:
+            df = await get_option_chain(session, symbol, target_dtes)
+
+            if df.is_empty():
+                click.echo(f"No option chain data found for {symbol}.")
+                return
+
+            if as_json:
+                click.echo(df.write_json())
+            else:
+                # Summary header
+                n_expirations = df["expiration"].n_unique()
+                n_strikes = df["strike"].n_unique()
+                roots = df["root"].unique().sort().to_list()
+                click.echo(
+                    f"{symbol}: {df.shape[0]} options, "
+                    f"{n_expirations} expirations, "
+                    f"{n_strikes} strikes, "
+                    f"roots={roots}"
+                )
+                if target_dtes:
+                    matched = sorted(df["dte"].unique().to_list())
+                    click.echo(
+                        f"DTE filter: requested={target_dtes}, matched={matched}"
+                    )
+                click.echo()
+
+                # Show expiration summary
+                summary = (
+                    df.group_by(
+                        "root", "expiration", "dte", "expiration_type", "settlement"
+                    )
+                    .agg(pl.col("strike").n_unique().alias("strikes"))
+                    .sort("dte", "root")
+                )
+                click.echo(summary)
+        finally:
+            await session.close()
+
+    import polars as pl
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     """Entry point for the tasty-subscription CLI."""
     cli()
