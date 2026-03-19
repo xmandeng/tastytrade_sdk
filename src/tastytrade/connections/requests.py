@@ -164,12 +164,12 @@ class AsyncSessionHandler:
                         if resp.status in range(200, 300):
                             logger.info("Server-side session terminated")
                         else:
-                            logger.warning(
-                                "Failed to terminate session: HTTP %s",
+                            logger.debug(
+                                "Server-side session termination returned HTTP %s",
                                 resp.status,
                             )
                 except Exception as e:
-                    logger.warning("Error terminating server-side session: %s", e)
+                    logger.debug("Server-side session termination skipped: %s", e)
             await self.session.close()
             self.is_active = False
             logger.info("Session closed")
