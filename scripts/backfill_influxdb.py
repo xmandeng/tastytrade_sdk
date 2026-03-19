@@ -18,7 +18,7 @@ import sys
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
 from tastytrade.accounts.client import AccountsClient
-from tastytrade.accounts.models import TradeChain
+from tastytrade.accounts.models import OrderStatus, TradeChain
 from tastytrade.accounts.publisher import AccountStreamPublisher
 from tastytrade.accounts.transactions import (
     TransactionsClient,
@@ -57,13 +57,18 @@ async def main() -> None:
     counts: dict[str, int] = {}
 
     try:
-        # --- 1. Backfill orders ---
-        logger.info("Backfilling orders...")
-        orders = await accounts_client.get_orders(account)
-        for order in orders:
+        # --- 1. Backfill filled orders ---
+        logger.info("Backfilling filled orders...")
+        all_orders = await accounts_client.get_orders(account)
+        filled_orders = [o for o in all_orders if o.status == OrderStatus.FILLED]
+        for order in filled_orders:
             influx.process_event(order.for_influx())  # type: ignore[arg-type]
-        counts["orders"] = len(orders)
-        logger.info("Wrote %d orders to InfluxDB", len(orders))
+        counts["orders"] = len(filled_orders)
+        logger.info(
+            "Wrote %d filled orders to InfluxDB (of %d total)",
+            len(filled_orders),
+            len(all_orders),
+        )
 
         # --- 2. Backfill trade chains from Redis ---
         logger.info("Backfilling trade chains from Redis...")
