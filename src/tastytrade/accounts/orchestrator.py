@@ -153,24 +153,32 @@ async def resolve_multiplier(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
     leg: OrderLeg,
 ) -> Decimal:
-    """Resolve the contract multiplier for an option leg from instruments in Redis.
+    """Resolve the contract multiplier for an option leg from the Position in Redis.
 
-    Equity options: shares-per-contract (default 100).
-    Future options: multiplier from the future option instrument itself.
+    The Position API always populates ``multiplier`` for options:
+    100 for equity options, notional multiplier for future options
+    (e.g. 100 for /GC, 125000 for /6E, 50 for /RTY).
+
+    The position consumer and fill monitor run concurrently, so the
+    position may not be in Redis yet when a fill arrives. Retries
+    briefly to allow the position event to land.
     """
-    raw = await redis_client.hget(AccountStreamPublisher.INSTRUMENTS_KEY, leg.symbol)
-    inst = json.loads(raw) if raw is not None else {}
+    for _ in range(5):
+        raw = await redis_client.hget(AccountStreamPublisher.POSITIONS_KEY, leg.symbol)
+        if raw is not None:
+            position = json.loads(raw)
+            m = position.get("multiplier")
+            if m is not None:
+                return Decimal(str(m))
+        await asyncio.sleep(0.2)
 
+    logger.warning(
+        "Position not found in Redis for %s, using default multiplier", leg.symbol
+    )
+
+    # Equity options default to 100 shares per contract
     if leg.instrument_type == InstrumentType.EQUITY_OPTION:
-        spc = inst.get("shares-per-contract")
-        if spc is not None:
-            return Decimal(str(spc))
         return Decimal("100")
-
-    if leg.instrument_type == InstrumentType.FUTURE_OPTION:
-        m = inst.get("multiplier")
-        if m is not None:
-            return Decimal(str(m))
 
     return Decimal("1")
 

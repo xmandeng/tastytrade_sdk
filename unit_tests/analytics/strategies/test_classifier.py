@@ -373,13 +373,13 @@ class TestBuildParsedLegFutureOptions:
             quantity_direction=QuantityDirection.SHORT,
         )
         sec.average_open_price = 0.0
+        sec.multiplier = 125000.0
         instruments = {
             "./6EM6 EUUJ6 260403P1.16": {
                 "option-type": "P",
                 "strike-price": "1.16",
                 "expiration-date": "2026-04-03",
                 "days-to-expiration": 33,
-                "multiplier": "125000.0",
             },
         }
         classifier = StrategyClassifier()
@@ -397,13 +397,13 @@ class TestBuildParsedLegFutureOptions:
             quantity_direction=QuantityDirection.SHORT,
         )
         sec.average_open_price = 0.23
+        sec.multiplier = 1000.0
         instruments = {
             "./ZBM6 OZBJ6 260327P115": {
                 "option-type": "P",
                 "strike-price": "115.0",
                 "expiration-date": "2026-03-27",
                 "days-to-expiration": 26,
-                "multiplier": "1000.0",
             },
         }
         classifier = StrategyClassifier()

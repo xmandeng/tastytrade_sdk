@@ -11,7 +11,6 @@ from collections import defaultdict
 from decimal import Decimal
 from typing import Any, Optional
 
-from tastytrade.accounts.models import InstrumentType
 from tastytrade.analytics.metrics import SecurityMetrics
 from tastytrade.analytics.strategies.models import ParsedLeg, Strategy
 from tastytrade.analytics.strategies.patterns import (
@@ -62,18 +61,12 @@ class StrategyClassifier:
             dte_raw = instrument_data.get("days-to-expiration")
             dte = int(dte_raw) if dte_raw is not None else None
 
-        # Determine contract multiplier for dollar P&L
-        multiplier = Decimal("1")
-        if security.instrument_type == InstrumentType.EQUITY_OPTION:
-            if instrument_data and instrument_data.get("shares-per-contract"):
-                multiplier = Decimal(str(instrument_data["shares-per-contract"]))
-        elif security.instrument_type == InstrumentType.FUTURE_OPTION:
-            # Read the multiplier from the future option instrument itself.
-            # Always available — fetched at startup for every held option.
-            if instrument_data:
-                m = instrument_data.get("multiplier")
-                if m is not None:
-                    multiplier = Decimal(str(m))
+        # Contract multiplier for dollar P&L — from the Position API.
+        # Always populated for options: 100 for equity options,
+        # notional multiplier for future options (e.g. 100 for /GC, 125000 for /6E).
+        multiplier = (
+            Decimal(str(security.multiplier)) if security.multiplier else Decimal("1")
+        )
 
         # The Position API returns 0.0 for average-open-price on some
         # future options (e.g. /6E) where the premium is too small to

@@ -145,11 +145,11 @@ class TestComputeLegEntryCredit:
 
 class TestResolveMultiplier:
     @pytest.mark.asyncio
-    async def test_equity_option_from_instrument(self) -> None:
-        """Equity option reads shares-per-contract from Redis instrument."""
+    async def test_equity_option_from_position(self) -> None:
+        """Equity option reads multiplier from Position in Redis."""
         redis_client = AsyncMock()
-        inst_data = json.dumps({"shares-per-contract": 100}).encode()
-        redis_client.hget.return_value = inst_data
+        pos_data = json.dumps({"multiplier": 100}).encode()
+        redis_client.hget.return_value = pos_data
 
         leg = make_leg(instrument_type=InstrumentType.EQUITY_OPTION)
         result = await resolve_multiplier(redis_client, leg)
@@ -157,7 +157,7 @@ class TestResolveMultiplier:
 
     @pytest.mark.asyncio
     async def test_equity_option_defaults_to_100(self) -> None:
-        """Equity option defaults to 100 when instrument not in Redis."""
+        """Equity option defaults to 100 when position not in Redis."""
         redis_client = AsyncMock()
         redis_client.hget.return_value = None
 
@@ -166,22 +166,22 @@ class TestResolveMultiplier:
         assert result == Decimal("100")
 
     @pytest.mark.asyncio
-    async def test_future_option_from_instrument(self) -> None:
-        """Future option reads multiplier from its own instrument data."""
+    async def test_future_option_from_position(self) -> None:
+        """Future option reads multiplier from Position in Redis."""
         redis_client = AsyncMock()
-        inst_data = json.dumps({"multiplier": "125000"}).encode()
-        redis_client.hget.return_value = inst_data
+        pos_data = json.dumps({"multiplier": 125000.0}).encode()
+        redis_client.hget.return_value = pos_data
 
         leg = make_leg(
             symbol="./6EM6 EUUK6 260508C1.2",
             instrument_type=InstrumentType.FUTURE_OPTION,
         )
         result = await resolve_multiplier(redis_client, leg)
-        assert result == Decimal("125000")
+        assert result == Decimal("125000.0")
 
     @pytest.mark.asyncio
-    async def test_future_option_missing_instrument_defaults_to_1(self) -> None:
-        """Future option defaults to 1 when instrument not in Redis."""
+    async def test_future_option_missing_position_defaults_to_1(self) -> None:
+        """Future option defaults to 1 when position not in Redis."""
         redis_client = AsyncMock()
         redis_client.hget.return_value = None
 
@@ -223,14 +223,12 @@ class TestMonitorFillsForEntryCredits:
 
         redis_client = AsyncMock()
         redis_client.pubsub = MagicMock(return_value=pubsub_mock)
-        # Return equity option instrument with shares-per-contract
-        redis_client.hget.return_value = json.dumps(
-            {"shares-per-contract": 100}
-        ).encode()
+        # Position with multiplier = 100 (equity option)
+        redis_client.hget.return_value = json.dumps({"multiplier": 100}).encode()
 
         publisher = AsyncMock()
         publisher.ORDER_CHANNEL = "tastytrade:events:Order"
-        publisher.INSTRUMENTS_KEY = "tastytrade:instruments"
+        publisher.POSITIONS_KEY = "tastytrade:positions"
 
         await run_monitor_briefly(redis_client, publisher)
 
@@ -260,13 +258,12 @@ class TestMonitorFillsForEntryCredits:
 
         redis_client = AsyncMock()
         redis_client.pubsub = MagicMock(return_value=pubsub_mock)
-        redis_client.hget.return_value = json.dumps(
-            {"shares-per-contract": 100}
-        ).encode()
+        # Position with multiplier = 100 (equity option)
+        redis_client.hget.return_value = json.dumps({"multiplier": 100}).encode()
 
         publisher = AsyncMock()
         publisher.ORDER_CHANNEL = "tastytrade:events:Order"
-        publisher.INSTRUMENTS_KEY = "tastytrade:instruments"
+        publisher.POSITIONS_KEY = "tastytrade:positions"
 
         await run_monitor_briefly(redis_client, publisher)
 
@@ -314,12 +311,12 @@ class TestMonitorFillsForEntryCredits:
 
         redis_client = AsyncMock()
         redis_client.pubsub = MagicMock(return_value=pubsub_mock)
-        # Future option instrument multiplier = 50
-        redis_client.hget.return_value = json.dumps({"multiplier": "50"}).encode()
+        # Position multiplier for /RTY future options = 50
+        redis_client.hget.return_value = json.dumps({"multiplier": 50.0}).encode()
 
         publisher = AsyncMock()
         publisher.ORDER_CHANNEL = "tastytrade:events:Order"
-        publisher.INSTRUMENTS_KEY = "tastytrade:instruments"
+        publisher.POSITIONS_KEY = "tastytrade:positions"
 
         await run_monitor_briefly(redis_client, publisher)
 
