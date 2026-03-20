@@ -271,6 +271,7 @@ class PositionMetricsReader:
     # -- Campaign P&L aggregation (TT-91) --
     # Groups chains by underlying, sums realized P&L from rolls,
     # cross-references open legs with live position mark data.
+    # Unrealized = (mark - avg_open) × qty × multiplier per open leg.
 
     @property
     def campaign_summary(self) -> pd.DataFrame:
@@ -282,19 +283,20 @@ class PositionMetricsReader:
             "total_rolls",
             "realized_pnl",
             "total_fees",
-            "unrealized_mark",
+            "pnl_open",
             "net_pnl",
             "recovery_needed",
         ]
         if not self.trade_chains:
             return pd.DataFrame(columns=columns)
 
-        # Build symbol → position lookup for mark value computation
+        # Build symbol → position lookup for unrealized P&L computation
         pos_by_symbol: dict[str, dict[str, Any]] = {}
         if not self.position_metrics_df.empty:
             for _, row in self.position_metrics_df.iterrows():
                 pos_by_symbol[str(row["symbol"]).strip()] = {
                     "mid_price": row.get("mid_price"),
+                    "average_open_price": row.get("average_open_price"),
                     "quantity": row.get("quantity"),
                     "multiplier": row.get("multiplier"),
                     "quantity_direction": row.get("quantity_direction"),
@@ -326,19 +328,26 @@ class PositionMetricsReader:
                     for entry in cd.open_entries:
                         sym = entry.symbol.strip()
                         pos = pos_by_symbol.get(sym)
-                        if pos is None or pos["mid_price"] is None:
+                        if pos is None:
                             continue
-                        mid = Decimal(str(pos["mid_price"]))
+                        mid = pos["mid_price"]
+                        avg_open = pos["average_open_price"]
+                        if mid is None or avg_open is None:
+                            continue
                         qty = Decimal(str(pos["quantity"]))
                         mult = Decimal(str(pos["multiplier"] or 1))
-                        sign = (
-                            Decimal("-1")
-                            if str(pos["quantity_direction"]) == "Short"
-                            or str(pos["quantity_direction"])
-                            == "QuantityDirection.SHORT"
-                            else Decimal("1")
+                        is_short = str(pos["quantity_direction"]) in (
+                            "Short",
+                            "QuantityDirection.SHORT",
                         )
-                        total_unrealized += mid * qty * mult * sign
+                        sign = Decimal("-1") if is_short else Decimal("1")
+                        pnl = (
+                            (Decimal(str(mid)) - Decimal(str(avg_open)))
+                            * qty
+                            * mult
+                            * sign
+                        )
+                        total_unrealized += pnl
 
             net_pnl = total_realized + total_unrealized
             recovery = max(Decimal("0"), -net_pnl)
@@ -351,7 +360,7 @@ class PositionMetricsReader:
                     "total_rolls": total_rolls,
                     "realized_pnl": float(total_realized),
                     "total_fees": float(total_fees),
-                    "unrealized_mark": float(total_unrealized),
+                    "pnl_open": float(total_unrealized),
                     "net_pnl": float(net_pnl),
                     "recovery_needed": float(recovery),
                 }
@@ -364,7 +373,7 @@ class PositionMetricsReader:
             for col in (
                 "realized_pnl",
                 "total_fees",
-                "unrealized_mark",
+                "pnl_open",
                 "net_pnl",
                 "recovery_needed",
             ):
@@ -373,12 +382,13 @@ class PositionMetricsReader:
 
     def campaign_detail(self, underlying: Optional[str] = None) -> list[dict[str, Any]]:
         """Detailed roll history per chain, optionally filtered by underlying."""
-        # Build symbol → position lookup for open leg mark values
+        # Build symbol → position lookup for open leg P&L
         pos_by_symbol: dict[str, dict[str, Any]] = {}
         if not self.position_metrics_df.empty:
             for _, row in self.position_metrics_df.iterrows():
                 pos_by_symbol[str(row["symbol"]).strip()] = {
                     "mid_price": row.get("mid_price"),
+                    "average_open_price": row.get("average_open_price"),
                     "quantity": row.get("quantity"),
                     "multiplier": row.get("multiplier"),
                     "quantity_direction": row.get("quantity_direction"),
@@ -456,34 +466,40 @@ class PositionMetricsReader:
                     }
                 )
 
-            # Open legs with current mark values
+            # Open legs with unrealized P&L per leg
             open_legs = []
             unrealized = Decimal("0")
             for entry in cd.open_entries:
                 sym = entry.symbol.strip()
                 direction = "Short" if entry.quantity_type == "Short" else "Long"
                 pos = pos_by_symbol.get(sym)
-                mark_value: float | None = None
-                if pos and pos["mid_price"] is not None:
-                    mid = Decimal(str(pos["mid_price"]))
-                    qty = Decimal(str(pos["quantity"]))
-                    mult = Decimal(str(pos["multiplier"] or 1))
-                    sign = (
-                        Decimal("-1")
-                        if str(pos["quantity_direction"]) == "Short"
-                        or str(pos["quantity_direction"]) == "QuantityDirection.SHORT"
-                        else Decimal("1")
-                    )
-                    mv = mid * qty * mult * sign
-                    mark_value = float(mv)
-                    unrealized += mv
+                pnl_value: float | None = None
+                if pos is not None:
+                    mid = pos["mid_price"]
+                    avg_open = pos["average_open_price"]
+                    if mid is not None and avg_open is not None:
+                        qty = Decimal(str(pos["quantity"]))
+                        mult = Decimal(str(pos["multiplier"] or 1))
+                        is_short = str(pos["quantity_direction"]) in (
+                            "Short",
+                            "QuantityDirection.SHORT",
+                        )
+                        sign = Decimal("-1") if is_short else Decimal("1")
+                        pnl = (
+                            (Decimal(str(mid)) - Decimal(str(avg_open)))
+                            * qty
+                            * mult
+                            * sign
+                        )
+                        pnl_value = float(pnl)
+                        unrealized += pnl
 
                 open_legs.append(
                     {
                         "symbol": sym,
                         "quantity": entry.quantity,
                         "direction": direction,
-                        "mark_value": mark_value,
+                        "pnl_open": pnl_value,
                     }
                 )
 
@@ -497,7 +513,7 @@ class PositionMetricsReader:
                     "rolls": cd.roll_count,
                     "realized_pnl": str(realized),
                     "total_fees": str(fees),
-                    "unrealized_mark": str(unrealized),
+                    "pnl_open": str(unrealized),
                     "net_pnl": str(net_pnl),
                     "opened_at": cd.opened_at,
                     "nodes": nodes,

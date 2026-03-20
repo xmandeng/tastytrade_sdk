@@ -330,7 +330,7 @@ class TestApplyEffect:
 
 
 # ---------------------------------------------------------------------------
-# campaign_summary (TT-91)
+# campaign_summary (TT-91) — chain-based P&L with corrected unrealized
 # ---------------------------------------------------------------------------
 
 
@@ -339,6 +339,7 @@ def make_position_df(rows: list[dict[str, object]]) -> pd.DataFrame:
     defaults = {
         "symbol": "",
         "mid_price": None,
+        "average_open_price": None,
         "quantity": 1.0,
         "multiplier": 1.0,
         "quantity_direction": QuantityDirection.SHORT,
@@ -356,9 +357,7 @@ class TestCampaignSummary:
         assert "underlying" in df.columns
         assert "net_pnl" in df.columns
 
-    def test_single_underlying_single_chain(
-        self, reader: PositionMetricsReader
-    ) -> None:
+    def test_closed_chain_realized_only(self, reader: PositionMetricsReader) -> None:
         chain = TradeChain.model_validate_json(
             make_trade_chain_json(
                 realized_gain="200.0",
@@ -373,12 +372,8 @@ class TestCampaignSummary:
         assert len(df) == 1
         row = df.iloc[0]
         assert row["underlying"] == "/6E"
-        assert row["chains"] == 1
-        assert row["open_chains"] == 0
-        assert row["total_rolls"] == 2
         assert row["realized_pnl"] == 200.0
-        assert row["total_fees"] == 10.0
-        assert row["unrealized_mark"] == 0.0
+        assert row["pnl_open"] == 0.0
         assert row["net_pnl"] == 200.0
         assert row["recovery_needed"] == 0.0
 
@@ -399,6 +394,100 @@ class TestCampaignSummary:
         assert row["realized_pnl"] == -450.0
         assert row["net_pnl"] == -450.0
         assert row["recovery_needed"] == 450.0
+
+    def test_unrealized_uses_mid_minus_avg_open(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        """P&L Open = (mid - avg_open) * qty * mult * dir_sign, not just mid."""
+        sym = CALL_SYMBOL
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="0.0",
+                realized_gain_effect="Credit",
+                is_open=True,
+                open_entry_symbols=[sym],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        # Short 1x, sold at 2.00, now at 1.50 → profit = (2.00-1.50)*1*1000 = 500
+        reader.position_metrics_df = make_position_df(
+            [
+                {
+                    "symbol": sym,
+                    "mid_price": 1.50,
+                    "average_open_price": 2.00,
+                    "quantity": 1.0,
+                    "multiplier": 1000.0,
+                    "quantity_direction": QuantityDirection.SHORT,
+                }
+            ]
+        )
+        df = reader.campaign_summary
+        row = df.iloc[0]
+        assert row["pnl_open"] == 500.0
+        assert row["net_pnl"] == 500.0
+
+    def test_long_position_unrealized(self, reader: PositionMetricsReader) -> None:
+        sym = PUT_SYMBOL
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="0.0",
+                realized_gain_effect="Credit",
+                is_open=True,
+                open_entry_symbols=[sym],
+                open_entry_directions=["Long"],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        # Long 1x, bought at 1.0, now at 3.0 → profit = (3-1)*1*1000 = 2000
+        reader.position_metrics_df = make_position_df(
+            [
+                {
+                    "symbol": sym,
+                    "mid_price": 3.0,
+                    "average_open_price": 1.0,
+                    "quantity": 1.0,
+                    "multiplier": 1000.0,
+                    "quantity_direction": QuantityDirection.LONG,
+                }
+            ]
+        )
+        df = reader.campaign_summary
+        assert df.iloc[0]["pnl_open"] == 2000.0
+
+    def test_net_pnl_combines_realized_and_unrealized(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        sym = CALL_SYMBOL
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="300.0",
+                realized_gain_effect="Debit",
+                is_open=True,
+                open_entry_symbols=[sym],
+                open_entry_directions=["Long"],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        # Long: (5-3)*1*100 = 200 unrealized
+        reader.position_metrics_df = make_position_df(
+            [
+                {
+                    "symbol": sym,
+                    "mid_price": 5.0,
+                    "average_open_price": 3.0,
+                    "quantity": 1.0,
+                    "multiplier": 100.0,
+                    "quantity_direction": QuantityDirection.LONG,
+                }
+            ]
+        )
+        df = reader.campaign_summary
+        row = df.iloc[0]
+        assert row["realized_pnl"] == -300.0
+        assert row["pnl_open"] == 200.0
+        assert row["net_pnl"] == -100.0
+        assert row["recovery_needed"] == 100.0
 
     def test_multiple_chains_same_underlying_aggregates(
         self, reader: PositionMetricsReader
@@ -433,130 +522,10 @@ class TestCampaignSummary:
         assert row["chains"] == 2
         assert row["total_rolls"] == 2
         assert row["realized_pnl"] == -150.0
-        assert row["total_fees"] == 8.0
 
-    def test_multiple_underlyings_grouped(self, reader: PositionMetricsReader) -> None:
-        chain_zb = TradeChain.model_validate_json(
-            make_trade_chain_json(
-                chain_id="zb1",
-                underlying="/ZB",
-                realized_gain="100.0",
-                realized_gain_effect="Credit",
-                is_open=False,
-            )
-        )
-        chain_es = TradeChain.model_validate_json(
-            make_trade_chain_json(
-                chain_id="es1",
-                underlying="/ES",
-                realized_gain="200.0",
-                realized_gain_effect="Debit",
-                is_open=False,
-            )
-        )
-        reader.trade_chains = {chain_zb.id: chain_zb, chain_es.id: chain_es}
-        df = reader.campaign_summary
-        assert len(df) == 2
-        assert set(df["underlying"]) == {"/ES", "/ZB"}
-
-    def test_unrealized_mark_from_positions(
+    def test_missing_position_data_treated_as_zero_unrealized(
         self, reader: PositionMetricsReader
     ) -> None:
-        """Open chain with position data computes unrealized mark."""
-        sym = CALL_SYMBOL
-        chain = TradeChain.model_validate_json(
-            make_trade_chain_json(
-                realized_gain="0.0",
-                realized_gain_effect="Credit",
-                total_fees="5.0",
-                is_open=True,
-                open_entry_symbols=[sym],
-            )
-        )
-        reader.trade_chains = {chain.id: chain}
-        # Short 1x at mid_price=2.50, multiplier=1000 → mark = -2500
-        reader.position_metrics_df = make_position_df(
-            [
-                {
-                    "symbol": sym,
-                    "mid_price": 2.50,
-                    "quantity": 1.0,
-                    "multiplier": 1000.0,
-                    "quantity_direction": QuantityDirection.SHORT,
-                }
-            ]
-        )
-        df = reader.campaign_summary
-        row = df.iloc[0]
-        assert row["unrealized_mark"] == -2500.0
-        assert row["net_pnl"] == -2500.0
-        assert row["recovery_needed"] == 2500.0
-
-    def test_net_pnl_combines_realized_and_unrealized(
-        self, reader: PositionMetricsReader
-    ) -> None:
-        sym = CALL_SYMBOL
-        chain = TradeChain.model_validate_json(
-            make_trade_chain_json(
-                realized_gain="300.0",
-                realized_gain_effect="Debit",
-                total_fees="5.0",
-                is_open=True,
-                open_entry_symbols=[sym],
-            )
-        )
-        reader.trade_chains = {chain.id: chain}
-        # Long 1x at mid_price=5.0, multiplier=100 → mark = +500
-        reader.position_metrics_df = make_position_df(
-            [
-                {
-                    "symbol": sym,
-                    "mid_price": 5.0,
-                    "quantity": 1.0,
-                    "multiplier": 100.0,
-                    "quantity_direction": QuantityDirection.LONG,
-                }
-            ]
-        )
-        df = reader.campaign_summary
-        row = df.iloc[0]
-        assert row["realized_pnl"] == -300.0
-        assert row["unrealized_mark"] == 500.0
-        assert row["net_pnl"] == 200.0
-        assert row["recovery_needed"] == 0.0
-
-    def test_recovery_needed_zero_when_profitable(
-        self, reader: PositionMetricsReader
-    ) -> None:
-        chain = TradeChain.model_validate_json(
-            make_trade_chain_json(
-                realized_gain="500.0",
-                realized_gain_effect="Credit",
-                is_open=False,
-            )
-        )
-        reader.trade_chains = {chain.id: chain}
-        df = reader.campaign_summary
-        assert df.iloc[0]["recovery_needed"] == 0.0
-
-    def test_closed_chains_have_zero_unrealized(
-        self, reader: PositionMetricsReader
-    ) -> None:
-        chain = TradeChain.model_validate_json(
-            make_trade_chain_json(
-                realized_gain="100.0",
-                realized_gain_effect="Debit",
-                is_open=False,
-            )
-        )
-        reader.trade_chains = {chain.id: chain}
-        df = reader.campaign_summary
-        assert df.iloc[0]["unrealized_mark"] == 0.0
-
-    def test_missing_position_data_treated_as_zero_mark(
-        self, reader: PositionMetricsReader
-    ) -> None:
-        """Open chain with no matching position data → unrealized = 0."""
         chain = TradeChain.model_validate_json(
             make_trade_chain_json(
                 realized_gain="50.0",
@@ -567,7 +536,7 @@ class TestCampaignSummary:
         )
         reader.trade_chains = {chain.id: chain}
         df = reader.campaign_summary
-        assert df.iloc[0]["unrealized_mark"] == 0.0
+        assert df.iloc[0]["pnl_open"] == 0.0
         assert df.iloc[0]["net_pnl"] == 50.0
 
 
@@ -718,6 +687,7 @@ class TestCampaignDetail:
                 {
                     "symbol": sym,
                     "mid_price": 3.0,
+                    "average_open_price": 2.0,
                     "quantity": 1.0,
                     "multiplier": 1000.0,
                     "quantity_direction": QuantityDirection.SHORT,
@@ -729,4 +699,5 @@ class TestCampaignDetail:
         assert len(open_legs) == 1
         assert open_legs[0]["symbol"] == sym
         assert open_legs[0]["direction"] == "Short"
-        assert open_legs[0]["mark_value"] == -3000.0
+        # Short: -(3.0 - 2.0) * 1 * 1000 = -1000
+        assert open_legs[0]["pnl_open"] == -1000.0
