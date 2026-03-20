@@ -353,3 +353,77 @@ class TestButterflyMaxProfitLoss:
         )
         assert strat.max_profit is None
         assert strat.max_loss is None
+
+
+class TestIronButterflyMaxProfitLoss:
+    """Test max profit/loss for Iron Butterfly strategies."""
+
+    def test_iron_butterfly_equity(self) -> None:
+        """Iron Butterfly: max profit = credit, max loss = wing - credit."""
+        legs = (
+            # +P@280 for $50 debit
+            make_option_leg("P", Decimal("280"), 1, entry_value=Decimal("-50")),
+            # -P@300 for $400 credit
+            make_option_leg("P", Decimal("300"), -1, entry_value=Decimal("400")),
+            # -C@300 for $400 credit
+            make_option_leg("C", Decimal("300"), -1, entry_value=Decimal("400")),
+            # +C@320 for $50 debit
+            make_option_leg("C", Decimal("320"), 1, entry_value=Decimal("-50")),
+        )
+        strat = Strategy(
+            strategy_type=StrategyType.IRON_BUTTERFLY,
+            underlying="SPY",
+            legs=legs,
+        )
+        # Net credit = -50 + 400 + 400 + (-50) = 700
+        assert strat.max_profit == Decimal("700")
+        # Wing width = 20 (both sides equal), mult = 100
+        # Max loss = 20 * 100 - 700 = 1300
+        assert strat.max_loss == Decimal("1300")
+
+    def test_iron_butterfly_futures(self) -> None:
+        """Iron Butterfly on /GC (multiplier=100): like the user's Gold position."""
+        legs = (
+            make_option_leg(
+                "P",
+                Decimal("4615"),
+                1,
+                entry_value=Decimal("-200"),
+                multiplier=Decimal("100"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+            make_option_leg(
+                "P",
+                Decimal("4635"),
+                -1,
+                entry_value=Decimal("500"),
+                multiplier=Decimal("100"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+            make_option_leg(
+                "C",
+                Decimal("4635"),
+                -1,
+                entry_value=Decimal("500"),
+                multiplier=Decimal("100"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+            make_option_leg(
+                "C",
+                Decimal("4655"),
+                1,
+                entry_value=Decimal("-200"),
+                multiplier=Decimal("100"),
+                instrument_type=InstrumentType.FUTURE_OPTION,
+            ),
+        )
+        strat = Strategy(
+            strategy_type=StrategyType.IRON_BUTTERFLY,
+            underlying="/GCM6",
+            legs=legs,
+        )
+        # Net credit = -200 + 500 + 500 + (-200) = 600
+        assert strat.max_profit == Decimal("600")
+        # Wing width = 20, mult = 100
+        # Max loss = 20 * 100 - 600 = 1400
+        assert strat.max_loss == Decimal("1400")
