@@ -57,12 +57,16 @@ strategies-json:
     uv run tasty-subscription strategies --json
 
 # Trade chain lifecycle summary (rolls, P&L, fees)
-chains:
-    uv run tasty-subscription chains
+chains *args:
+    uv run tasty-subscription chains {{args}}
 
-# Trade chain lifecycle summary in JSON format
-chains-json:
-    uv run tasty-subscription chains --json
+# Campaign P&L by underlying (realized + unrealized + recovery needed)
+campaign *args:
+    uv run tasty-subscription chains --campaign {{args}}
+
+# Detailed roll history per chain with node-level fills
+campaign-detail *args:
+    uv run tasty-subscription chains --detail {{args}}
 
 # Backfill historical account events into InfluxDB (idempotent)
 backfill:
