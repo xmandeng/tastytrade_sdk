@@ -121,7 +121,7 @@ class StrategyHealthMonitor:
                     HealthAlert(
                         strategy=strategy,
                         level=AlertLevel.CRITICAL,
-                        message=f"DTE={dte} <= {thresholds.dte_critical} (critical)",
+                        message=f"DTE={dte} <= {thresholds.dte_critical}",
                     )
                 )
             elif dte <= thresholds.dte_warning:
@@ -129,7 +129,7 @@ class StrategyHealthMonitor:
                     HealthAlert(
                         strategy=strategy,
                         level=AlertLevel.WARNING,
-                        message=f"DTE={dte} <= {thresholds.dte_warning} (warning)",
+                        message=f"DTE={dte} <= {thresholds.dte_warning}",
                     )
                 )
 

@@ -19,5 +19,9 @@ dte_warning = 14
 dte_critical = 7
 delta_drift_warning = 0.25
 
+[covered_call]
+dte_warning = 5
+dte_critical = 3
+
 [jade_lizard]
 delta_drift_warning = 0.35
