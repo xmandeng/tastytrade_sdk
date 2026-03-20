@@ -414,7 +414,7 @@ def format_campaign_detail(chains: list[dict[str, object]]) -> None:
         click.echo(
             f"Realized P&L: {chain_data['realized_pnl']}  "
             f"Fees: {chain_data['total_fees']}  "
-            f"Unrealized: {chain_data['unrealized_mark']}"
+            f"P&L Open: {chain_data['pnl_open']}"
         )
         click.echo(f"Net P&L: {chain_data['net_pnl']}")
         click.echo(f"Opened: {chain_data.get('opened_at', '-')}")
@@ -466,8 +466,8 @@ def format_campaign_detail(chains: list[dict[str, object]]) -> None:
             click.echo(f"  {'-' * 60}")
             for leg in open_legs:
                 if isinstance(leg, dict):
-                    mark = leg.get("mark_value")
-                    mark_str = f"  mark=${mark:,.2f}" if mark is not None else ""
+                    pnl = leg.get("pnl_open")
+                    mark_str = f"  P&L=${pnl:,.2f}" if pnl is not None else ""
                     click.echo(
                         f"    {leg.get('direction', '-')} "
                         f"{leg.get('quantity', '-')}x "
