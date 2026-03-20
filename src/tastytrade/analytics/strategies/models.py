@@ -318,6 +318,8 @@ def compute_max_profit(strategy: Strategy) -> Optional[Decimal]:
         StrategyType.BEAR_CALL_SPREAD,
         StrategyType.BULL_PUT_SPREAD,
         StrategyType.IRON_CONDOR,
+        StrategyType.IRON_BUTTERFLY,
+        StrategyType.IRON_BROKEN_FLY,
         StrategyType.SHORT_STRANGLE,
         StrategyType.SHORT_STRADDLE,
         StrategyType.NAKED_CALL,
@@ -396,7 +398,11 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
         net_debit = -net_credit
         return max(net_debit, Decimal("0")).quantize(Decimal("1"))
 
-    if st == StrategyType.IRON_CONDOR:
+    if st in (
+        StrategyType.IRON_CONDOR,
+        StrategyType.IRON_BUTTERFLY,
+        StrategyType.IRON_BROKEN_FLY,
+    ):
         put_strikes = sorted(
             leg.strike for leg in option_legs if leg.is_put and leg.strike
         )
