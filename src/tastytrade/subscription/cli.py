@@ -401,6 +401,81 @@ def strategies_cmd(as_json: bool) -> None:
     asyncio.run(_run())
 
 
+def format_campaign_detail(chains: list[dict[str, object]]) -> None:
+    """Print human-readable detail of chain roll history."""
+    for chain_data in chains:
+        click.echo(f"{'=' * 70}")
+        click.echo(f"Chain: {chain_data['chain_id']}  {chain_data['description']}")
+        click.echo(
+            f"Underlying: {chain_data['underlying']}  "
+            f"Status: {chain_data['status']}  "
+            f"Rolls: {chain_data['rolls']}"
+        )
+        click.echo(
+            f"Realized P&L: {chain_data['realized_pnl']}  "
+            f"Fees: {chain_data['total_fees']}  "
+            f"Unrealized: {chain_data['unrealized_mark']}"
+        )
+        click.echo(f"Net P&L: {chain_data['net_pnl']}")
+        click.echo(f"Opened: {chain_data.get('opened_at', '-')}")
+
+        nodes = chain_data.get("nodes")
+        if isinstance(nodes, list):
+            click.echo(f"\n  {'Roll History':}")
+            click.echo(f"  {'-' * 60}")
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                roll_marker = " [ROLL]" if node.get("roll") else ""
+                click.echo(
+                    f"  {node.get('occurred_at', '-')}  "
+                    f"{node.get('description', '-')}{roll_marker}"
+                )
+                click.echo(
+                    f"    Fill cost: {node.get('fill_cost', '-')}  "
+                    f"Fees: {node.get('total_fees', '-')}"
+                )
+                legs = node.get("legs")
+                if isinstance(legs, list):
+                    for leg in legs:
+                        if isinstance(leg, dict):
+                            click.echo(
+                                f"      {leg.get('action', '-')} "
+                                f"{leg.get('fill_quantity', '-')}x "
+                                f"{leg.get('symbol', '-')}"
+                            )
+                entries = node.get("entries")
+                if isinstance(entries, list) and entries:
+                    for entry in entries:
+                        if isinstance(entry, dict):
+                            click.echo(
+                                f"      => {entry.get('direction', '-')} "
+                                f"{entry.get('quantity', '-')}x "
+                                f"{entry.get('symbol', '-')}"
+                            )
+                snapshot = node.get("market_snapshot")
+                if isinstance(snapshot, dict):
+                    click.echo(
+                        f"    Market: delta={snapshot.get('total_delta', '-')} "
+                        f"theta={snapshot.get('total_theta', '-')}"
+                    )
+
+        open_legs = chain_data.get("open_legs")
+        if isinstance(open_legs, list) and open_legs:
+            click.echo(f"\n  {'Open Legs':}")
+            click.echo(f"  {'-' * 60}")
+            for leg in open_legs:
+                if isinstance(leg, dict):
+                    mark = leg.get("mark_value")
+                    mark_str = f"  mark=${mark:,.2f}" if mark is not None else ""
+                    click.echo(
+                        f"    {leg.get('direction', '-')} "
+                        f"{leg.get('quantity', '-')}x "
+                        f"{leg.get('symbol', '-')}{mark_str}"
+                    )
+        click.echo()
+
+
 @cli.command(name="chains")
 @click.option(
     "--json",
@@ -409,7 +484,29 @@ def strategies_cmd(as_json: bool) -> None:
     default=False,
     help="Output in JSON format for machine consumption.",
 )
-def chains_cmd(as_json: bool) -> None:
+@click.option(
+    "--campaign",
+    is_flag=True,
+    default=False,
+    help="Group by underlying with campaign P&L aggregation.",
+)
+@click.option(
+    "--underlying",
+    default=None,
+    help="Filter to specific underlying (e.g., /ZB, /ES, SPY).",
+)
+@click.option(
+    "--detail",
+    is_flag=True,
+    default=False,
+    help="Show full roll history per chain with node-level fills.",
+)
+def chains_cmd(
+    as_json: bool,
+    campaign: bool,
+    underlying: str | None,
+    detail: bool,
+) -> None:
     """Show trade chain lifecycle summary from Redis.
 
     Displays one row per OrderChain with strategy name, rolls,
@@ -417,25 +514,70 @@ def chains_cmd(as_json: bool) -> None:
     to be running.
 
     \b
-    Example:
+    Modes:
+      (default)     One row per chain
+      --campaign    Aggregate by underlying with campaign P&L
+      --detail      Full roll history per chain with node-level fills
+
+    \b
+    Examples:
       tasty-subscription chains
+      tasty-subscription chains --campaign
+      tasty-subscription chains --campaign --underlying /ZB
+      tasty-subscription chains --detail --underlying /ZB
       tasty-subscription chains --json
     """
 
     async def _run() -> None:
+        import json as json_mod
+
         from tastytrade.analytics.positions import PositionMetricsReader
 
         reader = PositionMetricsReader()
         try:
             await reader.read()
-            df = reader.chain_summary
-            if df.empty:
-                click.echo("No trade chains found in Redis. Is account-stream running?")
-                return
-            if as_json:
-                click.echo(df.to_json(orient="records", indent=2))
+
+            if detail:
+                data = reader.campaign_detail(underlying=underlying)
+                if not data:
+                    click.echo("No matching chains found.")
+                    return
+                if as_json:
+                    click.echo(json_mod.dumps(data, indent=2, default=str))
+                else:
+                    format_campaign_detail(data)
+            elif campaign:
+                df = reader.campaign_summary
+                if df.empty:
+                    click.echo(
+                        "No trade chains found in Redis. Is account-stream running?"
+                    )
+                    return
+                if underlying:
+                    df = df[df["underlying"] == underlying]
+                    if df.empty:
+                        click.echo(f"No chains found for underlying: {underlying}")
+                        return
+                if as_json:
+                    click.echo(df.to_json(orient="records", indent=2))
+                else:
+                    click.echo(df.astype(object).fillna("").to_string(index=False))
             else:
-                click.echo(df.astype(object).fillna("").to_string(index=False))
+                df = reader.chain_summary
+                if df.empty:
+                    click.echo(
+                        "No trade chains found in Redis. Is account-stream running?"
+                    )
+                    return
+                if underlying:
+                    df = df[df["underlying"] == underlying]
+                    if df.empty:
+                        click.echo(f"No chains found for underlying: {underlying}")
+                        return
+                if as_json:
+                    click.echo(df.to_json(orient="records", indent=2))
+                else:
+                    click.echo(df.astype(object).fillna("").to_string(index=False))
         finally:
             await reader.close()
 

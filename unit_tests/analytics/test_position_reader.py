@@ -1,13 +1,14 @@
 """Tests for PositionMetricsReader -- pure Redis consumer."""
 
 import json
+from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pandas as pd
 import pytest
 
-from tastytrade.accounts.models import TradeChain
-from tastytrade.analytics.positions import PositionMetricsReader
+from tastytrade.accounts.models import QuantityDirection, TradeChain
+from tastytrade.analytics.positions import PositionMetricsReader, apply_effect
 
 
 def make_position_json(
@@ -63,35 +64,49 @@ def make_trade_chain_json(
     roll_count: int = 1,
     realized_gain_with_fees: str = "7.68",
     total_fees: str = "7.68",
+    total_fees_effect: str = "Debit",
+    realized_gain: str | None = None,
+    realized_gain_effect: str | None = None,
     opened_at: str = "2026-03-07T15:30:00.000+0000",
     open_entry_symbols: list[str] | None = None,
+    open_entry_directions: list[str] | None = None,
+    lite_nodes: list[dict[str, object]] | None = None,
 ) -> str:
     """Build a trade chain JSON payload for Redis mock."""
+    directions = open_entry_directions or []
     entries = []
-    for sym in open_entry_symbols or []:
+    for i, sym in enumerate(open_entry_symbols or []):
+        direction = directions[i] if i < len(directions) else "Short"
+        sign = "-1" if direction == "Short" else "1"
         entries.append(
             {
                 "symbol": sym,
                 "instrument-type": "Future Option",
                 "quantity": "1",
-                "quantity-type": "Short",
-                "quantity-numeric": "-1",
+                "quantity-type": direction,
+                "quantity-numeric": sign,
             }
         )
+    computed: dict[str, object] = {
+        "open": is_open,
+        "roll-count": roll_count,
+        "realized-gain-with-fees": realized_gain_with_fees,
+        "total-fees": total_fees,
+        "total-fees-effect": total_fees_effect,
+        "opened-at": opened_at,
+        "open-entries": entries,
+    }
+    if realized_gain is not None:
+        computed["realized-gain"] = realized_gain
+    if realized_gain_effect is not None:
+        computed["realized-gain-effect"] = realized_gain_effect
     return json.dumps(
         {
             "id": chain_id,
             "description": description,
             "underlying-symbol": underlying,
-            "computed-data": {
-                "open": is_open,
-                "roll-count": roll_count,
-                "realized-gain-with-fees": realized_gain_with_fees,
-                "total-fees": total_fees,
-                "opened-at": opened_at,
-                "open-entries": entries,
-            },
-            "lite-nodes": [],
+            "computed-data": computed,
+            "lite-nodes": lite_nodes or [],
         }
     )
 
@@ -290,3 +305,428 @@ class TestChainSummary:
         df = reader.chain_summary
         assert len(df) == 1
         assert df.iloc[0]["chain_id"] == "12345"
+
+
+# ---------------------------------------------------------------------------
+# apply_effect utility (TT-91)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyEffect:
+    def test_credit_is_positive(self) -> None:
+        assert apply_effect("100.50", "Credit") == Decimal("100.50")
+
+    def test_debit_is_negative(self) -> None:
+        assert apply_effect("75.00", "Debit") == Decimal("-75.00")
+
+    def test_none_amount_returns_zero(self) -> None:
+        assert apply_effect(None, "Credit") == Decimal("0")
+
+    def test_none_effect_treated_as_positive(self) -> None:
+        assert apply_effect("50.0", None) == Decimal("50.0")
+
+    def test_zero_amount(self) -> None:
+        assert apply_effect("0.0", "Debit") == Decimal("0.0")
+
+
+# ---------------------------------------------------------------------------
+# campaign_summary (TT-91)
+# ---------------------------------------------------------------------------
+
+
+def make_position_df(rows: list[dict[str, object]]) -> pd.DataFrame:
+    """Build a minimal position DataFrame for campaign tests."""
+    defaults = {
+        "symbol": "",
+        "mid_price": None,
+        "quantity": 1.0,
+        "multiplier": 1.0,
+        "quantity_direction": QuantityDirection.SHORT,
+    }
+    full_rows = [{**defaults, **r} for r in rows]
+    return pd.DataFrame(full_rows)
+
+
+class TestCampaignSummary:
+    def test_empty_when_no_chains(self, reader: PositionMetricsReader) -> None:
+        reader.trade_chains = {}
+        df = reader.campaign_summary
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 0
+        assert "underlying" in df.columns
+        assert "net_pnl" in df.columns
+
+    def test_single_underlying_single_chain(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="200.0",
+                realized_gain_effect="Credit",
+                total_fees="10.0",
+                roll_count=2,
+                is_open=False,
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.campaign_summary
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["underlying"] == "/6E"
+        assert row["chains"] == 1
+        assert row["open_chains"] == 0
+        assert row["total_rolls"] == 2
+        assert row["realized_pnl"] == 200.0
+        assert row["total_fees"] == 10.0
+        assert row["unrealized_mark"] == 0.0
+        assert row["net_pnl"] == 200.0
+        assert row["recovery_needed"] == 0.0
+
+    def test_debit_effect_makes_realized_negative(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="450.0",
+                realized_gain_effect="Debit",
+                total_fees="12.0",
+                is_open=False,
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.campaign_summary
+        row = df.iloc[0]
+        assert row["realized_pnl"] == -450.0
+        assert row["net_pnl"] == -450.0
+        assert row["recovery_needed"] == 450.0
+
+    def test_multiple_chains_same_underlying_aggregates(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        chain_a = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="aaa",
+                underlying="/ZB",
+                realized_gain="100.0",
+                realized_gain_effect="Debit",
+                total_fees="5.0",
+                roll_count=1,
+                is_open=False,
+            )
+        )
+        chain_b = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="bbb",
+                underlying="/ZB",
+                realized_gain="50.0",
+                realized_gain_effect="Debit",
+                total_fees="3.0",
+                roll_count=1,
+                is_open=False,
+            )
+        )
+        reader.trade_chains = {chain_a.id: chain_a, chain_b.id: chain_b}
+        df = reader.campaign_summary
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["underlying"] == "/ZB"
+        assert row["chains"] == 2
+        assert row["total_rolls"] == 2
+        assert row["realized_pnl"] == -150.0
+        assert row["total_fees"] == 8.0
+
+    def test_multiple_underlyings_grouped(self, reader: PositionMetricsReader) -> None:
+        chain_zb = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="zb1",
+                underlying="/ZB",
+                realized_gain="100.0",
+                realized_gain_effect="Credit",
+                is_open=False,
+            )
+        )
+        chain_es = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="es1",
+                underlying="/ES",
+                realized_gain="200.0",
+                realized_gain_effect="Debit",
+                is_open=False,
+            )
+        )
+        reader.trade_chains = {chain_zb.id: chain_zb, chain_es.id: chain_es}
+        df = reader.campaign_summary
+        assert len(df) == 2
+        assert set(df["underlying"]) == {"/ES", "/ZB"}
+
+    def test_unrealized_mark_from_positions(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        """Open chain with position data computes unrealized mark."""
+        sym = CALL_SYMBOL
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="0.0",
+                realized_gain_effect="Credit",
+                total_fees="5.0",
+                is_open=True,
+                open_entry_symbols=[sym],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        # Short 1x at mid_price=2.50, multiplier=1000 → mark = -2500
+        reader.position_metrics_df = make_position_df(
+            [
+                {
+                    "symbol": sym,
+                    "mid_price": 2.50,
+                    "quantity": 1.0,
+                    "multiplier": 1000.0,
+                    "quantity_direction": QuantityDirection.SHORT,
+                }
+            ]
+        )
+        df = reader.campaign_summary
+        row = df.iloc[0]
+        assert row["unrealized_mark"] == -2500.0
+        assert row["net_pnl"] == -2500.0
+        assert row["recovery_needed"] == 2500.0
+
+    def test_net_pnl_combines_realized_and_unrealized(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        sym = CALL_SYMBOL
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="300.0",
+                realized_gain_effect="Debit",
+                total_fees="5.0",
+                is_open=True,
+                open_entry_symbols=[sym],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        # Long 1x at mid_price=5.0, multiplier=100 → mark = +500
+        reader.position_metrics_df = make_position_df(
+            [
+                {
+                    "symbol": sym,
+                    "mid_price": 5.0,
+                    "quantity": 1.0,
+                    "multiplier": 100.0,
+                    "quantity_direction": QuantityDirection.LONG,
+                }
+            ]
+        )
+        df = reader.campaign_summary
+        row = df.iloc[0]
+        assert row["realized_pnl"] == -300.0
+        assert row["unrealized_mark"] == 500.0
+        assert row["net_pnl"] == 200.0
+        assert row["recovery_needed"] == 0.0
+
+    def test_recovery_needed_zero_when_profitable(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="500.0",
+                realized_gain_effect="Credit",
+                is_open=False,
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.campaign_summary
+        assert df.iloc[0]["recovery_needed"] == 0.0
+
+    def test_closed_chains_have_zero_unrealized(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="100.0",
+                realized_gain_effect="Debit",
+                is_open=False,
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.campaign_summary
+        assert df.iloc[0]["unrealized_mark"] == 0.0
+
+    def test_missing_position_data_treated_as_zero_mark(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        """Open chain with no matching position data → unrealized = 0."""
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="50.0",
+                realized_gain_effect="Credit",
+                is_open=True,
+                open_entry_symbols=["UNKNOWN_SYMBOL"],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        df = reader.campaign_summary
+        assert df.iloc[0]["unrealized_mark"] == 0.0
+        assert df.iloc[0]["net_pnl"] == 50.0
+
+
+# ---------------------------------------------------------------------------
+# campaign_detail (TT-91)
+# ---------------------------------------------------------------------------
+
+
+class TestCampaignDetail:
+    def test_empty_when_no_chains(self, reader: PositionMetricsReader) -> None:
+        reader.trade_chains = {}
+        result = reader.campaign_detail()
+        assert result == []
+
+    def test_detail_returns_chain_metadata(self, reader: PositionMetricsReader) -> None:
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="100.0",
+                realized_gain_effect="Debit",
+                total_fees="5.0",
+                roll_count=2,
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        result = reader.campaign_detail()
+        assert len(result) == 1
+        item = result[0]
+        assert item["chain_id"] == "12345"
+        assert item["description"] == "Strangle w/ a roll"
+        assert item["underlying"] == "/6E"
+        assert item["status"] == "open"
+        assert item["rolls"] == 2
+        assert item["realized_pnl"] == "-100.0"
+
+    def test_detail_filtered_by_underlying(self, reader: PositionMetricsReader) -> None:
+        chain_zb = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="zb1",
+                underlying="/ZB",
+                realized_gain="0.0",
+                realized_gain_effect="Credit",
+            )
+        )
+        chain_es = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                chain_id="es1",
+                underlying="/ES",
+                realized_gain="0.0",
+                realized_gain_effect="Credit",
+            )
+        )
+        reader.trade_chains = {chain_zb.id: chain_zb, chain_es.id: chain_es}
+        result = reader.campaign_detail(underlying="/ZB")
+        assert len(result) == 1
+        assert result[0]["underlying"] == "/ZB"
+
+    def test_detail_includes_roll_flag_in_nodes(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        nodes = [
+            {
+                "node-type": "order",
+                "id": "node1",
+                "description": "Strangle",
+                "occurred-at": "2026-03-07T15:30:00.000+0000",
+                "total-fill-cost": "500.0",
+                "total-fill-cost-effect": "Credit",
+                "total-fees": "3.50",
+                "roll": False,
+                "legs": [
+                    {
+                        "symbol": CALL_SYMBOL,
+                        "instrument-type": "Future Option",
+                        "action": "Sell to Open",
+                        "fill-quantity": "1",
+                        "order-quantity": "1",
+                    }
+                ],
+                "entries": [],
+            },
+            {
+                "node-type": "order",
+                "id": "node2",
+                "description": "Rolling",
+                "occurred-at": "2026-03-10T10:00:00.000+0000",
+                "total-fill-cost": "50.0",
+                "total-fill-cost-effect": "Debit",
+                "total-fees": "3.50",
+                "roll": True,
+                "legs": [
+                    {
+                        "symbol": CALL_SYMBOL,
+                        "instrument-type": "Future Option",
+                        "action": "Buy to Close",
+                        "fill-quantity": "1",
+                        "order-quantity": "1",
+                    },
+                    {
+                        "symbol": PUT_SYMBOL,
+                        "instrument-type": "Future Option",
+                        "action": "Sell to Open",
+                        "fill-quantity": "1",
+                        "order-quantity": "1",
+                    },
+                ],
+                "entries": [],
+            },
+        ]
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="50.0",
+                realized_gain_effect="Debit",
+                total_fees="7.0",
+                roll_count=1,
+                lite_nodes=nodes,
+                open_entry_symbols=[PUT_SYMBOL],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        result = reader.campaign_detail()
+        detail_nodes = result[0]["nodes"]
+        assert len(detail_nodes) == 2
+        assert detail_nodes[0]["roll"] is False
+        assert detail_nodes[0]["description"] == "Strangle"
+        assert detail_nodes[0]["fill_cost"] == "500.0"
+        assert detail_nodes[1]["roll"] is True
+        assert detail_nodes[1]["description"] == "Rolling"
+        assert detail_nodes[1]["fill_cost"] == "-50.0"
+        # Check legs
+        assert len(detail_nodes[1]["legs"]) == 2
+        assert detail_nodes[1]["legs"][0]["action"] == "Buy to Close"
+
+    def test_detail_open_legs_with_mark_values(
+        self, reader: PositionMetricsReader
+    ) -> None:
+        sym = PUT_SYMBOL
+        chain = TradeChain.model_validate_json(
+            make_trade_chain_json(
+                realized_gain="0.0",
+                realized_gain_effect="Credit",
+                is_open=True,
+                open_entry_symbols=[sym],
+            )
+        )
+        reader.trade_chains = {chain.id: chain}
+        reader.position_metrics_df = make_position_df(
+            [
+                {
+                    "symbol": sym,
+                    "mid_price": 3.0,
+                    "quantity": 1.0,
+                    "multiplier": 1000.0,
+                    "quantity_direction": QuantityDirection.SHORT,
+                }
+            ]
+        )
+        result = reader.campaign_detail()
+        open_legs = result[0]["open_legs"]
+        assert len(open_legs) == 1
+        assert open_legs[0]["symbol"] == sym
+        assert open_legs[0]["direction"] == "Short"
+        assert open_legs[0]["mark_value"] == -3000.0

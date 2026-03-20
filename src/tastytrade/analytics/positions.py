@@ -29,6 +29,20 @@ from tastytrade.messaging.models.events import GreeksEvent, QuoteEvent
 logger = logging.getLogger(__name__)
 
 
+def apply_effect(amount: Optional[str], effect: Optional[str]) -> Decimal:
+    """Convert TastyTrade unsigned amount + effect string to signed Decimal.
+
+    TastyTrade encodes sign via a separate effect field:
+    'Credit' = positive (money received), 'Debit' = negative (money paid).
+    """
+    if amount is None:
+        return Decimal("0")
+    val = Decimal(amount)
+    if effect == "Debit":
+        return -val
+    return val
+
+
 class PositionMetricsReader:
     """Reads position metrics from Redis. Pure consumer -- no connections."""
 
@@ -253,6 +267,245 @@ class PositionMetricsReader:
         if not df.empty:
             df["rolls"] = df["rolls"].astype("Int64")
         return df
+
+    # -- Campaign P&L aggregation (TT-91) --
+    # Groups chains by underlying, sums realized P&L from rolls,
+    # cross-references open legs with live position mark data.
+
+    @property
+    def campaign_summary(self) -> pd.DataFrame:
+        """Campaign P&L by underlying — aggregates chains and open mark values."""
+        columns = [
+            "underlying",
+            "chains",
+            "open_chains",
+            "total_rolls",
+            "realized_pnl",
+            "total_fees",
+            "unrealized_mark",
+            "net_pnl",
+            "recovery_needed",
+        ]
+        if not self.trade_chains:
+            return pd.DataFrame(columns=columns)
+
+        # Build symbol → position lookup for mark value computation
+        pos_by_symbol: dict[str, dict[str, Any]] = {}
+        if not self.position_metrics_df.empty:
+            for _, row in self.position_metrics_df.iterrows():
+                pos_by_symbol[str(row["symbol"]).strip()] = {
+                    "mid_price": row.get("mid_price"),
+                    "quantity": row.get("quantity"),
+                    "multiplier": row.get("multiplier"),
+                    "quantity_direction": row.get("quantity_direction"),
+                }
+
+        # Group chains by underlying
+        by_underlying: dict[str, list[TradeChain]] = {}
+        for chain in self.trade_chains.values():
+            by_underlying.setdefault(chain.underlying_symbol, []).append(chain)
+
+        rows = []
+        for underlying, chains in sorted(by_underlying.items()):
+            total_realized = Decimal("0")
+            total_fees = Decimal("0")
+            total_rolls = 0
+            open_chains = 0
+            total_unrealized = Decimal("0")
+
+            for chain in chains:
+                cd = chain.computed_data
+                total_realized += apply_effect(
+                    cd.realized_gain, cd.realized_gain_effect
+                )
+                total_fees += Decimal(cd.total_fees) if cd.total_fees else Decimal("0")
+                total_rolls += cd.roll_count
+
+                if cd.open:
+                    open_chains += 1
+                    for entry in cd.open_entries:
+                        sym = entry.symbol.strip()
+                        pos = pos_by_symbol.get(sym)
+                        if pos is None or pos["mid_price"] is None:
+                            continue
+                        mid = Decimal(str(pos["mid_price"]))
+                        qty = Decimal(str(pos["quantity"]))
+                        mult = Decimal(str(pos["multiplier"] or 1))
+                        sign = (
+                            Decimal("-1")
+                            if str(pos["quantity_direction"]) == "Short"
+                            or str(pos["quantity_direction"])
+                            == "QuantityDirection.SHORT"
+                            else Decimal("1")
+                        )
+                        total_unrealized += mid * qty * mult * sign
+
+            net_pnl = total_realized + total_unrealized
+            recovery = max(Decimal("0"), -net_pnl)
+
+            rows.append(
+                {
+                    "underlying": underlying,
+                    "chains": len(chains),
+                    "open_chains": open_chains,
+                    "total_rolls": total_rolls,
+                    "realized_pnl": float(total_realized),
+                    "total_fees": float(total_fees),
+                    "unrealized_mark": float(total_unrealized),
+                    "net_pnl": float(net_pnl),
+                    "recovery_needed": float(recovery),
+                }
+            )
+
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            for col in ("chains", "open_chains", "total_rolls"):
+                df[col] = df[col].astype("Int64")
+            for col in (
+                "realized_pnl",
+                "total_fees",
+                "unrealized_mark",
+                "net_pnl",
+                "recovery_needed",
+            ):
+                df[col] = df[col].round(2)
+        return df
+
+    def campaign_detail(self, underlying: Optional[str] = None) -> list[dict[str, Any]]:
+        """Detailed roll history per chain, optionally filtered by underlying."""
+        # Build symbol → position lookup for open leg mark values
+        pos_by_symbol: dict[str, dict[str, Any]] = {}
+        if not self.position_metrics_df.empty:
+            for _, row in self.position_metrics_df.iterrows():
+                pos_by_symbol[str(row["symbol"]).strip()] = {
+                    "mid_price": row.get("mid_price"),
+                    "quantity": row.get("quantity"),
+                    "multiplier": row.get("multiplier"),
+                    "quantity_direction": row.get("quantity_direction"),
+                }
+
+        results: list[dict[str, Any]] = []
+        for chain in self.trade_chains.values():
+            if underlying and chain.underlying_symbol != underlying:
+                continue
+
+            cd = chain.computed_data
+            realized = apply_effect(cd.realized_gain, cd.realized_gain_effect)
+            fees = Decimal(cd.total_fees) if cd.total_fees else Decimal("0")
+
+            # Expand lite_nodes into readable history
+            nodes = []
+            for node in chain.lite_nodes:
+                fill_cost = apply_effect(
+                    node.total_fill_cost, node.total_fill_cost_effect
+                )
+                node_fees = (
+                    Decimal(node.total_fees) if node.total_fees else Decimal("0")
+                )
+
+                legs = []
+                for leg in node.legs:
+                    legs.append(
+                        {
+                            "symbol": leg.symbol,
+                            "action": leg.action,
+                            "fill_quantity": leg.fill_quantity,
+                        }
+                    )
+
+                entries = []
+                for entry in node.entries:
+                    direction = "Short" if entry.quantity_type == "Short" else "Long"
+                    entries.append(
+                        {
+                            "symbol": entry.symbol.strip(),
+                            "quantity": entry.quantity,
+                            "direction": direction,
+                        }
+                    )
+
+                snapshot: dict[str, Any] | None = None
+                if node.market_state_snapshot:
+                    ms = node.market_state_snapshot
+                    snapshot = {
+                        "total_delta": ms.total_delta,
+                        "total_theta": ms.total_theta,
+                        "instruments": [
+                            {
+                                "symbol": md.symbol,
+                                "bid": md.bid,
+                                "ask": md.ask,
+                                "delta": md.delta,
+                                "theta": md.theta,
+                            }
+                            for md in ms.market_datas
+                        ],
+                    }
+
+                nodes.append(
+                    {
+                        "node_type": node.node_type,
+                        "description": node.description,
+                        "occurred_at": node.occurred_at,
+                        "fill_cost": str(fill_cost),
+                        "total_fees": str(node_fees),
+                        "roll": node.roll or False,
+                        "legs": legs,
+                        "entries": entries,
+                        "market_snapshot": snapshot,
+                    }
+                )
+
+            # Open legs with current mark values
+            open_legs = []
+            unrealized = Decimal("0")
+            for entry in cd.open_entries:
+                sym = entry.symbol.strip()
+                direction = "Short" if entry.quantity_type == "Short" else "Long"
+                pos = pos_by_symbol.get(sym)
+                mark_value: float | None = None
+                if pos and pos["mid_price"] is not None:
+                    mid = Decimal(str(pos["mid_price"]))
+                    qty = Decimal(str(pos["quantity"]))
+                    mult = Decimal(str(pos["multiplier"] or 1))
+                    sign = (
+                        Decimal("-1")
+                        if str(pos["quantity_direction"]) == "Short"
+                        or str(pos["quantity_direction"]) == "QuantityDirection.SHORT"
+                        else Decimal("1")
+                    )
+                    mv = mid * qty * mult * sign
+                    mark_value = float(mv)
+                    unrealized += mv
+
+                open_legs.append(
+                    {
+                        "symbol": sym,
+                        "quantity": entry.quantity,
+                        "direction": direction,
+                        "mark_value": mark_value,
+                    }
+                )
+
+            net_pnl = realized + unrealized
+            results.append(
+                {
+                    "chain_id": chain.id,
+                    "description": chain.description,
+                    "underlying": chain.underlying_symbol,
+                    "status": "open" if cd.open else "closed",
+                    "rolls": cd.roll_count,
+                    "realized_pnl": str(realized),
+                    "total_fees": str(fees),
+                    "unrealized_mark": str(unrealized),
+                    "net_pnl": str(net_pnl),
+                    "opened_at": cd.opened_at,
+                    "nodes": nodes,
+                    "open_legs": open_legs,
+                }
+            )
+
+        return results
 
     # -- end TradeChain enrichment block --
 
