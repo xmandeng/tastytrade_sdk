@@ -454,13 +454,19 @@ def chains_cmd(as_json: bool) -> None:
     help="Comma-separated target DTEs (e.g., 0,30,45). Returns closest match for each.",
 )
 @click.option(
+    "--strikes",
+    is_flag=True,
+    default=False,
+    help="Show full strike-level detail instead of expiration summary.",
+)
+@click.option(
     "--json",
     "as_json",
     is_flag=True,
     default=False,
     help="Output in JSON format for machine consumption.",
 )
-def options_cmd(symbol: str, dte: str | None, as_json: bool) -> None:
+def options_cmd(symbol: str, dte: str | None, strikes: bool, as_json: bool) -> None:
     """Fetch option chain snapshot for any underlying.
 
     Supports equities (SPX, CSCO, XLE), ETFs (SPY, QQQ), and
@@ -471,7 +477,7 @@ def options_cmd(symbol: str, dte: str | None, as_json: bool) -> None:
     Examples:
       tasty-subscription options --symbol SPX
       tasty-subscription options --symbol /GC --dte 0,30,45
-      tasty-subscription options --symbol CSCO --dte 30 --json
+      tasty-subscription options --symbol CSCO --dte 30 --strikes
     """
     target_dtes: list[int] | None = None
     if dte:
@@ -522,15 +528,38 @@ def options_cmd(symbol: str, dte: str | None, as_json: bool) -> None:
                     )
                 click.echo()
 
-                # Show expiration summary
-                summary = (
-                    df.group_by(
-                        "root", "expiration", "dte", "expiration_type", "settlement"
+                if strikes:
+                    # Show full strike-level detail (no truncation)
+                    display_cols = [
+                        "root",
+                        "expiration",
+                        "dte",
+                        "strike",
+                        "option_type",
+                        "symbol",
+                        "streamer_symbol",
+                    ]
+                    available = [c for c in display_cols if c in df.columns]
+                    with pl.Config(tbl_rows=-1):
+                        click.echo(
+                            df.select(available).sort(
+                                "root", "expiration", "strike", "option_type"
+                            )
+                        )
+                else:
+                    # Show expiration summary
+                    summary = (
+                        df.group_by(
+                            "root",
+                            "expiration",
+                            "dte",
+                            "expiration_type",
+                            "settlement",
+                        )
+                        .agg(pl.col("strike").n_unique().alias("strikes"))
+                        .sort("dte", "root")
                     )
-                    .agg(pl.col("strike").n_unique().alias("strikes"))
-                    .sort("dte", "root")
-                )
-                click.echo(summary)
+                    click.echo(summary)
         finally:
             await session.close()
 
