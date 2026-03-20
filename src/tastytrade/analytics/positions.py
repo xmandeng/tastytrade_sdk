@@ -188,7 +188,7 @@ class PositionMetricsReader:
             if "dte" in df.columns:
                 df["dte"] = df["dte"].astype("Int64")  # nullable integer dtype
             df = df.sort_values("underlying").reset_index(drop=True)
-        return df
+        return df.fillna("-")
 
     # -- TradeChain enrichment block (experimental) --
     # Standalone view of trade chain lifecycle data. Each row is one chain
