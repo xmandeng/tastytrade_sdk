@@ -379,6 +379,7 @@ def compute_max_loss(strategy: Strategy) -> Optional[Decimal]:
     # Unlimited risk strategies
     if st in (
         StrategyType.NAKED_CALL,
+        StrategyType.NAKED_PUT,
         StrategyType.SHORT_STRANGLE,
         StrategyType.SHORT_STRADDLE,
     ):
