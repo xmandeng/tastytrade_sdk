@@ -116,11 +116,71 @@
 </div>
 <script>
 const TZ = 'America/New_York';
-let DATA, ORDERS = [], SELECTED = new Set(), MULTIPLIERS = {};
+let DATA, MARKET, ORDERS = [], SELECTED = new Set(), MULTIPLIERS = {};
+let GREEKS_MAP = {}; // fill symbol → {iv, delta, theta}
+let QUOTES_MAP = {}; // underlying → {bid, ask, mid}
 let lastClicked = null;
+
+// --- Black-Scholes ---
+function normCdf(x) { return 0.5 * (1 + erf(x / Math.SQRT2)); }
+function erf(x) {
+  const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x);
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t * Math.exp(-x*x);
+  return sign * y;
+}
+function bsPrice(S, K, T, r, sigma, optType) {
+  if (T <= 0) return optType === 'C' ? Math.max(0, S-K) : Math.max(0, K-S);
+  if (sigma <= 0) return optType === 'C' ? Math.max(0, S-K) : Math.max(0, K-S);
+  const d1 = (Math.log(S/K) + (r + sigma*sigma/2)*T) / (sigma*Math.sqrt(T));
+  const d2 = d1 - sigma*Math.sqrt(T);
+  if (optType === 'C') return S*normCdf(d1) - K*Math.exp(-r*T)*normCdf(d2);
+  else return K*Math.exp(-r*T)*normCdf(-d2) - S*normCdf(-d1);
+}
 
 async function boot() {
   DATA = await (await fetch('raw_redis_data.json')).json();
+  try { MARKET = await (await fetch('market_data.json')).json(); } catch(e) { MARKET = {greeks:{},quotes:{},positions:{}}; }
+
+  // Build Greeks lookup: map fill symbol → streamer key → greeks
+  // Patterns:
+  //   Equity: "SPY   260501P00645000" → ".SPY260501P645"
+  //   Future: "./ZBM6 OZBK6 260424P111" → "./OZBK26P111:XCBT" (year digit expanded)
+  // We'll match by strike+type+expiry since that's unique enough
+  const greeksByStrikeKey = {};
+  for (const [gKey, gVal] of Object.entries(MARKET.greeks || {})) {
+    // Extract type+strike from greeks key
+    const m = gKey.match(/([CP])([0-9.]+?)(?::.*)?$/);
+    if (m) {
+      const k = m[1] + '_' + m[2];
+      greeksByStrikeKey[k] = { iv: gVal.volatility, delta: gVal.delta, theta: gVal.theta, key: gKey };
+    }
+  }
+
+  // Build underlying quote lookup — keyed by both streamer symbol and API symbol
+  for (const [qKey, qVal] of Object.entries(MARKET.quotes || {})) {
+    if (!qKey.startsWith('.')) {
+      const bid = qVal.bidPrice || 0;
+      const ask = qVal.askPrice || 0;
+      QUOTES_MAP[qKey] = { bid, ask, mid: (bid + ask) / 2 };
+    }
+  }
+  // Map API symbols to streamer quotes via instruments (e.g. /ZBM6 → /ZBM26:XCBT)
+  for (const [instKey, instVal] of Object.entries(MARKET.instruments || {})) {
+    const ss = instVal.streamer_symbol;
+    if (ss && QUOTES_MAP[ss] && !QUOTES_MAP[instKey]) {
+      QUOTES_MAP[instKey] = QUOTES_MAP[ss];
+    }
+  }
+
+  // Map position underlying → multiplier, and also store streamer→greeks link
+  for (const [sym, pos] of Object.entries(MARKET.positions || {})) {
+    if (pos.streamer_symbol && MARKET.greeks[pos.streamer_symbol]) {
+      GREEKS_MAP[sym] = MARKET.greeks[pos.streamer_symbol];
+    }
+  }
 
   // Build multiplier lookup from positions
   DATA.positions.forEach(rec => {
@@ -179,21 +239,44 @@ async function boot() {
 function parseOption(leg) {
   const sym = leg.symbol;
   const iType = leg.instrumentType;
-  let strike, optType;
+  let strike, optType, dateStr;
 
   if (iType === 'Equity Option') {
-    // QQQ   260417C00636000 → C, 636
     const m = sym.match(/(\d{6})([CP])(\d{8})$/);
-    if (m) { optType = m[2]; strike = parseInt(m[3]) / 1000; }
+    if (m) { dateStr = m[1]; optType = m[2]; strike = parseInt(m[3]) / 1000; }
   } else if (iType === 'Future Option') {
-    // ./ZBM6 OZBK6 260424P111  or  ./6EM6 EUUK6 260508C1.2
     const m = sym.match(/(\d{6})([CP])(.+)$/);
-    if (m) { optType = m[2]; strike = parseFloat(m[3]); }
+    if (m) { dateStr = m[1]; optType = m[2]; strike = parseFloat(m[3]); }
   }
   if (!strike || !optType) return null;
 
+  // Parse DTE from date string (YYMMDD)
+  let dte = 30; // fallback
+  if (dateStr) {
+    const exp = new Date(2000 + parseInt(dateStr.slice(0,2)), parseInt(dateStr.slice(2,4))-1, parseInt(dateStr.slice(4,6)));
+    const now = new Date();
+    dte = Math.max(1, Math.round((exp - now) / 86400000));
+  }
+
+  // Look up IV from Greeks — match by strike+type key
+  const strikeKey = optType + '_' + strike;
+  let iv = 0.20; // fallback
+  // Try direct position match first
+  if (GREEKS_MAP[sym]) {
+    iv = GREEKS_MAP[sym].volatility || iv;
+  } else {
+    // Search greeks by strike key pattern
+    for (const [gKey, gVal] of Object.entries(MARKET.greeks || {})) {
+      const m2 = gKey.match(/([CP])([0-9.]+?)(?::.*)?$/);
+      if (m2 && m2[1] === optType && parseFloat(m2[2]) === strike) {
+        iv = gVal.volatility || iv;
+        break;
+      }
+    }
+  }
+
   const isBuy = leg.action.startsWith('Buy');
-  return { strike, optType, isLong: isBuy, qty: leg.qty, premium: leg.fillPrice };
+  return { strike, optType, isLong: isBuy, qty: leg.qty, premium: leg.fillPrice, dte, iv, symbol: sym };
 }
 
 // --- P&L computation ---
@@ -209,6 +292,41 @@ function computePayoff(parsedLegs, multiplier, priceRange) {
     });
     return { price: s, pnl: total };
   });
+}
+
+function computeDay0Payoff(parsedLegs, multiplier, priceRange) {
+  const r = 0.04; // risk-free rate approximation
+  return priceRange.map(s => {
+    let total = 0;
+    parsedLegs.forEach(leg => {
+      const T = leg.dte / 365;
+      const theo = bsPrice(s, leg.strike, T, r, leg.iv, leg.optType);
+      let pnl = leg.isLong
+        ? (theo - leg.premium) * leg.qty * multiplier
+        : (leg.premium - theo) * leg.qty * multiplier;
+      total += pnl;
+    });
+    return { price: s, pnl: total };
+  });
+}
+
+function estimateUnderlyingPrice(parsedLegs, underlying) {
+  // Try quotes first
+  const q = QUOTES_MAP[underlying];
+  if (q && q.mid > 0) return q.mid;
+  // Estimate from near-ATM option: the strike where |delta| is closest to 0.5
+  let bestStrike = null, bestDeltaDiff = Infinity;
+  for (const leg of parsedLegs) {
+    // Look up delta
+    for (const [gKey, gVal] of Object.entries(MARKET.greeks || {})) {
+      const m = gKey.match(/([CP])([0-9.]+?)(?::.*)?$/);
+      if (m && m[1] === leg.optType && parseFloat(m[2]) === leg.strike && gVal.delta != null) {
+        const diff = Math.abs(Math.abs(gVal.delta) - 0.5);
+        if (diff < bestDeltaDiff) { bestDeltaDiff = diff; bestStrike = leg.strike; }
+      }
+    }
+  }
+  return bestStrike || parsedLegs[0]?.strike || 100;
 }
 
 // --- Chart drawing ---
@@ -251,24 +369,36 @@ function drawChart() {
   const range = [];
   for (let i = 0; i <= steps; i++) range.push(lo + (hi - lo) * i / steps);
 
+  const isSmallStrike = strikes[0] < 10;
   const payoff = computePayoff(allLegs, mult, range);
+  const day0 = computeDay0Payoff(allLegs, mult, range);
+  // Time decay projections: scale DTE by fraction, recompute BS
+  const timeSlices = [0.75, 0.50, 0.25];
+  const projections = timeSlices.map(frac => {
+    const projLegs = allLegs.map(l => ({ ...l, dte: Math.max(1, Math.round(l.dte * frac)) }));
+    return { frac, data: computeDay0Payoff(projLegs, mult, range) };
+  });
+  const spotPrice = estimateUnderlyingPrice(allLegs, underlying);
 
   // Compute summary
   const maxProfit = Math.max(...payoff.map(p => p.pnl));
   const maxLoss = Math.min(...payoff.map(p => p.pnl));
+  const day0AtSpot = day0.find(d => Math.abs(d.price - spotPrice) < (hi-lo)/steps*1.5);
   const netPremium = selectedOrders.reduce((sum, o) => {
     const sign = o.priceEffect === 'Credit' ? 1 : -1;
     return sum + (o.price || 0) * (o.size || 1) * mult * sign;
   }, 0);
 
+  const avgDte = Math.round(allLegs.reduce((s,l) => s+l.dte, 0) / allLegs.length);
+  const day0Pnl = day0AtSpot ? day0AtSpot.pnl : 0;
+
   info.innerHTML = `
-    <div><span class="ci-label">Underlying</span> <span class="ci-val">${esc(underlying)}</span></div>
-    <div><span class="ci-label">Mult</span> <span class="ci-val">${mult}</span></div>
+    <div><span class="ci-label">Underlying</span> <span class="ci-val">${esc(underlying)} @ ${spotPrice.toFixed(isSmallStrike ? 3 : 1)}</span></div>
+    <div><span class="ci-label">DTE</span> <span class="ci-val">${avgDte}</span></div>
     <div><span class="ci-label">Net Premium</span> <span class="ci-val ${netPremium >= 0 ? 'cr' : 'dr'}">${netPremium >= 0 ? '+' : ''}${netPremium.toFixed(2)}</span></div>
+    <div><span class="ci-label">Day 0 P&L</span> <span class="ci-val ${day0Pnl >= 0 ? 'cr' : 'dr'}">${day0Pnl >= 0 ? '+' : ''}${day0Pnl.toFixed(2)}</span></div>
     <div><span class="ci-label">Max Profit</span> <span class="ci-val cr">${maxProfit === Infinity ? '∞' : '+' + maxProfit.toFixed(2)}</span></div>
     <div><span class="ci-label">Max Loss</span> <span class="ci-val dr">${maxLoss === -Infinity ? '-∞' : maxLoss.toFixed(2)}</span></div>
-    <div><span class="ci-label">Orders</span> <span class="ci-val">${selectedOrders.length}</span></div>
-    <div><span class="ci-label">Legs</span> <span class="ci-val">${allLegs.length}</span></div>
   `;
 
   // Canvas — two layers: static chart + hover overlay
@@ -287,8 +417,11 @@ function drawChart() {
   const ch = H - pad.top - pad.bottom;
 
   const pnls = payoff.map(p => p.pnl);
-  const rawMin = Math.min(...pnls, 0);
-  const rawMax = Math.max(...pnls, 0);
+  const day0pnls = day0.map(p => p.pnl);
+  const projPnls = projections.flatMap(pr => pr.data.map(p => p.pnl));
+  const allPnls = pnls.concat(day0pnls, projPnls);
+  const rawMin = Math.min(...allPnls, 0);
+  const rawMax = Math.max(...allPnls, 0);
 
   // Round Y axis to nice numbers
   function niceStep(range) {
@@ -309,7 +442,6 @@ function drawChart() {
   if (minP > 0) minP = 0;
   if (maxP < 0) maxP = 0;
 
-  const isSmallStrike = strikes[0] < 10;
   function x(price) { return pad.left + (price - lo) / (hi - lo) * cw; }
   function y(pnl) { return pad.top + (1 - (pnl - minP) / (maxP - minP)) * ch; }
   function fmtDollar(v) { return (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { maximumFractionDigits: 0 }); }
@@ -368,7 +500,36 @@ function drawChart() {
   ctx.lineTo(x(payoff[payoff.length-1].price), clippedY0); ctx.closePath();
   ctx.fillStyle = 'rgba(248,81,73,0.12)'; ctx.fill(); ctx.restore();
 
-  // Main P&L line
+  // Time decay projections (75%, 50%, 25% DTE remaining)
+  projections.forEach(proj => {
+    ctx.beginPath();
+    proj.data.forEach((p, i) => { const px = x(p.price), py = y(p.pnl); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
+    ctx.strokeStyle = '#484f58'; ctx.lineWidth = 1; ctx.lineJoin = 'round';
+    ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+  });
+
+  // Day 0 curve (Black-Scholes theoretical)
+  ctx.beginPath();
+  day0.forEach((p, i) => { const px = x(p.price), py = y(p.pnl); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  ctx.setLineDash([6, 3]); ctx.stroke(); ctx.setLineDash([]);
+
+  // Current price vertical line
+  const spotX = x(spotPrice);
+  ctx.strokeStyle = '#58a6ff55'; ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(spotX, pad.top); ctx.lineTo(spotX, pad.top + ch); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#58a6ff'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'center';
+  ctx.fillText(spotPrice.toFixed(isSmallStrike ? 3 : 1), spotX, pad.top + ch + 14);
+
+  // Spot price marker on Day 0 curve
+  const spotY = day0.reduce((best, p) => Math.abs(p.price - spotPrice) < Math.abs(best.price - spotPrice) ? p : best, day0[0]);
+  ctx.beginPath(); ctx.arc(x(spotY.price), y(spotY.pnl), 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#58a6ff'; ctx.fill();
+  ctx.strokeStyle = '#0d1117'; ctx.lineWidth = 1.5; ctx.stroke();
+
+  // Expiration P&L line
   ctx.beginPath();
   payoff.forEach((p, i) => { const px = x(p.price), py = y(p.pnl); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
   ctx.strokeStyle = '#c9d1d9'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
@@ -424,10 +585,11 @@ function drawChart() {
 
     // Find nearest payoff point
     const hoverPrice = lo + (mx - pad.left) / cw * (hi - lo);
-    let closest = payoff[0], closestDist = Infinity;
-    payoff.forEach(p => { const d = Math.abs(p.price - hoverPrice); if (d < closestDist) { closestDist = d; closest = p; } });
+    let closest = payoff[0], closestD0 = day0[0], closestDist = Infinity;
+    payoff.forEach((p, i) => { const d = Math.abs(p.price - hoverPrice); if (d < closestDist) { closestDist = d; closest = p; closestD0 = day0[i]; } });
 
     const px = x(closest.price), py = y(closest.pnl);
+    const d0y = y(closestD0.pnl);
 
     // Vertical line
     hctx.strokeStyle = 'rgba(139,148,158,0.4)'; hctx.lineWidth = 1;
@@ -435,32 +597,32 @@ function drawChart() {
     hctx.beginPath(); hctx.moveTo(px, pad.top); hctx.lineTo(px, pad.top + ch); hctx.stroke();
     hctx.setLineDash([]);
 
-    // Horizontal line to Y axis
-    hctx.strokeStyle = 'rgba(139,148,158,0.25)'; hctx.lineWidth = 1;
-    hctx.setLineDash([3, 3]);
-    hctx.beginPath(); hctx.moveTo(pad.left, py); hctx.lineTo(px, py); hctx.stroke();
-    hctx.setLineDash([]);
-
-    // Dot on curve
-    hctx.beginPath(); hctx.arc(px, py, 4, 0, Math.PI * 2);
+    // Dot on expiration curve
+    hctx.beginPath(); hctx.arc(px, py, 3.5, 0, Math.PI * 2);
     hctx.fillStyle = closest.pnl >= 0 ? '#3fb950' : '#f85149'; hctx.fill();
-    hctx.strokeStyle = '#0d1117'; hctx.lineWidth = 1.5; hctx.stroke();
+    hctx.strokeStyle = '#0d1117'; hctx.lineWidth = 1; hctx.stroke();
 
-    // Tooltip
-    const pnlStr = fmtDollar(closest.pnl);
+    // Dot on Day 0 curve
+    hctx.beginPath(); hctx.arc(px, d0y, 3.5, 0, Math.PI * 2);
+    hctx.fillStyle = '#58a6ff'; hctx.fill();
+    hctx.strokeStyle = '#0d1117'; hctx.lineWidth = 1; hctx.stroke();
+
+    // Tooltip with both values
     const priceStr = closest.price.toFixed(isSmallStrike ? 3 : 1);
-    const text = `${priceStr}  ${pnlStr}`;
+    const expStr = fmtDollar(closest.pnl);
+    const d0Str = fmtDollar(closestD0.pnl);
+    const text = `${priceStr}  Exp: ${expStr}  Now: ${d0Str}`;
     hctx.font = '11px JetBrains Mono';
     const tw = hctx.measureText(text).width + 12;
     const tx = Math.min(px + 8, W - pad.right - tw);
-    const ty = Math.max(py - 24, pad.top + 2);
+    const ty = Math.max(Math.min(py, d0y) - 28, pad.top + 2);
 
     hctx.fillStyle = '#161b22'; hctx.strokeStyle = '#30363d'; hctx.lineWidth = 1;
     hctx.beginPath();
     hctx.roundRect(tx, ty, tw, 20, 3);
     hctx.fill(); hctx.stroke();
 
-    hctx.fillStyle = closest.pnl >= 0 ? '#3fb950' : '#f85149';
+    hctx.fillStyle = '#c9d1d9';
     hctx.textAlign = 'left';
     hctx.fillText(text, tx + 6, ty + 14);
   };
