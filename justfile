@@ -56,33 +56,22 @@ strategies:
 strategies-json:
     uv run tasty-subscription strategies --json
 
-# Trade chain lifecycle summary (rolls, P&L, fees)
+# Trade chains: just chains, just chains /ZB, just chains /ZB --json
 chains *args:
-    uv run tasty-subscription chains {{args}}
+    uv run tasty-subscription chains {{ if args =~ '^/' { "--underlying " + args } else { args } }}
 
-# Campaign P&L by underlying (realized + unrealized + recovery needed)
+# Campaign P&L: just campaign, just campaign /ZB
 campaign *args:
-    uv run tasty-subscription chains --campaign {{args}}
+    uv run tasty-subscription chains --campaign {{ if args =~ '^/' { "--underlying " + args } else { args } }}
 
-# Detailed roll history per chain with node-level fills
+# Roll history: just campaign-detail, just campaign-detail /ZB
 campaign-detail *args:
-    uv run tasty-subscription chains --detail {{args}}
+    uv run tasty-subscription chains --detail {{ if args =~ '^/' { "--underlying " + args } else { args } }}
 
 # Backfill historical account events into InfluxDB (idempotent)
 backfill:
     uv run python scripts/backfill_influxdb.py
 
-# Fetch option chain snapshot for any underlying
+# Option chain: just options SPX, just options /GC --dte 0,30,45 --strikes
 options symbol *args:
     uv run tasty-subscription options --symbol "{{symbol}}" {{args}}
-
-# Position summary with LLM strategy identification (legacy)
-positions-strategies:
-    uv run tasty-subscription positions-summary | claude --print \
-        "Identify the strategy for each underlying. Output ONLY a markdown table \
-        with columns: Underlying, Strategy, Net Delta, Num Legs. No reasoning or notes. \
-        Strategy reference: short strangle (2 short options, no stock), \
-        iron condor (short strangle + protective wings), \
-        covered call (long stock + short call), \
-        jade lizard (short OTM vertical spread + short option on opposite side), \
-        covered jade lizard (long stock + jade lizard overlay)."

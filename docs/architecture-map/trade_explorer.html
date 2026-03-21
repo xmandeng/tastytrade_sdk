@@ -17,6 +17,13 @@
   .shell { display: flex; flex-direction: column; height: 100vh; }
   .topbar { padding: 12px 20px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 20px; background: var(--paper-raised); flex-shrink: 0; }
   .topbar h1 { font-size: 13px; font-weight: 500; letter-spacing: 0.5px; color: var(--hl); text-transform: uppercase; }
+  .refresh-btn {
+    background: var(--paper-inset); border: 1px solid var(--rule); color: var(--ink-2);
+    padding: 3px 10px; border-radius: 3px; font-family: inherit; font-size: 11px;
+    cursor: pointer; transition: border-color 0.15s, color 0.15s;
+  }
+  .refresh-btn:hover { border-color: var(--hl); color: var(--ink); }
+  .refresh-btn.loading { color: var(--hl); cursor: wait; }
   .topbar .stat { color: var(--ink-2); font-size: 11px; }
   .topbar .stat b { color: var(--ink); font-weight: 500; }
 
@@ -80,6 +87,7 @@
     <h1>Trade Fills</h1>
     <div class="stat">Orders: <b id="s-orders">-</b></div>
     <div class="stat">Fills: <b id="s-fills">-</b></div>
+    <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">Refresh</button>
     <div class="sel-count" id="sel-count"></div>
   </div>
   <div class="filters">
@@ -756,6 +764,28 @@ document.querySelectorAll('.pane-tab').forEach(tab => {
 
 // Resize redraw
 window.addEventListener('resize', () => { if (SELECTED.size) drawChart(); });
+
+async function refreshData() {
+  const btn = document.getElementById('refresh-btn');
+  btn.textContent = 'Refreshing...'; btn.classList.add('loading');
+  try {
+    const resp = await fetch('/api/refresh', { method: 'POST' });
+    const result = await resp.json();
+    if (result.ok) {
+      // Reload all data
+      ORDERS = []; SELECTED.clear(); GREEKS_MAP = {}; QUOTES_MAP = {};
+      await boot();
+      btn.textContent = 'Done'; setTimeout(() => { btn.textContent = 'Refresh'; }, 1500);
+    } else {
+      btn.textContent = 'Error'; setTimeout(() => { btn.textContent = 'Refresh'; }, 2000);
+      console.error('Refresh failed:', result.error);
+    }
+  } catch(e) {
+    btn.textContent = 'Error'; setTimeout(() => { btn.textContent = 'Refresh'; }, 2000);
+    console.error('Refresh error:', e);
+  }
+  btn.classList.remove('loading');
+}
 
 document.getElementById('f-underlying').onchange = () => { SELECTED.clear(); render(); };
 document.getElementById('f-search').oninput = render;
