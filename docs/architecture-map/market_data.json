@@ -1,0 +1,1635 @@
+{
+  "greeks": {
+    "./EUUK26C1.21:XCME": {
+      "eventSymbol": "./EUUK26C1.21:XCME",
+      "time": "2026-03-20T20:58:53.988000Z",
+      "volatility": 0.0821643634,
+      "delta": 0.0893482787,
+      "gamma": 4.6089264123,
+      "theta": -5.71926e-05,
+      "rho": 0.0001374173,
+      "vega": 0.0006860312
+    },
+    ".SPY260501C693": {
+      "eventSymbol": ".SPY260501C693",
+      "time": "2026-03-20T23:59:57.465000Z",
+      "volatility": 0.178781675,
+      "delta": 0.1723784041,
+      "gamma": 0.0064562372,
+      "theta": -0.1205627822,
+      "rho": 0.1250210104,
+      "vega": 0.5647278997
+    },
+    "./RTMH26C2875:XCME": {
+      "eventSymbol": "./RTMH26C2875:XCME",
+      "time": "2026-03-09T05:14:23.368000Z",
+      "volatility": 0.3072407893,
+      "delta": 0.0196314513,
+      "gamma": 0.0002539107,
+      "theta": -0.1958235935,
+      "rho": 0.0290433693,
+      "vega": 0.2906342489
+    },
+    ".SPY260417C699": {
+      "eventSymbol": ".SPY260417C699",
+      "time": "2026-03-16T17:47:56.881000Z",
+      "volatility": 0.1485920716,
+      "delta": 0.1637869681,
+      "gamma": 0.0083819873,
+      "theta": -0.1133353289,
+      "rho": 0.0941440447,
+      "vega": 0.4900286354
+    },
+    "./EUUJ26C1.215:XCME": {
+      "eventSymbol": "./EUUJ26C1.215:XCME",
+      "time": "2026-03-03T14:17:36.790000Z",
+      "volatility": 0.09,
+      "delta": 0.05,
+      "gamma": 3.28,
+      "theta": -0.0,
+      "rho": 0.0,
+      "vega": 0.0
+    },
+    "./OZBK26P115:XCBT": {
+      "eventSymbol": "./OZBK26P115:XCBT",
+      "time": "2026-03-20T20:57:16.509000Z",
+      "volatility": 0.1200216927,
+      "delta": -0.7089630084,
+      "gamma": 0.0819340025,
+      "theta": -0.0204833642,
+      "rho": -0.0795751773,
+      "vega": 0.1195504306
+    },
+    "./EXH26P6575:XCME": {
+      "eventSymbol": "./EXH26P6575:XCME",
+      "time": "2026-03-09T01:15:51.550000Z",
+      "volatility": 0.32,
+      "delta": -0.42,
+      "gamma": 0.0,
+      "theta": -4.52,
+      "rho": -1.85,
+      "vega": 6.5
+    },
+    "./OGK26P4615:XCEC": {
+      "eventSymbol": "./OGK26P4615:XCEC",
+      "time": "2026-03-20T20:42:04.536000Z",
+      "volatility": 0.2968554646,
+      "delta": -0.5541872877,
+      "gamma": 0.0009099285,
+      "theta": -2.2568720199,
+      "rho": -2.8440835606,
+      "vega": 5.7837005437
+    },
+    "./MW4G26P65.5:XNYM": {
+      "eventSymbol": "./MW4G26P65.5:XNYM",
+      "time": "2026-02-27T15:32:43.031000Z",
+      "volatility": 0.47,
+      "delta": -0.06,
+      "gamma": 0.14,
+      "theta": -0.02,
+      "rho": -0.0,
+      "vega": 0.0
+    },
+    "./LOK26P70:XNYM": {
+      "eventSymbol": "./LOK26P70:XNYM",
+      "time": "2026-03-20T19:59:29.600000Z",
+      "volatility": 0.9153563865,
+      "delta": -0.0727873284,
+      "gamma": 0.005694176,
+      "theta": -0.0621137507,
+      "rho": -0.0059055641,
+      "vega": 0.0367244014
+    },
+    "./OGK26C5495:XCEC": {
+      "eventSymbol": "./OGK26C5495:XCEC",
+      "time": "2026-03-19T16:59:46.854000Z",
+      "volatility": 0.3237586295,
+      "delta": 0.0572489634,
+      "gamma": 0.0002342228,
+      "theta": -0.7179940687,
+      "rho": 0.2715742827,
+      "vega": 1.738344644
+    },
+    ".QQQ260430P570": {
+      "eventSymbol": ".QQQ260430P570",
+      "time": "2026-03-20T23:58:11.288000Z",
+      "volatility": 0.2732259823,
+      "delta": -0.3560261511,
+      "gamma": 0.0069449596,
+      "theta": -0.2446396974,
+      "rho": -0.2491588536,
+      "vega": 0.7319172859
+    },
+    "./RTMJ26C2775:XCME": {
+      "eventSymbol": "./RTMJ26C2775:XCME",
+      "time": "2026-03-20T21:02:08.953000Z",
+      "volatility": 0.232121056,
+      "delta": 0.068986613,
+      "gamma": 0.0006914095,
+      "theta": -0.3090673027,
+      "rho": 0.1847439091,
+      "vega": 1.0962761734
+    },
+    "./EUUJ26P1.16:XCME": {
+      "eventSymbol": "./EUUJ26P1.16:XCME",
+      "time": "2026-03-06T21:59:08.754000Z",
+      "volatility": 0.08,
+      "delta": -0.38,
+      "gamma": 14.44,
+      "theta": -0.0,
+      "rho": -0.0,
+      "vega": 0.0
+    },
+    "./EUUJ26C1.19:XCME": {
+      "eventSymbol": "./EUUJ26C1.19:XCME",
+      "time": "2026-03-06T21:59:08.754000Z",
+      "volatility": 0.08,
+      "delta": 0.18,
+      "gamma": 10.69,
+      "theta": -0.0,
+      "rho": 0.0,
+      "vega": 0.0
+    },
+    "./EUUK26C1.2:XCME": {
+      "eventSymbol": "./EUUK26C1.2:XCME",
+      "time": "2026-03-20T20:58:53.988000Z",
+      "volatility": 0.0802031729,
+      "delta": 0.1364407102,
+      "gamma": 6.3902962875,
+      "theta": -7.54742e-05,
+      "rho": 0.000209647,
+      "vega": 0.0009284812
+    },
+    "./EUUJ26P1.13:XCME": {
+      "eventSymbol": "./EUUJ26P1.13:XCME",
+      "time": "2026-03-10T00:27:02.265000Z",
+      "volatility": 0.0990640619,
+      "delta": -0.0931020524,
+      "gamma": 5.6156689763,
+      "theta": -0.0001026419,
+      "rho": -7.19245e-05,
+      "vega": 0.0004960348
+    },
+    "./RTMH26P2390:XCME": {
+      "eventSymbol": "./RTMH26P2390:XCME",
+      "time": "2026-03-09T03:19:44.511000Z",
+      "volatility": 0.43,
+      "delta": -0.39,
+      "gamma": 0.0,
+      "theta": -2.14,
+      "rho": -0.64,
+      "vega": 2.33
+    },
+    ".QQQ260430C634": {
+      "eventSymbol": ".QQQ260430C634",
+      "time": "2026-03-20T23:58:11.288000Z",
+      "volatility": 0.1948764894,
+      "delta": 0.1258312437,
+      "gamma": 0.005403472,
+      "theta": -0.0968289032,
+      "rho": 0.0800638149,
+      "vega": 0.406165129
+    },
+    "./OGJ26C5760:XCEC": {
+      "eventSymbol": "./OGJ26C5760:XCEC",
+      "time": "2026-03-09T20:59:14.287000Z",
+      "volatility": 0.3534346662,
+      "delta": 0.0751703559,
+      "gamma": 0.0003612202,
+      "theta": -1.6360753921,
+      "rho": 0.1742120546,
+      "vega": 1.5749787078
+    },
+    "./OGJ26C5740:XCEC": {
+      "eventSymbol": "./OGJ26C5740:XCEC",
+      "time": "2026-03-09T20:59:14.287000Z",
+      "volatility": 0.3508322912,
+      "delta": 0.0802155353,
+      "gamma": 0.0003822956,
+      "theta": -1.7061273788,
+      "rho": 0.1858753994,
+      "vega": 1.6545976815
+    },
+    "./OGK26C5515:XCEC": {
+      "eventSymbol": "./OGK26C5515:XCEC",
+      "time": "2026-03-19T16:59:46.854000Z",
+      "volatility": 0.3255201557,
+      "delta": 0.0544398223,
+      "gamma": 0.0002238889,
+      "theta": -0.6938046651,
+      "rho": 0.2582819287,
+      "vega": 1.6706893775
+    },
+    "./R3EJ26P2225:XCME": {
+      "eventSymbol": "./R3EJ26P2225:XCME",
+      "time": "2026-03-16T19:53:21.769000Z",
+      "volatility": 0.3625741008,
+      "delta": -0.1097207128,
+      "gamma": 0.0006914119,
+      "theta": -0.7905675629,
+      "rho": -0.2564026764,
+      "vega": 1.4021694433
+    },
+    ".QQQ260430P575": {
+      "eventSymbol": ".QQQ260430P575",
+      "time": "2026-03-20T23:58:11.288000Z",
+      "volatility": 0.2659728545,
+      "delta": -0.3902963567,
+      "gamma": 0.0073466531,
+      "theta": -0.2452321322,
+      "rho": -0.273351039,
+      "vega": 0.7536975946
+    },
+    "./RTMH26C2825:XCME": {
+      "eventSymbol": "./RTMH26C2825:XCME",
+      "time": "2026-03-09T05:14:23.368000Z",
+      "volatility": 0.2891541557,
+      "delta": 0.0254997629,
+      "gamma": 0.0003363549,
+      "theta": -0.2296481605,
+      "rho": 0.0377526033,
+      "vega": 0.3623381999
+    },
+    "./EUUK26P1.13:XCME": {
+      "eventSymbol": "./EUUK26P1.13:XCME",
+      "time": "2026-03-20T20:58:53.988000Z",
+      "volatility": 0.0927820562,
+      "delta": -0.2019504859,
+      "gamma": 7.1075538783,
+      "theta": -0.0001123958,
+      "rho": -0.0003210467,
+      "vega": 0.0011946611
+    },
+    ".CSCO260402C83": {
+      "eventSymbol": ".CSCO260402C83",
+      "time": "2026-03-20T23:55:55.487000Z",
+      "volatility": 0.2802112537,
+      "delta": 0.135120761,
+      "gamma": 0.0528552999,
+      "theta": -0.034760368,
+      "rho": 0.0036204398,
+      "vega": 0.0318678019
+    },
+    "./OZBJ26C120.5:XCBT": {
+      "eventSymbol": "./OZBJ26C120.5:XCBT",
+      "time": "2026-03-09T01:15:55.070000Z",
+      "volatility": 0.13,
+      "delta": 0.08,
+      "gamma": 0.04,
+      "theta": -0.01,
+      "rho": 0.0,
+      "vega": 0.04
+    },
+    ".SPY260402P666": {
+      "eventSymbol": ".SPY260402P666",
+      "time": "2026-03-04T00:49:51.838000Z",
+      "volatility": 0.21,
+      "delta": -0.36,
+      "gamma": 0.01,
+      "theta": -0.26,
+      "rho": -0.21,
+      "vega": 0.73
+    },
+    "./R3EJ26C2800:XCME": {
+      "eventSymbol": "./R3EJ26C2800:XCME",
+      "time": "2026-03-16T19:53:21.769000Z",
+      "volatility": 0.2078463557,
+      "delta": 0.048621192,
+      "gamma": 0.000648328,
+      "theta": -0.2438136491,
+      "rho": 0.1050626695,
+      "vega": 0.7537096742
+    },
+    "./OZBK26P114:XCBT": {
+      "eventSymbol": "./OZBK26P114:XCBT",
+      "time": "2026-03-20T15:46:06.670000Z",
+      "volatility": 0.1173581729,
+      "delta": -0.6263722272,
+      "gamma": 0.0922774449,
+      "theta": -0.0220566657,
+      "rho": -0.0704078871,
+      "vega": 0.132467404
+    },
+    "./OGK26C4635:XCEC": {
+      "eventSymbol": "./OGK26C4635:XCEC",
+      "time": "2026-03-20T20:42:04.536000Z",
+      "volatility": 0.3008836532,
+      "delta": 0.4294919816,
+      "gamma": 0.0008919291,
+      "theta": -2.2726735201,
+      "rho": 1.8909897887,
+      "vega": 5.7462216357
+    },
+    ".SPY260417P645": {
+      "eventSymbol": ".SPY260417P645",
+      "time": "2026-03-16T17:47:56.881000Z",
+      "volatility": 0.2359929819,
+      "delta": -0.2899693646,
+      "gamma": 0.0073122671,
+      "theta": -0.2493889796,
+      "rho": -0.178339938,
+      "vega": 0.6789377518
+    },
+    "./OGK26P4635:XCEC": {
+      "eventSymbol": "./OGK26P4635:XCEC",
+      "time": "2026-03-20T20:42:04.536000Z",
+      "volatility": 0.2962698247,
+      "delta": -0.5721831526,
+      "gamma": 0.0009051244,
+      "theta": -2.2361073765,
+      "rho": -2.9412206072,
+      "vega": 5.7418143757
+    },
+    ".SPY260501P638": {
+      "eventSymbol": ".SPY260501P638",
+      "time": "2026-03-20T23:59:57.465000Z",
+      "volatility": 0.2346223661,
+      "delta": -0.3678133695,
+      "gamma": 0.0072613239,
+      "theta": -0.2335298562,
+      "rho": -0.2911891366,
+      "vega": 0.8335314411
+    },
+    "./OZBK26P113:XCBT": {
+      "eventSymbol": "./OZBK26P113:XCBT",
+      "time": "2026-03-20T20:57:16.509000Z",
+      "volatility": 0.1256148706,
+      "delta": -0.5291521559,
+      "gamma": 0.0908434911,
+      "theta": -0.0248767447,
+      "rho": -0.0590143195,
+      "vega": 0.1387273524
+    },
+    "./OGJ26P4600:XCEC": {
+      "eventSymbol": "./OGJ26P4600:XCEC",
+      "time": "2026-03-09T20:59:14.287000Z",
+      "volatility": 0.3667319244,
+      "delta": -0.0724261816,
+      "gamma": 0.000338367,
+      "theta": -1.6500548959,
+      "rho": -0.1799226455,
+      "vega": 1.5308413851
+    },
+    "./EUUK26P1.14:XCME": {
+      "eventSymbol": "./EUUK26P1.14:XCME",
+      "time": "2026-03-20T20:58:53.988000Z",
+      "volatility": 0.088264825,
+      "delta": -0.2729864666,
+      "gamma": 8.8134939377,
+      "theta": -0.0001259417,
+      "rho": -0.0004343427,
+      "vega": 0.001409277
+    },
+    ".QQQ260402C635": {
+      "eventSymbol": ".QQQ260402C635",
+      "time": "2026-03-04T00:49:59.602000Z",
+      "volatility": 0.18,
+      "delta": 0.14,
+      "gamma": 0.01,
+      "theta": -0.11,
+      "rho": 0.07,
+      "vega": 0.39
+    },
+    "./LOK26P77.5:XNYM": {
+      "eventSymbol": "./LOK26P77.5:XNYM",
+      "time": "2026-03-20T19:59:29.600000Z",
+      "volatility": 0.8773507383,
+      "delta": -0.139714587,
+      "gamma": 0.0095441499,
+      "theta": -0.0956445404,
+      "rho": -0.0114647233,
+      "vega": 0.0589989287
+    },
+    "./EUUJ26C1.185:XCME": {
+      "eventSymbol": "./EUUJ26C1.185:XCME",
+      "time": "2026-03-09T03:21:48.583000Z",
+      "volatility": 0.09,
+      "delta": 0.16,
+      "gamma": 9.02,
+      "theta": -0.0,
+      "rho": 0.0,
+      "vega": 0.0
+    },
+    ".SPY260402C705": {
+      "eventSymbol": ".SPY260402C705",
+      "time": "2026-03-04T00:49:51.838000Z",
+      "volatility": 0.14,
+      "delta": 0.18,
+      "gamma": 0.01,
+      "theta": -0.12,
+      "rho": 0.1,
+      "vega": 0.51
+    },
+    "./EUUJ26C1.18:XCME": {
+      "eventSymbol": "./EUUJ26C1.18:XCME",
+      "time": "2026-03-10T00:27:02.265000Z",
+      "volatility": 0.0744092428,
+      "delta": 0.295177026,
+      "gamma": 15.455308553,
+      "theta": -0.0001575187,
+      "rho": 0.0002226513,
+      "vega": 0.0010254136
+    },
+    "./RTMJ26P2275:XCME": {
+      "eventSymbol": "./RTMJ26P2275:XCME",
+      "time": "2026-03-20T21:02:08.953000Z",
+      "volatility": 0.3503478253,
+      "delta": -0.2277029873,
+      "gamma": 0.0010408944,
+      "theta": -1.0608176724,
+      "rho": -0.6764011307,
+      "vega": 2.4910142139
+    },
+    ".QQQ260402P580": {
+      "eventSymbol": ".QQQ260402P580",
+      "time": "2026-03-04T00:49:55.487000Z",
+      "volatility": 0.28,
+      "delta": -0.31,
+      "gamma": 0.01,
+      "theta": -0.28,
+      "rho": -0.16,
+      "vega": 0.61
+    },
+    ".QQQ260417C636": {
+      "eventSymbol": ".QQQ260417C636",
+      "time": "2026-03-16T15:04:58.507000Z",
+      "volatility": 0.1694035609,
+      "delta": 0.1305378934,
+      "gamma": 0.007022528,
+      "theta": -0.0994062396,
+      "rho": 0.067451521,
+      "vega": 0.378330457
+    },
+    "./LOK26P75:XNYM": {
+      "eventSymbol": "./LOK26P75:XNYM",
+      "time": "2026-03-20T19:59:29.600000Z",
+      "volatility": 0.8862025236,
+      "delta": -0.1133060917,
+      "gamma": 0.0081647149,
+      "theta": -0.0834801901,
+      "rho": -0.0092541042,
+      "vega": 0.050980916
+    },
+    "./OZBJ26P115:XCBT": {
+      "eventSymbol": "./OZBJ26P115:XCBT",
+      "time": "2026-03-09T01:15:55.070000Z",
+      "volatility": 0.11,
+      "delta": -0.44,
+      "gamma": 0.13,
+      "theta": -0.03,
+      "rho": -0.03,
+      "vega": 0.1
+    },
+    "./R3EJ26C2750:XCME": {
+      "eventSymbol": "./R3EJ26C2750:XCME",
+      "time": "2026-03-16T19:53:21.769000Z",
+      "volatility": 0.2135124728,
+      "delta": 0.0920412652,
+      "gamma": 0.0010329682,
+      "theta": -0.409750186,
+      "rho": 0.198136763,
+      "vega": 1.2336078008
+    },
+    "./OGJ26P4620:XCEC": {
+      "eventSymbol": "./OGJ26P4620:XCEC",
+      "time": "2026-03-09T20:59:14.287000Z",
+      "volatility": 0.3634260598,
+      "delta": -0.0785064943,
+      "gamma": 0.0003630808,
+      "theta": -1.738794982,
+      "rho": -0.1950674808,
+      "vega": 1.6278441811
+    },
+    "./EXH26C7250:XCME": {
+      "eventSymbol": "./EXH26C7250:XCME",
+      "time": "2026-03-09T01:15:51.550000Z",
+      "volatility": 0.16,
+      "delta": 0.02,
+      "gamma": 0.0,
+      "theta": -0.25,
+      "rho": 0.07,
+      "vega": 0.72
+    },
+    ".QQQ260417P574": {
+      "eventSymbol": ".QQQ260417P574",
+      "time": "2026-03-16T15:04:58.507000Z",
+      "volatility": 0.2676126231,
+      "delta": -0.2734169294,
+      "gamma": 0.0069718345,
+      "theta": -0.246283522,
+      "rho": -0.1522311607,
+      "vega": 0.5933472791
+    },
+    ".SPY260417P650": {
+      "eventSymbol": ".SPY260417P650",
+      "time": "2026-03-16T17:47:56.881000Z",
+      "volatility": 0.2284532148,
+      "delta": -0.3243778175,
+      "gamma": 0.0079363586,
+      "theta": -0.2536546742,
+      "rho": -0.1995764011,
+      "vega": 0.7133413234
+    },
+    "./OZBK26P111:XCBT": {
+      "eventSymbol": "./OZBK26P111:XCBT",
+      "time": "2026-03-20T20:57:16.509000Z",
+      "volatility": 0.1347761335,
+      "delta": -0.3585106288,
+      "gamma": 0.0794983252,
+      "theta": -0.0250611841,
+      "rho": -0.039833132,
+      "vega": 0.1302561386
+    },
+    "./OGK26C4655:XCEC": {
+      "eventSymbol": "./OGK26C4655:XCEC",
+      "time": "2026-03-20T20:42:04.536000Z",
+      "volatility": 0.300853454,
+      "delta": 0.4121401235,
+      "gamma": 0.0008841425,
+      "theta": -2.2523809069,
+      "rho": 1.8170517969,
+      "vega": 5.6954854933
+    },
+    ".QQQ260402P585": {
+      "eventSymbol": ".QQQ260402P585",
+      "time": "2026-03-04T00:49:59.602000Z",
+      "volatility": 0.27,
+      "delta": -0.35,
+      "gamma": 0.01,
+      "theta": -0.28,
+      "rho": -0.18,
+      "vega": 0.63
+    },
+    "./MW4G26C65.5:XNYM": {
+      "eventSymbol": "./MW4G26C65.5:XNYM",
+      "time": "2026-02-27T15:32:43.031000Z",
+      "volatility": 0.47,
+      "delta": 0.88,
+      "gamma": 0.14,
+      "theta": -0.02,
+      "rho": 0.0,
+      "vega": 0.0
+    },
+    ".SPY260501P645": {
+      "eventSymbol": ".SPY260501P645",
+      "time": "2026-03-20T23:59:57.465000Z",
+      "volatility": 0.2249382087,
+      "delta": -0.4185667315,
+      "gamma": 0.0078505987,
+      "theta": -0.2320689434,
+      "rho": -0.3316499297,
+      "vega": 0.8639781852
+    },
+    "./RTMJ26C2750:XCME": {
+      "eventSymbol": "./RTMJ26C2750:XCME",
+      "time": "2026-03-20T21:02:08.953000Z",
+      "volatility": 0.2365171518,
+      "delta": 0.0900608769,
+      "gamma": 0.0008302742,
+      "theta": -0.3852244548,
+      "rho": 0.2406067891,
+      "vega": 1.3413874937
+    },
+    "./RTMJ26P2250:XCME": {
+      "eventSymbol": "./RTMJ26P2250:XCME",
+      "time": "2026-03-20T21:02:08.953000Z",
+      "volatility": 0.3573810399,
+      "delta": -0.2043332225,
+      "gamma": 0.0009584679,
+      "theta": -1.0166233441,
+      "rho": -0.6064872064,
+      "vega": 2.3398023368
+    },
+    ".SPY260402P661": {
+      "eventSymbol": ".SPY260402P661",
+      "time": "2026-03-04T00:49:42.558000Z",
+      "volatility": 0.22,
+      "delta": -0.32,
+      "gamma": 0.01,
+      "theta": -0.26,
+      "rho": -0.19,
+      "vega": 0.69
+    },
+    "./R3EJ26P2275:XCME": {
+      "eventSymbol": "./R3EJ26P2275:XCME",
+      "time": "2026-03-16T19:53:21.769000Z",
+      "volatility": 0.3486773348,
+      "delta": -0.1450722316,
+      "gamma": 0.0008732103,
+      "theta": -0.9230213845,
+      "rho": -0.3394429592,
+      "vega": 1.7029795838
+    },
+    "./RTMH26P2425:XCME": {
+      "eventSymbol": "./RTMH26P2425:XCME",
+      "time": "2026-03-09T03:19:44.511000Z",
+      "volatility": 0.41,
+      "delta": -0.44,
+      "gamma": 0.0,
+      "theta": -2.12,
+      "rho": -0.73,
+      "vega": 2.4
+    },
+    ".QQQ260417P579": {
+      "eventSymbol": ".QQQ260417P579",
+      "time": "2026-03-16T15:04:58.507000Z",
+      "volatility": 0.2597521514,
+      "delta": -0.3064342784,
+      "gamma": 0.0075775617,
+      "theta": -0.2521871111,
+      "rho": -0.1706995701,
+      "vega": 0.6259561749
+    }
+  },
+  "quotes": {
+    "./EUUK26C1.21:XCME": {
+      "eventSymbol": "./EUUK26C1.21:XCME",
+      "bidPrice": 0.0003,
+      "askPrice": 0.0016,
+      "bidSize": 3.0,
+      "askSize": null
+    },
+    ".SPY260501C693": {
+      "eventSymbol": ".SPY260501C693",
+      "bidPrice": 2.76,
+      "askPrice": 2.83,
+      "bidSize": 203.0,
+      "askSize": 180.0
+    },
+    "./RTMH26C2875:XCME": {
+      "eventSymbol": "./RTMH26C2875:XCME",
+      "bidPrice": 0.35,
+      "askPrice": 4.1,
+      "bidSize": null,
+      "askSize": 9.0
+    },
+    ".SPY260417C699": {
+      "eventSymbol": ".SPY260417C699",
+      "bidPrice": 2.41,
+      "askPrice": 2.44,
+      "bidSize": 202.0,
+      "askSize": 244.0
+    },
+    "./EUUJ26C1.215:XCME": {
+      "eventSymbol": "./EUUJ26C1.215:XCME",
+      "bidPrice": 0.0,
+      "askPrice": 0.0,
+      "bidSize": 70.0,
+      "askSize": 221.0
+    },
+    "/CLK26:XNYM": {
+      "eventSymbol": "/CLK26:XNYM",
+      "bidPrice": 98.0,
+      "askPrice": 98.5,
+      "bidSize": 5.0,
+      "askSize": 20.0
+    },
+    "./OZBK26P115:XCBT": {
+      "eventSymbol": "./OZBK26P115:XCBT",
+      "bidPrice": 0.421875,
+      "askPrice": 3.15625,
+      "bidSize": 2.0,
+      "askSize": null
+    },
+    "./EXH26P6575:XCME": {
+      "eventSymbol": "./EXH26P6575:XCME",
+      "bidPrice": 165.5,
+      "askPrice": 173.5,
+      "bidSize": 40.0,
+      "askSize": 39.0
+    },
+    "./OGK26P4615:XCEC": {
+      "eventSymbol": "./OGK26P4615:XCEC",
+      "bidPrice": 207.2,
+      "askPrice": 237.0,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./MW4G26P65.5:XNYM": {
+      "eventSymbol": "./MW4G26P65.5:XNYM",
+      "bidPrice": 0.01,
+      "askPrice": 0.12,
+      "bidSize": null,
+      "askSize": 366.0
+    },
+    "SPX": {
+      "eventSymbol": "SPX",
+      "bidPrice": 6487.92,
+      "askPrice": 6560.26,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./LOK26P70:XNYM": {
+      "eventSymbol": "./LOK26P70:XNYM",
+      "bidPrice": 0.5,
+      "askPrice": 1.0,
+      "bidSize": 1.0,
+      "askSize": 3.0
+    },
+    "./OGK26C5495:XCEC": {
+      "eventSymbol": "./OGK26C5495:XCEC",
+      "bidPrice": 11.0,
+      "askPrice": 11.9,
+      "bidSize": 47.0,
+      "askSize": 5.0
+    },
+    ".QQQ260430P570": {
+      "eventSymbol": ".QQQ260430P570",
+      "bidPrice": 14.74,
+      "askPrice": 14.99,
+      "bidSize": 7.0,
+      "askSize": 11.0
+    },
+    "./RTMJ26C2775:XCME": {
+      "eventSymbol": "./RTMJ26C2775:XCME",
+      "bidPrice": 5.4,
+      "askPrice": 6.4,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./EUUJ26P1.16:XCME": {
+      "eventSymbol": "./EUUJ26P1.16:XCME",
+      "bidPrice": 0.0,
+      "askPrice": 0.02,
+      "bidSize": 1.0,
+      "askSize": 1.0
+    },
+    "./EUUJ26C1.19:XCME": {
+      "eventSymbol": "./EUUJ26C1.19:XCME",
+      "bidPrice": 0.0,
+      "askPrice": 0.0,
+      "bidSize": 1.0,
+      "askSize": null
+    },
+    "./EUUK26C1.2:XCME": {
+      "eventSymbol": "./EUUK26C1.2:XCME",
+      "bidPrice": 0.0022,
+      "askPrice": 0.02,
+      "bidSize": null,
+      "askSize": 1.0
+    },
+    "NVDA": {
+      "eventSymbol": "NVDA",
+      "bidPrice": 174.85,
+      "askPrice": 181.0,
+      "bidSize": null,
+      "askSize": null
+    },
+    "/ZBM26:XCBT": {
+      "eventSymbol": "/ZBM26:XCBT",
+      "bidPrice": 112.625,
+      "askPrice": 112.65625,
+      "bidSize": 174.0,
+      "askSize": 3.0
+    },
+    "AAPL": {
+      "eventSymbol": "AAPL",
+      "bidPrice": 249.68,
+      "askPrice": 249.77,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./EUUJ26P1.13:XCME": {
+      "eventSymbol": "./EUUJ26P1.13:XCME",
+      "bidPrice": 0.0012,
+      "askPrice": 0.0014,
+      "bidSize": 162.0,
+      "askSize": 212.0
+    },
+    "./RTMH26P2390:XCME": {
+      "eventSymbol": "./RTMH26P2390:XCME",
+      "bidPrice": 70.25,
+      "askPrice": 83.25,
+      "bidSize": 27.0,
+      "askSize": 27.0
+    },
+    ".QQQ260430C634": {
+      "eventSymbol": ".QQQ260430C634",
+      "bidPrice": 1.59,
+      "askPrice": 1.75,
+      "bidSize": 181.0,
+      "askSize": 172.0
+    },
+    "./OGJ26C5740:XCEC": {
+      "eventSymbol": "./OGJ26C5740:XCEC",
+      "bidPrice": 13.4,
+      "askPrice": 14.2,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./OGJ26C5760:XCEC": {
+      "eventSymbol": "./OGJ26C5760:XCEC",
+      "bidPrice": 5.9,
+      "askPrice": 13.3,
+      "bidSize": 1.0,
+      "askSize": null
+    },
+    "CSCO": {
+      "eventSymbol": "CSCO",
+      "bidPrice": 77.96,
+      "askPrice": 79.95,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./OGK26C5515:XCEC": {
+      "eventSymbol": "./OGK26C5515:XCEC",
+      "bidPrice": 10.4,
+      "askPrice": 11.3,
+      "bidSize": 39.0,
+      "askSize": 29.0
+    },
+    "./R3EJ26P2225:XCME": {
+      "eventSymbol": "./R3EJ26P2225:XCME",
+      "bidPrice": 14.9,
+      "askPrice": 15.3,
+      "bidSize": 7.0,
+      "askSize": 115.0
+    },
+    ".QQQ260430P575": {
+      "eventSymbol": ".QQQ260430P575",
+      "bidPrice": 16.34,
+      "askPrice": 16.62,
+      "bidSize": 7.0,
+      "askSize": 10.0
+    },
+    "./RTMH26C2825:XCME": {
+      "eventSymbol": "./RTMH26C2825:XCME",
+      "bidPrice": 0.85,
+      "askPrice": 3.95,
+      "bidSize": null,
+      "askSize": 29.0
+    },
+    "./EUUK26P1.13:XCME": {
+      "eventSymbol": "./EUUK26P1.13:XCME",
+      "bidPrice": 0.001,
+      "askPrice": 0.009,
+      "bidSize": 2.0,
+      "askSize": 1.0
+    },
+    ".CSCO260402C83": {
+      "eventSymbol": ".CSCO260402C83",
+      "bidPrice": 0.01,
+      "askPrice": 0.33,
+      "bidSize": 193.0,
+      "askSize": 234.0
+    },
+    "./OZBJ26C120.5:XCBT": {
+      "eventSymbol": "./OZBJ26C120.5:XCBT",
+      "bidPrice": 0.09,
+      "askPrice": 0.14,
+      "bidSize": 1726.0,
+      "askSize": 3192.0
+    },
+    ".SPY260402P666": {
+      "eventSymbol": ".SPY260402P666",
+      "bidPrice": 10.41,
+      "askPrice": 10.47,
+      "bidSize": 127.0,
+      "askSize": 127.0
+    },
+    "/RTYM26:XCME": {
+      "eventSymbol": "/RTYM26:XCME",
+      "bidPrice": 2467.0,
+      "askPrice": 2467.4,
+      "bidSize": 1.0,
+      "askSize": 1.0
+    },
+    "./OGK26C4635:XCEC": {
+      "eventSymbol": "./OGK26C4635:XCEC",
+      "bidPrice": 117.3,
+      "askPrice": 134.1,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./R3EJ26C2800:XCME": {
+      "eventSymbol": "./R3EJ26C2800:XCME",
+      "bidPrice": 2.95,
+      "askPrice": 3.2,
+      "bidSize": 1.0,
+      "askSize": 7.0
+    },
+    "./OZBK26P114:XCBT": {
+      "eventSymbol": "./OZBK26P114:XCBT",
+      "bidPrice": 2.40625,
+      "askPrice": 2.4375,
+      "bidSize": 1.0,
+      "askSize": 84.0
+    },
+    ".SPY260417P645": {
+      "eventSymbol": ".SPY260417P645",
+      "bidPrice": 9.06,
+      "askPrice": 9.09,
+      "bidSize": 128.0,
+      "askSize": 50.0
+    },
+    "./OGK26P4635:XCEC": {
+      "eventSymbol": "./OGK26P4635:XCEC",
+      "bidPrice": 188.9,
+      "askPrice": 279.5,
+      "bidSize": null,
+      "askSize": null
+    },
+    "/6EM26:XCME": {
+      "eventSymbol": "/6EM26:XCME",
+      "bidPrice": 1.16195,
+      "askPrice": 1.16205,
+      "bidSize": 3.0,
+      "askSize": 3.0
+    },
+    ".SPY260501P638": {
+      "eventSymbol": ".SPY260501P638",
+      "bidPrice": 14.66,
+      "askPrice": 14.77,
+      "bidSize": 68.0,
+      "askSize": 126.0
+    },
+    "./OZBK26P113:XCBT": {
+      "eventSymbol": "./OZBK26P113:XCBT",
+      "bidPrice": 0.171875,
+      "askPrice": 3.0,
+      "bidSize": 5.0,
+      "askSize": 1.0
+    },
+    "./OGJ26P4600:XCEC": {
+      "eventSymbol": "./OGJ26P4600:XCEC",
+      "bidPrice": 8.5,
+      "askPrice": 150.0,
+      "bidSize": 1.0,
+      "askSize": 2.0
+    },
+    "SPY": {
+      "eventSymbol": "SPY",
+      "bidPrice": 653.01,
+      "askPrice": 654.6,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./EUUK26P1.14:XCME": {
+      "eventSymbol": "./EUUK26P1.14:XCME",
+      "bidPrice": 0.0022,
+      "askPrice": 0.015,
+      "bidSize": 1.0,
+      "askSize": 2.0
+    },
+    "./LOK26P77.5:XNYM": {
+      "eventSymbol": "./LOK26P77.5:XNYM",
+      "bidPrice": 1.74,
+      "askPrice": 1.81,
+      "bidSize": null,
+      "askSize": null
+    },
+    ".QQQ260402C635": {
+      "eventSymbol": ".QQQ260402C635",
+      "bidPrice": 2.1,
+      "askPrice": 2.2,
+      "bidSize": 3.0,
+      "askSize": 7.0
+    },
+    "./EUUJ26C1.185:XCME": {
+      "eventSymbol": "./EUUJ26C1.185:XCME",
+      "bidPrice": 0.0,
+      "askPrice": 0.0,
+      "bidSize": 355.0,
+      "askSize": 915.0
+    },
+    ".SPY260402C705": {
+      "eventSymbol": ".SPY260402C705",
+      "bidPrice": 2.63,
+      "askPrice": 2.66,
+      "bidSize": 93.0,
+      "askSize": 10.0
+    },
+    "./EUUJ26C1.18:XCME": {
+      "eventSymbol": "./EUUJ26C1.18:XCME",
+      "bidPrice": 0.004,
+      "askPrice": 0.0043,
+      "bidSize": 236.0,
+      "askSize": 935.0
+    },
+    "QQQ": {
+      "eventSymbol": "QQQ",
+      "bidPrice": 587.12,
+      "askPrice": 587.13,
+      "bidSize": null,
+      "askSize": null
+    },
+    "/GCM26:XCEC": {
+      "eventSymbol": "/GCM26:XCEC",
+      "bidPrice": 4508.0,
+      "askPrice": 4610.0,
+      "bidSize": 4.0,
+      "askSize": 35.0
+    },
+    "./RTMJ26P2275:XCME": {
+      "eventSymbol": "./RTMJ26P2275:XCME",
+      "bidPrice": 12.5,
+      "askPrice": 41.5,
+      "bidSize": 1.0,
+      "askSize": null
+    },
+    ".QQQ260402P580": {
+      "eventSymbol": ".QQQ260402P580",
+      "bidPrice": 9.78,
+      "askPrice": 9.95,
+      "bidSize": 10.0,
+      "askSize": 2.0
+    },
+    "./LOK26P75:XNYM": {
+      "eventSymbol": "./LOK26P75:XNYM",
+      "bidPrice": 1.1,
+      "askPrice": 2.5,
+      "bidSize": 1.0,
+      "askSize": 10.0
+    },
+    ".QQQ260417C636": {
+      "eventSymbol": ".QQQ260417C636",
+      "bidPrice": 1.89,
+      "askPrice": 1.92,
+      "bidSize": 79.0,
+      "askSize": 16.0
+    },
+    "./OZBJ26P115:XCBT": {
+      "eventSymbol": "./OZBJ26P115:XCBT",
+      "bidPrice": 0.95,
+      "askPrice": 1.02,
+      "bidSize": 11.0,
+      "askSize": 206.0
+    },
+    "./OGJ26P4620:XCEC": {
+      "eventSymbol": "./OGJ26P4620:XCEC",
+      "bidPrice": 14.3,
+      "askPrice": 15.2,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./R3EJ26C2750:XCME": {
+      "eventSymbol": "./R3EJ26C2750:XCME",
+      "bidPrice": 6.6,
+      "askPrice": 6.9,
+      "bidSize": 9.0,
+      "askSize": 7.0
+    },
+    "./EXH26C7250:XCME": {
+      "eventSymbol": "./EXH26C7250:XCME",
+      "bidPrice": 0.95,
+      "askPrice": 2.4,
+      "bidSize": 140.0,
+      "askSize": 436.0
+    },
+    ".QQQ260417P574": {
+      "eventSymbol": ".QQQ260417P574",
+      "bidPrice": 8.45,
+      "askPrice": 8.53,
+      "bidSize": 3.0,
+      "askSize": 20.0
+    },
+    ".SPY260417P650": {
+      "eventSymbol": ".SPY260417P650",
+      "bidPrice": 10.21,
+      "askPrice": 10.25,
+      "bidSize": 153.0,
+      "askSize": 62.0
+    },
+    "./OGK26C4655:XCEC": {
+      "eventSymbol": "./OGK26C4655:XCEC",
+      "bidPrice": 109.9,
+      "askPrice": 127.1,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./OZBK26P111:XCBT": {
+      "eventSymbol": "./OZBK26P111:XCBT",
+      "bidPrice": 0.46875,
+      "askPrice": 1.171875,
+      "bidSize": 1.0,
+      "askSize": null
+    },
+    ".QQQ260402P585": {
+      "eventSymbol": ".QQQ260402P585",
+      "bidPrice": 10.97,
+      "askPrice": 11.14,
+      "bidSize": 6.0,
+      "askSize": 2.0
+    },
+    "./MW4G26C65.5:XNYM": {
+      "eventSymbol": "./MW4G26C65.5:XNYM",
+      "bidPrice": 1.06,
+      "askPrice": 2.18,
+      "bidSize": null,
+      "askSize": null
+    },
+    ".SPY260501P645": {
+      "eventSymbol": ".SPY260501P645",
+      "bidPrice": 16.93,
+      "askPrice": 17.05,
+      "bidSize": 122.0,
+      "askSize": 122.0
+    },
+    "./RTMJ26C2750:XCME": {
+      "eventSymbol": "./RTMJ26C2750:XCME",
+      "bidPrice": 7.6,
+      "askPrice": 8.6,
+      "bidSize": null,
+      "askSize": null
+    },
+    "./RTMJ26P2250:XCME": {
+      "eventSymbol": "./RTMJ26P2250:XCME",
+      "bidPrice": 35.0,
+      "askPrice": 52.0,
+      "bidSize": null,
+      "askSize": 1.0
+    },
+    ".SPY260402P661": {
+      "eventSymbol": ".SPY260402P661",
+      "bidPrice": 9.24,
+      "askPrice": 9.3,
+      "bidSize": 130.0,
+      "askSize": 130.0
+    },
+    "./R3EJ26P2275:XCME": {
+      "eventSymbol": "./R3EJ26P2275:XCME",
+      "bidPrice": 20.25,
+      "askPrice": 21.0,
+      "bidSize": 176.0,
+      "askSize": 208.0
+    },
+    "./RTMH26P2425:XCME": {
+      "eventSymbol": "./RTMH26P2425:XCME",
+      "bidPrice": 83.25,
+      "askPrice": 96.5,
+      "bidSize": 24.0,
+      "askSize": 25.0
+    },
+    "BTC/USD:CXTALP": {
+      "eventSymbol": "BTC/USD:CXTALP",
+      "bidPrice": 70300.01,
+      "askPrice": 70601.45,
+      "bidSize": 0.0005,
+      "askSize": 0.03208593
+    },
+    ".QQQ260417P579": {
+      "eventSymbol": ".QQQ260417P579",
+      "bidPrice": 9.56,
+      "askPrice": 9.62,
+      "bidSize": 57.0,
+      "askSize": 1.0
+    }
+  },
+  "positions": {
+    "SPY   260417C00699000": {
+      "underlying": "SPY",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 6.42
+    },
+    "./6EM6 EUUK6 260508C1.21": {
+      "underlying": "/6EM6",
+      "multiplier": 125000.0,
+      "streamer_symbol": null,
+      "average_open_price": 0.0019
+    },
+    "SPY   260501C00693000": {
+      "underlying": "SPY",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 7.08
+    },
+    "./RTYM6RTMJ6 260430C2775": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": "./RTMJ26C2775:XCME",
+      "average_open_price": 9.5
+    },
+    "./GCM6 OGK6  260427P4615": {
+      "underlying": "/GCM6",
+      "multiplier": 100.0,
+      "streamer_symbol": "./OGK26P4615:XCEC",
+      "average_open_price": 34.1
+    },
+    "./ZBM6 OZBK6 260424P115": {
+      "underlying": "/ZBM6",
+      "multiplier": 1000.0,
+      "streamer_symbol": null,
+      "average_open_price": 1.03125
+    },
+    "./RTYM6RTMJ6 260430P2250": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": "./RTMJ26P2250:XCME",
+      "average_open_price": 26.0
+    },
+    "./RTYM6RTMJ6 260430P2275": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": "./RTMJ26P2275:XCME",
+      "average_open_price": 29.1
+    },
+    "./CLK6 LOK6  260416P70": {
+      "underlying": "/CLK6",
+      "multiplier": 1000.0,
+      "streamer_symbol": null,
+      "average_open_price": 1.03
+    },
+    "./RTYM6R3EJ6 260417P2225": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": null,
+      "average_open_price": 20.0
+    },
+    "QQQ   260430P00570000": {
+      "underlying": "QQQ",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 9.59
+    },
+    "QQQ   260417C00636000": {
+      "underlying": "QQQ",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 5.21
+    },
+    "./6EM6 EUUK6 260508C1.2": {
+      "underlying": "/6EM6",
+      "multiplier": 125000.0,
+      "streamer_symbol": null,
+      "average_open_price": 0.003
+    },
+    "QQQ   260417P00574000": {
+      "underlying": "QQQ",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 7.48
+    },
+    "./GCM6 OGK6  260427C5495": {
+      "underlying": "/GCM6",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 39.3
+    },
+    "./CLK6 LOK6  260416P77.5": {
+      "underlying": "/CLK6",
+      "multiplier": 1000.0,
+      "streamer_symbol": "./LOK26P77.5:XNYM",
+      "average_open_price": 2.47
+    },
+    "SPY   260417P00650000": {
+      "underlying": "SPY",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 7.78
+    },
+    "./GCM6 OGK6  260427C5515": {
+      "underlying": "/GCM6",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 36.9
+    },
+    "QQQ   260430C00634000": {
+      "underlying": "QQQ",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 4.43
+    },
+    "CSCO": {
+      "underlying": "CSCO",
+      "multiplier": 1.0,
+      "streamer_symbol": null,
+      "average_open_price": 78.0407282
+    },
+    "QQQ   260430P00575000": {
+      "underlying": "QQQ",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 10.62
+    },
+    "SPY   260501P00638000": {
+      "underlying": "SPY",
+      "multiplier": 100.0,
+      "streamer_symbol": ".SPY260501P638",
+      "average_open_price": 9.35
+    },
+    "./ZBM6 OZBK6 260424P114": {
+      "underlying": "/ZBM6",
+      "multiplier": 1000.0,
+      "streamer_symbol": null,
+      "average_open_price": 0.734375
+    },
+    "./RTYM6RTMJ6 260430C2750": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": "./RTMJ26C2750:XCME",
+      "average_open_price": 13.0
+    },
+    "./6EM6 EUUK6 260508P1.13": {
+      "underlying": "/6EM6",
+      "multiplier": 125000.0,
+      "streamer_symbol": null,
+      "average_open_price": 0.0029
+    },
+    "CSCO  260402C00083000": {
+      "underlying": "CSCO",
+      "multiplier": 100.0,
+      "streamer_symbol": ".CSCO260402C83",
+      "average_open_price": 0.8
+    },
+    "./RTYM6R3EJ6 260417C2750": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": null,
+      "average_open_price": 14.5
+    },
+    "./ZBM6 OZBK6 260424P113": {
+      "underlying": "/ZBM6",
+      "multiplier": 1000.0,
+      "streamer_symbol": "./OZBK26P113:XCBT",
+      "average_open_price": 1.890625
+    },
+    "./GCM6 OGK6  260427C4655": {
+      "underlying": "/GCM6",
+      "multiplier": 100.0,
+      "streamer_symbol": "./OGK26C4655:XCEC",
+      "average_open_price": 153.5
+    },
+    "./GCM6 OGK6  260427C4635": {
+      "underlying": "/GCM6",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 162.6
+    },
+    "./RTYM6R3EJ6 260417P2275": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": null,
+      "average_open_price": 25.8
+    },
+    "./GCM6 OGK6  260427P4635": {
+      "underlying": "/GCM6",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 36.9
+    },
+    "SPY   260501P00645000": {
+      "underlying": "SPY",
+      "multiplier": 100.0,
+      "streamer_symbol": ".SPY260501P645",
+      "average_open_price": 10.77
+    },
+    "SPY": {
+      "underlying": "SPY",
+      "multiplier": 1.0,
+      "streamer_symbol": "SPY",
+      "average_open_price": 665.20296522
+    },
+    "QQQ   260417P00579000": {
+      "underlying": "QQQ",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 8.32
+    },
+    "./6EM6 EUUK6 260508P1.14": {
+      "underlying": "/6EM6",
+      "multiplier": 125000.0,
+      "streamer_symbol": null,
+      "average_open_price": 0.0042
+    },
+    "QQQ": {
+      "underlying": "QQQ",
+      "multiplier": 1.0,
+      "streamer_symbol": "QQQ",
+      "average_open_price": 633.51189772
+    },
+    "./CLK6 LOK6  260416P75": {
+      "underlying": "/CLK6",
+      "multiplier": 1000.0,
+      "streamer_symbol": null,
+      "average_open_price": 1.86
+    },
+    "./ZBM6 OZBK6 260424P111": {
+      "underlying": "/ZBM6",
+      "multiplier": 1000.0,
+      "streamer_symbol": null,
+      "average_open_price": 0.28125
+    },
+    "SPY   260417P00645000": {
+      "underlying": "SPY",
+      "multiplier": 100.0,
+      "streamer_symbol": null,
+      "average_open_price": 7.01
+    },
+    "./RTYM6R3EJ6 260417C2800": {
+      "underlying": "/RTYM6",
+      "multiplier": 50.0,
+      "streamer_symbol": null,
+      "average_open_price": 8.0
+    }
+  },
+  "instruments": {
+    "/RTYM6": {
+      "streamer_symbol": "/RTYM26:XCME"
+    },
+    "SPY   260417C00699000": {
+      "streamer_symbol": ".SPY260417C699"
+    },
+    "SPY   260501C00693000": {
+      "streamer_symbol": ".SPY260501C693"
+    },
+    "./RTYM6RTMJ6 260430C2775": {
+      "streamer_symbol": "./RTMJ26C2775:XCME"
+    },
+    "./GCM6 OGK6  260427P4615": {
+      "streamer_symbol": "./OGK26P4615:XCEC"
+    },
+    "./MESM6EXH6  260331C7250": {
+      "streamer_symbol": "./EXH26C7250:XCME"
+    },
+    "./RTYM6RTMH6 260331P2425": {
+      "streamer_symbol": "./RTMH26P2425:XCME"
+    },
+    "SPY   260402C00705000": {
+      "streamer_symbol": ".SPY260402C705"
+    },
+    "./RTYM6RTMJ6 260430P2250": {
+      "streamer_symbol": "./RTMJ26P2250:XCME"
+    },
+    "./RTYM6RTMH6 260331C2875": {
+      "streamer_symbol": "./RTMH26C2875:XCME"
+    },
+    "QQQ   260402P00585000": {
+      "streamer_symbol": ".QQQ260402P585"
+    },
+    "./GCJ6 OGJ6  260326P4600": {
+      "streamer_symbol": "./OGJ26P4600:XCEC"
+    },
+    "./RTYM6RTMJ6 260430P2275": {
+      "streamer_symbol": "./RTMJ26P2275:XCME"
+    },
+    "./6EM6 EUUJ6 260403C1.19": {
+      "streamer_symbol": "./EUUJ26C1.19:XCME"
+    },
+    "./RTYM6R3EJ6 260417P2225": {
+      "streamer_symbol": "./R3EJ26P2225:XCME"
+    },
+    "./ZBM6 OZBK6 260424P115": {
+      "streamer_symbol": "./OZBK26P115:XCBT"
+    },
+    "./ZBM6 OZBJ6 260327C120.5": {
+      "streamer_symbol": "./OZBJ26C120.5:XCBT"
+    },
+    "QQQ   260417C00636000": {
+      "streamer_symbol": ".QQQ260417C636"
+    },
+    "QQQ   260417P00574000": {
+      "streamer_symbol": ".QQQ260417P574"
+    },
+    "./GCM6 OGK6  260427C5495": {
+      "streamer_symbol": "./OGK26C5495:XCEC"
+    },
+    "./CLK6 LOK6  260416P77.5": {
+      "streamer_symbol": "./LOK26P77.5:XNYM"
+    },
+    "SPY   260417P00650000": {
+      "streamer_symbol": ".SPY260417P650"
+    },
+    "./GCM6 OGK6  260427C5515": {
+      "streamer_symbol": "./OGK26C5515:XCEC"
+    },
+    "CSCO": {
+      "streamer_symbol": "CSCO"
+    },
+    "/6EM6": {
+      "streamer_symbol": "/6EM26:XCME"
+    },
+    "./6EM6 EUUK6 260508C1.2": {
+      "streamer_symbol": "./EUUK26C1.2:XCME"
+    },
+    "SPY   260501P00638000": {
+      "streamer_symbol": ".SPY260501P638"
+    },
+    "SPY   260402P00666000": {
+      "streamer_symbol": ".SPY260402P666"
+    },
+    "./ZBM6 OZBK6 260424P114": {
+      "streamer_symbol": "./OZBK26P114:XCBT"
+    },
+    "./RTYM6RTMJ6 260430C2750": {
+      "streamer_symbol": "./RTMJ26C2750:XCME"
+    },
+    "./6EM6 EUUJ6 260403C1.18": {
+      "streamer_symbol": "./EUUJ26C1.18:XCME"
+    },
+    "QQQ   260402P00580000": {
+      "streamer_symbol": ".QQQ260402P580"
+    },
+    "./MESM6EXH6  260331P6575": {
+      "streamer_symbol": "./EXH26P6575:XCME"
+    },
+    "QQQ   260430P00570000": {
+      "streamer_symbol": ".QQQ260430P570"
+    },
+    "./6EM6 EUUJ6 260403P1.13": {
+      "streamer_symbol": "./EUUJ26P1.13:XCME"
+    },
+    "CSCO  260402C00083000": {
+      "streamer_symbol": ".CSCO260402C83"
+    },
+    "./RTYM6R3EJ6 260417C2750": {
+      "streamer_symbol": "./R3EJ26C2750:XCME"
+    },
+    "./6EM6 EUUK6 260508P1.13": {
+      "streamer_symbol": "./EUUK26P1.13:XCME"
+    },
+    "./ZBM6 OZBK6 260424P113": {
+      "streamer_symbol": "./OZBK26P113:XCBT"
+    },
+    "./GCM6 OGK6  260427C4655": {
+      "streamer_symbol": "./OGK26C4655:XCEC"
+    },
+    "./GCJ6 OGJ6  260326P4620": {
+      "streamer_symbol": "./OGJ26P4620:XCEC"
+    },
+    "QQQ   260430C00634000": {
+      "streamer_symbol": ".QQQ260430C634"
+    },
+    "./RTYM6R3EJ6 260417P2275": {
+      "streamer_symbol": "./R3EJ26P2275:XCME"
+    },
+    "/ZBM6": {
+      "streamer_symbol": "/ZBM26:XCBT"
+    },
+    "/GCJ6": {
+      "streamer_symbol": "/GCJ26:XCEC"
+    },
+    "SPY   260501P00645000": {
+      "streamer_symbol": ".SPY260501P645"
+    },
+    "./6EM6 EUUJ6 260403P1.16": {
+      "streamer_symbol": "./EUUJ26P1.16:XCME"
+    },
+    "SPY": {
+      "streamer_symbol": "SPY"
+    },
+    "QQQ   260417P00579000": {
+      "streamer_symbol": ".QQQ260417P579"
+    },
+    "QQQ": {
+      "streamer_symbol": "QQQ"
+    },
+    "./GCJ6 OGJ6  260326C5760": {
+      "streamer_symbol": "./OGJ26C5760:XCEC"
+    },
+    "./GCM6 OGK6  260427P4635": {
+      "streamer_symbol": "./OGK26P4635:XCEC"
+    },
+    "SPY   260402P00661000": {
+      "streamer_symbol": ".SPY260402P661"
+    },
+    "./GCJ6 OGJ6  260326C5740": {
+      "streamer_symbol": "./OGJ26C5740:XCEC"
+    },
+    "./6EM6 EUUK6 260508P1.14": {
+      "streamer_symbol": "./EUUK26P1.14:XCME"
+    },
+    "./CLK6 LOK6  260416P75": {
+      "streamer_symbol": "./LOK26P75:XNYM"
+    },
+    "./6EM6 EUUJ6 260403C1.215": {
+      "streamer_symbol": "./EUUJ26C1.215:XCME"
+    },
+    "SPY   260417P00645000": {
+      "streamer_symbol": ".SPY260417P645"
+    },
+    "./RTYM6RTMH6 260331P2390": {
+      "streamer_symbol": "./RTMH26P2390:XCME"
+    },
+    "./ZBM6 OZBK6 260424P111": {
+      "streamer_symbol": "./OZBK26P111:XCBT"
+    },
+    "QQQ   260430P00575000": {
+      "streamer_symbol": ".QQQ260430P575"
+    },
+    "/MESM6": {
+      "streamer_symbol": "/MESM26:XCME"
+    },
+    "./ZBM6 OZBJ6 260327P115": {
+      "streamer_symbol": "./OZBJ26P115:XCBT"
+    },
+    "./RTYM6RTMH6 260331C2825": {
+      "streamer_symbol": "./RTMH26C2825:XCME"
+    },
+    "./RTYM6R3EJ6 260417C2800": {
+      "streamer_symbol": "./R3EJ26C2800:XCME"
+    },
+    "./CLK6 LOK6  260416P70": {
+      "streamer_symbol": "./LOK26P70:XNYM"
+    },
+    "./GCM6 OGK6  260427C4635": {
+      "streamer_symbol": "./OGK26C4635:XCEC"
+    },
+    "QQQ   260402C00635000": {
+      "streamer_symbol": ".QQQ260402C635"
+    },
+    "./6EM6 EUUK6 260508C1.21": {
+      "streamer_symbol": "./EUUK26C1.21:XCME"
+    }
+  }
+}
