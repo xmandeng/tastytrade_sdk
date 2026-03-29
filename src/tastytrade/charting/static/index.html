@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tasty-chart</title>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #131313; --surface: #1a1a1a; --surface-2: #222;
+      --border: #2a2a2a; --text: #d1d4dc; --text-muted: #787b86;
+      --text-dim: #4a4a5a; --accent: #58a6ff;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* --- Toolbar --- */
+    .toolbar {
+      display: flex; align-items: center;
+      padding: 0 16px; background: var(--surface);
+      border-bottom: 1px solid var(--border); height: 40px; flex-shrink: 0;
+      gap: 16px;
+    }
+    .toolbar-section {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .toolbar-section.controls {
+      flex: 1; justify-content: center; gap: 6px;
+    }
+    .symbol-name { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: 0.3px; }
+    .badge {
+      font-size: 10px; font-weight: 600; color: var(--text-muted);
+      background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px;
+      letter-spacing: 0.3px;
+    }
+    .date-input {
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); font-size: 12px; padding: 4px 8px; cursor: pointer;
+      font-family: inherit; color-scheme: dark;
+    }
+    .date-input:focus { outline: none; border-color: var(--accent); }
+
+    /* Toggle buttons */
+    .toggle-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; font-size: 11px; font-weight: 500;
+      color: var(--text-dim); background: transparent;
+      border: 1px solid transparent; border-radius: 4px;
+      cursor: pointer; user-select: none; transition: all 0.12s; white-space: nowrap;
+    }
+    .toggle-btn:hover { color: var(--text-muted); }
+    .toggle-btn.active { color: var(--text); border-color: var(--border); background: rgba(255,255,255,0.03); }
+    .toggle-btn .indicator {
+      width: 8px; height: 8px; border-radius: 2px; opacity: 0.8;
+    }
+    .divider { width: 1px; height: 18px; background: var(--border); }
+
+    /* Status */
+    .status { display: flex; align-items: center; gap: 5px; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+    .status-dot.connected { background: #3fb950; }
+    .status-dot.connecting { background: #d29922; animation: pulse 1s infinite; }
+    .status-dot.disconnected { background: #ef5350; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+    /* --- Charts --- */
+    .charts-container { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
+    #chart-candle { min-height: 100px; }
+    #chart-macd { min-height: 60px; }
+
+    /* Resize handle between charts */
+    .chart-resize-handle {
+      height: 5px; cursor: row-resize; background: var(--border);
+      position: relative; z-index: 5; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .chart-resize-handle:hover, .chart-resize-handle.dragging {
+      background: var(--accent); height: 5px;
+    }
+    body.chart-resizing { cursor: row-resize; user-select: none; }
+
+    /* Charts need explicit overflow visible for canvas rendering */
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="toolbar-section">
+    <span class="symbol-name" id="symbolName">---</span>
+    <span class="badge" id="intervalBadge">--</span>
+    <input type="date" class="date-input" id="dateInput" title="Trading date">
+  </div>
+
+  <div class="toolbar-section controls" id="levelControls"></div>
+
+  <div class="toolbar-section">
+    <div class="status">
+      <div class="status-dot" id="statusDot"></div>
+    </div>
+  </div>
+</div>
+
+<div class="charts-container" id="chartsContainer">
+  <div id="chart-candle" style="flex:3"></div>
+  <div class="chart-resize-handle" id="chartResizeHandle"></div>
+  <div id="chart-macd" style="flex:1"></div>
+</div>
+
+<script>
+// --- Colors (plots.py) ---
+const C = {
+  bg:'#131313', grid:'rgba(255,255,255,0.03)', text:'#787b86', border:'#2a2a2a',
+  candleUpBorder:'#4CAF50', candleUpBody:'rgba(19,19,19,0.1)',
+  candleDownBorder:'#EF5350', candleDownBody:'#EF5350',
+  hmaUp:'#01FFFF', hmaDown:'#FF66FE',
+  macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
+  priorClose:'#FF66FE', priorHigh:'#4CAF50', priorLow:'#F44336', orLevel:'#4CAF50',
+};
+
+const MARKET_OPEN_H = 9, MARKET_OPEN_M = 30;
+
+const candleEl = document.getElementById('chart-candle');
+const macdEl = document.getElementById('chart-macd');
+
+const chartOpts = () => ({
+  layout: { background: { type: 'solid', color: C.bg }, textColor: C.text },
+  grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
+  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  rightPriceScale: { borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
+  timeScale: {
+    borderColor: C.border, timeVisible: true, secondsVisible: false,
+    tickMarkFormatter: (time, tickMarkType) => {
+      const d = new Date(time * 1000);
+      const h = d.getUTCHours(), m = d.getUTCMinutes();
+      if (tickMarkType <= 2) {
+        // Date-level: show month/day
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return `${months[d.getUTCMonth()]} ${d.getUTCDate()}`;
+      }
+      const hh = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      const mm = m < 10 ? '0' + m : '' + m;
+      return `${hh}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
+    },
+  },
+  handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
+  handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
+});
+
+// Create charts with explicit dimensions — flex containers may not have
+// concrete pixel sizes at creation time
+const candleChart = LightweightCharts.createChart(candleEl, {
+  ...chartOpts(),
+  width: candleEl.clientWidth || window.innerWidth,
+  height: candleEl.clientHeight || Math.floor(window.innerHeight * 0.65),
+});
+const macdChart = LightweightCharts.createChart(macdEl, {
+  ...chartOpts(),
+  width: macdEl.clientWidth || window.innerWidth,
+  height: macdEl.clientHeight || Math.floor(window.innerHeight * 0.2),
+});
+
+// Remove TradingView watermarks via DOM
+function hideWatermarks() { /* disabled for now */ }
+
+
+// Sync time scales
+let syncing = false;
+candleChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+  if (syncing || !r) return; syncing = true;
+  macdChart.timeScale().setVisibleLogicalRange(r); syncing = false;
+});
+macdChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+  if (syncing || !r) return; syncing = true;
+  candleChart.timeScale().setVisibleLogicalRange(r); syncing = false;
+});
+
+// --- Series ---
+const candleSeries = candleChart.addCandlestickSeries({
+  upColor: C.candleUpBody, downColor: C.candleDownBody,
+  borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
+  wickUpColor: C.candleUpBorder, wickDownColor: C.candleDownBorder,
+});
+
+// HMA: segment series per color run
+let hmaSegmentSeries = [];
+
+function clearHmaSeries() {
+  hmaSegmentSeries.forEach(s => candleChart.removeSeries(s.series));
+  hmaSegmentSeries = [];
+}
+
+function createHmaSegmentSeries(color) {
+  const series = candleChart.addLineSeries({
+    color, lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+  if (!hmaVisible) series.applyOptions({ visible: false });
+  const entry = { series, color };
+  hmaSegmentSeries.push(entry);
+  return entry;
+}
+
+function buildHmaSegments(hmaData, candleTimes) {
+  clearHmaSeries();
+  if (!hmaData || !hmaData.length) return;
+  const timeSet = candleTimes ? new Set(candleTimes) : null;
+  let cur = null, curColor = null;
+
+  for (let i = 0; i < hmaData.length; i++) {
+    if (timeSet && !timeSet.has(hmaData[i].time)) continue;
+    const color = hmaData[i].color;
+    const pt = { time: hmaData[i].time, value: hmaData[i].value };
+    if (color !== curColor) {
+      const entry = createHmaSegmentSeries(color);
+      if (cur) cur.series.update(pt); // overlap for continuity
+      entry.series.setData([pt]);
+      cur = entry; curColor = color;
+    } else {
+      cur.series.update(pt);
+    }
+  }
+}
+
+const macdHistSeries = macdChart.addHistogramSeries({
+  priceLineVisible: false, lastValueVisible: false,
+  priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+});
+const macdValueSeries = macdChart.addLineSeries({
+  color: C.macdValue, lineWidth: 1,
+  priceLineVisible: false, lastValueVisible: false,
+  priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+});
+const macdSignalSeries = macdChart.addLineSeries({
+  color: C.macdSignal, lineWidth: 1,
+  priceLineVisible: false, lastValueVisible: false,
+  priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+});
+const macdZeroSeries = macdChart.addLineSeries({
+  color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+  priceLineVisible: false, lastValueVisible: false,
+});
+
+// --- State ---
+let lastHmaColor = C.hmaUp;
+let hmaVisible = true;
+let viewStartEpoch = 0;  // 8:30 AM — for default zoom
+let levelStartEpoch = 0; // 9:30 AM — for horizontal lines
+let levelEndEpoch = 0;   // 5:00 PM — for horizontal lines
+const levels = {};
+
+function lwcStyle(s) {
+  if (s === 'dot' || s === 'dotted') return LightweightCharts.LineStyle.Dotted;
+  if (s === 'dash' || s === 'dashed') return LightweightCharts.LineStyle.Dashed;
+  return LightweightCharts.LineStyle.Solid;
+}
+
+function computeBounds(candles) {
+  viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0;
+  for (const c of candles) {
+    const d = new Date(c.time * 1000);
+    const h = d.getUTCHours(), m = d.getUTCMinutes();
+    // View start: 8:30 AM
+    if (h === 8 && m >= 30 && viewStartEpoch === 0) viewStartEpoch = c.time;
+    // Level start: 9:30 AM (market open)
+    if (h === 9 && m >= 30 && levelStartEpoch === 0) levelStartEpoch = c.time;
+    // Level end: last candle at or before 5:00 PM
+    if (h < 17 || (h === 17 && m === 0)) levelEndEpoch = c.time;
+  }
+  if (viewStartEpoch === 0 && candles.length) viewStartEpoch = candles[0].time;
+  if (levelStartEpoch === 0) levelStartEpoch = viewStartEpoch;
+  if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
+}
+
+// --- Toggles ---
+function toggleHma() {
+  hmaVisible = !hmaVisible;
+  hmaSegmentSeries.forEach(s => s.series.applyOptions({ visible: hmaVisible }));
+  renderControls();
+}
+
+function clearAllLevels() {
+  Object.keys(levels).forEach(id => {
+    levels[id].seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
+    delete levels[id];
+  });
+}
+
+function createLevelSeries(entry) {
+  const series = candleChart.addLineSeries({
+    color: entry.color, lineWidth: 1,
+    lineStyle: lwcStyle(entry.lineStyle),
+    priceLineVisible: false, lastValueVisible: false,
+    crosshairMarkerVisible: false,
+    // Exclude from auto-scale so levels don't stretch the candle y-axis
+    autoscaleInfoProvider: () => null,
+  });
+  series.setData([
+    { time: levelStartEpoch, value: entry.price },
+    { time: levelEndEpoch, value: entry.price },
+  ]);
+  return series;
+}
+
+function createLevel(id, entries, visible) {
+  if (levels[id]) return;
+  const seriesList = visible ? entries.map(e => createLevelSeries(e)) : [];
+  levels[id] = { seriesList, visible, entries };
+}
+
+function toggleLevel(id) {
+  const lv = levels[id];
+  if (!lv) return;
+  if (lv.visible) {
+    lv.seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
+    lv.seriesList = []; lv.visible = false;
+  } else {
+    lv.seriesList = lv.entries.map(e => createLevelSeries(e));
+    lv.visible = true;
+  }
+  renderControls();
+}
+
+function renderControls() {
+  const el = document.getElementById('levelControls');
+  const parts = [];
+
+  // HMA
+  const hmaCls = hmaVisible ? 'active' : '';
+  parts.push(`<button class="toggle-btn ${hmaCls}" onclick="toggleHma()">
+    <span class="indicator" style="background:${C.hmaUp}"></span>HMA</button>`);
+
+  parts.push('<div class="divider"></div>');
+
+  // Prior levels
+  ['priorClose','priorHigh','priorLow'].forEach(id => {
+    if (!levels[id]) return;
+    const lv = levels[id], e = lv.entries[0], cls = lv.visible ? 'active' : '';
+    parts.push(`<button class="toggle-btn ${cls}" onclick="toggleLevel('${id}')">
+      <span class="indicator" style="background:${e.color}"></span>${e.label}</button>`);
+  });
+
+  // OR levels
+  const orIds = ['or5','or15','or30'].filter(id => levels[id]);
+  if (orIds.length) {
+    parts.push('<div class="divider"></div>');
+    orIds.forEach(id => {
+      const lv = levels[id], cls = lv.visible ? 'active' : '';
+      const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
+      parts.push(`<button class="toggle-btn ${cls}" onclick="toggleLevel('${id}')">
+        <span class="indicator" style="background:${C.orLevel}"></span>${label}</button>`);
+    });
+  }
+
+  el.innerHTML = parts.join('');
+}
+
+// --- Opening range ---
+const OR_WINDOWS = [
+  { min:5, id:'or5', label:'5m', style:'solid', opacity:0.75 },
+  { min:15, id:'or15', label:'15m', style:'solid', opacity:0.45 },
+  { min:30, id:'or30', label:'30m', style:'dotted', opacity:0.45 },
+];
+const orState = {};
+
+function initOR() {
+  OR_WINDOWS.forEach(w => { orState[w.min] = { high:null, low:null, locked:false }; });
+}
+
+function processCandleOR(candle) {
+  const d = new Date(candle.time * 1000);
+  const h = d.getUTCHours(), m = d.getUTCMinutes();
+  const minSinceOpen = (h - MARKET_OPEN_H) * 60 + (m - MARKET_OPEN_M);
+  if (minSinceOpen < 0) return;
+
+  OR_WINDOWS.forEach(w => {
+    const st = orState[w.min];
+    if (!st || st.locked) return;
+    if (minSinceOpen >= w.min) {
+      st.locked = true;
+      if (st.high !== null) {
+        createLevel(w.id, [
+          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
+          { price:st.low, label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
+        ], true);
+        renderControls();
+      }
+      return;
+    }
+    if (st.high === null || candle.high > st.high) st.high = candle.high;
+    if (st.low === null || candle.low < st.low) st.low = candle.low;
+  });
+}
+
+// --- View & scale ---
+function setTradingHoursView() {
+  if (viewStartEpoch === 0 || levelEndEpoch === 0) return;
+  candleChart.timeScale().setVisibleRange({ from: viewStartEpoch - 300, to: levelEndEpoch + 600 });
+}
+
+// Let the chart auto-scale to visible candle data.
+// Prior day levels may be off-screen if there's a large gap — that's OK,
+// the user can scroll/zoom to see them. Forcing them into view compresses
+// the candles to invisible.
+
+// --- Chart pane resize ---
+(function() {
+  const handle = document.getElementById('chartResizeHandle');
+  const container = document.getElementById('chartsContainer');
+  let dragging = false, startY = 0, startCandleH = 0, startMacdH = 0;
+
+  function onStart(clientY) {
+    dragging = true;
+    startY = clientY;
+    startCandleH = candleEl.offsetHeight;
+    startMacdH = macdEl.offsetHeight;
+    document.body.classList.add('chart-resizing');
+    handle.classList.add('dragging');
+  }
+
+  handle.addEventListener('mousedown', e => { e.preventDefault(); onStart(e.clientY); });
+  handle.addEventListener('touchstart', e => { e.preventDefault(); onStart(e.touches[0].clientY); }, { passive: false });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dy = e.clientY - startY;
+    const newCandle = Math.max(100, startCandleH + dy);
+    const newMacd = Math.max(60, startMacdH - dy);
+    candleEl.style.flex = 'none'; candleEl.style.height = newCandle + 'px';
+    macdEl.style.flex = 'none'; macdEl.style.height = newMacd + 'px';
+    resize();
+  });
+
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    e.preventDefault();
+    const dy = e.touches[0].clientY - startY;
+    const newCandle = Math.max(100, startCandleH + dy);
+    const newMacd = Math.max(60, startMacdH - dy);
+    candleEl.style.flex = 'none'; candleEl.style.height = newCandle + 'px';
+    macdEl.style.flex = 'none'; macdEl.style.height = newMacd + 'px';
+    resize();
+  }, { passive: false });
+
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('chart-resizing');
+    handle.classList.remove('dragging');
+  }
+  document.addEventListener('mouseup', endDrag);
+  document.addEventListener('touchend', endDrag);
+})();
+
+// --- WebSocket ---
+let ws = null;
+let intentionalClose = false;
+
+function setStatus(state) {
+  document.getElementById('statusDot').className = 'status-dot ' + state;
+}
+
+function getParams() {
+  const p = new URLSearchParams(window.location.search);
+  return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm' };
+}
+
+function connect(dateOverride) {
+  setStatus('connecting');
+  intentionalClose = true;
+
+  const { symbol, interval } = getParams();
+  document.getElementById('symbolName').textContent = symbol;
+  document.getElementById('intervalBadge').textContent = interval === 'm' ? '1m' : interval;
+
+  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}`;
+  if (dateOverride) url += `&date=${dateOverride}`;
+
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    intentionalClose = false;
+    setStatus('connected');
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.type === 'error') { setStatus('disconnected'); return; }
+
+    if (msg.type === 'init') {
+      clearAllLevels();
+      initOR();
+      hmaVisible = true;
+
+      if (msg.date) document.getElementById('dateInput').value = msg.date;
+
+      candleSeries.setData(msg.candles);
+      computeBounds(msg.candles);
+      msg.candles.forEach(c => processCandleOR(c));
+
+      // HMA
+      if (msg.hma && msg.hma.length > 0) {
+        const candleTimes = msg.candles.map(c => c.time);
+        buildHmaSegments(msg.hma, candleTimes);
+        lastHmaColor = msg.hma[msg.hma.length - 1].color;
+      }
+
+      // MACD
+      if (msg.macd && msg.macd.length > 0) {
+        macdHistSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.histogram, color:p.histogramColor })));
+        macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
+        macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
+        macdZeroSeries.setData([
+          { time:msg.macd[0].time, value:0 },
+          { time:msg.macd[msg.macd.length-1].time, value:0 },
+        ]);
+      }
+
+      // Prior day levels — bounded to 9:30 - 5:00
+      if (msg.dailyCandle) {
+        const dc = msg.dailyCandle;
+        if (dc.close != null) createLevel('priorClose',[
+          {price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.45}], true);
+        if (dc.high != null) createLevel('priorHigh',[
+          {price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.45}], true);
+        if (dc.low != null) createLevel('priorLow',[
+          {price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.45}], true);
+      }
+
+      renderControls();
+      setTimeout(() => { setTradingHoursView(); hideWatermarks(); }, 100);
+      return;
+    }
+
+    if (msg.type === 'update') {
+      candleSeries.update(msg.candle);
+      processCandleOR(msg.candle);
+
+      if (msg.hma) {
+        const pt = { time: msg.hma.time, value: msg.hma.value };
+        const color = msg.hma.color;
+        if (color !== lastHmaColor && hmaSegmentSeries.length > 0) {
+          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
+          const entry = createHmaSegmentSeries(color);
+          entry.series.setData([pt]);
+        } else if (hmaSegmentSeries.length > 0) {
+          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
+        } else {
+          const entry = createHmaSegmentSeries(color);
+          entry.series.setData([pt]);
+        }
+        lastHmaColor = color;
+      }
+
+      if (msg.macd) {
+        macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
+        macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
+        macdSignalSeries.update({ time:msg.macd.time, value:msg.macd.signal });
+        macdZeroSeries.update({ time:msg.macd.time, value:0 });
+      }
+      return;
+    }
+
+    if (msg.type === 'level') {
+      const id = (msg.label||'').replace(/\s+/g,'').toLowerCase();
+      createLevel(id,[{price:msg.price,label:msg.label,color:msg.color,lineStyle:msg.lineStyle,opacity:msg.opacity}],true);
+      renderControls();
+      return;
+    }
+  };
+
+  ws.onclose = () => {
+    if (intentionalClose) return;
+    setStatus('disconnected');
+    setTimeout(() => connect(), 3000);
+  };
+
+  ws.onerror = () => setStatus('disconnected');
+}
+
+document.getElementById('dateInput').addEventListener('change', (e) => {
+  if (e.target.value) connect(e.target.value);
+});
+
+// Resize
+function resize() {
+  if (candleEl.clientWidth && candleEl.clientHeight) {
+    candleChart.resize(candleEl.clientWidth, candleEl.clientHeight);
+  }
+  if (macdEl.clientWidth && macdEl.clientHeight) {
+    macdChart.resize(macdEl.clientWidth, macdEl.clientHeight);
+  }
+}
+window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(candleEl);
+new ResizeObserver(resize).observe(macdEl);
+
+connect();
+</script>
+</body>
+</html>
