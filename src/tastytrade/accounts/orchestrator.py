@@ -66,6 +66,10 @@ async def update_account_connection_status(
         status["error"] = reason
     await redis_client.hset("tastytrade:account_connection", mapping=status)  # type: ignore[arg-type]
 
+    # Clear stale error field when connection is healthy
+    if not reason:
+        await redis_client.hdel("tastytrade:account_connection", "error")
+
 
 async def consume_positions(
     queue: asyncio.Queue,  # type: ignore[type-arg]
