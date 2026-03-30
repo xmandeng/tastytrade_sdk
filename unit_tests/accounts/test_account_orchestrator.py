@@ -82,6 +82,24 @@ class TestUpdateAccountConnectionStatus:
         assert mapping["state"] == "disconnected"
         assert "error" not in mapping
 
+    @pytest.mark.asyncio
+    async def test_connected_clears_stale_error_field(self) -> None:
+        """Connected status removes the stale error field from Redis."""
+        mock_redis = AsyncMock()
+        await update_account_connection_status(mock_redis, state="connected")
+        mock_redis.hdel.assert_awaited_once_with(
+            "tastytrade:account_connection", "error"
+        )
+
+    @pytest.mark.asyncio
+    async def test_error_status_does_not_clear_error_field(self) -> None:
+        """Error status preserves the error field."""
+        mock_redis = AsyncMock()
+        await update_account_connection_status(
+            mock_redis, state="error", reason="connection_dropped"
+        )
+        mock_redis.hdel.assert_not_awaited()
+
 
 # ---------------------------------------------------------------------------
 # consume_positions
