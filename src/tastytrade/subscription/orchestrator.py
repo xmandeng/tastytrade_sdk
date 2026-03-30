@@ -74,6 +74,10 @@ async def update_redis_connection_status(
 
     await store.redis.hset("tastytrade:connection", mapping=status)  # type: ignore[arg-type]
 
+    # Clear stale error field when connection is healthy
+    if not reason:
+        await store.redis.hdel("tastytrade:connection", "error")
+
 
 def log_health_status(
     dxlink: DXLinkManager,
@@ -407,6 +411,10 @@ async def _run_subscription_once(
 
         # Get subscription store for Redis status updates
         subscription_store = dxlink.subscription_store
+
+        # Publish healthy connection status to Redis
+        if isinstance(subscription_store, RedisSubscriptionStore):
+            await update_redis_connection_status(subscription_store, state="connected")
 
         # Start failure trigger listener if Redis is available
         failure_listener_task: asyncio.Task | None = None
