@@ -59,32 +59,6 @@
     .seg-btn.active { color: var(--text); background: rgba(255,255,255,0.06); }
     .seg-btn:hover:not(.active) { color: var(--text-muted); }
 
-    /* Settings gear + popover */
-    .gear-btn {
-      background: none; border: 1px solid transparent; border-radius: 4px;
-      color: var(--text-dim); cursor: pointer; padding: 4px 6px; font-size: 14px;
-      transition: all 0.12s; line-height: 1;
-    }
-    .gear-btn:hover { color: var(--text); border-color: var(--border); }
-    .settings-popover {
-      display: none; position: absolute; top: 40px; right: 60px; z-index: 20;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-      padding: 8px 0; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
-    .settings-popover.open { display: block; }
-    .settings-item {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 14px; font-size: 12px; color: var(--text-muted);
-      cursor: pointer; transition: background 0.1s; user-select: none;
-    }
-    .settings-item:hover { background: rgba(255,255,255,0.04); }
-    .settings-item .dot {
-      width: 6px; height: 6px; border-radius: 2px; flex-shrink: 0;
-    }
-    .settings-item .check {
-      width: 14px; text-align: center; font-size: 11px; color: var(--accent); flex-shrink: 0;
-    }
-    .settings-divider { height: 1px; background: var(--border); margin: 4px 0; }
 
     /* Status */
     .status { display: flex; align-items: center; gap: 5px; }
@@ -94,9 +68,43 @@
     .status-dot.disconnected { background: #ef5350; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
+    /* Chart legend */
+    .chart-legend {
+      position: absolute; bottom: 8px; left: 90px; z-index: 10;
+      background: rgba(19,19,19,0.88); border: 1px solid var(--border);
+      border-radius: 5px; overflow: hidden;
+      font-family: monospace; font-size: 11px;
+      color: var(--text-muted); user-select: none;
+    }
+    .chart-legend:empty { display: none; }
+    .chart-legend.dragging .legend-grip { cursor: grabbing; }
+    .legend-grip {
+      height: 14px; cursor: grab; display: flex; align-items: center;
+      justify-content: center; background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--border);
+    }
+    .legend-grip-dots {
+      width: 24px; height: 2px;
+      border-top: 2px dotted rgba(255,255,255,0.15);
+    }
+    .legend-body { padding: 6px 12px 8px; }
+    .legend-row {
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+      padding: 3px 4px; border-radius: 3px; cursor: pointer;
+      transition: opacity 0.12s;
+    }
+    .legend-row:hover { background: rgba(255,255,255,0.04); }
+    .legend-row.off { opacity: 0.3; }
+    .legend-line {
+      width: 18px; height: 0; flex-shrink: 0;
+      border-top-width: 2px; border-top-style: solid;
+    }
+    .legend-line.dotted { border-top-style: dotted; }
+    .legend-line.dashed { border-top-style: dashed; }
+
     /* --- Charts --- */
     .charts-container { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
-    #chart-candle { min-height: 100px; }
+    #chart-candle { min-height: 100px; position: relative; }
     #chart-macd { min-height: 60px; }
 
     /* Resize handle between charts */
@@ -127,8 +135,6 @@
 
   <div class="toolbar-section">
     <div class="seg-ctrl" id="mktExtCtrl"></div>
-    <button class="gear-btn" id="gearBtn" title="Chart settings">&#9881;</button>
-    <div class="settings-popover" id="settingsPopover"></div>
     <div class="status">
       <div class="status-dot" id="statusDot"></div>
     </div>
@@ -136,7 +142,12 @@
 </div>
 
 <div class="charts-container" id="chartsContainer">
-  <div id="chart-candle" style="flex:3"></div>
+  <div id="chart-candle" style="flex:3">
+    <div class="chart-legend" id="chartLegend">
+      <div class="legend-grip" id="legendGrip"><div class="legend-grip-dots"></div></div>
+      <div class="legend-body" id="legendBody"></div>
+    </div>
+  </div>
   <div class="chart-resize-handle" id="chartResizeHandle"></div>
   <div id="chart-macd" style="flex:1"></div>
 </div>
@@ -371,6 +382,7 @@ function clearAllLevels() {
     levels[id].seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
     delete levels[id];
   });
+  document.getElementById('legendBody').innerHTML = '';
 }
 
 function createLevelSeries(entry) {
@@ -406,63 +418,84 @@ function toggleLevel(id) {
     lv.visible = true;
   }
   renderControls();
+  renderLegend();
 }
 
+function renderLegend() {
+  const el = document.getElementById('legendBody');
+  const rows = [];
+
+  function row(id, label, color, style, priceText, onclick) {
+    const vis = id === 'hma' ? hmaVisible : (levels[id] && levels[id].visible);
+    const cls = vis ? '' : 'off';
+    const dash = style === 'dotted' ? 'dotted' : style === 'dashed' ? 'dashed' : '';
+    const handler = onclick || `toggleLevel('${id}');renderLegend()`;
+    return `<div class="legend-row ${cls}" onclick="${handler}">
+      <span class="legend-line ${dash}" style="border-color:${color}"></span>
+      <span>${label}</span>
+      <span style="color:var(--text-dim)">${priceText}</span>
+    </div>`;
+  }
+
+  // HMA
+  rows.push(row('hma', 'HMA', C.hmaUp, 'solid', '', 'toggleHma();renderLegend()'));
+
+  // Prior day levels
+  ['priorClose','priorHigh','priorLow'].forEach(id => {
+    const lv = levels[id];
+    if (!lv) return;
+    const e = lv.entries[0];
+    rows.push(row(id, e.label, e.color, e.lineStyle, e.price.toFixed(0)));
+  });
+  // OR levels — group hi/lo pairs
+  ['or5','or15','or30'].forEach(id => {
+    const lv = levels[id];
+    if (!lv || !lv.entries.length) return;
+    const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
+    const hi = lv.entries.find(e => e.label.includes('Hi'));
+    const lo = lv.entries.find(e => e.label.includes('Lo'));
+    const prices = [hi,lo].filter(Boolean).map(e => e.price.toFixed(0)).join(' / ');
+    rows.push(row(id, label, lv.entries[0].color, lv.entries[0].lineStyle, prices));
+  });
+  el.innerHTML = rows.join('');
+}
+
+// Draggable legend via grip bar
+(function() {
+  const legend = document.getElementById('chartLegend');
+  const grip = document.getElementById('legendGrip');
+  let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
+
+  grip.addEventListener('mousedown', (e) => {
+    dragging = true; startX = e.clientX; startY = e.clientY;
+    // Switch from bottom-anchored to top-anchored on first drag
+    if (legend.style.bottom !== '') {
+      const rect = legend.getBoundingClientRect();
+      const parentRect = legend.parentElement.getBoundingClientRect();
+      legend.style.top = (rect.top - parentRect.top) + 'px';
+      legend.style.bottom = 'auto';
+    }
+    origLeft = legend.offsetLeft; origTop = legend.offsetTop;
+    legend.classList.add('dragging');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    legend.style.left = (origLeft + e.clientX - startX) + 'px';
+    legend.style.top = (origTop + e.clientY - startY) + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; legend.classList.remove('dragging');
+  });
+})();
+
 function renderControls() {
-  // Segmented control: MKT / EXT
   const seg = document.getElementById('mktExtCtrl');
   seg.innerHTML = `
     <button class="seg-btn ${hasMarketHours ? 'active' : ''}" onclick="toggleMarketHours()">MKT</button>
     <button class="seg-btn ${hasMarketHours ? '' : 'active'}" onclick="toggleMarketHours()">EXT</button>`;
-
-  // Settings popover items
-  const pop = document.getElementById('settingsPopover');
-  const items = [];
-
-  // HMA
-  items.push(settingsItem('HMA', C.hmaUp, hmaVisible, 'toggleHma()'));
-  items.push('<div class="settings-divider"></div>');
-
-  // Prior levels
-  ['priorClose','priorHigh','priorLow'].forEach(id => {
-    if (!levels[id]) return;
-    const lv = levels[id], e = lv.entries[0];
-    items.push(settingsItem(e.label, e.color, lv.visible, `toggleLevel('${id}')`));
-  });
-
-  // OR levels
-  const orIds = ['or5','or15','or30'].filter(id => levels[id]);
-  if (orIds.length) {
-    items.push('<div class="settings-divider"></div>');
-    orIds.forEach(id => {
-      const lv = levels[id];
-      const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
-      items.push(settingsItem(label, C.orLevel, lv.visible, `toggleLevel('${id}')`));
-    });
-  }
-
-  pop.innerHTML = items.join('');
 }
-
-function settingsItem(label, color, active, onclick) {
-  return `<div class="settings-item" onclick="${onclick}">
-    <span class="check">${active ? '\u2713' : ''}</span>
-    <span class="dot" style="background:${color}"></span>
-    ${label}
-  </div>`;
-}
-
-// Gear button toggle
-document.getElementById('gearBtn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  document.getElementById('settingsPopover').classList.toggle('open');
-});
-document.addEventListener('click', () => {
-  document.getElementById('settingsPopover').classList.remove('open');
-});
-document.getElementById('settingsPopover').addEventListener('click', (e) => {
-  e.stopPropagation();
-});
 
 // --- Opening range ---
 const OR_WINDOWS = [
@@ -493,6 +526,7 @@ function processCandleOR(candle) {
           { price:st.low, label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
         ], true);
         renderControls();
+        renderLegend();
       }
       return;
     }
@@ -682,6 +716,7 @@ function connect(dateOverride) {
       }
 
       renderControls();
+      renderLegend();
       setTimeout(() => { setTradingHoursView(); }, 100);
       return;
     }
@@ -729,6 +764,7 @@ function connect(dateOverride) {
       const id = (msg.label||'').replace(/\s+/g,'').toLowerCase();
       createLevel(id,[{price:msg.price,label:msg.label,color:msg.color,lineStyle:msg.lineStyle,opacity:msg.opacity}],true);
       renderControls();
+      renderLegend();
       return;
     }
   };
