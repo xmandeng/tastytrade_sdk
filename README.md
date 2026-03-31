@@ -118,7 +118,7 @@ VS Code will build and start the development container, which includes:
 - Telegraf
 - Kafka
 - Redis
-- Redis-Commander
+- RedisInsight
 - All required Python packages
 - Pre-configured development tools
 
