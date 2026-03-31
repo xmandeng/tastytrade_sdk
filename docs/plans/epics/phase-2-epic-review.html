@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan Review: Phase 2 — 0DTE Strategy Paper Trading</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.10);
+      --amber: #d29922;
+      --amber-bg: rgba(210, 153, 34, 0.10);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.08);
+      --purple: #bc8cff;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      height: 52px;
+    }
+
+    .topbar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .topbar .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-pending {
+      background: var(--amber);
+    }
+
+    .dot-approved {
+      background: var(--green);
+    }
+
+    .dot-revision {
+      background: var(--red);
+    }
+
+    .dot-question {
+      background: var(--purple);
+    }
+
+    /* Main layout */
+    .main {
+      display: flex;
+      height: calc(100vh - 52px);
+    }
+
+    /* Resize handles */
+    .resize-handle {
+      width: 1px;
+      cursor: col-resize;
+      background: var(--border);
+      position: relative;
+      flex-shrink: 0;
+      z-index: 10;
+      overflow: visible;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.dragging {
+      background: var(--accent);
+      width: 3px;
+    }
+
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    /* Topbar collapse toggle buttons */
+    .topbar-toggles {
+      display: flex;
+      gap: 6px;
+    }
+
+    .collapse-toggle {
+      width: 36px;
+      height: 32px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    @media (hover: hover) {
+      .collapse-toggle:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+        border-color: var(--accent);
+      }
+    }
+
+    .collapse-toggle.panel-collapsed {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    /* Collapsed panel states */
+    .nav.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed>* {
+      display: none;
+    }
+
+    .nav.collapsed>* {
+      display: none;
+    }
+
+    .nav,
+    .right-panel {
+      transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    }
+
+    /* Section nav */
+    .nav {
+      width: 240px;
+      min-width: 140px;
+      background: var(--bg-surface);
+      overflow-y: auto;
+      padding: 12px 0;
+    }
+
+    .nav-item {
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--bg-hover);
+      border-left-color: var(--accent);
+      color: var(--text);
+    }
+
+    .nav-item .status-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+
+    .nav-item .label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .nav-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 8px 16px;
+    }
+
+    .nav-group-label {
+      padding: 8px 16px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* Document panel */
+    .doc-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      min-width: 0;
+    }
+
+    .doc-panel::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .doc-panel::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .doc-panel::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    /* Section rendering */
+    .section {
+      margin-bottom: 16px;
+      scroll-margin-top: 20px;
+      padding: 16px 16px 10px;
+      border-radius: 6px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-header h3 {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-content {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+
+    .section-content p {
+      margin-bottom: 12px;
+    }
+
+    .section-content strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content code {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: var(--bg-surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .section-content pre {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin: 12px 0;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    .section-content pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    .section-content ul,
+    .section-content ol {
+      margin: 8px 0 12px 24px;
+    }
+
+    .section-content li {
+      margin-bottom: 4px;
+    }
+
+    .section-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+
+    .section-content th,
+    .section-content td {
+      text-align: left;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+    }
+
+    .section-content th {
+      background: var(--bg-surface-2);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    /* Review actions */
+    .review-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .review-btn {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .review-btn:hover {
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+
+    .review-btn.active-approved {
+      background: var(--green-bg);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .review-btn.active-revision {
+      background: var(--red-bg);
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .review-btn.active-question {
+      background: rgba(188, 140, 255, 0.10);
+      border-color: var(--purple);
+      color: var(--purple);
+    }
+
+    .comment-area {
+      margin-top: 10px;
+      display: none;
+    }
+
+    .comment-area.visible {
+      display: block;
+    }
+
+    .comment-area textarea {
+      width: 100%;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 60px;
+      outline: none;
+      margin-bottom: 0;
+      display: block;
+    }
+
+    .comment-area textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .comment-area textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    .existing-comment {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      position: relative;
+    }
+
+    .existing-comment .edit-btn {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    /* Right panel: prompt output */
+    .right-panel {
+      width: 360px;
+      min-width: 200px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .right-panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .right-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .right-panel-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .right-panel-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .prompt-output {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .prompt-placeholder {
+      color: var(--text-dim);
+      font-style: italic;
+      font-size: 13px;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .copy-btn {
+      padding: 8px 16px;
+      margin: 12px 16px 16px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .copy-btn:hover {
+      opacity: 0.9;
+    }
+
+    .copy-btn.copied {
+      background: var(--green);
+    }
+
+    /* Filter tabs in right panel */
+    .filter-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .filter-tab {
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .filter-tab:hover {
+      background: var(--bg-hover);
+    }
+
+    .filter-tab.active {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    /* Feedback summary items */
+    .feedback-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .feedback-item:last-child {
+      border-bottom: none;
+    }
+
+    .feedback-item .fb-section {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .feedback-item .fb-status {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .fb-status.approved {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .fb-status.revision {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .fb-status.question {
+      background: rgba(188, 140, 255, 0.1);
+      color: var(--purple);
+    }
+
+    .feedback-item .fb-comment {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    /* Revised section highlight */
+    .section.revised {
+      border-left: 3px solid var(--accent) !important;
+      background: rgba(88, 166, 255, 0.04) !important;
+    }
+
+    .revised-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="topbar">
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9" />
+          <rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3" />
+        </svg>
+      </button>
+    </div>
+    <h1>Phase 2 Epic Review: 0DTE Strategy Paper Trading with Agentic Chart Review</h1>
+    <div class="stats" id="stats"></div>
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
+          <rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="nav" id="nav"></div>
+    <div class="resize-handle" id="leftHandle"></div>
+    <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="rightHandle"></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="right-panel-header">
+        <span>Review Feedback</span>
+        <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">All</div>
+        <div class="filter-tab" data-filter="approved">Approved</div>
+        <div class="filter-tab" data-filter="revision">Needs Revision</div>
+        <div class="filter-tab" data-filter="question">Questions</div>
+      </div>
+      <div class="right-panel-content" id="feedbackList"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+    </div>
+  </div>
+
+  <script>
+    const docSections = [
+      {
+        id: "epic-overview",
+        title: "Epic Overview",
+        content: `**Problem:** 0DTE trading moves too fast for manual chart review across multiple timeframes. By the time you've checked 1m, 5m, 15m, assessed key levels, and formed a view \u2014 the opportunity has moved. The system needs to do what a trader does, at machine speed.
+
+**Goal:** Build a paper trading system that monitors for signal-based entry conditions, assembles multi-timeframe market context, gets AI chart review, constructs concrete trades from the option chain, and tracks positions with mechanical exit rules \u2014 all persisted to InfluxDB for live observation and EOD review.
+
+**Deliverable:** One fully working playbook (0DTE bull put spread on HullMACD bullish signal) that validates the entire pipeline end-to-end. After that, new strategies are TOML config blocks, not code.
+
+### What Exists Today (after TT-79)
+
+- Real-time streaming (positions, orders, quotes, Greeks, candles)
+- Signal detection (HullMACD engine with pluggable protocol)
+- Strategy classification (identify spreads/strangles/condors from positions)
+- Entry credit computation (LIFO replay, live on fills)
+- Backtesting (historical replay through signal engine)
+- InfluxDB + Grafana for persistence and visualization
+- \`playground_signals\` notebook: signal \u2192 chart \u2192 persist loop already working
+
+**What's missing is everything between "signal fires" and "trade tracked."**`
+      },
+      {
+        id: "gap-1-chain",
+        title: "Gap 1: Chain Resolver",
+        content: `> *"What's the 16-delta put for SPX expiring today?"*
+
+On-demand option chain query filtered to specific deltas. Thin utility wrapping existing \`OptionsClient\`. Flash lookup when a strategy needs to construct a trade \u2014 **not a streaming service**.
+
+### Reuses
+- \`OptionsClient.get_chains()\` at \`src/tastytrade/market/options.py\`
+- \`EquityOptionInstrument\` model
+
+### New Code
+- \`ChainLookup\` service \u2014 wraps OptionsClient with delta-based filtering and typed response models
+- \`OptionStrike\` frozen Pydantic model: strike_price, bid, ask, mid, delta, IV, theta, gamma, dte
+- Parse \`OptionsClient\` raw dict response into typed models`
+      },
+      {
+        id: "gap-2-constructor",
+        title: "Gap 2: Trade Constructor",
+        content: `> *"Signal says BULLISH \u2192 build a bull put spread."*
+
+The bridge between a signal and a concrete position with specific strikes, structure, and entry credit. Takes signal + strategy spec + chain data \u2192 produces a fully-defined paper position.
+
+### Reuses
+- \`TradeSignal\` model \u2014 the entry trigger
+- \`StrategyClassifier\` \u2014 knows spread/strangle/condor structure
+
+### New Code
+- \`TradeConstructor\` \u2014 takes \`TradeSignal\` + \`OptionStrike[]\` + strategy config \u2192 \`PaperPosition\`
+- \`PaperPosition\` model with lifecycle states (WATCHING / OPEN / CLOSED / SKIPPED)
+- Constructs legs (e.g., sell 16-delta put, buy put 25pts lower)
+- Records entry credit (mid price), entry Greeks, entry timestamp`
+      },
+      {
+        id: "gap-3-context",
+        title: "Gap 3: Multi-Timeframe Market Context",
+        content: `> *"What do the 1m, 5m, 15m, and 1h charts say? Where are the key levels?"*
+
+**This is the CORE framework element.** A trader's entire decision process IS multi-timeframe analysis with key level identification. Not just input prep for the AI agent \u2014 it IS the decision framework. Both the agent and any dashboard consume this same context.
+
+### Pipeline
+
+\`\`\`
+Candle streams (1m, 5m, 15m, 1h) + indicator computation (HMA, MACD per TF)
+         |
+         v
+MarketContext \u2014 assembled, multi-timeframe view:
+  - Per-timeframe: trend direction, momentum, HMA/MACD state
+  - Cross-timeframe: key levels, trend alignment, notable confluences
+  - Snapshot at a point in time (immutable, frozen)
+\`\`\`
+
+### Key Level Identification
+- Prior close, VWAP, session high/low, round numbers
+- Support/resistance from swing highs/lows across timeframes
+- Levels are **verifiable** \u2014 did price react there?
+
+### Reuses
+- \`hull()\` and \`macd()\` indicators at \`analytics/indicators/momentum.py\`
+- \`MarketDataProvider.download()\` for historical candles
+- \`CandleEvent\` model
+
+### New Code
+- \`MarketContext\` pipeline: new \`src/tastytrade/analytics/context/\` package
+- \`KeyLevel\` identification logic
+- \`TrendAlignment\` assessment (ALIGNED / MIXED / OPPOSED across TFs)
+- Publishes snapshots to Redis + InfluxDB for dashboard consumption`
+      },
+      {
+        id: "gap-4-observation",
+        title: "Gap 4: Real-Time Observation",
+        content: `> *"Watch the day unfold \u2014 signals firing, positions opening, P&L tracking, context updating."*
+
+The notebook is offline replay. The live system needs real-time visibility **during the trading day**, not just EOD review:
+
+- Signals as they fire
+- Paper positions with live P&L
+- Market context updating as candles close
+- Key levels being tested/broken
+
+### Implementation
+- Grafana dashboard + InfluxDB persistence designed for **live observation**
+- Signal timeline, paper position P&L, market context updates
+- P&L curve per playbook over trading days
+- Exit reason breakdown (profit target / max loss / time exit)
+- Analyst scorecard (win rate by FAVORABLE / NEUTRAL / UNFAVORABLE)
+- Trade journal: entries, assessments, exits, outcomes
+- Skipped trades: what happened to UNFAVORABLE-gated trades?`
+      },
+      {
+        id: "gap-5-analyst",
+        title: "Gap 5: LLM Analyst",
+        content: `> *"Given this multi-timeframe context and proposed trade, what does the chart say?"*
+
+AI agent that consumes \`MarketContext\` and produces qualitative assessment. Automates what a human trader does looking at charts across timeframes. T-shirt sized setup quality: **FAVORABLE / NEUTRAL / UNFAVORABLE**. NO pseudo-scientific confidence scores. Verifiable observations only.
+
+### Design Principles
+- **No fake precision** \u2014 "0.73 confidence" implies calibrated probability that doesn't exist
+- **Verifiable observations** \u2014 key levels can be checked (did price react?), trend direction is measurable
+- **T-shirt quality** \u2014 three buckets. Over time: "Do FAVORABLE setups have a higher win rate?" is a real, measurable question
+- **Latency matters** \u2014 for 0DTE, assessment needs to come back in seconds, not minutes
+
+### Implementation
+- Claude API (Haiku 4.5 for speed/cost, upgrade to Sonnet only if quality lacking)
+- Structured output via tool_use \u2014 typed JSON, not free text
+- Prompt template versioned in repo at \`src/tastytrade/analyst/prompts/\``
+      },
+      {
+        id: "gap-6-journal",
+        title: "Gap 6: Decision Journal",
+        content: `> *"What happened? Did FAVORABLE setups win more often?"*
+
+Connects decisions to outcomes. Every paper trade records: trigger, market context, agent assessment, and actual outcome. This is how you learn which setups work and whether the agent adds value.
+
+### What Gets Tracked
+- Entry trigger (which signal, what time, market conditions)
+- Agent assessment at entry (FAVORABLE / NEUTRAL / UNFAVORABLE / NONE)
+- Exit reason (profit_target / max_loss / time_exit)
+- P&L outcome (entry credit, exit debit, net)
+- Key levels identified vs. key levels respected
+
+### How Results Are Measured
+- Simple tallies \u2014 not pseudo-calibration
+- Win rate by setup_quality: did FAVORABLE setups actually win more?
+- Key level accuracy: how often did identified S/R hold?
+- Skipped trade analysis: what happened to trades the analyst gated?`
+      },
+      {
+        id: "pipeline-flow",
+        title: "Pipeline Flow",
+        content: `### Signal \u2192 Trade Lifecycle
+
+\`\`\`
+HullMACD Signal fires (BULLISH on SPX 5m)
+    \u2502
+    \u251c\u2500\u2500\u2192 MarketContext assembled (1m / 5m / 15m / 1h + key levels)
+    \u2502        \u2502
+    \u2502        \u2514\u2500\u2500\u2192 LLM Analyst reviews context + proposed trade
+    \u2502                 \u2192 FAVORABLE / NEUTRAL / UNFAVORABLE
+    \u2502
+    \u251c\u2500\u2500\u2192 Chain Resolver: "16-delta put expiring today?"
+    \u2502
+    \u2514\u2500\u2500\u2192 Trade Constructor: signal + chain + spec \u2192 PaperPosition
+              \u2502
+              \u251c\u2500\u2500\u2192 If UNFAVORABLE + gate enabled \u2192 SKIPPED (logged)
+              \u2502
+              \u2514\u2500\u2500\u2192 OPEN \u2192 Position Monitor (live P&L, exit rules)
+                        \u2502
+                        \u2514\u2500\u2500\u2192 Exit triggered \u2192 CLOSED \u2192 Decision Journal
+                                                          \u2502
+                                                          \u2514\u2500\u2500\u2192 InfluxDB + Grafana
+\`\`\`
+
+### Position Lifecycle
+
+\`\`\`
+WATCHING \u2192 signal + conditions met \u2192 PENDING_REVIEW
+  \u2192 analyst: FAVORABLE/NEUTRAL \u2192 OPEN (paper position created)
+  \u2192 analyst: UNFAVORABLE + skip=true \u2192 SKIPPED
+  \u2192 exit rule triggered \u2192 CLOSED (exit_reason recorded)
+\`\`\``
+      },
+      {
+        id: "ticket-1",
+        title: "Ticket 1: Chain Resolver",
+        content: `**Phase:** 2a \u2014 Foundation (parallelizable)
+
+### Scope
+- Enhance \`OptionsClient\` to return typed \`OptionStrike\` models
+- \`ChainLookup.get_strikes(symbol, dte, delta, option_type)\` \u2192 \`list[OptionStrike]\`
+- Frozen Pydantic model: strike_price, bid, ask, mid, delta, IV, theta, gamma, dte
+
+### Files
+- \`src/tastytrade/market/options.py\` (enhance)
+- New \`src/tastytrade/market/chain.py\`
+
+### Acceptance Criteria
+Can query "16-delta SPX put expiring today" and get a typed result with strike, bid/ask/mid, Greeks.`
+      },
+      {
+        id: "ticket-2",
+        title: "Ticket 2: Multi-TF Market Context",
+        content: `**Phase:** 2a \u2014 Foundation (parallelizable)
+
+### Scope
+- First-class data pipeline assembling candles + indicators across 1m / 5m / 15m / 1h
+- \`MarketContext\` frozen model: per-TF trend/momentum/indicator state + key levels
+- Computes HMA + MACD per timeframe (reuse existing \`hull()\` and \`macd()\` indicators)
+- Key level identification: prior close, VWAP, session high/low, round numbers
+- Publishes snapshots to Redis + InfluxDB for dashboard consumption
+
+### Files
+- New \`src/tastytrade/analytics/context/\` package
+
+### Acceptance Criteria
+Given live candle streams, produces a \`MarketContext\` snapshot with trend/momentum/levels per timeframe.`
+      },
+      {
+        id: "ticket-3",
+        title: "Ticket 3: Trade Constructor",
+        content: `**Phase:** 2a \u2014 Foundation (parallelizable)
+
+### Scope
+- Takes a \`TradeSignal\` + \`OptionStrike[]\` + strategy config \u2192 \`PaperPosition\`
+- Constructs legs (e.g., sell 16-delta put, buy put 25 points lower)
+- Records entry credit (mid price), entry Greeks, entry timestamp
+- Frozen \`PaperPosition\` model with lifecycle status (WATCHING / OPEN / CLOSED / SKIPPED)
+
+### Files
+- New \`src/tastytrade/playbook/constructor.py\`
+
+### Acceptance Criteria
+Given a bullish signal + chain strikes + bull-put config \u2192 produces correct \`PaperPosition\` with expected legs and entry credit.
+
+### Consolidation Note
+This ticket could potentially merge into Ticket 4 (Playbook Engine) since they share the same domain. Flag if you prefer that.`
+      },
+      {
+        id: "ticket-4",
+        title: "Ticket 4: Playbook Engine + TOML Config",
+        content: `**Phase:** 2b \u2014 Paper Trading Engine (sequential)
+
+### Scope
+- \`PlaybookRunner\` harness (follows \`EngineRunner\` three-layer pattern: CLI / Runner / Engine)
+- Strategy definitions in TOML: entry conditions, manage rules, risk thresholds, analyst config
+- \`StrategyPlaybook\` protocol \u2014 pluggable, structural subtyping
+- Watches for entry conditions: signal trigger + direction + time window + DTE
+- Lifecycle: WATCHING \u2192 PENDING_REVIEW \u2192 OPEN \u2192 CLOSED (or SKIPPED)
+
+### Example TOML Config
+
+\`\`\`toml
+[strategy.0dte-bull-put]
+name = "0DTE Bull Put on Signal"
+underlying = "SPX"
+structure = "bull_put_spread"
+
+[strategy.0dte-bull-put.entry]
+dte_target = 0
+short_delta = 0.16
+width = 25
+signal_trigger = "hull_macd"
+signal_direction = "BULLISH"
+earliest_entry = "10:00"
+latest_entry = "14:00"
+
+[strategy.0dte-bull-put.manage]
+profit_target_pct = 50
+time_exit = "15:45"
+
+[strategy.0dte-bull-put.risk]
+max_loss_multiple = 1.5
+
+[strategy.0dte-bull-put.analyst]
+enabled = true
+skip_unfavorable = true
+timeframes = ["1m", "5m", "15m", "1h"]
+\`\`\`
+
+### Files
+- New \`src/tastytrade/playbook/\` package (\`runner.py\`, \`config.py\`, \`protocol.py\`)
+
+### Acceptance Criteria
+Loads strategy from TOML, subscribes to signals on Redis, triggers entry flow when conditions met.`
+      },
+      {
+        id: "ticket-5",
+        title: "Ticket 5: Position Monitor + P&L",
+        content: `**Phase:** 2b \u2014 Paper Trading Engine (sequential)
+
+### Scope
+- Subscribes to live quotes for paper position leg symbols
+- Computes mark-to-market P&L continuously
+- Checks exit rules on each update: profit target %, max loss multiple, time exit
+- Transitions position to CLOSED with \`exit_reason\` when rule triggers
+
+### Files
+- \`src/tastytrade/playbook/monitor.py\`
+
+### Acceptance Criteria
+Paper position opened \u2192 monitor tracks P&L \u2192 closes at 50% profit target with correct P&L and exit_reason.
+
+### Consolidation Note
+Persistence (Ticket 6) could fold into this ticket since the monitor is the natural place to emit persistence events. Flag if you prefer that.`
+      },
+      {
+        id: "ticket-6",
+        title: "Ticket 6: Persistence (InfluxDB + Redis)",
+        content: `**Phase:** 2b \u2014 Paper Trading Engine (sequential)
+
+### Scope
+- \`PaperTradePublisher\` \u2014 writes trade lifecycle events to InfluxDB + Redis
+- InfluxDB measurement: \`paper_trade\` (tags: strategy, underlying, exit_reason, assessment)
+- Fields: entry_credit, exit_debit, pnl, pnl_pct, max_pnl, max_drawdown, time_in_trade
+- Redis HSET: \`tastytrade:paper:{strategy}:{date}\` for live state
+- Redis pub/sub: \`tastytrade:events:PaperTrade\` for real-time consumers
+
+### Files
+- \`src/tastytrade/playbook/publisher.py\`
+
+### Acceptance Criteria
+Full trade lifecycle (open \u2192 P&L updates \u2192 close) visible in InfluxDB with all tags and fields.`
+      },
+      {
+        id: "ticket-7",
+        title: "Ticket 7: Chart Data Preparer",
+        content: `**Phase:** 2c \u2014 Intelligence Layer (sequential)
+
+### Scope
+- Fetches last N candles at configurable timeframes from InfluxDB / Redis
+- Computes HMA + MACD per timeframe
+- Packages as structured data for LLM consumption (not images)
+- Includes key levels from \`MarketContext\`
+
+### Files
+- \`src/tastytrade/analyst/preparer.py\`
+
+### Acceptance Criteria
+Produces structured multi-TF dataset with candles, indicators, and key levels ready for LLM prompt.
+
+### Consolidation Note
+This ticket could merge into Ticket 2 (Market Context) since the preparer consumes and packages the same data the context pipeline produces. The distinction is: context computes it, preparer formats it for the LLM. Could be one ticket or two.`
+      },
+      {
+        id: "ticket-8",
+        title: "Ticket 8: LLM Analyst Agent",
+        content: `**Phase:** 2c \u2014 Intelligence Layer (sequential)
+
+### Scope
+- \`AnalystAgent\` \u2014 calls Claude API (Haiku 4.5 for speed/cost)
+- Structured prompt template (versioned in repo at \`src/tastytrade/analyst/prompts/\`)
+- Output via tool_use: \`AnalystAssessment\` with per-TF reads, key levels, trend alignment
+- Setup quality: **FAVORABLE / NEUTRAL / UNFAVORABLE** (no pseudo-confidence)
+- Persists assessments to InfluxDB + Redis
+
+### Output Model
+
+\`\`\`python
+class AnalystAssessment(BaseModel, frozen=True):
+    timeframes: dict[str, TimeframeRead]  # "1m", "5m", "15m", "1h"
+    key_levels: list[KeyLevel]
+    trend_alignment: TrendAlignment       # ALIGNED / MIXED / OPPOSED
+    risk_factors: list[str]               # plain language
+    setup_quality: SetupQuality           # FAVORABLE / NEUTRAL / UNFAVORABLE
+    reasoning: str                        # 2-4 sentences
+
+class TimeframeRead(BaseModel, frozen=True):
+    interval: str              # "5m"
+    trend: TrendDirection      # UP / DOWN / SIDEWAYS
+    momentum: str              # "accelerating", "fading", "flat"
+    notable: str | None        # "testing support at 5820"
+
+class KeyLevel(BaseModel, frozen=True):
+    price: float
+    kind: str                  # "support", "resistance", "vwap", "prior_close"
+    basis: str                 # "15m swing low", "yesterday's high"
+\`\`\`
+
+### Files
+- New \`src/tastytrade/analyst/\` package (\`agent.py\`, \`models.py\`, \`prompts/\`)
+
+### Acceptance Criteria
+Given market context + proposed trade \u2192 returns typed \`AnalystAssessment\` in < 5s with verifiable observations.`
+      },
+      {
+        id: "ticket-9",
+        title: "Ticket 9: Analyst Integration + Outcomes",
+        content: `**Phase:** 2c \u2014 Intelligence Layer (sequential)
+
+### Scope
+- Wire analyst into \`PlaybookRunner\` as configurable gate
+- TOML config: \`analyst.enabled\`, \`analyst.skip_unfavorable\`
+- Outcome tracker: after position closes, joins assessment with result
+- Tracks: win rate by setup_quality, key level accuracy (did S/R hold?)
+- Simple tallies \u2014 no pseudo-calibration
+
+### Files
+- \`src/tastytrade/analyst/tracker.py\`
+- \`src/tastytrade/playbook/runner.py\` (integration)
+
+### Acceptance Criteria
+UNFAVORABLE + skip_unfavorable=true \u2192 trade SKIPPED. Outcomes tracked in InfluxDB with assessment-to-result joins.`
+      },
+      {
+        id: "ticket-10",
+        title: "Ticket 10: Grafana Dashboard",
+        content: `**Phase:** 2d \u2014 Observation
+
+### Scope
+- P&L curve per playbook over trading days
+- Exit reason breakdown: profit target / max loss / time exit percentages
+- Signal timeline with market context snapshots
+- Analyst scorecard: win rate by FAVORABLE / NEUTRAL / UNFAVORABLE
+- Trade journal: entries, assessments, exits, outcomes
+- Skipped trades: what happened to UNFAVORABLE-gated trades?
+
+### Acceptance Criteria
+Can observe live trading day in real time + review historical performance across days.`
+      },
+      {
+        id: "sequencing",
+        title: "Sequencing & Timeline",
+        content: `### Dependency Graph
+
+\`\`\`
+TT-79 completes (live-fill entry credits)
+    \u2502
+    \u25bc
+Phase 2a \u2014 Foundation (parallelizable):
+  Chain Resolver \u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  Market Context \u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2192 Phase 2b \u2014 Paper Trading Engine
+  Trade Constructor \u2500\u2500\u2500\u2518         \u2502
+                                 \u25bc
+                          Phase 2c \u2014 Intelligence Layer
+                                 \u2502
+                                 \u25bc
+                          Phase 2d \u2014 Observation Dashboard
+\`\`\`
+
+### Ticket Counts
+
+| Phase | Tickets | Parallelizable? |
+|-------|---------|----------------|
+| 2a: Foundation | 3 | Yes \u2014 all independent |
+| 2b: Paper Trading | 3 | No \u2014 sequential |
+| 2c: Intelligence | 3 | No \u2014 sequential |
+| 2d: Observation | 1-2 | N/A |
+| **Total** | **10-11** | |
+
+### Consolidation Opportunities
+
+Some tickets may consolidate naturally:
+- Trade Constructor (T3) \u2192 merge into Playbook Engine (T4)
+- Persistence (T6) \u2192 fold into Position Monitor (T5)
+- Chart Data Preparer (T7) \u2192 merge into Market Context (T2)
+
+If consolidated: **~7-8 tickets across ~2-3 sprints.**`
+      },
+      {
+        id: "workflow",
+        title: "Ticket-Level Workflow",
+        content: `Every ticket in this Epic follows this process \u2014 **plan and review before code:**
+
+1. Create Jira ticket (via \`jira-workflow\` agent)
+2. Create feature branch: \`feature/TT-XXX-description\`
+3. Push branch to remote immediately (triggers Jira \u2192 In Progress)
+4. Write implementation plan: \`docs/plans/TT-XXX-feature-name.md\`
+5. Create architecture playground: \`docs/plans/TT-XXX-architecture.html\`
+6. **Review plan together** \u2014 harmonize approach before writing code
+7. Implement
+8. Unit tests + functional evidence
+9. Create PR (via \`github-workflow\` agent, triggers Jira \u2192 In Review)
+10. Merge (triggers Jira \u2192 Done)`
+      },
+      {
+        id: "enforcement",
+        title: "Workflow Enforcement",
+        content: `Separate from the Epic \u2014 benefits all work going forward.
+
+### Current State
+
+| Mechanism | Status | Strength |
+|-----------|--------|----------|
+| Pre-commit hooks (ruff, mypy, formatting) | Active | Strong |
+| Permission denials (force agent delegation) | Active | Strong |
+| GitHub Jira automation (branch \u2192 status) | Active | Strong |
+| Commit message validation (\`TT-XXX:\`) | **Missing** | None |
+| Branch name validation | **Missing** | None |
+| Main branch protection | **Missing** | None |
+| Plan-before-implementation check | **Missing** | Documentation only |
+
+### Proposed Additions
+
+- **Git commit-msg hook** \u2014 rejects commits not matching \`TT-\\d+:\` format. Git-level, no discipline needed.
+- **Git pre-push hook** \u2014 blocks pushes to main/master. Warns on non-standard branch names.
+- **GitHub branch protection** \u2014 require PRs + status checks on main. No direct pushes.
+- **Claude Code hooks** \u2014 tool-level enforcement: check not on main, check plan file exists in \`docs/plans/TT-XXX-*.md\` before implementation edits. This is "beyond CLAUDE.md" \u2014 enforced at the tool level, not instructional.`
+      },
+      {
+        id: "patterns",
+        title: "Architecture Patterns Preserved",
+        content: `All existing project patterns carry forward cleanly:
+
+| Pattern | How It Applies |
+|---------|---------------|
+| Redis-as-bus | Signals \u2192 context \u2192 trades \u2192 assessments \u2014 all pub/sub |
+| Protocol-based | \`StrategyPlaybook\`, \`MarketContextProvider\`, \`AnalystAgent\` \u2014 pluggable |
+| Three-layer separation | CLI / Runner / Engine for playbook service |
+| Event-driven | Signals trigger entries, quotes trigger exits \u2014 no polling |
+| Immutable models | \`MarketContext\`, \`PaperPosition\`, \`AnalystAssessment\` \u2014 frozen Pydantic |
+| Config-driven | Strategy rules in TOML, not hardcoded |
+| InfluxDB persistence | Every trade + assessment feeds Grafana |`
+      },
+      {
+        id: "scope",
+        title: "Scope Boundaries",
+        content: `### In Scope
+- Paper trading only (no real order placement)
+- 0DTE strategies (where speed matters)
+- One playbook end-to-end first, then config-driven expansion
+- Qualitative agent assessments (FAVORABLE / NEUTRAL / UNFAVORABLE)
+- Verifiable observations (key levels, trend direction, momentum)
+- Simple outcome tallies (win/loss by assessment category)
+
+### Out of Scope
+- Real order placement (until playbooks prove themselves)
+- 45DTE / multi-week strategies (same engine works later)
+- Pseudo-scientific metrics (no confidence scores, no Sharpe ratios)
+- Chart images for the agent (structured OHLCV data, not vision)`
+      }
+    ];
+
+    const priorApprovals = {};
+
+    const PLAN_NAME = "Phase 2 Epic: 0DTE Strategy Paper Trading";
+
+    // Persistence
+    const STORAGE_KEY = 'review-state:' + PLAN_NAME;
+    const LAYOUT_KEY = 'review-layout:' + PLAN_NAME;
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          sections: state.sections.map(s => ({ id: s.id, status: s.status, comment: s.comment })),
+          activeSection: state.activeSection,
+          activeFilter: state.activeFilter
+        }));
+      } catch (e) { }
+    }
+
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.sections || []).forEach(saved => {
+          const s = state.sections.find(s => s.id === saved.id);
+          if (s) { s.status = saved.status || 'pending'; s.comment = saved.comment || ''; }
+        });
+        if (data.activeSection) state.activeSection = data.activeSection;
+        if (data.activeFilter) state.activeFilter = data.activeFilter;
+      } catch (e) { }
+    }
+
+    // State
+    const state = {
+      sections: docSections.map(s => ({
+        ...s,
+        status: priorApprovals[s.id] || 'pending',
+        comment: ''
+      })),
+      activeSection: docSections[0]?.id || '',
+      activeFilter: 'all'
+    };
+
+    // Render markdown-like content to HTML
+    function renderMarkdown(text) {
+      let html = '';
+      const lines = text.split('\n');
+      let inCode = false;
+      let codeLines = [];
+      let inList = false;
+      let listTag = 'ul';
+      let inTable = false;
+      let tableRows = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.trim().startsWith('```')) {
+          if (inCode) {
+            html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+            codeLines = [];
+            inCode = false;
+          } else {
+            if (inList) { html += '</' + listTag + '>'; inList = false; }
+            if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) { codeLines.push(line); continue; }
+
+        if (line.trim().startsWith('|')) {
+          if (inList) { html += '</' + listTag + '>'; inList = false; }
+          if (!inTable) inTable = true;
+          if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+            tableRows.push(line);
+          }
+          continue;
+        } else if (inTable) {
+          html += renderTable(tableRows);
+          inTable = false;
+          tableRows = [];
+        }
+
+        if (line.trim().startsWith('> ')) {
+          if (inList) { html += '</' + listTag + '>'; inList = false; }
+          html += '<blockquote style="border-left:3px solid var(--border);padding:4px 12px;margin:8px 0;color:var(--text-muted);font-style:italic">' + inlineFormat(line.trim().slice(2)) + '</blockquote>';
+          continue;
+        }
+
+        if (line.trim() === '') {
+          if (inList) { html += '</' + listTag + '>'; inList = false; }
+          continue;
+        }
+
+        if (line.startsWith('### ')) {
+          if (inList) { html += '</' + listTag + '>'; inList = false; }
+          html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+          continue;
+        }
+
+        if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          if (!inList) { listTag = 'ul'; html += '<ul>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+          continue;
+        }
+        if (line.trim().match(/^\d+\.\s/)) {
+          if (!inList) { listTag = 'ol'; html += '<ol>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+          continue;
+        }
+
+        if (inList) { html += '</' + listTag + '>'; inList = false; }
+        html += '<p>' + inlineFormat(line) + '</p>';
+      }
+
+      if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+      if (inList) html += '</' + listTag + '>';
+      if (inTable) html += renderTable(tableRows);
+
+      return html;
+    }
+
+    function renderTable(rows) {
+      if (rows.length === 0) return '';
+      let html = '<table>';
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').filter(c => c.trim() !== '');
+        const tag = idx === 0 ? 'th' : 'td';
+        html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+      });
+      html += '</table>';
+      return html;
+    }
+
+    function inlineFormat(text) {
+      return text
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:none">$1</a>')
+        .replace(/\\`/g, '`');
+    }
+
+    // Render navigation
+    function renderNav() {
+      const nav = document.getElementById('nav');
+      let html = '';
+
+      // Group labels
+      const groups = [
+        { label: 'Overview', ids: ['epic-overview'] },
+        { label: 'Framework Gaps', ids: ['gap-1-chain', 'gap-2-constructor', 'gap-3-context', 'gap-4-observation', 'gap-5-analyst', 'gap-6-journal'] },
+        { label: 'Pipeline', ids: ['pipeline-flow'] },
+        { label: 'Phase 2a: Foundation', ids: ['ticket-1', 'ticket-2', 'ticket-3'] },
+        { label: 'Phase 2b: Paper Trading', ids: ['ticket-4', 'ticket-5', 'ticket-6'] },
+        { label: 'Phase 2c: Intelligence', ids: ['ticket-7', 'ticket-8', 'ticket-9'] },
+        { label: 'Phase 2d: Observation', ids: ['ticket-10'] },
+        { label: 'Process', ids: ['sequencing', 'workflow', 'enforcement', 'patterns', 'scope'] },
+      ];
+
+      groups.forEach(group => {
+        html += `<div class="nav-group-label">${group.label}</div>`;
+        group.ids.forEach(id => {
+          const s = state.sections.find(s => s.id === id);
+          if (!s) return;
+          const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+            : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+            : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+            : '<span style="color:var(--text-dim)">&bull;</span>';
+          html += `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+                   onclick="navigateTo('${s.id}')">
+            <span class="status-icon">${icon}</span>
+            <span class="label">${s.title}</span>
+            ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
+          </div>`;
+        });
+      });
+
+      nav.innerHTML = html;
+    }
+
+    // Render document
+    function renderDoc() {
+      const panel = document.getElementById('docPanel');
+      panel.innerHTML = state.sections.map(s => {
+        const borderColor = s.status === 'approved' ? 'var(--green)'
+          : s.status === 'revision' ? 'var(--red)'
+            : s.status === 'question' ? 'var(--purple)' : 'transparent';
+        const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+          : s.status === 'revision' ? 'var(--red-bg)'
+            : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+
+        const revisedAndPending = s.revised && s.status === 'pending';
+        const revisedClass = revisedAndPending ? ' revised' : '';
+        return `<div class="section${revisedClass}" id="section-${s.id}"
+                 style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
+      <div class="section-header">
+        <h2>${s.title}</h2>
+        ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
+      </div>
+      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="review-bar">
+        <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
+                onclick="setStatus('${s.id}','approved')">Approve</button>
+        <button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}"
+                onclick="setStatus('${s.id}','revision')">Needs Revision</button>
+        <button class="review-btn ${s.status === 'question' ? 'active-question' : ''}"
+                onclick="setStatus('${s.id}','question')">Question</button>
+        <button class="review-btn" onclick="toggleComment('${s.id}')"
+                style="margin-left:auto">Comment</button>
+      </div>
+      <div class="comment-area" id="comment-${s.id}">
+        ${s.comment
+            ? `<div class="existing-comment">${s.comment.replace(/</g, '&lt;').replace(/\n/g, '<br>')}
+               <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
+            : `<textarea placeholder="Add your feedback for this section..."
+                      onblur="saveComment('${s.id}', this.value)"
+                      id="textarea-${s.id}"></textarea>`
+          }
+      </div>
+    </div>`;
+      }).join('');
+    }
+
+    // Render stats
+    function renderStats() {
+      const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+      state.sections.forEach(s => counts[s.status]++);
+      document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
+    <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
+    <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
+    <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
+  `;
+    }
+
+    // Render feedback panel
+    function renderFeedback() {
+      const list = document.getElementById('feedbackList');
+      const filtered = state.sections.filter(s => {
+        if (state.activeFilter === 'all') return s.status !== 'pending';
+        return s.status === state.activeFilter;
+      });
+
+      const count = state.sections.filter(s => s.status !== 'pending').length;
+      document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="prompt-placeholder">
+      ${state.activeFilter === 'all'
+            ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+            : 'No sections with this status yet.'}
+    </div>`;
+        return;
+      }
+
+      list.innerHTML = filtered.map(s => `
+    <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
+      <div class="fb-section">
+        <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
+        ${s.title}
+      </div>
+      ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
+    </div>
+  `).join('');
+    }
+
+    // Actions
+    function navigateTo(id) {
+      state.activeSection = id;
+      saveToStorage();
+      renderNav();
+      document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function setStatus(id, status) {
+      const section = state.sections.find(s => s.id === id);
+      if (section.status === status) {
+        section.status = 'pending';
+      } else {
+        section.status = status;
+        if (status === 'revision' || status === 'question') {
+          setTimeout(() => {
+            const area = document.getElementById('comment-' + id);
+            if (area) area.classList.add('visible');
+          }, 50);
+        }
+      }
+      renderAll();
+      saveToStorage();
+    }
+
+    function toggleComment(id) {
+      const area = document.getElementById('comment-' + id);
+      area.classList.toggle('visible');
+      if (area.classList.contains('visible')) {
+        const ta = document.getElementById('textarea-' + id);
+        if (ta) ta.focus();
+      }
+    }
+
+    function saveComment(id, value) {
+      const section = state.sections.find(s => s.id === id);
+      section.comment = value.trim();
+      renderAll();
+      saveToStorage();
+    }
+
+    function editComment(id) {
+      const section = state.sections.find(s => s.id === id);
+      const area = document.getElementById('comment-' + id);
+      area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    onblur="saveComment('${id}', this.value)"
+    id="textarea-${id}">${section.comment}</textarea>`;
+      area.classList.add('visible');
+      document.getElementById('textarea-' + id).focus();
+    }
+
+    function generatePrompt() {
+      const approved = state.sections.filter(s => s.status === 'approved');
+      const revision = state.sections.filter(s => s.status === 'revision');
+      const questions = state.sections.filter(s => s.status === 'question');
+
+      if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+        return '';
+      }
+
+      let prompt = `Here is my review of the ${PLAN_NAME} plan:\n\n`;
+
+      if (approved.length > 0) {
+        prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+        approved.forEach(s => {
+          prompt += `- **${s.title}**: Approved`;
+          if (s.comment) prompt += ` \u2014 ${s.comment}`;
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (revision.length > 0) {
+        prompt += `## Needs Revision (${revision.length})\n`;
+        revision.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (no specific feedback provided)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (questions.length > 0) {
+        prompt += `## Questions (${questions.length})\n`;
+        questions.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (question not specified)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      const remaining = state.sections.filter(s => s.status === 'pending');
+      if (remaining.length > 0) {
+        prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+        remaining.forEach(s => prompt += `- ${s.title}\n`);
+      }
+
+      return prompt;
+    }
+
+    function copyPrompt() {
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      navigator.clipboard.writeText(prompt).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+
+    // Filter tabs
+    document.getElementById('filterTabs').addEventListener('click', e => {
+      const tab = e.target.closest('.filter-tab');
+      if (!tab) return;
+      state.activeFilter = tab.dataset.filter;
+      document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderFeedback();
+      saveToStorage();
+    });
+
+    function renderAll() {
+      renderNav();
+      renderDoc();
+      renderStats();
+      renderFeedback();
+    }
+
+    // Resizable & collapsible panels
+    (function () {
+      const nav = document.getElementById('nav');
+      const rightPanel = document.getElementById('rightPanel');
+      const leftHandle = document.getElementById('leftHandle');
+      const rightHandle = document.getElementById('rightHandle');
+      const leftToggle = document.getElementById('leftToggle');
+      const rightToggle = document.getElementById('rightToggle');
+
+      let dragging = null;
+      let navWidth = 240;
+      let rightWidth = 360;
+
+      const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })();
+      if (savedLayout.navWidth) navWidth = savedLayout.navWidth;
+      if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth;
+      if (savedLayout.navCollapsed) nav.classList.add('collapsed');
+      else nav.style.width = navWidth + 'px';
+      if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed');
+      else rightPanel.style.width = rightWidth + 'px';
+
+      function saveLayout() {
+        try {
+          localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+            navWidth, rightWidth,
+            navCollapsed: nav.classList.contains('collapsed'),
+            rightCollapsed: rightPanel.classList.contains('collapsed')
+          }));
+        } catch (e) { }
+      }
+
+      function updateToggles() {
+        const navCollapsed = nav.classList.contains('collapsed');
+        const rightCollapsed = rightPanel.classList.contains('collapsed');
+        leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+        leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+        rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+        rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+      }
+
+      function toggleNav(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (nav.classList.contains('collapsed')) {
+          nav.classList.remove('collapsed');
+          nav.style.width = navWidth + 'px';
+        } else {
+          navWidth = nav.offsetWidth;
+          nav.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      function toggleRight(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightPanel.classList.contains('collapsed')) {
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = rightWidth + 'px';
+        } else {
+          rightWidth = rightPanel.offsetWidth;
+          rightPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      let touchFiredLeft = false, touchFiredRight = false;
+
+      leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+      leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+      rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+      rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+      updateToggles();
+
+      function onDragStart(e, side) {
+        e.preventDefault();
+        dragging = side;
+        document.body.classList.add('resizing');
+        (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+      }
+
+      leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left'));
+      rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right'));
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        applyDrag(e.clientX);
+      });
+
+      document.addEventListener('mouseup', endDrag);
+
+      leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false });
+      rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false });
+
+      document.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        e.preventDefault();
+        applyDrag(e.touches[0].clientX);
+      }, { passive: false });
+
+      document.addEventListener('touchend', endDrag);
+
+      function applyDrag(clientX) {
+        if (dragging === 'left') {
+          const w = Math.max(140, Math.min(400, clientX));
+          nav.classList.remove('collapsed');
+          nav.style.width = w + 'px';
+          navWidth = w;
+        } else {
+          const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = w + 'px';
+          rightWidth = w;
+        }
+        updateToggles();
+      }
+
+      function endDrag() {
+        if (!dragging) return;
+        document.body.classList.remove('resizing');
+        leftHandle.classList.remove('dragging');
+        rightHandle.classList.remove('dragging');
+        dragging = null;
+        saveLayout();
+      }
+    })();
+
+    // Init
+    loadFromStorage();
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.filter === state.activeFilter);
+    });
+    renderAll();
+  </script>
+</body>
+
+</html>

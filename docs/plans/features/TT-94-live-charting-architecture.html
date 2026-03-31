@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TT-94: Live Charting Module — Architecture Diagram</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #1c2128;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #484f58;
+      --cyan: #01ffff;
+      --magenta: #ff66fe;
+      --green: #3fb950;
+      --green-dim: rgba(63, 185, 80, 0.07);
+      --cyan-dim: rgba(1, 255, 255, 0.04);
+      --magenta-dim: rgba(255, 102, 254, 0.04);
+      --amber: #d29922;
+    }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--text);
+    }
+    .header .ticket {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--cyan);
+      background: rgba(1,255,255,0.08);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(1,255,255,0.15);
+      margin-right: 12px;
+    }
+    .header .subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: 12px;
+      font-weight: 400;
+    }
+
+    .legend {
+      display: flex;
+      gap: 20px;
+      font-size: 11px;
+      align-items: center;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-swatch { width: 24px; height: 2px; border-radius: 1px; }
+    .legend-swatch.animated {
+      background: var(--cyan);
+      box-shadow: 0 0 6px rgba(1,255,255,0.3);
+    }
+    .legend-swatch.dashed {
+      background: repeating-linear-gradient(90deg, var(--magenta) 0, var(--magenta) 5px, transparent 5px, transparent 8px);
+    }
+
+    .canvas { flex: 1; position: relative; overflow: auto; }
+
+    .tooltip {
+      position: fixed;
+      background: var(--surface-2);
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
+      max-width: 320px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      z-index: 100;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+    }
+    .tooltip.visible { opacity: 1; }
+    .tooltip .tt-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .tooltip .tt-body { color: var(--text-muted); font-size: 11px; }
+
+    svg { width: 100%; height: 100%; }
+
+    .node-box { cursor: pointer; transition: filter 0.2s ease; }
+    .node-box:hover { filter: brightness(1.25) drop-shadow(0 0 8px rgba(255,255,255,0.05)); }
+    .node-box:hover rect { stroke-width: 2; }
+
+    .group-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      fill: var(--text-dim);
+    }
+
+    .node-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      fill: var(--text);
+    }
+
+    .node-sublabel {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 9.5px;
+      fill: var(--text-muted);
+    }
+
+    .path-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+    }
+
+    .edge-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    @keyframes flowDown {
+      from { stroke-dashoffset: 16; }
+      to   { stroke-dashoffset: 0; }
+    }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.15; }
+      50% { opacity: 0.35; }
+    }
+    .arrow-live {
+      stroke: var(--cyan);
+      stroke-width: 1.5;
+      fill: none;
+      stroke-dasharray: 8, 8;
+      animation: flowDown 0.8s linear infinite;
+    }
+    .arrow-historical {
+      stroke: var(--magenta);
+      stroke-width: 1.5;
+      fill: none;
+      stroke-dasharray: 6, 4;
+    }
+    .arrow-internal {
+      stroke: var(--border-light);
+      stroke-width: 1;
+      fill: none;
+    }
+    .gutter-line {
+      animation: pulseGlow 3s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div style="display:flex;align-items:center;">
+    <span class="ticket">TT-94</span>
+    <h1>Live Charting Module</h1>
+    <span class="subtitle">Architecture Diagram</span>
+  </div>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-swatch animated"></div>
+      <span style="color:var(--cyan);">Live</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch dashed"></div>
+      <span style="color:var(--magenta);">Historical</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:var(--green);"></div>
+      <span style="color:var(--green);">Module</span>
+    </div>
+  </div>
+</div>
+
+<div class="canvas">
+  <div class="tooltip" id="tooltip">
+    <div class="tt-title" id="tt-title"></div>
+    <div class="tt-body" id="tt-body"></div>
+  </div>
+
+  <svg viewBox="0 0 1200 940" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ah-cyan" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <path d="M0,0 L7,2.5 L0,5" fill="var(--cyan)" />
+      </marker>
+      <marker id="ah-magenta" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <path d="M0,0 L7,2.5 L0,5" fill="var(--magenta)" />
+      </marker>
+      <marker id="ah-gray" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <path d="M0,0 L7,2.5 L0,5" fill="var(--border-light)" />
+      </marker>
+      <!-- Subtle glow filters -->
+      <filter id="glow-cyan" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feFlood flood-color="#01ffff" flood-opacity="0.15" />
+        <feComposite in2="blur" operator="in" />
+        <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+      </filter>
+      <filter id="glow-magenta" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feFlood flood-color="#ff66fe" flood-opacity="0.15" />
+        <feComposite in2="blur" operator="in" />
+        <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+      </filter>
+    </defs>
+
+    <!-- ================================================================ -->
+    <!-- MARGIN GUTTERS: Vertical labels + accent lines (OUTSIDE all boxes) -->
+    <!-- ================================================================ -->
+
+    <!-- Left gutter: LIVE STREAM -->
+    <line x1="56" y1="60" x2="56" y2="900" stroke="var(--cyan)" stroke-width="1" opacity="0.12" class="gutter-line" />
+    <text x="40" y="520" class="edge-label" fill="var(--cyan)" opacity="0.7" transform="rotate(-90, 40, 520)">LIVE STREAM</text>
+
+    <!-- Right gutter: HISTORICAL QUERY -->
+    <line x1="1144" y1="60" x2="1144" y2="900" stroke="var(--magenta)" stroke-width="1" opacity="0.12" class="gutter-line" />
+    <text x="1164" y="540" class="edge-label" fill="var(--magenta)" opacity="0.7" transform="rotate(90, 1164, 540)">HISTORICAL QUERY</text>
+
+    <!-- ================================================================ -->
+    <!-- ROW 1: WebSocket Feed                                            -->
+    <!-- ================================================================ -->
+    <text x="600" y="30" class="group-label" text-anchor="middle">WebSocket Feed</text>
+
+    <g class="node-box" data-title="DXLink WebSocket" data-desc="TastyTrade's DXLink streaming API. Delivers real-time quotes, trades, Greeks, and candle events over a persistent WebSocket connection. Managed by the subscribe service's DXLinkManager.">
+      <rect x="470" y="42" width="260" height="54" rx="6" fill="var(--surface)" stroke="var(--border-light)" stroke-width="1" />
+      <text x="600" y="66" class="node-label" text-anchor="middle">DXLink WebSocket</text>
+      <text x="600" y="82" class="node-sublabel" text-anchor="middle">quotes, candles, Greeks</text>
+    </g>
+
+    <!-- ================================================================ -->
+    <!-- ROW 2: Event Processing                                          -->
+    <!-- ================================================================ -->
+    <text x="600" y="130" class="group-label" text-anchor="middle">Event Processing</text>
+
+    <g class="node-box" data-title="RedisEventProcessor" data-desc="Async event processor. Receives deserialized BaseEvent objects from DXLinkManager, publishes each to a Redis pub/sub channel (market:{EventType}:{symbol}) and stores the latest value in HSET (tastytrade:latest:{EventType}).">
+      <rect x="340" y="142" width="220" height="54" rx="6" fill="var(--surface)" stroke="var(--cyan)" stroke-width="1" />
+      <text x="450" y="166" class="node-label" text-anchor="middle">RedisEventProcessor</text>
+      <text x="450" y="182" class="node-sublabel" text-anchor="middle">publish + HSET</text>
+    </g>
+
+    <g class="node-box" data-title="Telegraf Processor" data-desc="Writes market events to InfluxDB via Telegraf line protocol. Runs in parallel with RedisEventProcessor — both receive the same DXLink events. Candle data persisted for historical queries.">
+      <rect x="640" y="142" width="220" height="54" rx="6" fill="var(--surface)" stroke="var(--magenta)" stroke-width="1" />
+      <text x="750" y="166" class="node-label" text-anchor="middle">Telegraf Processor</text>
+      <text x="750" y="182" class="node-sublabel" text-anchor="middle">line protocol writes</text>
+    </g>
+
+    <!-- ================================================================ -->
+    <!-- ROW 3: Data Stores                                               -->
+    <!-- ================================================================ -->
+    <text x="340" y="238" class="group-label" text-anchor="middle">pub/sub &amp; cache</text>
+    <text x="860" y="238" class="group-label" text-anchor="middle">time-series store</text>
+
+    <g class="node-box" data-title="Redis — pub/sub + HSET" data-desc="Central message bus and state store. Pub/sub channels (market:CandleEvent:{symbol}{=interval}) deliver real-time candle events. HSET keys (tastytrade:latest:CandleEvent) provide latest-value snapshots. The charting feed.py subscribes to pub/sub for live updates.">
+      <rect x="230" y="252" width="220" height="68" rx="6" fill="var(--surface)" stroke="var(--cyan)" stroke-width="1.5" filter="url(#glow-cyan)" />
+      <text x="340" y="278" class="node-label" text-anchor="middle">Redis</text>
+      <text x="340" y="294" class="node-sublabel" text-anchor="middle">pub/sub + HSET cache</text>
+      <text x="340" y="308" class="node-sublabel" text-anchor="middle" style="font-family:'JetBrains Mono',monospace;font-size:8px;fill:var(--cyan);opacity:0.6;">market:CandleEvent:{symbol}</text>
+    </g>
+
+    <g class="node-box" data-title="InfluxDB" data-desc="Time-series database storing all historical candle data. Queried by MarketDataProvider for chart backfill on connect and by levels.py for opening range and prior-day close/high/low calculations. Architectural rule: historical queries go here, not Redis.">
+      <rect x="750" y="252" width="220" height="68" rx="6" fill="var(--surface)" stroke="var(--magenta)" stroke-width="1.5" filter="url(#glow-magenta)" />
+      <text x="860" y="278" class="node-label" text-anchor="middle">InfluxDB</text>
+      <text x="860" y="294" class="node-sublabel" text-anchor="middle">historical candles, levels</text>
+      <text x="860" y="308" class="node-sublabel" text-anchor="middle" style="font-family:'JetBrains Mono',monospace;font-size:8px;fill:var(--magenta);opacity:0.6;">MarketDataProvider.download()</text>
+    </g>
+
+    <!-- ================================================================ -->
+    <!-- DIVIDER: Charting Module                                          -->
+    <!-- ================================================================ -->
+    <line x1="100" y1="365" x2="1100" y2="365" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,4" />
+    <text x="600" y="386" class="group-label" text-anchor="middle" style="font-size:10px;letter-spacing:2px;fill:var(--green);">src/tastytrade/charting/</text>
+
+    <!-- Green boundary box -->
+    <rect x="170" y="398" width="860" height="196" rx="8" fill="var(--green-dim)" stroke="var(--green)" stroke-width="1" stroke-dasharray="5,4" />
+
+    <!-- feed.py -->
+    <g class="node-box" data-title="feed.py" data-desc="Redis pub/sub consumer. Subscribes to two channels: market:CandleEvent:{symbol}{=interval} for candle deltas, and market:HorizontalLine:{symbol} for level annotations as they lock in. Uses async for message in pubsub.listen(). No callbacks, no polling.">
+      <rect x="200" y="418" width="200" height="52" rx="5" fill="var(--surface)" stroke="var(--green)" stroke-width="1" />
+      <text x="300" y="438" class="node-label" text-anchor="middle">feed.py</text>
+      <text x="300" y="452" class="node-sublabel" text-anchor="middle">CandleEvent + HorizontalLine</text>
+      <text x="300" y="464" class="node-sublabel" text-anchor="middle" style="font-size:8px;fill:var(--cyan);opacity:0.6;">pubsub.listen() async loop</text>
+    </g>
+
+    <!-- indicators.py -->
+    <g class="node-box" data-title="indicators.py" data-desc="Streaming technical indicator computation. Wraps existing Hull MA and MACD functions from analytics/indicators/momentum.py. Maintains rolling state across candle ticks for incremental updates — no full recalculation on each event.">
+      <rect x="450" y="418" width="200" height="52" rx="5" fill="var(--surface)" stroke="var(--green)" stroke-width="1" />
+      <text x="550" y="442" class="node-label" text-anchor="middle">indicators.py</text>
+      <text x="550" y="456" class="node-sublabel" text-anchor="middle">streaming Hull / MACD</text>
+    </g>
+
+    <!-- server.py (wider, centered in green box) -->
+    <g class="node-box" data-title="server.py" data-desc="HTTP + WebSocket server built with Starlette/FastAPI. Accepts URL parameters (?symbol=SPX&interval=5m). On connect: queries InfluxDB for historical candles + prior day candle, seeds indicators, sends initial payload. Then bridges live Redis candle events to browser via WebSocket. Thin data pass-through — no level computation.">
+      <rect x="300" y="510" width="500" height="56" rx="5" fill="var(--surface)" stroke="var(--green)" stroke-width="1.5" />
+      <text x="550" y="534" class="node-label" text-anchor="middle">server.py</text>
+      <text x="550" y="550" class="node-sublabel" text-anchor="middle">HTTP + WebSocket — ?symbol=SPX&amp;interval=5m</text>
+    </g>
+
+    <!-- ================================================================ -->
+    <!-- DIVIDER: Browser Client                                          -->
+    <!-- ================================================================ -->
+    <line x1="100" y1="630" x2="1100" y2="630" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,4" />
+    <text x="600" y="650" class="group-label" text-anchor="middle" style="font-size:10px;letter-spacing:2px;">Browser Client</text>
+
+    <!-- Browser boundary box -->
+    <rect x="170" y="660" width="860" height="240" rx="8" fill="rgba(255,255,255,0.012)" stroke="var(--border)" stroke-width="1" />
+
+    <!-- WebSocket Consumer -->
+    <g class="node-box" data-title="WebSocket Consumer" data-desc="Client-side JavaScript handler. Receives JSON deltas {candle, hma, macd} + prior day candle from server.py. Dispatches to lightweight-charts series via series.update(). Also feeds candle data to the level computation logic which tracks evolving opening range levels during the first 30 minutes of trading.">
+      <rect x="380" y="676" width="340" height="42" rx="5" fill="var(--surface)" stroke="var(--cyan)" stroke-width="1" />
+      <text x="550" y="702" class="node-label" text-anchor="middle">WebSocket Consumer — series.update()</text>
+    </g>
+
+    <!-- lightweight-charts -->
+    <g class="node-box" data-title="lightweight-charts" data-desc="TradingView's canvas-based charting library. ~40KB gzipped, MIT licensed. GPU-accelerated rendering with native incremental update() API. Supports multiple panes, price lines, crosshair sync, and dark themes.">
+      <rect x="200" y="736" width="220" height="44" rx="5" fill="var(--surface)" stroke="var(--amber)" stroke-width="1" />
+      <text x="310" y="764" class="node-label" text-anchor="middle">lightweight-charts canvas</text>
+    </g>
+
+    <!-- Candlestick + HMA pane -->
+    <g class="node-box" data-title="Candlestick + HMA-20" data-desc="Primary chart pane. OHLC candlesticks colored cyan (up) / red (down). Hull Moving Average (20-period) line overlay changes color based on slope: rising = cyan, falling = magenta. Auto-scaling y-axis.">
+      <rect x="455" y="736" width="240" height="76" rx="5" fill="var(--surface)" stroke="var(--border-light)" stroke-width="1" />
+      <text x="575" y="756" class="node-label" text-anchor="middle">Candlestick + HMA</text>
+      <!-- Mini candles -->
+      <rect x="496" y="770" width="4" height="16" rx="1" fill="var(--cyan)" />
+      <rect x="510" y="774" width="4" height="12" rx="1" fill="#f85149" />
+      <rect x="524" y="768" width="4" height="18" rx="1" fill="var(--cyan)" />
+      <rect x="538" y="772" width="4" height="14" rx="1" fill="var(--cyan)" />
+      <rect x="552" y="776" width="4" height="10" rx="1" fill="#f85149" />
+      <rect x="566" y="766" width="4" height="20" rx="1" fill="var(--cyan)" />
+      <rect x="580" y="774" width="4" height="12" rx="1" fill="var(--cyan)" />
+      <rect x="594" y="778" width="4" height="8" rx="1" fill="#f85149" />
+      <rect x="608" y="770" width="4" height="16" rx="1" fill="var(--cyan)" />
+      <rect x="622" y="764" width="4" height="22" rx="1" fill="var(--cyan)" />
+      <!-- HMA line -->
+      <polyline points="498,778 512,780 526,776 540,778 554,782 568,774 582,780 596,782 610,778 624,772" fill="none" stroke="var(--cyan)" stroke-width="1.5" opacity="0.8" />
+      <!-- Prior close line -->
+      <line x1="472" y1="798" x2="678" y2="798" stroke="var(--magenta)" stroke-width="0.7" stroke-dasharray="3,3" opacity="0.4" />
+      <text x="680" y="800" style="font-family:'JetBrains Mono',monospace;font-size:6px;fill:var(--magenta);opacity:0.5;">PC</text>
+    </g>
+
+    <!-- MACD pane -->
+    <g class="node-box" data-title="MACD Oscillator (12/26/9)" data-desc="Secondary pane. MACD value line (cyan), signal line (yellow), histogram bars (4-shade: bright green = positive rising, dark green = positive falling, bright red = negative falling, dark red = negative rising). Time-synced with candlestick pane.">
+      <rect x="730" y="736" width="230" height="76" rx="5" fill="var(--surface)" stroke="var(--border-light)" stroke-width="1" />
+      <text x="845" y="756" class="node-label" text-anchor="middle">MACD</text>
+      <!-- Zero line -->
+      <line x1="752" y1="790" x2="938" y2="790" stroke="var(--border)" stroke-width="0.5" />
+      <!-- Histogram bars -->
+      <rect x="760" y="782" width="4" height="8" rx="1" fill="#04fe00" />
+      <rect x="772" y="778" width="4" height="12" rx="1" fill="#04fe00" />
+      <rect x="784" y="780" width="4" height="10" rx="1" fill="#006401" />
+      <rect x="796" y="784" width="4" height="6" rx="1" fill="#006401" />
+      <rect x="808" y="790" width="4" height="4" rx="1" fill="#7e0100" />
+      <rect x="820" y="790" width="4" height="8" rx="1" fill="#fe0000" />
+      <rect x="832" y="790" width="4" height="14" rx="1" fill="#fe0000" />
+      <rect x="844" y="790" width="4" height="10" rx="1" fill="#fe0000" />
+      <rect x="856" y="790" width="4" height="6" rx="1" fill="#7e0100" />
+      <rect x="868" y="786" width="4" height="4" rx="1" fill="#006401" />
+      <rect x="880" y="782" width="4" height="8" rx="1" fill="#04fe00" />
+      <rect x="892" y="778" width="4" height="12" rx="1" fill="#04fe00" />
+      <!-- MACD + signal lines -->
+      <polyline points="762,780 774,776 786,778 798,783 810,788 822,793 834,798 846,796 858,792 870,788 882,784 894,780" fill="none" stroke="var(--cyan)" stroke-width="0.8" />
+      <polyline points="762,782 774,780 786,780 798,782 810,784 822,788 834,792 846,794 858,792 870,788 882,786 894,782" fill="none" stroke="#f8e9a6" stroke-width="0.8" opacity="0.6" />
+    </g>
+
+    <!-- Price Lines -->
+    <g class="node-box" data-title="Horizontal Price Lines (computed in browser)" data-desc="Computed client-side from candle data. Prior day close/high/low from the daily candle sent on connect (static). Opening range 5/15/30-min levels computed by tracking running max(high)/min(low) from live candles within each time window — evolves during first 30 min, then freezes. Each level togglable via priceLine.applyOptions({visible}).">
+      <rect x="200" y="830" width="220" height="42" rx="5" fill="var(--surface)" stroke="var(--border-light)" stroke-width="1" />
+      <text x="310" y="856" class="node-label" text-anchor="middle">Price Lines — toggles</text>
+    </g>
+
+    <!-- time-synced label -->
+    <text x="710" y="826" class="node-sublabel" fill="var(--text-dim)" style="font-family:'JetBrains Mono',monospace;font-size:8px;">&#8592; time-synced &#8594;</text>
+
+    <!-- ================================================================ -->
+    <!-- ARROWS: Row 1 → Row 2                                            -->
+    <!-- ================================================================ -->
+
+    <!-- DXLink -> RedisEventProcessor -->
+    <path d="M530,96 L470,140" class="arrow-live" marker-end="url(#ah-cyan)" />
+    <text x="478" y="122" class="path-label" fill="var(--cyan)">events</text>
+
+    <!-- DXLink -> Telegraf -->
+    <path d="M670,96 L730,140" class="arrow-historical" marker-end="url(#ah-magenta)" />
+    <text x="694" y="122" class="path-label" fill="var(--magenta)">events</text>
+
+    <!-- ================================================================ -->
+    <!-- ARROWS: Row 2 → Row 3                                            -->
+    <!-- ================================================================ -->
+
+    <!-- RedisEventProcessor -> Redis -->
+    <path d="M410,196 L360,250" class="arrow-live" marker-end="url(#ah-cyan)" />
+    <text x="362" y="228" class="path-label" fill="var(--cyan)">publish</text>
+
+    <!-- Telegraf -> InfluxDB -->
+    <path d="M790,196 L840,250" class="arrow-historical" marker-end="url(#ah-magenta)" />
+    <text x="798" y="228" class="path-label" fill="var(--magenta)">write</text>
+
+    <!-- ================================================================ -->
+    <!-- ARROWS: Row 3 → Row 4 (stores to charting module)                -->
+    <!-- ================================================================ -->
+
+    <!-- Redis -> feed.py (LIVE) -->
+    <path d="M310,320 L300,416" class="arrow-live" marker-end="url(#ah-cyan)" />
+    <text x="284" y="374" class="path-label" fill="var(--cyan)">pubsub.listen()</text>
+
+    <!-- InfluxDB -> server.py (HISTORICAL — candles + prior day) -->
+    <path d="M830,320 L830,395 Q830,398 790,398 L680,398 Q660,398 660,420 L660,508" class="arrow-historical" marker-end="url(#ah-magenta)" />
+    <text x="760" y="374" class="path-label" fill="var(--magenta)">download() + daily candle</text>
+
+    <!-- ================================================================ -->
+    <!-- ARROWS: Within charting module                                    -->
+    <!-- ================================================================ -->
+
+    <!-- feed.py -> indicators.py -->
+    <path d="M400,444 L448,444" class="arrow-internal" marker-end="url(#ah-gray)" />
+
+    <!-- indicators.py -> server.py -->
+    <path d="M550,470 L550,508" class="arrow-internal" marker-end="url(#ah-gray)" />
+
+    <!-- ================================================================ -->
+    <!-- ARROWS: Row 4 → Row 5 (server to browser)                       -->
+    <!-- ================================================================ -->
+
+    <!-- server.py -> WebSocket Consumer -->
+    <path d="M550,572 L550,674" class="arrow-live" marker-end="url(#ah-cyan)" />
+    <text x="560" y="628" class="path-label" fill="var(--cyan)">ws.send_json(delta)</text>
+
+    <!-- ================================================================ -->
+    <!-- ARROWS: Within browser                                           -->
+    <!-- ================================================================ -->
+
+    <!-- WS Consumer -> lightweight-charts -->
+    <path d="M440,718 L370,734" class="arrow-internal" marker-end="url(#ah-gray)" />
+
+    <!-- WS Consumer -> Candlestick pane -->
+    <path d="M550,718 L550,734" class="arrow-internal" marker-end="url(#ah-gray)" />
+
+    <!-- WS Consumer -> MACD pane -->
+    <path d="M660,718 L790,734" class="arrow-internal" marker-end="url(#ah-gray)" />
+
+    <!-- lightweight-charts -> price lines -->
+    <path d="M310,780 L310,828" class="arrow-internal" marker-end="url(#ah-gray)" />
+
+  </svg>
+</div>
+
+<script>
+  const tooltip = document.getElementById('tooltip');
+  const ttTitle = document.getElementById('tt-title');
+  const ttBody = document.getElementById('tt-body');
+
+  document.querySelectorAll('.node-box').forEach(node => {
+    const title = node.getAttribute('data-title');
+    const desc = node.getAttribute('data-desc');
+
+    node.addEventListener('mouseenter', () => {
+      ttTitle.textContent = title;
+      ttBody.textContent = desc;
+      tooltip.classList.add('visible');
+    });
+
+    node.addEventListener('mousemove', (e) => {
+      const pad = 16;
+      let x = e.clientX + pad;
+      let y = e.clientY + pad;
+      if (x + 320 > window.innerWidth) x = e.clientX - 320 - pad;
+      const rect = tooltip.getBoundingClientRect();
+      if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - pad;
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    });
+
+    node.addEventListener('mouseleave', () => {
+      tooltip.classList.remove('visible');
+    });
+  });
+</script>
+
+</body>
+</html>
