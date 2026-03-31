@@ -768,7 +768,14 @@ initDropdown('intervalBtn', 'intervalList', [], (intv) => {
   connect();
 });
 
+let connectTimer = null;
 function connect(dateOverride) {
+  // Debounce rapid calls (page reload + dropdown init can fire multiple times)
+  if (connectTimer) clearTimeout(connectTimer);
+  connectTimer = setTimeout(() => doConnect(dateOverride), 100);
+}
+
+function doConnect(dateOverride) {
   setStatus('connecting');
   intentionalClose = true;
 
