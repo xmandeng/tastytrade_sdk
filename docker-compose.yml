@@ -60,22 +60,6 @@ services:
       timeout: 5s
       retries: 3
 
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: redis-commander
-    labels:
-      - "traefik.enable=false"
-    environment:
-      - REDIS_HOSTS=local:redis:6379
-      - HTTP_USER=admin
-      - HTTP_PASSWORD=adminpassword
-    ports:
-      - "8081:8081"
-    depends_on:
-      - redis
-    networks:
-      - internal_net
-
   redisinsight:
     image: redis/redisinsight:latest
     container_name: redisinsight
