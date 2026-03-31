@@ -46,20 +46,45 @@
     }
     .date-input:focus { outline: none; border-color: var(--accent); }
 
-    /* Toggle buttons */
-    .toggle-btn {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 10px; font-size: 11px; font-weight: 500;
-      color: var(--text-dim); background: transparent;
-      border: 1px solid transparent; border-radius: 4px;
-      cursor: pointer; user-select: none; transition: all 0.12s; white-space: nowrap;
+    /* Segmented control (MKT/EXT) */
+    .seg-ctrl {
+      display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
     }
-    .toggle-btn:hover { color: var(--text-muted); }
-    .toggle-btn.active { color: var(--text); border-color: var(--border); background: rgba(255,255,255,0.03); }
-    .toggle-btn .indicator {
-      width: 8px; height: 8px; border-radius: 2px; opacity: 0.8;
+    .seg-btn {
+      padding: 3px 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
+      color: var(--text-dim); background: transparent; border: none;
+      cursor: pointer; transition: all 0.12s;
     }
-    .divider { width: 1px; height: 18px; background: var(--border); }
+    .seg-btn:not(:last-child) { border-right: 1px solid var(--border); }
+    .seg-btn.active { color: var(--text); background: rgba(255,255,255,0.06); }
+    .seg-btn:hover:not(.active) { color: var(--text-muted); }
+
+    /* Settings gear + popover */
+    .gear-btn {
+      background: none; border: 1px solid transparent; border-radius: 4px;
+      color: var(--text-dim); cursor: pointer; padding: 4px 6px; font-size: 14px;
+      transition: all 0.12s; line-height: 1;
+    }
+    .gear-btn:hover { color: var(--text); border-color: var(--border); }
+    .settings-popover {
+      display: none; position: absolute; top: 40px; right: 60px; z-index: 20;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 0; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .settings-popover.open { display: block; }
+    .settings-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px; font-size: 12px; color: var(--text-muted);
+      cursor: pointer; transition: background 0.1s; user-select: none;
+    }
+    .settings-item:hover { background: rgba(255,255,255,0.04); }
+    .settings-item .dot {
+      width: 6px; height: 6px; border-radius: 2px; flex-shrink: 0;
+    }
+    .settings-item .check {
+      width: 14px; text-align: center; font-size: 11px; color: var(--accent); flex-shrink: 0;
+    }
+    .settings-divider { height: 1px; background: var(--border); margin: 4px 0; }
 
     /* Status */
     .status { display: flex; align-items: center; gap: 5px; }
@@ -76,12 +101,13 @@
 
     /* Resize handle between charts */
     .chart-resize-handle {
-      height: 5px; cursor: row-resize; background: var(--border);
+      height: 3px; cursor: row-resize;
+      background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.08) 15%, rgba(255,255,255,0.08) 85%, transparent 100%);
       position: relative; z-index: 5; flex-shrink: 0;
-      transition: background 0.15s;
+      transition: all 0.15s;
     }
     .chart-resize-handle:hover, .chart-resize-handle.dragging {
-      background: var(--accent); height: 5px;
+      background: linear-gradient(to right, transparent 0%, var(--accent) 15%, var(--accent) 85%, transparent 100%);
     }
     body.chart-resizing { cursor: row-resize; user-select: none; }
 
@@ -97,9 +123,12 @@
     <input type="date" class="date-input" id="dateInput" title="Trading date">
   </div>
 
-  <div class="toolbar-section controls" id="levelControls"></div>
+  <div class="toolbar-section" style="flex:1"></div>
 
   <div class="toolbar-section">
+    <div class="seg-ctrl" id="mktExtCtrl"></div>
+    <button class="gear-btn" id="gearBtn" title="Chart settings">&#9881;</button>
+    <div class="settings-popover" id="settingsPopover"></div>
     <div class="status">
       <div class="status-dot" id="statusDot"></div>
     </div>
@@ -128,24 +157,33 @@ const MARKET_OPEN_H = 9, MARKET_OPEN_M = 30;
 const candleEl = document.getElementById('chart-candle');
 const macdEl = document.getElementById('chart-macd');
 
+// Format time as AM/PM — shared by tick labels and crosshair tooltip
+function fmtTime(epochSec) {
+  const d = new Date(epochSec * 1000);
+  const h = d.getUTCHours(), m = d.getUTCMinutes();
+  const hh = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+  const mm = m < 10 ? '0' + m : '' + m;
+  return `${hh}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
 const chartOpts = () => ({
-  layout: { background: { type: 'solid', color: C.bg }, textColor: C.text },
+  layout: { background: { type: 'solid', color: C.bg }, textColor: C.text, fontFamily: 'monospace' },
   grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  rightPriceScale: { borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
+  rightPriceScale: { visible: false },
+  leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
+  localization: {
+    timeFormatter: (t) => fmtTime(t),
+  },
   timeScale: {
     borderColor: C.border, timeVisible: true, secondsVisible: false,
     tickMarkFormatter: (time, tickMarkType) => {
-      const d = new Date(time * 1000);
-      const h = d.getUTCHours(), m = d.getUTCMinutes();
       if (tickMarkType <= 2) {
-        // Date-level: show month/day
+        const d = new Date(time * 1000);
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return `${months[d.getUTCMonth()]} ${d.getUTCDate()}`;
       }
-      const hh = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-      const mm = m < 10 ? '0' + m : '' + m;
-      return `${hh}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
+      return fmtTime(time);
     },
   },
   handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
@@ -154,13 +192,27 @@ const chartOpts = () => ({
 
 // Create charts with explicit dimensions — flex containers may not have
 // concrete pixel sizes at creation time
+// Pad price labels to consistent width so both charts' left axes align.
+// LWC auto-sizes price scales from label width — matching char count = matching width.
+const PAD = 8;
+const candleFmt = (p) => p.toFixed(0).padStart(PAD);
+const macdFmt = (p) => p.toFixed(2).padStart(PAD);
+
 const candleChart = LightweightCharts.createChart(candleEl, {
   ...chartOpts(),
+  localization: { ...chartOpts().localization, priceFormatter: candleFmt },
+  timeScale: { ...chartOpts().timeScale, visible: false },
   width: candleEl.clientWidth || window.innerWidth,
   height: candleEl.clientHeight || Math.floor(window.innerHeight * 0.65),
 });
 const macdChart = LightweightCharts.createChart(macdEl, {
   ...chartOpts(),
+  localization: { ...chartOpts().localization, priceFormatter: macdFmt },
+  watermark: {
+    visible: true, text: 'MACD (12,26,9)',
+    color: 'rgba(255,255,255,0.06)', fontSize: 12,
+    horzAlign: 'left', vertAlign: 'top',
+  },
   width: macdEl.clientWidth || window.innerWidth,
   height: macdEl.clientHeight || Math.floor(window.innerHeight * 0.2),
 });
@@ -178,13 +230,23 @@ macdChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
   candleChart.timeScale().setVisibleLogicalRange(r); syncing = false;
 });
 
+// Sync crosshairs between panes
+candleChart.subscribeCrosshairMove(param => {
+  if (!param.time) { macdChart.clearCrosshairPosition(); return; }
+  macdChart.setCrosshairPosition(0, param.time, macdHistSeries);
+});
+macdChart.subscribeCrosshairMove(param => {
+  if (!param.time) { candleChart.clearCrosshairPosition(); return; }
+  candleChart.setCrosshairPosition(0, param.time, candleSeries);
+});
+
 // --- Series ---
 const candleSeries = candleChart.addCandlestickSeries({
   upColor: C.candleUpBody, downColor: C.candleDownBody,
   borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
   wickUpColor: C.candleUpBorder, wickDownColor: C.candleDownBorder,
-  lastValueVisible: false,
-  priceLineVisible: false,
+  lastValueVisible: false, priceLineVisible: false,
+  priceScaleId: 'left',
 });
 
 // HMA: segment series per color run
@@ -199,6 +261,7 @@ function createHmaSegmentSeries(color) {
   const series = candleChart.addLineSeries({
     color, lineWidth: 1,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    priceScaleId: 'left',
   });
   if (!hmaVisible) series.applyOptions({ visible: false });
   const entry = { series, color };
@@ -229,21 +292,25 @@ function buildHmaSegments(hmaData, candleTimes) {
 
 const macdHistSeries = macdChart.addHistogramSeries({
   priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  priceScaleId: 'left',
 });
 const macdValueSeries = macdChart.addLineSeries({
   color: C.macdValue, lineWidth: 1,
   priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  priceScaleId: 'left',
 });
 const macdSignalSeries = macdChart.addLineSeries({
   color: C.macdSignal, lineWidth: 1,
   priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  priceScaleId: 'left',
 });
 const macdZeroSeries = macdChart.addLineSeries({
   color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
   priceLineVisible: false, lastValueVisible: false,
+  priceScaleId: 'left',
 });
 
 // --- State ---
@@ -312,7 +379,7 @@ function createLevelSeries(entry) {
     lineStyle: lwcStyle(entry.lineStyle),
     priceLineVisible: false, lastValueVisible: false,
     crosshairMarkerVisible: false,
-    // Exclude from auto-scale so levels don't stretch the candle y-axis
+    priceScaleId: 'left',
     autoscaleInfoProvider: () => null,
   });
   series.setData([
@@ -342,51 +409,66 @@ function toggleLevel(id) {
 }
 
 function renderControls() {
-  const el = document.getElementById('levelControls');
-  const parts = [];
+  // Segmented control: MKT / EXT
+  const seg = document.getElementById('mktExtCtrl');
+  seg.innerHTML = `
+    <button class="seg-btn ${hasMarketHours ? 'active' : ''}" onclick="toggleMarketHours()">MKT</button>
+    <button class="seg-btn ${hasMarketHours ? '' : 'active'}" onclick="toggleMarketHours()">EXT</button>`;
+
+  // Settings popover items
+  const pop = document.getElementById('settingsPopover');
+  const items = [];
 
   // HMA
-  const hmaCls = hmaVisible ? 'active' : '';
-  parts.push(`<button class="toggle-btn ${hmaCls}" onclick="toggleHma()">
-    <span class="indicator" style="background:${C.hmaUp}"></span>HMA</button>`);
-
-  parts.push('<div class="divider"></div>');
+  items.push(settingsItem('HMA', C.hmaUp, hmaVisible, 'toggleHma()'));
+  items.push('<div class="settings-divider"></div>');
 
   // Prior levels
   ['priorClose','priorHigh','priorLow'].forEach(id => {
     if (!levels[id]) return;
-    const lv = levels[id], e = lv.entries[0], cls = lv.visible ? 'active' : '';
-    parts.push(`<button class="toggle-btn ${cls}" onclick="toggleLevel('${id}')">
-      <span class="indicator" style="background:${e.color}"></span>${e.label}</button>`);
+    const lv = levels[id], e = lv.entries[0];
+    items.push(settingsItem(e.label, e.color, lv.visible, `toggleLevel('${id}')`));
   });
 
   // OR levels
   const orIds = ['or5','or15','or30'].filter(id => levels[id]);
   if (orIds.length) {
-    parts.push('<div class="divider"></div>');
+    items.push('<div class="settings-divider"></div>');
     orIds.forEach(id => {
-      const lv = levels[id], cls = lv.visible ? 'active' : '';
+      const lv = levels[id];
       const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
-      parts.push(`<button class="toggle-btn ${cls}" onclick="toggleLevel('${id}')">
-        <span class="indicator" style="background:${C.orLevel}"></span>${label}</button>`);
+      items.push(settingsItem(label, C.orLevel, lv.visible, `toggleLevel('${id}')`));
     });
   }
 
-  // Market hours toggle
-  parts.push('<div class="divider"></div>');
-  const mhCls = hasMarketHours ? 'active' : '';
-  const extCls = hasMarketHours ? '' : 'active';
-  parts.push(`<button class="toggle-btn ${mhCls}" onclick="toggleMarketHours()" title="Market hours (9:00–4:30)">MKT</button>`);
-  parts.push(`<button class="toggle-btn ${extCls}" onclick="toggleMarketHours()" title="Extended / 24h view">EXT</button>`);
-
-  el.innerHTML = parts.join('');
+  pop.innerHTML = items.join('');
 }
+
+function settingsItem(label, color, active, onclick) {
+  return `<div class="settings-item" onclick="${onclick}">
+    <span class="check">${active ? '\u2713' : ''}</span>
+    <span class="dot" style="background:${color}"></span>
+    ${label}
+  </div>`;
+}
+
+// Gear button toggle
+document.getElementById('gearBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('settingsPopover').classList.toggle('open');
+});
+document.addEventListener('click', () => {
+  document.getElementById('settingsPopover').classList.remove('open');
+});
+document.getElementById('settingsPopover').addEventListener('click', (e) => {
+  e.stopPropagation();
+});
 
 // --- Opening range ---
 const OR_WINDOWS = [
-  { min:5, id:'or5', label:'5m', style:'solid', opacity:0.75 },
-  { min:15, id:'or15', label:'15m', style:'solid', opacity:0.45 },
-  { min:30, id:'or30', label:'30m', style:'dotted', opacity:0.45 },
+  { min:5, id:'or5', label:'5m', style:'solid', opacity:0.6 },
+  { min:15, id:'or15', label:'15m', style:'dashed', opacity:0.4 },
+  { min:30, id:'or30', label:'30m', style:'dotted', opacity:0.3 },
 ];
 const orState = {};
 
@@ -550,6 +632,13 @@ function connect(dateOverride) {
       if (msg.date) document.getElementById('dateInput').value = msg.date;
 
       lastCandles = msg.candles;
+      // Auto-fit price precision: no decimals for large prices, 2 for small
+      if (msg.candles.length) {
+        const mid = msg.candles[Math.floor(msg.candles.length / 2)].close;
+        const prec = mid >= 100 ? 0 : mid >= 1 ? 2 : 4;
+        const mv = mid >= 100 ? 1 : mid >= 1 ? 0.01 : 0.0001;
+        candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
+      }
       candleSeries.setData(msg.candles);
       computeBounds(msg.candles);
       // Only compute opening range for instruments with market hours
@@ -578,15 +667,15 @@ function connect(dateOverride) {
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
         if (dc.close != null) {
-          createLevel('priorClose',[{price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.45}], true);
+          createLevel('priorClose',[{price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.35}], true);
           priorLevelPrices.push(dc.close);
         }
         if (dc.high != null) {
-          createLevel('priorHigh',[{price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.45}], true);
+          createLevel('priorHigh',[{price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.25}], true);
           priorLevelPrices.push(dc.high);
         }
         if (dc.low != null) {
-          createLevel('priorLow',[{price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.45}], true);
+          createLevel('priorLow',[{price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.25}], true);
           priorLevelPrices.push(dc.low);
         }
         applyPriorLevelScale(msg.candles);
