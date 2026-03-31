@@ -76,6 +76,18 @@ services:
     networks:
       - internal_net
 
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    labels:
+      - "traefik.enable=false"
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+    networks:
+      - internal_net
+
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
