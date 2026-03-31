@@ -75,3 +75,17 @@ backfill:
 # Option chain: just options SPX, just options /GC --dte 0,30,45 --strikes
 options symbol *args:
     uv run tasty-subscription options --symbol "{{symbol}}" {{args}}
+
+# --- Charting ---
+
+# Live chart: just chart, just chart SPY, just chart BTC/USD:CXTALP 8092
+chart symbol="SPX" port="8091" interval="m":
+    uv run tasty-chart --symbol "{{symbol}}" --interval {{interval}} --port {{port}}
+
+# List running chart servers
+chart-list:
+    @lsof -iTCP -sTCP:LISTEN -P 2>/dev/null | grep tasty-cha | awk '{split($9,a,":"); print "  port=" a[2] "  pid=" $2}' || echo "  No chart servers running"
+
+# Kill chart server on a port: just chart-kill 8091
+chart-kill port:
+    @kill $(lsof -t -i :{{port}} 2>/dev/null) 2>/dev/null && echo "Stopped chart server on :{{port}}" || echo "No process on :{{port}}"
