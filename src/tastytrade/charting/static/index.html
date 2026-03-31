@@ -33,17 +33,43 @@
     .toolbar-section.controls {
       flex: 1; justify-content: center; gap: 6px;
     }
-    .symbol-name { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: 0.3px; }
-    .badge {
-      font-size: 10px; font-weight: 600; color: var(--text-muted);
-      background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px;
-      letter-spacing: 0.3px;
+    /* Dropdown controls */
+    .dropdown {
+      position: relative; display: inline-block;
     }
+    .dropdown-btn {
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); font-size: 12px; font-family: monospace; font-weight: 600;
+      padding: 4px 24px 4px 8px; cursor: pointer; white-space: nowrap;
+      appearance: none; user-select: none;
+    }
+    .dropdown-btn:hover { border-color: var(--text-dim); }
+    .dropdown-btn::after {
+      content: '\25BE'; position: absolute; right: 8px; top: 50%;
+      transform: translateY(-50%); font-size: 9px; color: var(--text-dim);
+      pointer-events: none;
+    }
+    .dropdown-btn.sym { font-size: 15px; font-weight: 700; padding: 4px 28px 4px 8px; letter-spacing: 0.3px; }
+    .dropdown-list {
+      display: none; position: absolute; top: 100%; left: 0; z-index: 30;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+      margin-top: 2px; max-height: 300px; overflow-y: auto; min-width: 100%;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .dropdown-list.open { display: block; }
+    .dropdown-list.right { left: auto; right: 0; }
+    .dropdown-item {
+      padding: 6px 12px; font-size: 12px; font-family: monospace;
+      color: var(--text-muted); cursor: pointer; white-space: nowrap;
+    }
+    .dropdown-item:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .dropdown-item.active { color: var(--accent); }
     .date-input {
       background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
       color: var(--text); font-size: 12px; padding: 4px 8px; cursor: pointer;
-      font-family: inherit; color-scheme: dark;
+      font-family: monospace; color-scheme: dark;
     }
+    .date-input:hover { border-color: var(--text-dim); }
     .date-input:focus { outline: none; border-color: var(--accent); }
 
     /* Segmented control (MKT/EXT) */
@@ -126,8 +152,14 @@
 
 <div class="toolbar">
   <div class="toolbar-section">
-    <span class="symbol-name" id="symbolName">---</span>
-    <span class="badge" id="intervalBadge">--</span>
+    <div class="dropdown" id="symbolDropdown">
+      <div class="dropdown-btn sym" id="symbolBtn">---</div>
+      <div class="dropdown-list" id="symbolList"></div>
+    </div>
+    <div class="dropdown" id="intervalDropdown">
+      <div class="dropdown-btn" id="intervalBtn">1m</div>
+      <div class="dropdown-list" id="intervalList"></div>
+    </div>
     <input type="date" class="date-input" id="dateInput" title="Trading date">
   </div>
 
@@ -627,18 +659,90 @@ function setStatus(state) {
   document.getElementById('statusDot').className = 'status-dot ' + state;
 }
 
+// --- Dropdown controls ---
+const INTERVALS = [
+  { value:'m', label:'1m' }, { value:'5m', label:'5m' },
+  { value:'15m', label:'15m' }, { value:'30m', label:'30m' },
+  { value:'1h', label:'1h' }, { value:'1d', label:'1d' },
+];
+let currentSymbol = 'SPX';
+let currentInterval = 'm';
+
 function getParams() {
   const p = new URLSearchParams(window.location.search);
   return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm' };
 }
+
+function initDropdown(btnId, listId, items, onSelect) {
+  const btn = document.getElementById(btnId);
+  const list = document.getElementById(listId);
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Close other dropdowns
+    document.querySelectorAll('.dropdown-list.open').forEach(el => {
+      if (el.id !== listId) el.classList.remove('open');
+    });
+    list.classList.toggle('open');
+  });
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.dropdown-item');
+    if (!item) return;
+    onSelect(item.dataset.value);
+    list.classList.remove('open');
+  });
+}
+
+function populateIntervals() {
+  const list = document.getElementById('intervalList');
+  list.innerHTML = INTERVALS.map(i =>
+    `<div class="dropdown-item ${i.value === currentInterval ? 'active' : ''}" data-value="${i.value}">${i.label}</div>`
+  ).join('');
+}
+
+async function populateSymbols() {
+  try {
+    const resp = await fetch('/api/symbols');
+    const data = await resp.json();
+    const list = document.getElementById('symbolList');
+    list.innerHTML = (data.symbols || []).map(s =>
+      `<div class="dropdown-item ${s === currentSymbol ? 'active' : ''}" data-value="${s}">${s}</div>`
+    ).join('');
+  } catch(e) { /* symbols endpoint unavailable */ }
+}
+
+// Close all dropdowns on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dropdown-list.open').forEach(el => el.classList.remove('open'));
+});
+
+initDropdown('symbolBtn', 'symbolList', [], (sym) => {
+  currentSymbol = sym;
+  const p = new URLSearchParams(window.location.search);
+  p.set('symbol', sym); p.set('interval', currentInterval);
+  history.replaceState(null, '', '?' + p.toString());
+  document.getElementById('symbolBtn').textContent = sym;
+  connect();
+});
+
+initDropdown('intervalBtn', 'intervalList', [], (intv) => {
+  currentInterval = intv;
+  const label = INTERVALS.find(i => i.value === intv)?.label || intv;
+  const p = new URLSearchParams(window.location.search);
+  p.set('symbol', currentSymbol); p.set('interval', intv);
+  history.replaceState(null, '', '?' + p.toString());
+  document.getElementById('intervalBtn').textContent = label;
+  connect();
+});
 
 function connect(dateOverride) {
   setStatus('connecting');
   intentionalClose = true;
 
   const { symbol, interval } = getParams();
-  document.getElementById('symbolName').textContent = symbol;
-  document.getElementById('intervalBadge').textContent = interval === 'm' ? '1m' : interval;
+  currentSymbol = symbol; currentInterval = interval;
+  document.getElementById('symbolBtn').textContent = symbol;
+  document.getElementById('intervalBtn').textContent = INTERVALS.find(i => i.value === interval)?.label || interval;
+  populateIntervals();
 
   if (ws) { try { ws.close(); } catch(e) {} ws = null; }
 
@@ -795,6 +899,8 @@ window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(candleEl);
 new ResizeObserver(resize).observe(macdEl);
 
+populateSymbols();
+populateIntervals();
 connect();
 </script>
 </body>

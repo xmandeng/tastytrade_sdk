@@ -128,6 +128,25 @@ class ChartServer:
         async def config() -> dict:
             return {"symbol": self.symbol, "interval": self.interval}
 
+        @app.get("/api/symbols")
+        async def symbols() -> dict:
+            """Return deduplicated base symbols from active subscriptions."""
+            from tastytrade.connections.subscription import (
+                RedisSubscriptionStore,
+            )
+
+            store = RedisSubscriptionStore()
+            try:
+                await store.initialize()
+                subs = await store.get_active_subscriptions()
+                base = {sym.split("{=")[0] for sym in subs if "{=" in sym}
+                return {"symbols": sorted(base)}
+            except Exception:
+                logger.exception("Failed to fetch symbols")
+                return {"symbols": []}
+            finally:
+                await store.redis.close()  # type: ignore[union-attr]
+
         @app.websocket("/ws")
         async def websocket_endpoint(ws: WebSocket) -> None:
             await ws.accept(subprotocol=None)
