@@ -26,9 +26,11 @@ def main(
     setup_logging(level=logging.DEBUG if debug else logging.INFO)
     logger = logging.getLogger(__name__)
 
-    logger.info("Starting tasty-chart: %s %s on port %d", symbol, interval, port)
-
     from tastytrade.charting.server import ChartServer
+
+    url = f"http://localhost:{port}/?symbol={symbol}&interval={interval}"
+    logger.info("Starting tasty-chart: %s %s on port %d", symbol, interval, port)
+    click.echo(f"\n  tasty-chart → {url}\n")
 
     server = ChartServer(
         symbol=symbol,

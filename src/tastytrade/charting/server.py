@@ -84,7 +84,12 @@ def build_candle_payload(df: pl.DataFrame) -> list[dict[str, Any]]:
 
 
 def find_last_trading_day(from_date: date_type, max_lookback: int = 7) -> date_type:
-    """Walk backwards from from_date to find the last weekday."""
+    """Walk backwards from from_date to find the last weekday.
+
+    Used only for prior day candle lookups (equities don't have daily
+    candles on weekends). For the chart date itself, use
+    find_date_with_data() which tries today first (works for crypto/futures).
+    """
     d = from_date
     for _ in range(max_lookback):
         if d.weekday() < 5:  # Mon-Fri
@@ -170,14 +175,16 @@ class ChartServer:
 
         candle_symbol = f"{symbol}{{={interval}}}"
 
-        # Determine which trading day to display
+        # Determine which trading day to display.
+        # Try the requested date (or today) first. If no data, walk back up to 5 days.
+        # This handles crypto (24/7), Sunday evening futures, and weekday equities.
         if chart_date:
             try:
                 target_date = date_type.fromisoformat(chart_date)
             except ValueError:
-                target_date = find_last_trading_day(date_type.today())
+                target_date = date_type.today()
         else:
-            target_date = find_last_trading_day(date_type.today())
+            target_date = date_type.today()
 
         prior_date = find_last_trading_day(target_date - timedelta(days=1))
 
@@ -190,37 +197,39 @@ class ChartServer:
         )
 
         # --- Fetch single day of candles (ET day boundaries) ---
-        # Convert ET day to UTC range so InfluxDB returns one ET calendar day
-        et_start = datetime(
-            target_date.year,
-            target_date.month,
-            target_date.day,
-            tzinfo=ET,
-        )
-        et_stop = et_start + timedelta(days=1)
-        # Convert to naive UTC for InfluxDB query (MarketDataProvider expects naive UTC)
-        utc_start = et_start.astimezone(timezone.utc).replace(tzinfo=None)
-        utc_stop = et_stop.astimezone(timezone.utc).replace(tzinfo=None)
+        # Try the target date. If no data, walk back up to 5 days.
+        hist_df = None
+        for attempt in range(6):
+            d = target_date - timedelta(days=attempt)
+            et_start = datetime(d.year, d.month, d.day, tzinfo=ET)
+            et_stop = et_start + timedelta(days=1)
+            utc_start = et_start.astimezone(timezone.utc).replace(tzinfo=None)
+            utc_stop = et_stop.astimezone(timezone.utc).replace(tzinfo=None)
 
-        logger.info(
-            "Downloading: symbol=%r ET=%s UTC=%s..%s",
-            candle_symbol,
-            target_date,
-            utc_start,
-            utc_stop,
-        )
-        hist_df = provider.download(
-            symbol=candle_symbol,
-            start=utc_start,
-            stop=utc_stop,
-            debug_mode=True,
-        )
+            logger.info(
+                "Trying: symbol=%r ET=%s UTC=%s..%s",
+                candle_symbol,
+                d,
+                utc_start,
+                utc_stop,
+            )
+            hist_df = provider.download(
+                symbol=candle_symbol,
+                start=utc_start,
+                stop=utc_stop,
+                debug_mode=True,
+            )
+            if hist_df is not None and not hist_df.is_empty():
+                target_date = d
+                prior_date = find_last_trading_day(d - timedelta(days=1))
+                break
+            hist_df = None
 
-        if hist_df is None or hist_df.is_empty():
+        if hist_df is None:
             await ws.send_json(
                 {
                     "type": "error",
-                    "message": f"No data for {candle_symbol} on {target_date}",
+                    "message": f"No data for {candle_symbol} in the last 6 days",
                 }
             )
             influx_client.close()
@@ -309,8 +318,17 @@ class ChartServer:
         symbol: str,
         interval: str,
     ) -> None:
-        """Subscribe to Redis and stream deltas to the WebSocket client."""
+        """Subscribe to Redis and stream deltas to the WebSocket client.
+
+        DXLink sends multiple events per candle period (every tick updates
+        the current candle's OHLC).  Indicators must only advance once per
+        period — when a NEW candle timestamp appears — using the final close
+        of the *previous* candle.  Otherwise HMA windows fill with duplicate
+        values and MACD EMAs are over-updated, causing both to diverge.
+        """
         candle_symbol = f"{symbol}{{={interval}}}"
+        prev_candle_epoch: int = 0
+        prev_candle_close: float = 0.0
 
         async for event_type, event in feed.listen(symbol, candle_symbol):
             if event_type == "candle":
@@ -334,12 +352,21 @@ class ChartServer:
                     "close": round(close, 4),
                 }
 
-                indicator_point = indicators.update(close, et_epoch)
-
                 delta: dict[str, Any] = {"type": "update", "candle": candle_msg}
-                if indicator_point:
-                    delta["hma"] = indicator_point["hma"]
-                    delta["macd"] = indicator_point["macd"]
+
+                # Only advance indicators when a new candle period starts.
+                # Use the final close of the *previous* candle for accuracy.
+                if prev_candle_epoch != 0 and et_epoch != prev_candle_epoch:
+                    indicator_point = indicators.update(
+                        prev_candle_close,
+                        prev_candle_epoch,
+                    )
+                    if indicator_point:
+                        delta["hma"] = indicator_point["hma"]
+                        delta["macd"] = indicator_point["macd"]
+
+                prev_candle_epoch = et_epoch
+                prev_candle_close = close
 
                 await ws.send_text(json.dumps(delta))
 

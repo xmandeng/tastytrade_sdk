@@ -7,6 +7,8 @@
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* Hide TradingView branding — only <a> tags in chart containers are attribution links */
+    #chart-candle a, #chart-macd a { display: none !important; }
     :root {
       --bg: #131313; --surface: #1a1a1a; --surface-2: #222;
       --border: #2a2a2a; --text: #d1d4dc; --text-muted: #787b86;
@@ -163,8 +165,6 @@ const macdChart = LightweightCharts.createChart(macdEl, {
   height: macdEl.clientHeight || Math.floor(window.innerHeight * 0.2),
 });
 
-// Remove TradingView watermarks via DOM
-function hideWatermarks() { /* disabled for now */ }
 
 
 // Sync time scales
@@ -183,6 +183,8 @@ const candleSeries = candleChart.addCandlestickSeries({
   upColor: C.candleUpBody, downColor: C.candleDownBody,
   borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
   wickUpColor: C.candleUpBorder, wickDownColor: C.candleDownBorder,
+  lastValueVisible: false,
+  priceLineVisible: false,
 });
 
 // HMA: segment series per color run
@@ -247,9 +249,10 @@ const macdZeroSeries = macdChart.addLineSeries({
 // --- State ---
 let lastHmaColor = C.hmaUp;
 let hmaVisible = true;
-let viewStartEpoch = 0;  // 8:30 AM — for default zoom
+let lastCandles = [];
+let viewStartEpoch = 0;  // 9:00 AM — for default zoom
 let levelStartEpoch = 0; // 9:30 AM — for horizontal lines
-let levelEndEpoch = 0;   // 5:00 PM — for horizontal lines
+let levelEndEpoch = 0;   // 4:30 PM — for horizontal lines + view end
 const levels = {};
 
 function lwcStyle(s) {
@@ -258,21 +261,35 @@ function lwcStyle(s) {
   return LightweightCharts.LineStyle.Solid;
 }
 
+// Market hours vs extended hours — user-toggled
+let hasMarketHours = true;
+
 function computeBounds(candles) {
   viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0;
+
   for (const c of candles) {
     const d = new Date(c.time * 1000);
     const h = d.getUTCHours(), m = d.getUTCMinutes();
-    // View start: 8:30 AM
-    if (h === 8 && m >= 30 && viewStartEpoch === 0) viewStartEpoch = c.time;
-    // Level start: 9:30 AM (market open)
+    if (h === 9 && m >= 0 && viewStartEpoch === 0) viewStartEpoch = c.time;
     if (h === 9 && m >= 30 && levelStartEpoch === 0) levelStartEpoch = c.time;
-    // Level end: last candle at or before 5:00 PM
-    if (h < 17 || (h === 17 && m === 0)) levelEndEpoch = c.time;
+    if (h < 16 || (h === 16 && m <= 30)) levelEndEpoch = c.time;
   }
-  if (viewStartEpoch === 0 && candles.length) viewStartEpoch = candles[0].time;
-  if (levelStartEpoch === 0) levelStartEpoch = viewStartEpoch;
-  if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
+
+  if (!hasMarketHours || viewStartEpoch === 0) {
+    viewStartEpoch = candles.length ? candles[0].time : 0;
+    levelStartEpoch = viewStartEpoch;
+    levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
+  } else {
+    if (levelStartEpoch === 0) levelStartEpoch = viewStartEpoch;
+    if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
+  }
+}
+
+function toggleMarketHours() {
+  hasMarketHours = !hasMarketHours;
+  computeBounds(lastCandles);
+  setTradingHoursView();
+  renderControls();
 }
 
 // --- Toggles ---
@@ -355,6 +372,13 @@ function renderControls() {
     });
   }
 
+  // Market hours toggle
+  parts.push('<div class="divider"></div>');
+  const mhCls = hasMarketHours ? 'active' : '';
+  const extCls = hasMarketHours ? '' : 'active';
+  parts.push(`<button class="toggle-btn ${mhCls}" onclick="toggleMarketHours()" title="Market hours (9:00–4:30)">MKT</button>`);
+  parts.push(`<button class="toggle-btn ${extCls}" onclick="toggleMarketHours()" title="Extended / 24h view">EXT</button>`);
+
   el.innerHTML = parts.join('');
 }
 
@@ -397,14 +421,38 @@ function processCandleOR(candle) {
 
 // --- View & scale ---
 function setTradingHoursView() {
+  if (!hasMarketHours) {
+    candleChart.timeScale().fitContent();
+    return;
+  }
   if (viewStartEpoch === 0 || levelEndEpoch === 0) return;
   candleChart.timeScale().setVisibleRange({ from: viewStartEpoch - 300, to: levelEndEpoch + 600 });
 }
 
-// Let the chart auto-scale to visible candle data.
-// Prior day levels may be off-screen if there's a large gap — that's OK,
-// the user can scroll/zoom to see them. Forcing them into view compresses
-// the candles to invisible.
+// Extend candle series auto-scale to include prior day levels.
+// Level line series have autoscaleInfoProvider: () => null so they don't
+// contribute — only the candle series range matters, preventing double-stretch.
+let priorLevelPrices = [];
+
+function applyPriorLevelScale(candles) {
+  if (!priorLevelPrices.length || !candles.length) return;
+  // Compute the full range from candle data + prior levels
+  let lo = Infinity, hi = -Infinity;
+  candles.forEach(c => {
+    if (c.low < lo) lo = c.low;
+    if (c.high > hi) hi = c.high;
+  });
+  priorLevelPrices.forEach(p => {
+    if (p < lo) lo = p;
+    if (p > hi) hi = p;
+  });
+  const pad = (hi - lo) * 0.03;
+  candleSeries.applyOptions({
+    autoscaleInfoProvider: () => ({
+      priceRange: { minValue: lo - pad, maxValue: hi + pad },
+    }),
+  });
+}
 
 // --- Chart pane resize ---
 (function() {
@@ -501,9 +549,11 @@ function connect(dateOverride) {
 
       if (msg.date) document.getElementById('dateInput').value = msg.date;
 
+      lastCandles = msg.candles;
       candleSeries.setData(msg.candles);
       computeBounds(msg.candles);
-      msg.candles.forEach(c => processCandleOR(c));
+      // Only compute opening range for instruments with market hours
+      if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 
       // HMA
       if (msg.hma && msg.hma.length > 0) {
@@ -524,24 +574,42 @@ function connect(dateOverride) {
       }
 
       // Prior day levels — bounded to 9:30 - 5:00
+      priorLevelPrices = [];
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
-        if (dc.close != null) createLevel('priorClose',[
-          {price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.45}], true);
-        if (dc.high != null) createLevel('priorHigh',[
-          {price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.45}], true);
-        if (dc.low != null) createLevel('priorLow',[
-          {price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.45}], true);
+        if (dc.close != null) {
+          createLevel('priorClose',[{price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.45}], true);
+          priorLevelPrices.push(dc.close);
+        }
+        if (dc.high != null) {
+          createLevel('priorHigh',[{price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.45}], true);
+          priorLevelPrices.push(dc.high);
+        }
+        if (dc.low != null) {
+          createLevel('priorLow',[{price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.45}], true);
+          priorLevelPrices.push(dc.low);
+        }
+        applyPriorLevelScale(msg.candles);
       }
 
       renderControls();
-      setTimeout(() => { setTradingHoursView(); hideWatermarks(); }, 100);
+      setTimeout(() => { setTradingHoursView(); }, 100);
       return;
     }
 
     if (msg.type === 'update') {
       candleSeries.update(msg.candle);
       processCandleOR(msg.candle);
+
+      // Extend all visible level lines to the latest candle time
+      const newTime = msg.candle.time;
+      for (const id in levels) {
+        if (levels[id].visible) {
+          levels[id].seriesList.forEach((s, i) => {
+            s.update({ time: newTime, value: levels[id].entries[i].price });
+          });
+        }
+      }
 
       if (msg.hma) {
         const pt = { time: msg.hma.time, value: msg.hma.value };
