@@ -65,10 +65,14 @@ services:
     container_name: redisinsight
     labels:
       - "traefik.enable=false"
+    entrypoint: ["/bin/sh", "/setup/redisinsight-setup.sh"]
+    volumes:
+      - ./config/redisinsight-setup.sh:/setup/redisinsight-setup.sh:ro
     ports:
       - "5540:5540"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - internal_net
 
