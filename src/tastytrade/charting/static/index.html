@@ -96,7 +96,7 @@
 
     /* Chart legend */
     .chart-legend {
-      position: absolute; bottom: 8px; left: 90px; z-index: 10;
+      position: absolute; top: 60%; left: 90px; z-index: 10;
       background: rgba(19,19,19,0.88); border: 1px solid var(--border);
       border-radius: 5px; overflow: hidden;
       font-family: monospace; font-size: 11px;
@@ -237,9 +237,14 @@ const chartOpts = () => ({
 // concrete pixel sizes at creation time
 // Pad price labels to consistent width so both charts' left axes align.
 // LWC auto-sizes price scales from label width — matching char count = matching width.
-const PAD = 8;
-const candleFmt = (p) => p.toFixed(0).padStart(PAD);
-const macdFmt = (p) => p.toFixed(2).padStart(PAD);
+// Pad both formatters to same width so left axes align
+const fmtWidth = 7;
+const candleFmt = (p) => {
+  const abs = Math.abs(p);
+  const dec = abs >= 1000 ? 0 : abs >= 10 ? 2 : 4;
+  return p.toFixed(dec).padStart(fmtWidth);
+};
+const macdFmt = (p) => p.toFixed(2).padStart(fmtWidth);
 
 const candleChart = LightweightCharts.createChart(candleEl, {
   ...chartOpts(),
@@ -362,7 +367,8 @@ let hmaVisible = true;
 let lastCandles = [];
 let viewStartEpoch = 0;  // 9:00 AM — for default zoom
 let levelStartEpoch = 0; // 9:30 AM — for horizontal lines
-let levelEndEpoch = 0;   // 4:30 PM — for horizontal lines + view end
+let levelEndEpoch = 0;   // last candle — for horizontal line endpoint
+let marketCloseEpoch = 0; // 4:30 PM — for view range end
 const levels = {};
 
 function lwcStyle(s) {
@@ -375,22 +381,29 @@ function lwcStyle(s) {
 let hasMarketHours = true;
 
 function computeBounds(candles) {
-  viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0;
+  viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
 
   for (const c of candles) {
     const d = new Date(c.time * 1000);
     const h = d.getUTCHours(), m = d.getUTCMinutes();
-    if (h === 9 && m >= 0 && viewStartEpoch === 0) viewStartEpoch = c.time;
-    if (h === 9 && m >= 30 && levelStartEpoch === 0) levelStartEpoch = c.time;
     if (h < 16 || (h === 16 && m <= 30)) levelEndEpoch = c.time;
   }
 
-  if (!hasMarketHours || viewStartEpoch === 0) {
+  // Compute fixed times from chart date (independent of candle data)
+  if (candles.length) {
+    const d = new Date(candles[0].time * 1000);
+    const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
+    viewStartEpoch = Date.UTC(y, mo, day, 8, 30) / 1000;   // 8:30 AM
+    levelStartEpoch = Date.UTC(y, mo, day, 9, 30) / 1000;   // 9:30 AM
+    marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;  // 4:30 PM
+  }
+
+  if (!hasMarketHours) {
     viewStartEpoch = candles.length ? candles[0].time : 0;
     levelStartEpoch = viewStartEpoch;
     levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
+    marketCloseEpoch = levelEndEpoch;
   } else {
-    if (levelStartEpoch === 0) levelStartEpoch = viewStartEpoch;
     if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
   }
 }
@@ -428,7 +441,7 @@ function createLevelSeries(entry) {
   });
   series.setData([
     { time: levelStartEpoch, value: entry.price },
-    { time: levelEndEpoch, value: entry.price },
+    { time: marketCloseEpoch || levelEndEpoch, value: entry.price },
   ]);
   return series;
 }
@@ -500,13 +513,6 @@ function renderLegend() {
 
   grip.addEventListener('mousedown', (e) => {
     dragging = true; startX = e.clientX; startY = e.clientY;
-    // Switch from bottom-anchored to top-anchored on first drag
-    if (legend.style.bottom !== '') {
-      const rect = legend.getBoundingClientRect();
-      const parentRect = legend.parentElement.getBoundingClientRect();
-      legend.style.top = (rect.top - parentRect.top) + 'px';
-      legend.style.bottom = 'auto';
-    }
     origLeft = legend.offsetLeft; origTop = legend.offsetTop;
     legend.classList.add('dragging');
     e.preventDefault();
@@ -568,13 +574,41 @@ function processCandleOR(candle) {
 }
 
 // --- View & scale ---
+// Invisible anchor series — extends the time axis beyond candle data
+const anchorSeries = candleChart.addLineSeries({
+  color: 'transparent', lineWidth: 0,
+  priceLineVisible: false, lastValueVisible: false,
+  crosshairMarkerVisible: false, priceScaleId: 'left',
+  autoscaleInfoProvider: () => null,
+});
+// MACD anchor on a hidden scale — extends time axis without affecting MACD y-axis
+const macdAnchorSeries = macdChart.addLineSeries({
+  color: 'transparent', lineWidth: 0,
+  priceLineVisible: false, lastValueVisible: false,
+  crosshairMarkerVisible: false, priceScaleId: 'anchor-hidden',
+  autoscaleInfoProvider: () => null,
+});
+macdChart.priceScale('anchor-hidden').applyOptions({ visible: false });
+
 function setTradingHoursView() {
   if (!hasMarketHours) {
     candleChart.timeScale().fitContent();
     return;
   }
-  if (viewStartEpoch === 0 || levelEndEpoch === 0) return;
-  candleChart.timeScale().setVisibleRange({ from: viewStartEpoch - 300, to: levelEndEpoch + 600 });
+  if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
+  const from = viewStartEpoch;
+  const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
+  const to = Math.min(marketCloseEpoch, Math.max(lastCandle + 7200, levelStartEpoch + 7200));
+  // Populate anchor series across full range so LWC extends the time axis
+  const anchors = [];
+  for (let t = from; t <= to; t += 300) anchors.push({ time: t, value: 0 });
+  anchorSeries.setData(anchors);
+  macdAnchorSeries.setData(anchors);
+  // Set range on both charts — syncing flag prevents callback fight
+  syncing = true;
+  candleChart.timeScale().setVisibleRange({ from, to });
+  macdChart.timeScale().setVisibleRange({ from, to });
+  syncing = false;
 }
 
 // Extend candle series auto-scale to include prior day levels.
@@ -829,13 +863,15 @@ function connect(dateOverride) {
       candleSeries.update(msg.candle);
       processCandleOR(msg.candle);
 
-      // Extend all visible level lines to the latest candle time
-      const newTime = msg.candle.time;
-      for (const id in levels) {
-        if (levels[id].visible) {
-          levels[id].seriesList.forEach((s, i) => {
-            s.update({ time: newTime, value: levels[id].entries[i].price });
-          });
+      // Extend level lines in EXT mode only (MKT uses fixed 4:30 PM endpoint)
+      if (!hasMarketHours) {
+        const newTime = msg.candle.time;
+        for (const id in levels) {
+          if (levels[id].visible) {
+            levels[id].seriesList.forEach((s, i) => {
+              s.update({ time: newTime, value: levels[id].entries[i].price });
+            });
+          }
         }
       }
 
