@@ -925,8 +925,12 @@ function doConnect(dateOverride) {
   ws.onerror = () => setStatus('disconnected');
 }
 
+// Only reconnect on USER-initiated date changes, not programmatic .value sets
+let dateUserAction = false;
+document.getElementById('dateInput').addEventListener('focus', () => { dateUserAction = true; });
 document.getElementById('dateInput').addEventListener('change', (e) => {
-  if (e.target.value) connect(e.target.value);
+  if (dateUserAction && e.target.value) connect(e.target.value);
+  dateUserAction = false;
 });
 
 // Resize
