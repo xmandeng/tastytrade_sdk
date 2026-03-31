@@ -121,7 +121,7 @@ class ChartServer:
         async def index() -> FileResponse:
             return FileResponse(
                 STATIC_DIR / "index.html",
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+                headers={"Cache-Control": "no-cache"},
             )
 
         @app.get("/api/config")
