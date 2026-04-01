@@ -1,5 +1,7 @@
+import asyncio
 import logging
 from typing import TypeVar, Union
+from urllib.parse import quote
 
 import polars as pl
 from pydantic import BaseModel
@@ -65,22 +67,22 @@ class InstrumentsClient:
     async def get_equity_options(
         self, symbols: list[str]
     ) -> list[EquityOptionInstrument]:
-        """GET /instruments/equity-options?symbol[]={sym1}&symbol[]={sym2}..."""
-        return await self.fetch_batch(
+        """GET /instruments/equity-options/{symbol} for each symbol."""
+        return await self.fetch_individual(
             "/instruments/equity-options", symbols, EquityOptionInstrument
         )
 
     async def get_future_options(
         self, symbols: list[str]
     ) -> list[FutureOptionInstrument]:
-        """GET /instruments/future-options?symbol[]={sym1}&symbol[]={sym2}..."""
-        return await self.fetch_batch(
+        """GET /instruments/future-options/{symbol} for each symbol."""
+        return await self.fetch_individual(
             "/instruments/future-options", symbols, FutureOptionInstrument
         )
 
     async def get_equities(self, symbols: list[str]) -> list[EquityInstrument]:
-        """GET /instruments/equities?symbol[]={sym1}&symbol[]={sym2}..."""
-        return await self.fetch_batch(
+        """GET /instruments/equities/{symbol} for each symbol."""
+        return await self.fetch_individual(
             "/instruments/equities", symbols, EquityInstrument
         )
 
@@ -95,6 +97,34 @@ class InstrumentsClient:
         return await self.fetch_batch(
             "/instruments/cryptocurrencies", symbols, CryptocurrencyInstrument
         )
+
+    async def fetch_individual(
+        self, endpoint: str, symbols: list[str], model_cls: type[T]
+    ) -> list[T]:
+        """Fetch instruments one at a time via GET /endpoint/{symbol}."""
+        if not symbols:
+            return []
+
+        async def fetch_one(symbol: str) -> T | None:
+            encoded = quote(symbol, safe="")
+            url = f"{self.session.base_url}{endpoint}/{encoded}"
+            async with self.session.session.get(url) as response:
+                if response.status == 404:
+                    logger.debug("Instrument not found: %s%s", endpoint, symbol)
+                    return None
+                await validate_async_response(response)
+                data = await response.json()
+                item = data.get("data", {})
+                try:
+                    return model_cls.model_validate(item)
+                except Exception as e:
+                    logger.warning("Failed to parse %s instrument: %s", endpoint, e)
+                    return None
+
+        fetched = await asyncio.gather(*[fetch_one(s) for s in symbols])
+        results = [r for r in fetched if r is not None]
+        logger.info("Fetched %d instruments from %s", len(results), endpoint)
+        return results
 
     async def fetch_batch(
         self, endpoint: str, symbols: list[str], model_cls: type[T]
