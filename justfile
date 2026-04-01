@@ -4,7 +4,7 @@ set dotenv-load := true
 # Run `just --list` to see all available recipes
 
 # Default symbols and intervals for subscription
-default_symbols := "BTC/USD:CXTALP,NVDA,AAPL,QQQ,SPY,SPX,/ZBM26:XCBT,/6EM26:XCME,/GCM26:XCEC,/RTYM26:XCME,/CLK26:XNYM"
+default_symbols := "BTC/USD:CXTALP,NVDA,AAPL,QQQ,SPY,SPX"
 default_intervals := "1d,1h,30m,15m,5m,m"
 
 # Prior workday calculation: Mon->Fri(-3), Sun->Fri(-2), else->yesterday(-1)
