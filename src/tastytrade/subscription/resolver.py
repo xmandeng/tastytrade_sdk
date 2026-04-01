@@ -45,13 +45,16 @@ class PositionSymbolResolver:
     async def resolve(self) -> None:
         """Read positions from Redis, diff, subscribe/unsubscribe."""
         raw = await self.redis.hgetall(AccountStreamPublisher.POSITIONS_KEY)
-        # Extract streamer-symbol from position data; fall back to hash key
+        # Extract streamer-symbol and underlying from position data
         current_symbols: set[str] = set()
         for key, value in raw.items():
             try:
                 pos = json.loads(value)
                 sym = pos.get("streamer-symbol") or key.decode("utf-8")
                 current_symbols.add(sym)
+                underlying = pos.get("underlying-symbol")
+                if underlying:
+                    current_symbols.add(underlying)
             except Exception:
                 current_symbols.add(key.decode("utf-8"))
 
