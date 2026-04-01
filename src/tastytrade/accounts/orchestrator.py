@@ -428,6 +428,20 @@ async def run_account_stream_once(
                 all_instruments += await instruments_client.get_equities(equity_syms)
             if future_syms:
                 all_instruments += await instruments_client.get_futures(future_syms)
+            # Also fetch underlying futures for futures option positions
+            future_option_underlyings = list(
+                {
+                    p.underlying_symbol
+                    for p in hydrated_positions
+                    if p.instrument_type == InstrumentType.FUTURE_OPTION
+                    and p.underlying_symbol
+                }
+                - set(future_syms)
+            )
+            if future_option_underlyings:
+                all_instruments += await instruments_client.get_futures(
+                    future_option_underlyings
+                )
             if crypto_syms:
                 all_instruments += await instruments_client.get_cryptocurrencies(
                     crypto_syms
