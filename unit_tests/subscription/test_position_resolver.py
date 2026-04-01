@@ -32,9 +32,16 @@ def make_position_json(
     return json.dumps(data)
 
 
+def make_instrument_json(symbol: str, streamer: str) -> str:
+    return json.dumps({"symbol": symbol, "streamer-symbol": streamer})
+
+
 @pytest.fixture
 def mock_redis() -> AsyncMock:
-    return AsyncMock()
+    mock = AsyncMock()
+    # Default: no instrument found for underlying lookup
+    mock.hget.return_value = None
+    return mock
 
 
 @pytest.fixture
@@ -73,35 +80,58 @@ async def test_resolve_subscribes_new_symbols(
 
 
 @pytest.mark.asyncio
-async def test_resolve_subscribes_underlying_for_options(
+async def test_resolve_subscribes_underlying_via_instrument_lookup(
     resolver: PositionSymbolResolver,
     mock_redis: AsyncMock,
     mock_dxlink: AsyncMock,
 ) -> None:
+    """Underlying subscription uses streamer-symbol from instrument record."""
     mock_redis.hgetall.return_value = {
         b".SPY260402P666": make_position_json(
             "SPY 260402P666", ".SPY260402P666", underlying="SPY"
         ).encode(),
     }
+    mock_redis.hget.return_value = make_instrument_json("SPY", "SPY").encode()
     await resolver.resolve()
     subscribed = set(mock_dxlink.subscribe.call_args[0][0])
     assert subscribed == {".SPY260402P666", "SPY"}
 
 
 @pytest.mark.asyncio
-async def test_resolve_subscribes_underlying_for_futures_options(
+async def test_resolve_subscribes_exchange_qualified_futures_underlying(
     resolver: PositionSymbolResolver,
     mock_redis: AsyncMock,
     mock_dxlink: AsyncMock,
 ) -> None:
+    """Futures underlying resolves to exchange-qualified streamer-symbol."""
     mock_redis.hgetall.return_value = {
-        b"./ZBM26:XCBT P666": make_position_json(
-            "/ZBM26 P666", "./ZBM26:XCBT P666", underlying="/ZBM26:XCBT"
+        b"./OZBK26P111:XCBT": make_position_json(
+            "./ZBM6 OZBK6 260424P111", "./OZBK26P111:XCBT", underlying="/ZBM6"
         ).encode(),
     }
+    mock_redis.hget.return_value = make_instrument_json("/ZBM6", "/ZBM26:XCBT").encode()
     await resolver.resolve()
     subscribed = set(mock_dxlink.subscribe.call_args[0][0])
-    assert subscribed == {"./ZBM26:XCBT P666", "/ZBM26:XCBT"}
+    assert subscribed == {"./OZBK26P111:XCBT", "/ZBM26:XCBT"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_skips_underlying_without_instrument(
+    resolver: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_dxlink: AsyncMock,
+) -> None:
+    """Underlying with no instrument record is not subscribed."""
+    mock_redis.hgetall.return_value = {
+        b"./LOK26P70:XNYM": make_position_json(
+            "./CLK6 LOK6 260416P70", "./LOK26P70:XNYM", underlying="/CLK6"
+        ).encode(),
+    }
+    mock_redis.hget.return_value = None
+    await resolver.resolve()
+    subscribed = set(mock_dxlink.subscribe.call_args[0][0])
+    assert subscribed == {"./LOK26P70:XNYM"}
+    assert "/CLK6" not in subscribed
 
 
 @pytest.mark.asyncio
@@ -119,6 +149,7 @@ async def test_resolve_deduplicates_underlying(
             "SPY 260402C700", ".SPY260402C700", underlying="SPY"
         ).encode(),
     }
+    mock_redis.hget.return_value = make_instrument_json("SPY", "SPY").encode()
     await resolver.resolve()
     subscribed = set(mock_dxlink.subscribe.call_args[0][0])
     assert subscribed == {".SPY260402P666", ".SPY260402C700", "SPY"}

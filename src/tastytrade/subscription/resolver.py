@@ -42,11 +42,27 @@ class PositionSymbolResolver:
         self.dxlink = dxlink
         self.subscribed_symbols: set[str] = set()
 
+    async def resolve_underlying_streamer(self, underlying: str) -> str | None:
+        """Look up exchange-qualified streamer-symbol for an underlying.
+
+        Checks the instruments hash for the underlying's instrument record.
+        Returns None if no instrument or streamer-symbol is found.
+        """
+        raw = await self.redis.hget(AccountStreamPublisher.INSTRUMENTS_KEY, underlying)
+        if raw:
+            try:
+                inst = json.loads(raw)
+                return inst.get("streamer-symbol")
+            except Exception:
+                pass
+        return None
+
     async def resolve(self) -> None:
         """Read positions from Redis, diff, subscribe/unsubscribe."""
         raw = await self.redis.hgetall(AccountStreamPublisher.POSITIONS_KEY)
         # Extract streamer-symbol and underlying from position data
         current_symbols: set[str] = set()
+        underlyings: set[str] = set()
         for key, value in raw.items():
             try:
                 pos = json.loads(value)
@@ -54,9 +70,15 @@ class PositionSymbolResolver:
                 current_symbols.add(sym)
                 underlying = pos.get("underlying-symbol")
                 if underlying:
-                    current_symbols.add(underlying)
+                    underlyings.add(underlying)
             except Exception:
                 current_symbols.add(key.decode("utf-8"))
+
+        # Resolve underlying symbols to exchange-qualified streamer-symbols
+        for underlying in underlyings:
+            streamer = await self.resolve_underlying_streamer(underlying)
+            if streamer:
+                current_symbols.add(streamer)
 
         to_subscribe = current_symbols - self.subscribed_symbols
         to_unsubscribe = self.subscribed_symbols - current_symbols
