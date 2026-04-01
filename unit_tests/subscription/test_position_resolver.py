@@ -13,7 +13,12 @@ from tastytrade.subscription.resolver import (
 )
 
 
-def make_position_json(symbol: str, streamer: str, qty: str = "1.0") -> str:
+def make_position_json(
+    symbol: str,
+    streamer: str,
+    qty: str = "1.0",
+    underlying: str | None = None,
+) -> str:
     data: dict[str, Any] = {
         "account-number": "5WT00001",
         "symbol": symbol,
@@ -22,6 +27,8 @@ def make_position_json(symbol: str, streamer: str, qty: str = "1.0") -> str:
         "quantity-direction": "Long" if float(qty) > 0 else "Zero",
         "streamer-symbol": streamer,
     }
+    if underlying is not None:
+        data["underlying-symbol"] = underlying
     return json.dumps(data)
 
 
@@ -43,7 +50,7 @@ def resolver(mock_redis: AsyncMock, mock_dxlink: AsyncMock) -> PositionSymbolRes
     r = PositionSymbolResolver.__new__(PositionSymbolResolver)
     r.redis = mock_redis
     r.dxlink = mock_dxlink
-    r.subscribed_symbols: set[str] = set()
+    r.subscribed_symbols = set[str]()
     return r
 
 
@@ -63,6 +70,71 @@ async def test_resolve_subscribes_new_symbols(
     mock_dxlink.subscribe.assert_called_once()
     subscribed = set(mock_dxlink.subscribe.call_args[0][0])
     assert subscribed == {"SPY", ".SPY260402P666"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_subscribes_underlying_for_options(
+    resolver: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_dxlink: AsyncMock,
+) -> None:
+    mock_redis.hgetall.return_value = {
+        b".SPY260402P666": make_position_json(
+            "SPY 260402P666", ".SPY260402P666", underlying="SPY"
+        ).encode(),
+    }
+    await resolver.resolve()
+    subscribed = set(mock_dxlink.subscribe.call_args[0][0])
+    assert subscribed == {".SPY260402P666", "SPY"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_subscribes_underlying_for_futures_options(
+    resolver: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_dxlink: AsyncMock,
+) -> None:
+    mock_redis.hgetall.return_value = {
+        b"./ZBM26:XCBT P666": make_position_json(
+            "/ZBM26 P666", "./ZBM26:XCBT P666", underlying="/ZBM26:XCBT"
+        ).encode(),
+    }
+    await resolver.resolve()
+    subscribed = set(mock_dxlink.subscribe.call_args[0][0])
+    assert subscribed == {"./ZBM26:XCBT P666", "/ZBM26:XCBT"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_deduplicates_underlying(
+    resolver: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_dxlink: AsyncMock,
+) -> None:
+    """Multiple options on same underlying = one underlying subscription."""
+    mock_redis.hgetall.return_value = {
+        b".SPY260402P666": make_position_json(
+            "SPY 260402P666", ".SPY260402P666", underlying="SPY"
+        ).encode(),
+        b".SPY260402C700": make_position_json(
+            "SPY 260402C700", ".SPY260402C700", underlying="SPY"
+        ).encode(),
+    }
+    await resolver.resolve()
+    subscribed = set(mock_dxlink.subscribe.call_args[0][0])
+    assert subscribed == {".SPY260402P666", ".SPY260402C700", "SPY"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_unsubscribes_underlying_when_all_options_closed(
+    resolver: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_dxlink: AsyncMock,
+) -> None:
+    resolver.subscribed_symbols = {".SPY260402P666", "SPY"}
+    mock_redis.hgetall.return_value = {}
+    await resolver.resolve()
+    unsubscribed = set(mock_dxlink.unsubscribe.call_args[0][0])
+    assert unsubscribed == {".SPY260402P666", "SPY"}
 
 
 @pytest.mark.asyncio
