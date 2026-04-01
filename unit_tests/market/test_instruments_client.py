@@ -174,8 +174,13 @@ def make_crypto_json(**overrides: Any) -> dict[str, Any]:
 
 
 def make_api_response(items: list[dict[str, Any]]) -> dict[str, Any]:
-    """Wrap items in TT API response shape."""
+    """Wrap items in TT API batch response shape."""
     return {"data": {"items": items}}
+
+
+def make_single_response(item: dict[str, Any]) -> dict[str, Any]:
+    """Wrap item in TT API single-item response shape."""
+    return {"data": item}
 
 
 @pytest.fixture
@@ -370,7 +375,7 @@ async def test_get_equity_options(
     client: InstrumentsClient, mock_session: MagicMock
 ) -> None:
     mock_session.session.get.return_value = make_ok_response(
-        make_api_response([make_equity_option_json()])
+        make_single_response(make_equity_option_json())
     )
 
     result = await client.get_equity_options(["SPY   260320C00500000"])
@@ -384,7 +389,7 @@ async def test_get_future_options(
     client: InstrumentsClient, mock_session: MagicMock
 ) -> None:
     mock_session.session.get.return_value = make_ok_response(
-        make_api_response([make_future_option_json()])
+        make_single_response(make_future_option_json())
     )
 
     result = await client.get_future_options(["./MESM6EX3H6 260320P6450"])
@@ -395,7 +400,7 @@ async def test_get_future_options(
 @pytest.mark.asyncio
 async def test_get_equities(client: InstrumentsClient, mock_session: MagicMock) -> None:
     mock_session.session.get.return_value = make_ok_response(
-        make_api_response([make_equity_json()])
+        make_single_response(make_equity_json())
     )
 
     result = await client.get_equities(["SPY"])
@@ -437,39 +442,65 @@ async def test_empty_symbols_returns_empty(
 
 
 @pytest.mark.asyncio
+async def test_individual_fetch_calls_per_symbol(
+    client: InstrumentsClient, mock_session: MagicMock
+) -> None:
+    """Individual fetch makes one GET per symbol."""
+    mock_session.session.get.return_value = make_ok_response(
+        make_single_response(make_equity_option_json())
+    )
+
+    await client.get_equity_options(["SYM1", "SYM2", "SYM3"])
+    assert mock_session.session.get.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_individual_fetch_malformed_skipped(
+    client: InstrumentsClient, mock_session: MagicMock
+) -> None:
+    """Malformed individual response should be skipped, not crash."""
+    mock_session.session.get.return_value = make_ok_response(
+        make_single_response({"bad": "data"})
+    )
+
+    result = await client.get_equity_options(["SPY   260320C00500000"])
+    assert len(result) == 0
+
+
+@pytest.mark.asyncio
+async def test_individual_fetch_url_encodes_symbol(
+    client: InstrumentsClient, mock_session: MagicMock
+) -> None:
+    mock_session.session.get.return_value = make_ok_response(
+        make_single_response(make_equity_option_json())
+    )
+
+    await client.get_equity_options(["SPY   260320C00500000"])
+    call_args = mock_session.session.get.call_args
+    assert "/instruments/equity-options/SPY%20%20%20260320C00500000" in call_args[0][0]
+
+
+@pytest.mark.asyncio
 async def test_batch_size_respected(
     client: InstrumentsClient, mock_session: MagicMock
 ) -> None:
-    """Many symbols should be batched into groups of INSTRUMENT_BATCH_SIZE."""
+    """Batch fetch (futures, crypto) still batches by INSTRUMENT_BATCH_SIZE."""
     symbols = [f"SYM{i}" for i in range(INSTRUMENT_BATCH_SIZE + 10)]
     mock_session.session.get.return_value = make_ok_response(make_api_response([]))
 
-    await client.get_equity_options(symbols)
+    await client.get_futures(symbols)
     assert mock_session.session.get.call_count == 2  # 50 + 10
 
 
 @pytest.mark.asyncio
-async def test_malformed_item_skipped(
+async def test_batch_url_construction(
     client: InstrumentsClient, mock_session: MagicMock
 ) -> None:
-    """Malformed items in API response should be skipped, not crash."""
-    mock_session.session.get.return_value = make_ok_response(
-        make_api_response([make_equity_option_json(), {"bad": "data"}])
-    )
-
-    result = await client.get_equity_options(["SPY   260320C00500000"])
-    assert len(result) == 1  # Only the valid one parsed
-
-
-@pytest.mark.asyncio
-async def test_url_construction(
-    client: InstrumentsClient, mock_session: MagicMock
-) -> None:
+    """Batch fetch (futures, crypto) uses symbol[] params."""
     mock_session.session.get.return_value = make_ok_response(make_api_response([]))
 
-    await client.get_equity_options(["SPY   260320C00500000"])
+    await client.get_futures(["/MESM6"])
     call_args = mock_session.session.get.call_args
-    assert call_args[0][0] == "https://api.tastyworks.com/instruments/equity-options"
-    # Check symbol[] params
+    assert call_args[0][0] == "https://api.tastyworks.com/instruments/futures"
     params = call_args[1]["params"]
-    assert params == [("symbol[]", "SPY   260320C00500000")]
+    assert params == [("symbol[]", "/MESM6")]
