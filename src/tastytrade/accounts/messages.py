@@ -29,8 +29,12 @@ class StreamerConnectMessage(BaseModel):
 
     action: str = Field(default="connect")
     value: list[str] = Field(description="Account numbers to subscribe to")
-    auth_token: str = Field(alias="auth-token", description="Raw session token")
-    request_id: int = Field(alias="request-id", description="Client request ID")
+    auth_token: str = Field(
+        serialization_alias="auth-token", description="Raw session token"
+    )
+    request_id: int = Field(
+        serialization_alias="request-id", description="Client request ID"
+    )
 
 
 class StreamerHeartbeatMessage(BaseModel):
@@ -48,8 +52,12 @@ class StreamerHeartbeatMessage(BaseModel):
     )
 
     action: str = Field(default="heartbeat")
-    auth_token: str = Field(alias="auth-token", description="Raw session token")
-    request_id: int = Field(alias="request-id", description="Client request ID")
+    auth_token: str = Field(
+        serialization_alias="auth-token", description="Raw session token"
+    )
+    request_id: int = Field(
+        serialization_alias="request-id", description="Client request ID"
+    )
 
 
 class StreamerResponse(BaseModel):
