@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan Review: TT-95: LevelAnnotationProcessor — Architecture & Implementation</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.10);
+      --amber: #d29922;
+      --amber-bg: rgba(210, 153, 34, 0.10);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.08);
+      --purple: #bc8cff;
+      --cyan: #01ffff;
+      --magenta: #ff66fe;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      height: 52px;
+    }
+
+    .topbar h1 { font-size: 14px; font-weight: 600; color: var(--text); }
+
+    .topbar .stats { display: flex; gap: 16px; font-size: 12px; }
+
+    .stat { display: flex; align-items: center; gap: 5px; }
+
+    .stat .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    .dot-pending { background: var(--amber); }
+    .dot-approved { background: var(--green); }
+    .dot-revision { background: var(--red); }
+    .dot-question { background: var(--purple); }
+
+    .main { display: flex; height: calc(100vh - 52px); }
+
+    .resize-handle {
+      width: 1px; cursor: col-resize; background: var(--border);
+      position: relative; flex-shrink: 0; z-index: 10; overflow: visible;
+    }
+    .resize-handle:hover, .resize-handle.dragging { background: var(--accent); width: 3px; }
+    body.resizing { cursor: col-resize; user-select: none; }
+
+    .topbar-toggles { display: flex; gap: 6px; }
+
+    .collapse-toggle {
+      width: 36px; height: 32px; background: var(--bg-surface-2);
+      border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted);
+      font-size: 12px; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    @media (hover: hover) {
+      .collapse-toggle:hover { background: var(--bg-hover); color: var(--text); border-color: var(--accent); }
+    }
+
+    .collapse-toggle.panel-collapsed { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+    .nav.collapsed { width: 0 !important; min-width: 0 !important; padding: 0 !important; overflow: hidden; }
+    .right-panel.collapsed { width: 0 !important; min-width: 0 !important; overflow: hidden; }
+    .right-panel.collapsed>* { display: none; }
+    .nav.collapsed>* { display: none; }
+    .nav, .right-panel { transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease; }
+
+    .nav { width: 240px; min-width: 140px; background: var(--bg-surface); overflow-y: auto; padding: 12px 0; }
+
+    .nav-item {
+      padding: 8px 16px; font-size: 12px; color: var(--text-muted); cursor: pointer;
+      border-left: 3px solid transparent; transition: all 0.15s; display: flex; align-items: center; gap: 8px;
+    }
+    .nav-item:hover { background: var(--bg-hover); color: var(--text); }
+    .nav-item.active { background: var(--bg-hover); border-left-color: var(--accent); color: var(--text); }
+    .nav-item .status-icon { width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+    .nav-item .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .doc-panel { flex: 1; overflow-y: auto; padding: 24px 32px; min-width: 0; }
+    .doc-panel::-webkit-scrollbar { width: 8px; }
+    .doc-panel::-webkit-scrollbar-track { background: transparent; }
+    .doc-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .section { margin-bottom: 16px; scroll-margin-top: 20px; padding: 16px 16px 10px; border-radius: 6px; }
+    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .section-header h2 { font-size: 18px; font-weight: 600; flex: 1; }
+    .section-content { font-size: 14px; line-height: 1.7; color: var(--text-muted); }
+    .section-content p { margin-bottom: 12px; }
+    .section-content strong { color: var(--text); font-weight: 600; }
+    .section-content code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; background: var(--bg-surface-2); padding: 2px 6px; border-radius: 4px; color: var(--accent); }
+    .section-content pre { background: var(--bg-surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin: 12px 0; overflow-x: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+    .section-content pre code { background: none; padding: 0; color: inherit; }
+    .section-content ul, .section-content ol { margin: 8px 0 12px 24px; }
+    .section-content li { margin-bottom: 4px; }
+    .section-content table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+    .section-content th, .section-content td { text-align: left; padding: 8px 12px; border: 1px solid var(--border); }
+    .section-content th { background: var(--bg-surface-2); color: var(--text); font-weight: 600; }
+    .section-content hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+    .review-bar { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .review-btn { padding: 6px 14px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; background: var(--bg-surface); color: var(--text-muted); transition: all 0.15s; }
+    .review-btn:hover { border-color: var(--border-light); color: var(--text); }
+    .review-btn.active-approved { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+    .review-btn.active-revision { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+    .review-btn.active-question { background: rgba(188, 140, 255, 0.10); border-color: var(--purple); color: var(--purple); }
+
+    .comment-area { margin-top: 10px; display: none; }
+    .comment-area.visible { display: block; }
+    .comment-area textarea { width: 100%; background: var(--bg-surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; min-height: 60px; outline: none; }
+    .comment-area textarea:focus { border-color: var(--accent); }
+    .comment-area textarea::placeholder { color: var(--text-dim); }
+    .existing-comment { background: var(--bg-surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 13px; color: var(--text-muted); margin-top: 8px; position: relative; }
+    .existing-comment .edit-btn { position: absolute; top: 6px; right: 8px; font-size: 11px; color: var(--accent); cursor: pointer; background: none; border: none; }
+
+    .right-panel { width: 360px; min-width: 200px; background: var(--bg-surface); display: flex; flex-direction: column; }
+    .right-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+    .right-panel-content { flex: 1; overflow-y: auto; padding: 16px; }
+    .right-panel-content::-webkit-scrollbar { width: 6px; }
+    .right-panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .prompt-placeholder { color: var(--text-dim); font-style: italic; font-size: 13px; text-align: center; padding: 40px 20px; }
+
+    .copy-btn { padding: 8px 16px; margin: 12px 16px 16px; background: var(--accent); color: #0d1117; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+    .copy-btn:hover { opacity: 0.9; }
+    .copy-btn.copied { background: var(--green); }
+
+    .filter-tabs { display: flex; gap: 2px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+    .filter-tab { padding: 4px 10px; font-size: 11px; color: var(--text-muted); cursor: pointer; border-radius: 4px; transition: all 0.15s; }
+    .filter-tab:hover { background: var(--bg-hover); }
+    .filter-tab.active { background: var(--bg-hover); color: var(--text); }
+
+    .feedback-item { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .feedback-item:last-child { border-bottom: none; }
+    .feedback-item .fb-section { font-weight: 600; color: var(--text); margin-bottom: 4px; font-size: 12px; }
+    .feedback-item .fb-status { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 600; margin-right: 6px; }
+    .fb-status.approved { background: var(--green-bg); color: var(--green); }
+    .fb-status.revision { background: var(--red-bg); color: var(--red); }
+    .fb-status.question { background: rgba(188, 140, 255, 0.1); color: var(--purple); }
+    .feedback-item .fb-comment { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9" />
+          <rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3" />
+        </svg>
+      </button>
+    </div>
+    <h1>TT-95: LevelAnnotationProcessor — Implementation Plan</h1>
+    <div class="stats" id="stats"></div>
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
+          <rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="nav" id="nav"></div>
+    <div class="resize-handle" id="leftHandle"></div>
+    <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="rightHandle"></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="right-panel-header">
+        <span>Review Feedback</span>
+        <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">All</div>
+        <div class="filter-tab" data-filter="approved">Approved</div>
+        <div class="filter-tab" data-filter="revision">Needs Revision</div>
+        <div class="filter-tab" data-filter="question">Questions</div>
+      </div>
+      <div class="right-panel-content" id="feedbackList"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+    </div>
+  </div>
+
+  <script>
+    const docSections = [
+      {
+        id: "context",
+        title: "Context & Problem",
+        content: `The live charting module (TT-94) needs horizontal price level annotations — prior day close/high/low and 5/15/30-min opening ranges. These annotations already have a fully built persistence model (\`HorizontalLine\` extends \`BaseAnnotation\` extends \`BaseEvent\`), but **no automated process creates them**.
+
+Today they're only created manually in the chart playground notebook for in-memory Plotly rendering. The InfluxDB persistence code in the notebook is commented out.
+
+### What Exists
+
+- **\`HorizontalLine\` model** — \`src/tastytrade/analytics/visualizations/models.py\`. Extends \`BaseEvent\`, compatible with dual pipeline (Redis + InfluxDB)
+- **\`get_daily_candle()\`** — \`src/tastytrade/providers/market.py\`. Queries InfluxDB for prior day OHLC
+- **\`get_opening_range()\`** — \`src/tastytrade/analytics/visualizations/utils.py\`. Queries InfluxDB for OR high/low
+- **\`TelegrafHTTPEventProcessor\`** — writes any \`BaseEvent\` to InfluxDB
+- **\`RedisEventProcessor\`** — publishes any \`BaseEvent\` to Redis pub/sub
+- **Processor pattern** — \`EventHandler.add_processor()\` in subscription orchestrator
+
+### What's Missing
+
+A processor that creates \`HorizontalLine\` events and emits them through the existing pipeline.
+
+### Architectural Rule
+
+> **Live feeds → Redis pub/sub. Historical queries → InfluxDB.** Annotations follow the same dual-write pattern as candles.`
+      },
+      {
+        id: "design",
+        title: "Processor Design",
+        content: `\`LevelAnnotationProcessor\` plugs into the candle event handler alongside existing processors:
+
+\`\`\`
+DXLink → EventHandler → [RedisEventProcessor, TelegrafHTTPProcessor, LevelAnnotationProcessor]
+\`\`\`
+
+### Interface
+
+It implements the same processor protocol as \`RedisEventProcessor\`:
+
+\`\`\`python
+class LevelAnnotationProcessor:
+    async def process_event(self, event: BaseEvent) -> None:
+        if not isinstance(event, CandleEvent):
+            return
+        # Track state, emit annotations at time boundaries
+\`\`\`
+
+### State Machine
+
+The processor tracks per-symbol state for the current trading day:
+
+\`\`\`python
+@dataclass
+class SymbolDayState:
+    date: date
+    prior_day_emitted: bool = False
+    or_5m_high: float | None = None
+    or_5m_low: float | None = None
+    or_5m_locked: bool = False
+    or_15m_high: float | None = None
+    or_15m_low: float | None = None
+    or_15m_locked: bool = False
+    or_30m_high: float | None = None
+    or_30m_low: float | None = None
+    or_30m_locked: bool = False
+\`\`\`
+
+### Key Behaviors
+
+- **First candle of the day:** Query prior day candle, emit 3 \`HorizontalLine\` events (close, high, low)
+- **Candles 9:30-9:35:** Update \`or_5m_high/low\` running max/min
+- **First candle after 9:35:** Lock 5m OR, emit 2 \`HorizontalLine\` events
+- **Same pattern** for 15m (9:45) and 30m (10:00)
+- **After 10:00:** All levels locked, processor becomes a no-op for that symbol/day
+- **Day rollover:** Reset state when date changes`
+      },
+      {
+        id: "annotations",
+        title: "Annotation Specifications",
+        content: `Each annotation is a \`HorizontalLine\` object matching the notebook's proven style:
+
+| Annotation | Color | Style | Opacity | Trigger |
+|------------|-------|-------|---------|---------|
+| Prior Close | #FF66FE (magenta) | dotted | 0.45 | First candle of day |
+| Prior High | #4CAF50 (green) | dotted | 0.45 | First candle of day |
+| Prior Low | #F44336 (red) | dotted | 0.45 | First candle of day |
+| 5m OR High | #4CAF50 | solid | 0.75 | 9:35 AM ET |
+| 5m OR Low | #4CAF50 | solid | 0.75 | 9:35 AM ET |
+| 15m OR High | #4CAF50 | solid | 0.45 | 9:45 AM ET |
+| 15m OR Low | #4CAF50 | solid | 0.45 | 9:45 AM ET |
+| 30m OR High | #4CAF50 | dotted | 0.45 | 10:00 AM ET |
+| 30m OR Low | #4CAF50 | dotted | 0.45 | 10:00 AM ET |
+
+### Example Annotation
+
+\`\`\`python
+HorizontalLine(
+    eventSymbol=symbol,
+    price=prior_day.close,
+    label="Prior Close",
+    color="#FF66FE",
+    line_dash="dot",
+    opacity=0.45,
+    start_time=market_open,
+    end_time=market_close,
+    extend_to_end=True,
+)
+\`\`\`
+
+### Time Windowing
+
+All times in America/New_York:
+- Market open: 9:30 AM
+- 5m OR window: 9:30 - 9:35
+- 15m OR window: 9:30 - 9:45
+- 30m OR window: 9:30 - 10:00
+- Market close: 4:00 PM (used as \`end_time\` for all levels)`
+      },
+      {
+        id: "pipeline",
+        title: "Pipeline Integration",
+        content: `### How Annotations Flow
+
+When \`LevelAnnotationProcessor\` emits a \`HorizontalLine\`, it doesn't write directly to InfluxDB or Redis. It **returns the event** (or emits via a callback/queue) so the \`EventHandler\` can route it through the standard processor chain:
+
+\`\`\`
+LevelAnnotationProcessor creates HorizontalLine
+         ↓
+EventHandler routes to all processors:
+    → RedisEventProcessor: publishes to market:HorizontalLine:{symbol}
+    → TelegrafHTTPEventProcessor: writes to InfluxDB
+\`\`\`
+
+### Design Question: Emission Pattern
+
+The current processor protocol is \`process_event(event) -> None\`. Processors consume events, they don't emit new ones. We need a pattern for a processor that **creates** events. Options:
+
+**A. Direct write** — Processor holds references to Redis and InfluxDB, writes directly. Simplest, but breaks the single-responsibility pattern.
+
+**B. Event queue** — Processor pushes new events to an output queue. The orchestrator drains this queue and routes events back through the handler. Clean, but requires new plumbing.
+
+**C. Callback** — Processor receives a \`publish\` callback at construction time. Calls it with new events. Lightweight, but we avoid callbacks in this codebase.
+
+**D. Emit via the handler** — Processor holds a reference to the \`EventHandler\` and calls \`handler.handle_events([annotation])\`. This routes through all processors naturally. Risk: infinite loop if LevelAnnotationProcessor receives its own output. Mitigated by the \`isinstance(event, CandleEvent)\` guard.
+
+### Recommendation
+
+**Option D** is the most consistent with existing patterns. The guard clause (\`if not isinstance(event, CandleEvent): return\`) prevents recursion. The annotation flows through the exact same pipeline as any other event — Redis pub/sub + InfluxDB.
+
+### Registration
+
+\`\`\`python
+# In subscription orchestrator
+level_processor = LevelAnnotationProcessor(
+    market_data=market_data_provider,
+    handler=candle_handler,  # for re-emitting annotations
+    timezone="America/New_York",
+)
+candle_handler.add_processor(level_processor)
+\`\`\``
+      },
+      {
+        id: "idempotency",
+        title: "Idempotency & Restarts",
+        content: `### Problem
+
+If the subscription service restarts mid-day, the processor loses its in-memory state. It might re-emit annotations that were already written.
+
+### Solution
+
+\`BaseAnnotation\` already includes deterministic microsecond jitter derived from SHA-256 hash of the label. This ensures:
+- Same label + same symbol + same time → same jitter → same InfluxDB point
+- InfluxDB deduplication merges identical points (same measurement, tags, timestamp, fields)
+- Redis pub/sub will re-publish, but consumers should handle duplicate price lines idempotently (update existing line if same label)
+
+### Restart Recovery
+
+On startup, the processor checks what's already been written for today:
+
+1. Query InfluxDB for \`HorizontalLine\` annotations with today's date and matching symbol
+2. If prior day levels exist → set \`prior_day_emitted = True\`
+3. If OR levels exist → set corresponding \`locked = True\`
+4. Resume tracking only the OR windows that haven't locked yet
+
+This prevents duplicate writes AND ensures the processor picks up where it left off if restarted at, say, 9:40 AM (prior day + 5m OR already done, still tracking 15m and 30m).`
+      },
+      {
+        id: "consumers",
+        title: "Downstream Consumers",
+        content: `### TT-94: Live Charting Module
+
+The primary consumer. On chart connect:
+1. Query InfluxDB for \`HorizontalLine\` annotations for the given symbol and today's date
+2. Render as price lines on the candlestick pane
+3. Subscribe to \`market:HorizontalLine:{symbol}\` via Redis pub/sub
+4. When new annotation arrives: add price line to the chart (no full redraw)
+
+### Signal Engine
+
+\`HullMacdEngine\` could use prior day levels as signal filters (e.g., "don't signal long below prior low"). Now that these levels are in InfluxDB, any engine can query them.
+
+### Backtesting
+
+\`ReplayEngine\` can query historical annotations to render accurate levels when replaying past trading days.
+
+### Notebooks
+
+Notebooks can query persisted annotations instead of computing them manually. The commented-out persistence code in the chart notebook becomes the read path instead.`
+      },
+      {
+        id: "implementation",
+        title: "Implementation Steps",
+        content: `### Step 1: LevelAnnotationProcessor class
+
+**File:** \`src/tastytrade/messaging/processors/levels.py\`
+
+- \`SymbolDayState\` dataclass for per-symbol tracking
+- \`process_event()\` method — guards on \`CandleEvent\`, routes to state machine
+- Prior day emission logic using \`get_daily_candle()\`
+- OR window tracking with time boundary checks
+- Annotation emission via handler reference
+
+### Step 2: Startup recovery
+
+- Query InfluxDB for today's existing annotations on processor construction
+- Hydrate state from existing annotations (set \`emitted\`/\`locked\` flags)
+- Skip already-completed work
+
+### Step 3: Register in subscription orchestrator
+
+**File:** \`src/tastytrade/subscription/orchestrator.py\`
+
+- Create \`LevelAnnotationProcessor\` instance
+- \`candle_handler.add_processor(level_processor)\`
+
+### Step 4: Tests
+
+- Unit test: state machine transitions (first candle, OR boundary, day rollover)
+- Unit test: idempotency (restart mid-day, verify no duplicate emissions)
+- Unit test: annotation field values match notebook specifications
+- Integration test: processor emits correct events when fed a sequence of candles spanning 9:30-10:00
+
+### Step 5: Functional verification
+
+- Run subscription service during market hours
+- Verify annotations appear in InfluxDB
+- Verify annotations published to Redis \`market:HorizontalLine:{symbol}\`
+- Open TT-94 chart → confirm price lines render from both historical query and live feed`
+      }
+    ];
+
+    const priorApprovals = {};
+
+    const PLAN_NAME = "TT-95: LevelAnnotationProcessor";
+
+    const STORAGE_KEY = 'review-state:' + PLAN_NAME;
+    const LAYOUT_KEY = 'review-layout:' + PLAN_NAME;
+
+    function saveToStorage() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ sections: state.sections.map(s => ({ id: s.id, status: s.status, comment: s.comment })), activeSection: state.activeSection, activeFilter: state.activeFilter })); } catch (e) { } }
+    function loadFromStorage() { try { const raw = localStorage.getItem(STORAGE_KEY); if (!raw) return; const data = JSON.parse(raw); (data.sections || []).forEach(saved => { const s = state.sections.find(s => s.id === saved.id); if (s) { s.status = saved.status || 'pending'; s.comment = saved.comment || ''; } }); if (data.activeSection) state.activeSection = data.activeSection; if (data.activeFilter) state.activeFilter = data.activeFilter; } catch (e) { } }
+
+    const state = { sections: docSections.map(s => ({ ...s, status: priorApprovals[s.id] || 'pending', comment: '' })), activeSection: docSections[0]?.id || '', activeFilter: 'all' };
+
+    function renderMarkdown(text) { let html = ''; const lines = text.split('\n'); let inCode = false; let codeLines = []; let inList = false; let listTag = 'ul'; let inTable = false; let tableRows = []; for (let i = 0; i < lines.length; i++) { const line = lines[i]; if (line.trim().startsWith('```')) { if (inCode) { html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>'; codeLines = []; inCode = false; } else { if (inList) { html += `</${listTag}>`; inList = false; } if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; } inCode = true; } continue; } if (inCode) { codeLines.push(line); continue; } if (line.trim().startsWith('|')) { if (inList) { html += `</${listTag}>`; inList = false; } if (!inTable) inTable = true; if (!line.trim().match(/^\|[\s-|]+\|$/)) { tableRows.push(line); } continue; } else if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; } if (line.trim() === '') { if (inList) { html += `</${listTag}>`; inList = false; } continue; } if (line.startsWith('### ')) { if (inList) { html += `</${listTag}>`; inList = false; } html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>'; continue; } if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) { if (!inList) { listTag = 'ul'; html += '<ul>'; inList = true; } html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>'; continue; } if (line.trim().match(/^\d+\.\s/)) { if (!inList) { listTag = 'ol'; html += '<ol>'; inList = true; } html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>'; continue; } if (inList) { html += `</${listTag}>`; inList = false; } html += '<p>' + inlineFormat(line) + '</p>'; } if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>'; if (inList) html += `</${listTag}>`; if (inTable) html += renderTable(tableRows); return html; }
+    function renderTable(rows) { if (rows.length === 0) return ''; let html = '<table>'; rows.forEach((row, idx) => { const cells = row.split('|').filter(c => c.trim() !== ''); const tag = idx === 0 ? 'th' : 'td'; html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>'; }); html += '</table>'; return html; }
+    function inlineFormat(text) { return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:none">$1</a>'); }
+    function renderNav() { const nav = document.getElementById('nav'); nav.innerHTML = state.sections.map(s => { const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>' : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>' : s.status === 'question' ? '<span style="color:var(--purple)">?</span>' : '<span style="color:var(--text-dim)">&bull;</span>'; return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}" onclick="navigateTo('${s.id}')"><span class="status-icon">${icon}</span><span class="label">${s.title}</span></div>`; }).join(''); }
+    function renderDoc() { const panel = document.getElementById('docPanel'); panel.innerHTML = state.sections.map(s => { const borderColor = s.status === 'approved' ? 'var(--green)' : s.status === 'revision' ? 'var(--red)' : s.status === 'question' ? 'var(--purple)' : 'transparent'; const bgColor = s.status === 'approved' ? 'var(--green-bg)' : s.status === 'revision' ? 'var(--red-bg)' : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent'; return `<div class="section" id="section-${s.id}" style="border-left: 3px solid ${borderColor}; background: ${bgColor};"><div class="section-header"><h2>${s.title}</h2></div><div class="section-content">${renderMarkdown(s.content)}</div><div class="review-bar"><button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}" onclick="setStatus('${s.id}','approved')">Approve</button><button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}" onclick="setStatus('${s.id}','revision')">Needs Revision</button><button class="review-btn ${s.status === 'question' ? 'active-question' : ''}" onclick="setStatus('${s.id}','question')">Question</button><button class="review-btn" onclick="toggleComment('${s.id}')" style="margin-left:auto">Comment</button></div><div class="comment-area" id="comment-${s.id}">${s.comment ? `<div class="existing-comment">${s.comment.replace(/</g, '&lt;').replace(/\n/g, '<br>')}<button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>` : `<textarea placeholder="Add your feedback..." onblur="saveComment('${s.id}', this.value)" id="textarea-${s.id}"></textarea>`}</div></div>`; }).join(''); }
+    function renderStats() { const counts = { pending: 0, approved: 0, revision: 0, question: 0 }; state.sections.forEach(s => counts[s.status]++); document.getElementById('stats').innerHTML = `<div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div><div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div><div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div><div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>`; }
+    function renderFeedback() { const list = document.getElementById('feedbackList'); const filtered = state.sections.filter(s => { if (state.activeFilter === 'all') return s.status !== 'pending'; return s.status === state.activeFilter; }); const count = state.sections.filter(s => s.status !== 'pending').length; document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : ''; if (filtered.length === 0) { list.innerHTML = `<div class="prompt-placeholder">${state.activeFilter === 'all' ? 'Review sections to see feedback here.' : 'No sections with this status.'}</div>`; return; } list.innerHTML = filtered.map(s => `<div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer"><div class="fb-section"><span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>${s.title}</div>${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}</div>`).join(''); }
+    function navigateTo(id) { state.activeSection = id; saveToStorage(); renderNav(); document.getElementById('section-' + id).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    function setStatus(id, status) { const section = state.sections.find(s => s.id === id); if (section.status === status) section.status = 'pending'; else { section.status = status; if (status === 'revision' || status === 'question') setTimeout(() => { const area = document.getElementById('comment-' + id); if (area) area.classList.add('visible'); }, 50); } renderAll(); saveToStorage(); }
+    function toggleComment(id) { const area = document.getElementById('comment-' + id); area.classList.toggle('visible'); if (area.classList.contains('visible')) { const ta = document.getElementById('textarea-' + id); if (ta) ta.focus(); } }
+    function saveComment(id, value) { const section = state.sections.find(s => s.id === id); section.comment = value.trim(); renderAll(); saveToStorage(); }
+    function editComment(id) { const section = state.sections.find(s => s.id === id); const area = document.getElementById('comment-' + id); area.innerHTML = `<textarea placeholder="Edit..." onblur="saveComment('${id}', this.value)" id="textarea-${id}">${section.comment}</textarea>`; area.classList.add('visible'); document.getElementById('textarea-' + id).focus(); }
+    function generatePrompt() { const approved = state.sections.filter(s => s.status === 'approved'); const revision = state.sections.filter(s => s.status === 'revision'); const questions = state.sections.filter(s => s.status === 'question'); if (approved.length === 0 && revision.length === 0 && questions.length === 0) return ''; let prompt = `Here is my review of the ${PLAN_NAME} plan:\n\n`; if (approved.length > 0) { prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`; approved.forEach(s => { prompt += `- **${s.title}**: Approved`; if (s.comment) prompt += ` — ${s.comment}`; prompt += '\n'; }); prompt += '\n'; } if (revision.length > 0) { prompt += `## Needs Revision (${revision.length})\n`; revision.forEach(s => { prompt += `- **${s.title}**`; if (s.comment) prompt += `: ${s.comment}`; else prompt += ': (no specific feedback)'; prompt += '\n'; }); prompt += '\n'; } if (questions.length > 0) { prompt += `## Questions (${questions.length})\n`; questions.forEach(s => { prompt += `- **${s.title}**`; if (s.comment) prompt += `: ${s.comment}`; else prompt += ': (question not specified)'; prompt += '\n'; }); prompt += '\n'; } const remaining = state.sections.filter(s => s.status === 'pending'); if (remaining.length > 0) { prompt += `## Not Yet Reviewed (${remaining.length})\n`; remaining.forEach(s => prompt += `- ${s.title}\n`); } return prompt; }
+    function copyPrompt() { const prompt = generatePrompt(); if (!prompt) return; const btn = document.getElementById('copyBtn'); function fallbackCopy(text) { const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:0;top:0;opacity:0;'; document.body.appendChild(ta); ta.focus(); ta.setSelectionRange(0, text.length); let ok = false; try { ok = document.execCommand('copy'); } catch (e) { } document.body.removeChild(ta); return ok; } function onSuccess() { btn.textContent = 'Copied!'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000); } function showModal() { const overlay = document.createElement('div'); overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;'; overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); }; const box = document.createElement('div'); box.style.cssText = 'background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:16px;max-width:600px;width:100%;max-height:80vh;display:flex;flex-direction:column;'; box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:13px;font-weight:600;">Select All & Copy</span><button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;">&times;</button></div><textarea readonly style="flex:1;min-height:300px;background:var(--bg-surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:12px;font-family:monospace;font-size:12px;resize:none;">${prompt.replace(/</g, '&lt;')}</textarea>`; overlay.appendChild(box); document.body.appendChild(overlay); box.querySelector('textarea').focus(); box.querySelector('textarea').setSelectionRange(0, prompt.length); } if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(prompt).then(onSuccess).catch(() => { if (fallbackCopy(prompt)) onSuccess(); else showModal(); }); } else { if (fallbackCopy(prompt)) onSuccess(); else showModal(); } }
+    document.getElementById('filterTabs').addEventListener('click', e => { const tab = e.target.closest('.filter-tab'); if (!tab) return; state.activeFilter = tab.dataset.filter; document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); renderFeedback(); saveToStorage(); });
+    function renderAll() { renderNav(); renderDoc(); renderStats(); renderFeedback(); }
+
+    (function () { const nav = document.getElementById('nav'); const rightPanel = document.getElementById('rightPanel'); const leftHandle = document.getElementById('leftHandle'); const rightHandle = document.getElementById('rightHandle'); const leftToggle = document.getElementById('leftToggle'); const rightToggle = document.getElementById('rightToggle'); let dragging = null; let navWidth = 240; let rightWidth = 360; const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })(); if (savedLayout.navWidth) navWidth = savedLayout.navWidth; if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth; if (savedLayout.navCollapsed) nav.classList.add('collapsed'); else nav.style.width = navWidth + 'px'; if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed'); else rightPanel.style.width = rightWidth + 'px'; function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({ navWidth, rightWidth, navCollapsed: nav.classList.contains('collapsed'), rightCollapsed: rightPanel.classList.contains('collapsed') })); } catch (e) { } } function updateToggles() { leftToggle.classList.toggle('panel-collapsed', nav.classList.contains('collapsed')); rightToggle.classList.toggle('panel-collapsed', rightPanel.classList.contains('collapsed')); } function toggleNav(e) { e.preventDefault(); e.stopPropagation(); if (nav.classList.contains('collapsed')) { nav.classList.remove('collapsed'); nav.style.width = navWidth + 'px'; } else { navWidth = nav.offsetWidth; nav.classList.add('collapsed'); } updateToggles(); saveLayout(); } function toggleRight(e) { e.preventDefault(); e.stopPropagation(); if (rightPanel.classList.contains('collapsed')) { rightPanel.classList.remove('collapsed'); rightPanel.style.width = rightWidth + 'px'; } else { rightWidth = rightPanel.offsetWidth; rightPanel.classList.add('collapsed'); } updateToggles(); saveLayout(); } let tfl = false, tfr = false; leftToggle.addEventListener('touchend', e => { tfl = true; toggleNav(e); }, { passive: false }); leftToggle.addEventListener('click', e => { if (tfl) { tfl = false; return; } toggleNav(e); }); rightToggle.addEventListener('touchend', e => { tfr = true; toggleRight(e); }, { passive: false }); rightToggle.addEventListener('click', e => { if (tfr) { tfr = false; return; } toggleRight(e); }); updateToggles(); function onDragStart(e, side) { e.preventDefault(); dragging = side; document.body.classList.add('resizing'); (side === 'left' ? leftHandle : rightHandle).classList.add('dragging'); } leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left')); rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right')); document.addEventListener('mousemove', e => { if (!dragging) return; applyDrag(e.clientX); }); document.addEventListener('mouseup', endDrag); leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false }); rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false }); document.addEventListener('touchmove', e => { if (!dragging) return; e.preventDefault(); applyDrag(e.touches[0].clientX); }, { passive: false }); document.addEventListener('touchend', endDrag); function applyDrag(clientX) { if (dragging === 'left') { const w = Math.max(140, Math.min(400, clientX)); nav.classList.remove('collapsed'); nav.style.width = w + 'px'; navWidth = w; } else { const w = Math.max(200, Math.min(600, window.innerWidth - clientX)); rightPanel.classList.remove('collapsed'); rightPanel.style.width = w + 'px'; rightWidth = w; } updateToggles(); } function endDrag() { if (!dragging) return; document.body.classList.remove('resizing'); leftHandle.classList.remove('dragging'); rightHandle.classList.remove('dragging'); dragging = null; saveLayout(); } })();
+
+    loadFromStorage();
+    document.querySelectorAll('.filter-tab').forEach(t => { t.classList.toggle('active', t.dataset.filter === state.activeFilter); });
+    renderAll();
+  </script>
+</body>
+</html>
