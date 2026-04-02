@@ -12,6 +12,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 from pydantic import ValidationError
@@ -23,6 +24,7 @@ from tastytrade.accounts.models import (
     OrderStatus,
     PlacedOrder,
     Position,
+    TradeChain,
 )
 from tastytrade.accounts.publisher import AccountStreamPublisher, Instrument
 from tastytrade.accounts.streamer import AccountStreamer
@@ -133,6 +135,98 @@ async def consume_complex_orders(
         influx.process_event(order.for_influx())  # type: ignore[arg-type]
 
 
+def safe_float(value: str | None) -> float | None:
+    """Convert an optional string to float, returning None on failure."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def extract_execution_greeks(
+    chain: TradeChain,
+) -> list[SimpleNamespace]:
+    """Extract flat, queryable InfluxDB points from TradeChain market snapshots.
+
+    Produces two types of points per node that has a market-state-snapshot:
+    - ExecutionGreeks: one per option leg with per-leg Greeks + spot prices
+    - ExecutionGreeksAggregate: one per node with total_delta, total_theta
+    """
+    points: list[SimpleNamespace] = []
+
+    for node in chain.lite_nodes:
+        snapshot = node.market_state_snapshot
+        if snapshot is None:
+            continue
+
+        occurred_at = node.occurred_at
+        if occurred_at is None:
+            continue
+        node_time = datetime.fromisoformat(occurred_at)
+
+        # Find underlying spot prices from the snapshot
+        underlying_bid: float | None = None
+        underlying_ask: float | None = None
+        underlying_last: float | None = None
+        for md in snapshot.market_datas:
+            if md.delta is None and md.gamma is None:
+                # Non-option instrument = underlying
+                underlying_bid = safe_float(md.bid)
+                underlying_ask = safe_float(md.ask)
+                underlying_last = safe_float(md.last)
+                break
+
+        # Per-leg points
+        for md in snapshot.market_datas:
+            # Skip the underlying — it has no Greeks
+            if md.delta is None and md.gamma is None:
+                continue
+
+            leg_cls = type("ExecutionGreeks", (SimpleNamespace,), {})
+            points.append(
+                leg_cls(
+                    eventSymbol=md.symbol,
+                    time=node_time,
+                    chain_id=chain.id,
+                    underlying=chain.underlying_symbol,
+                    strategy=chain.description,
+                    node_description=node.description,
+                    delta=safe_float(md.delta),
+                    gamma=safe_float(md.gamma),
+                    theta=safe_float(md.theta),
+                    vega=safe_float(md.vega),
+                    rho=safe_float(md.rho),
+                    bid=safe_float(md.bid),
+                    ask=safe_float(md.ask),
+                    last=safe_float(md.last),
+                    underlying_bid=underlying_bid,
+                    underlying_ask=underlying_ask,
+                    underlying_last=underlying_last,
+                ),
+            )
+
+        # Aggregate point
+        agg_cls = type("ExecutionGreeksAggregate", (SimpleNamespace,), {})
+        points.append(
+            agg_cls(
+                eventSymbol=chain.underlying_symbol,
+                time=node_time,
+                chain_id=chain.id,
+                strategy=chain.description,
+                node_description=node.description,
+                total_delta=safe_float(snapshot.total_delta),
+                total_theta=safe_float(snapshot.total_theta),
+                underlying_bid=underlying_bid,
+                underlying_ask=underlying_ask,
+                underlying_last=underlying_last,
+            ),
+        )
+
+    return points
+
+
 async def consume_order_chains(
     queue: asyncio.Queue,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
@@ -147,6 +241,8 @@ async def consume_order_chains(
             continue
         await publisher.publish_trade_chain(chain)
         influx.process_event(chain.for_influx())  # type: ignore[arg-type]
+        for greeks_point in extract_execution_greeks(chain):
+            influx.process_event(greeks_point)  # type: ignore[arg-type]
 
 
 OPTION_TYPES = {InstrumentType.EQUITY_OPTION, InstrumentType.FUTURE_OPTION}
