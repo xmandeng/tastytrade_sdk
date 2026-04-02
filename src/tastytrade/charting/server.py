@@ -238,7 +238,11 @@ class ChartServer:
                 stop=utc_stop,
                 debug_mode=True,
             )
-            if hist_df is not None and not hist_df.is_empty():
+            if (
+                hist_df is not None
+                and not hist_df.is_empty()
+                and "close" in hist_df.columns
+            ):
                 target_date = d
                 prior_date = find_last_trading_day(d - timedelta(days=1))
                 break
@@ -248,13 +252,11 @@ class ChartServer:
             await ws.send_json(
                 {
                     "type": "error",
-                    "message": f"No data for {candle_symbol} in the last 6 days",
+                    "message": f"No OHLC data for {candle_symbol} in the last 6 days",
                 }
             )
             influx_client.close()
             return
-
-        # Filter zero-price rows
         before_count = hist_df.height
         hist_df = hist_df.filter(
             (pl.col("close").is_not_null()) & (pl.col("close") != 0)
