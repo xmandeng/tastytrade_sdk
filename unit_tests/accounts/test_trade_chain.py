@@ -569,7 +569,7 @@ class TestExtractExecutionGreeks:
 
         per_leg = [p for p in points if p.__class__.__name__ == "ExecutionGreeks"]
         aggregate = [
-            p for p in points if p.__class__.__name__ == "ExecutionGreeksAggregate"
+            p for p in points if p.__class__.__name__ == "ExecutionGreeksPosition"
         ]
         assert len(per_leg) == 6  # 2 close legs + 4 entry legs
         assert len(aggregate) == 2  # 1 per node
@@ -601,7 +601,7 @@ class TestExtractExecutionGreeks:
 
         # First aggregate is from the close node
         agg = next(
-            p for p in points if p.__class__.__name__ == "ExecutionGreeksAggregate"
+            p for p in points if p.__class__.__name__ == "ExecutionGreeksPosition"
         )
         assert agg.eventSymbol == "/RTY"
         assert agg.total_delta == pytest.approx(0.00848133)
@@ -634,7 +634,7 @@ class TestExtractExecutionGreeks:
         entry_agg = [
             p
             for p in points
-            if p.__class__.__name__ == "ExecutionGreeksAggregate"
+            if p.__class__.__name__ == "ExecutionGreeksPosition"
             and p.node_description == "Iron Condor"
         ]
         assert len(entry_agg) == 1
@@ -648,7 +648,7 @@ class TestExtractExecutionGreeks:
         points = extract_execution_greeks(chain)
 
         class_names = {p.__class__.__name__ for p in points}
-        assert class_names == {"ExecutionGreeks", "ExecutionGreeksAggregate"}
+        assert class_names == {"ExecutionGreeks", "ExecutionGreeksPosition"}
 
     def test_timestamps_are_datetime_objects(self) -> None:
         """process_event() requires time to be a datetime, not a string."""
@@ -702,4 +702,4 @@ class TestConsumeOrderChainsWithGreeks:
             for call in mock_influx.process_event.call_args_list
         }
         assert "ExecutionGreeks" in class_names
-        assert "ExecutionGreeksAggregate" in class_names
+        assert "ExecutionGreeksPosition" in class_names
