@@ -602,6 +602,11 @@ const macdAnchorSeries = macdChart.addLineSeries({
 });
 macdChart.priceScale('anchor-hidden').applyOptions({ visible: false });
 
+// Snap epoch down to the nearest hour boundary
+function floorHour(epoch) { return epoch - (epoch % 3600); }
+// Snap epoch up to the nearest hour boundary
+function ceilHour(epoch) { return epoch % 3600 === 0 ? epoch : floorHour(epoch) + 3600; }
+
 function setTradingHoursView() {
   // Clear stale anchors before repopulating — prevents previous mode's
   // timestamps from polluting the time axis after a MKT/EXT toggle.
@@ -609,17 +614,15 @@ function setTradingHoursView() {
   macdAnchorSeries.setData([]);
 
   if (!hasMarketHours) {
-    // EXT mode: fit to actual data with padding for comfortable scrolling
+    // EXT mode: fit to actual data, snapped to hour boundaries
     if (!lastCandles.length) return;
     const first = lastCandles[0].time;
     const last = lastCandles[lastCandles.length - 1].time;
-    const span = last - first;
-    const pad = Math.max(900, span * 0.15); // at least 15 min, or 15% of span
-    const from = first - pad;
-    const to = last + pad;
-    const step = Math.max(60, Math.floor((to - from) / 200));
+    const from = floorHour(first - 1800);  // pad 30 min before, snap to hour
+    const to = ceilHour(last + 1800);      // pad 30 min after, snap to hour
+    // Anchor every 30 minutes for clean tick marks
     const anchors = [];
-    for (let t = from; t <= to; t += step) anchors.push({ time: t, value: 0 });
+    for (let t = from; t <= to; t += 1800) anchors.push({ time: t, value: 0 });
     anchorSeries.setData(anchors);
     macdAnchorSeries.setData(anchors);
     syncing = true;
@@ -629,13 +632,14 @@ function setTradingHoursView() {
     return;
   }
 
-  // MKT mode: anchor to regular trading hours
+  // MKT mode: anchor to regular trading hours, snapped to hour boundaries
   if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
-  const from = viewStartEpoch;
+  const from = floorHour(viewStartEpoch);
   const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
-  const to = Math.min(marketCloseEpoch, Math.max(lastCandle + 7200, levelStartEpoch + 7200));
+  const to = ceilHour(Math.min(marketCloseEpoch, Math.max(lastCandle + 3600, levelStartEpoch + 3600)));
+  // Anchor every 30 minutes for clean tick marks
   const anchors = [];
-  for (let t = from; t <= to; t += 300) anchors.push({ time: t, value: 0 });
+  for (let t = from; t <= to; t += 1800) anchors.push({ time: t, value: 0 });
   anchorSeries.setData(anchors);
   macdAnchorSeries.setData(anchors);
   syncing = true;
