@@ -238,11 +238,7 @@ class ChartServer:
                 stop=utc_stop,
                 debug_mode=True,
             )
-            if (
-                hist_df is not None
-                and not hist_df.is_empty()
-                and "close" in hist_df.columns
-            ):
+            if hist_df is not None and not hist_df.is_empty():
                 target_date = d
                 prior_date = find_last_trading_day(d - timedelta(days=1))
                 break
@@ -252,11 +248,13 @@ class ChartServer:
             await ws.send_json(
                 {
                     "type": "error",
-                    "message": f"No OHLC data for {candle_symbol} in the last 6 days",
+                    "message": f"No data for {candle_symbol} in the last 6 days",
                 }
             )
             influx_client.close()
             return
+
+        # Filter zero-price rows
         before_count = hist_df.height
         hist_df = hist_df.filter(
             (pl.col("close").is_not_null()) & (pl.col("close") != 0)
@@ -322,9 +320,23 @@ class ChartServer:
             self.stream_live_updates(ws, feed, indicators, symbol, interval)
         )
 
-        # Wait for live feed to complete (client disconnect ends the session)
+        # Monitor WebSocket for client disconnect so the feed task is cancelled
+        # promptly instead of blocking on Redis pub/sub until the next message.
+        async def wait_for_disconnect() -> None:
+            try:
+                while True:
+                    await ws.receive_text()
+            except (WebSocketDisconnect, Exception):
+                pass
+
+        disconnect_task = asyncio.create_task(wait_for_disconnect())
+
         try:
-            await live_task
+            done, pending = await asyncio.wait(
+                [live_task, disconnect_task], return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
         except asyncio.CancelledError:
             pass
         finally:
