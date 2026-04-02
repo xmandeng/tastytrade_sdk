@@ -925,12 +925,10 @@ function doConnect(dateOverride) {
   ws.onerror = () => setStatus('disconnected');
 }
 
-// Only reconnect on USER-initiated date changes, not programmatic .value sets
-let dateUserAction = false;
-document.getElementById('dateInput').addEventListener('focus', () => { dateUserAction = true; });
+// Reconnect on user-initiated date changes only.
+// e.isTrusted is true for real user events, false for dispatchEvent() / programmatic.
 document.getElementById('dateInput').addEventListener('change', (e) => {
-  if (dateUserAction && e.target.value) connect(e.target.value);
-  dateUserAction = false;
+  if (e.isTrusted && e.target.value) connect(e.target.value);
 });
 
 // Resize
