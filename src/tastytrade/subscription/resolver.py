@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional, Protocol
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
@@ -27,12 +28,24 @@ class SymbolSubscriber(Protocol):
     async def unsubscribe(self, symbols: list[str]) -> None: ...
 
 
+class CandleSubscriber(Protocol):
+    """Protocol for candle subscription management."""
+
+    async def subscribe_to_candles(
+        self, symbol: str, interval: str, from_time: datetime
+    ) -> None: ...
+
+    async def unsubscribe_to_candles(self, event_symbol: str) -> None: ...
+
+
 class PositionSymbolResolver:
     """Reacts to position changes and manages DXLink subscriptions."""
 
     def __init__(
         self,
         dxlink: SymbolSubscriber,
+        candle_subscriber: CandleSubscriber | None = None,
+        intervals: list[str] | None = None,
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
     ) -> None:
@@ -40,7 +53,10 @@ class PositionSymbolResolver:
         port = redis_port or int(os.environ.get("REDIS_PORT", "6379"))
         self.redis: aioredis.Redis = aioredis.Redis(host=host, port=port)  # type: ignore[type-arg,arg-type]
         self.dxlink = dxlink
+        self.candle_subscriber = candle_subscriber
+        self.intervals = intervals or []
         self.subscribed_symbols: set[str] = set()
+        self.subscribed_candle_symbols: set[str] = set()
 
     async def resolve_underlying_streamer(self, underlying: str) -> str | None:
         """Look up exchange-qualified streamer-symbol for an underlying.
@@ -75,10 +91,12 @@ class PositionSymbolResolver:
                 current_symbols.add(key.decode("utf-8"))
 
         # Resolve underlying symbols to exchange-qualified streamer-symbols
+        resolved_underlyings: set[str] = set()
         for underlying in underlyings:
             streamer = await self.resolve_underlying_streamer(underlying)
             if streamer:
                 current_symbols.add(streamer)
+                resolved_underlyings.add(streamer)
 
         to_subscribe = current_symbols - self.subscribed_symbols
         to_unsubscribe = self.subscribed_symbols - current_symbols
@@ -92,6 +110,28 @@ class PositionSymbolResolver:
             logger.info("Unsubscribed %d closed symbols", len(to_unsubscribe))
 
         self.subscribed_symbols = current_symbols
+
+        # Subscribe/unsubscribe candles for resolved underlyings
+        if self.candle_subscriber and self.intervals:
+            candles_to_add = resolved_underlyings - self.subscribed_candle_symbols
+            candles_to_remove = self.subscribed_candle_symbols - resolved_underlyings
+
+            from_time = datetime.now(timezone.utc)
+            for symbol in sorted(candles_to_add):
+                for interval in self.intervals:
+                    await self.candle_subscriber.subscribe_to_candles(
+                        symbol, interval, from_time
+                    )
+                logger.info("Subscribed candles for underlying %s", symbol)
+
+            for symbol in sorted(candles_to_remove):
+                for interval in self.intervals:
+                    await self.candle_subscriber.unsubscribe_to_candles(
+                        f"{symbol}{{={interval}}}"
+                    )
+                logger.info("Unsubscribed candles for underlying %s", symbol)
+
+            self.subscribed_candle_symbols = resolved_underlyings
 
     async def listen(self) -> None:
         """Subscribe to position events and resolve on each change.

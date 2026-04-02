@@ -53,11 +53,38 @@ def mock_dxlink() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_candle_subscriber() -> AsyncMock:
+    mock = AsyncMock()
+    mock.subscribe_to_candles = AsyncMock()
+    mock.unsubscribe_to_candles = AsyncMock()
+    return mock
+
+
+@pytest.fixture
 def resolver(mock_redis: AsyncMock, mock_dxlink: AsyncMock) -> PositionSymbolResolver:
     r = PositionSymbolResolver.__new__(PositionSymbolResolver)
     r.redis = mock_redis
     r.dxlink = mock_dxlink
+    r.candle_subscriber = None
+    r.intervals = []
     r.subscribed_symbols = set[str]()
+    r.subscribed_candle_symbols = set[str]()
+    return r
+
+
+@pytest.fixture
+def resolver_with_candles(
+    mock_redis: AsyncMock,
+    mock_dxlink: AsyncMock,
+    mock_candle_subscriber: AsyncMock,
+) -> PositionSymbolResolver:
+    r = PositionSymbolResolver.__new__(PositionSymbolResolver)
+    r.redis = mock_redis
+    r.dxlink = mock_dxlink
+    r.candle_subscriber = mock_candle_subscriber
+    r.intervals = ["1d", "1h", "m"]
+    r.subscribed_symbols = set[str]()
+    r.subscribed_candle_symbols = set[str]()
     return r
 
 
@@ -286,3 +313,90 @@ async def test_listen_continues_on_resolve_error(
 
     # Three resolve calls: initial + 2 events (one errored, one succeeded)
     assert call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Candle subscription tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_subscribes_candles_for_underlyings(
+    resolver_with_candles: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_candle_subscriber: AsyncMock,
+) -> None:
+    """Resolved underlyings get candle subscriptions for all intervals."""
+    mock_redis.hgetall.return_value = {
+        b".SPY260402P666": make_position_json(
+            "SPY 260402P666", ".SPY260402P666", underlying="SPY"
+        ).encode(),
+    }
+    mock_redis.hget.return_value = make_instrument_json("SPY", "SPY").encode()
+    await resolver_with_candles.resolve()
+
+    assert mock_candle_subscriber.subscribe_to_candles.call_count == 3
+    subscribed_intervals = [
+        call.args[1]
+        for call in mock_candle_subscriber.subscribe_to_candles.call_args_list
+    ]
+    assert sorted(subscribed_intervals) == ["1d", "1h", "m"]
+    assert resolver_with_candles.subscribed_candle_symbols == {"SPY"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_unsubscribes_candles_when_positions_closed(
+    resolver_with_candles: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_candle_subscriber: AsyncMock,
+) -> None:
+    """Candle subscriptions removed when all positions for an underlying close."""
+    resolver_with_candles.subscribed_symbols = {".SPY260402P666", "SPY"}
+    resolver_with_candles.subscribed_candle_symbols = {"SPY"}
+    mock_redis.hgetall.return_value = {}
+    await resolver_with_candles.resolve()
+
+    assert mock_candle_subscriber.unsubscribe_to_candles.call_count == 3
+    unsub_symbols = [
+        call.args[0]
+        for call in mock_candle_subscriber.unsubscribe_to_candles.call_args_list
+    ]
+    assert sorted(unsub_symbols) == ["SPY{=1d}", "SPY{=1h}", "SPY{=m}"]
+    assert resolver_with_candles.subscribed_candle_symbols == set()
+
+
+@pytest.mark.asyncio
+async def test_resolve_no_candle_change_when_underlyings_unchanged(
+    resolver_with_candles: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+    mock_candle_subscriber: AsyncMock,
+) -> None:
+    """No candle subscribe/unsubscribe if underlyings haven't changed."""
+    resolver_with_candles.subscribed_symbols = {".SPY260402P666", "SPY"}
+    resolver_with_candles.subscribed_candle_symbols = {"SPY"}
+    mock_redis.hgetall.return_value = {
+        b".SPY260402P666": make_position_json(
+            "SPY 260402P666", ".SPY260402P666", underlying="SPY"
+        ).encode(),
+    }
+    mock_redis.hget.return_value = make_instrument_json("SPY", "SPY").encode()
+    await resolver_with_candles.resolve()
+
+    mock_candle_subscriber.subscribe_to_candles.assert_not_called()
+    mock_candle_subscriber.unsubscribe_to_candles.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_no_candles_without_candle_subscriber(
+    resolver: PositionSymbolResolver,
+    mock_redis: AsyncMock,
+) -> None:
+    """Without candle_subscriber, no candle operations happen."""
+    mock_redis.hgetall.return_value = {
+        b".SPY260402P666": make_position_json(
+            "SPY 260402P666", ".SPY260402P666", underlying="SPY"
+        ).encode(),
+    }
+    mock_redis.hget.return_value = make_instrument_json("SPY", "SPY").encode()
+    await resolver.resolve()
+    assert resolver.subscribed_candle_symbols == set()
