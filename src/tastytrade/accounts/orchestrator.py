@@ -207,8 +207,8 @@ def extract_execution_greeks(
                 ),
             )
 
-        # Aggregate point
-        agg_cls = type("ExecutionGreeksAggregate", (SimpleNamespace,), {})
+        # Position-level net Greeks at this order's execution
+        agg_cls = type("ExecutionGreeksPosition", (SimpleNamespace,), {})
         points.append(
             agg_cls(
                 eventSymbol=chain.underlying_symbol,
