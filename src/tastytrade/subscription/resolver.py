@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Protocol
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
@@ -116,7 +116,10 @@ class PositionSymbolResolver:
             candles_to_add = resolved_underlyings - self.subscribed_candle_symbols
             candles_to_remove = self.subscribed_candle_symbols - resolved_underlyings
 
-            from_time = datetime.now(timezone.utc)
+            # Backfill 4 days to cover weekends + holidays
+            from_time = (datetime.now(timezone.utc) - timedelta(days=4)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
             for symbol in sorted(candles_to_add):
                 for interval in self.intervals:
                     await self.candle_subscriber.subscribe_to_candles(
