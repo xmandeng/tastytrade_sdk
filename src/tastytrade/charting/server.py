@@ -365,9 +365,12 @@ class ChartServer:
 
         async for event_type, event in feed.listen(symbol, candle_symbol):
             if event_type == "candle":
-                close = float(event.get("close", 0))
+                raw_close = event.get("close")
                 t = event.get("time")
-                if close == 0 or t is None:
+                if raw_close is None or t is None:
+                    continue
+                close = float(raw_close)
+                if close == 0:
                     continue
 
                 utc_epoch = (
@@ -379,9 +382,9 @@ class ChartServer:
 
                 candle_msg = {
                     "time": et_epoch,
-                    "open": round(float(event.get("open", 0)), 4),
-                    "high": round(float(event.get("high", 0)), 4),
-                    "low": round(float(event.get("low", 0)), 4),
+                    "open": round(float(event.get("open") or 0), 4),
+                    "high": round(float(event.get("high") or 0), 4),
+                    "low": round(float(event.get("low") or 0), 4),
                     "close": round(close, 4),
                 }
 
