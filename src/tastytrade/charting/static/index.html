@@ -398,6 +398,16 @@ function computeBounds(candles) {
     marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;  // 4:30 PM
   }
 
+  // Auto-detect: if no candles fall within the MKT viewing window, switch to EXT.
+  // This prevents the x-axis from anchoring to 8:30 AM–4:30 PM when all candles
+  // are in pre-market (e.g., midnight) or after-hours, making the chart unreadable.
+  if (candles.length && hasMarketHours) {
+    const anyInMarket = candles.some(c => c.time >= viewStartEpoch && c.time <= marketCloseEpoch);
+    if (!anyInMarket) {
+      hasMarketHours = false;
+    }
+  }
+
   if (!hasMarketHours) {
     viewStartEpoch = candles.length ? candles[0].time : 0;
     levelStartEpoch = viewStartEpoch;
@@ -431,6 +441,8 @@ function clearAllLevels() {
 }
 
 function createLevelSeries(entry) {
+  const endTime = marketCloseEpoch || levelEndEpoch;
+  if (!levelStartEpoch || !endTime || levelStartEpoch >= endTime) return null;
   const series = candleChart.addLineSeries({
     color: entry.color, lineWidth: 1,
     lineStyle: lwcStyle(entry.lineStyle),
@@ -441,14 +453,14 @@ function createLevelSeries(entry) {
   });
   series.setData([
     { time: levelStartEpoch, value: entry.price },
-    { time: marketCloseEpoch || levelEndEpoch, value: entry.price },
+    { time: endTime, value: entry.price },
   ]);
   return series;
 }
 
 function createLevel(id, entries, visible) {
   if (levels[id]) return;
-  const seriesList = visible ? entries.map(e => createLevelSeries(e)) : [];
+  const seriesList = visible ? entries.map(e => createLevelSeries(e)).filter(Boolean) : [];
   levels[id] = { seriesList, visible, entries };
 }
 
@@ -459,7 +471,7 @@ function toggleLevel(id) {
     lv.seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
     lv.seriesList = []; lv.visible = false;
   } else {
-    lv.seriesList = lv.entries.map(e => createLevelSeries(e));
+    lv.seriesList = lv.entries.map(e => createLevelSeries(e)).filter(Boolean);
     lv.visible = true;
   }
   renderControls();
@@ -591,20 +603,41 @@ const macdAnchorSeries = macdChart.addLineSeries({
 macdChart.priceScale('anchor-hidden').applyOptions({ visible: false });
 
 function setTradingHoursView() {
+  // Clear stale anchors before repopulating — prevents previous mode's
+  // timestamps from polluting the time axis after a MKT/EXT toggle.
+  anchorSeries.setData([]);
+  macdAnchorSeries.setData([]);
+
   if (!hasMarketHours) {
-    candleChart.timeScale().fitContent();
+    // EXT mode: fit to actual data with padding for comfortable scrolling
+    if (!lastCandles.length) return;
+    const first = lastCandles[0].time;
+    const last = lastCandles[lastCandles.length - 1].time;
+    const span = last - first;
+    const pad = Math.max(900, span * 0.15); // at least 15 min, or 15% of span
+    const from = first - pad;
+    const to = last + pad;
+    const step = Math.max(60, Math.floor((to - from) / 200));
+    const anchors = [];
+    for (let t = from; t <= to; t += step) anchors.push({ time: t, value: 0 });
+    anchorSeries.setData(anchors);
+    macdAnchorSeries.setData(anchors);
+    syncing = true;
+    candleChart.timeScale().setVisibleRange({ from, to });
+    macdChart.timeScale().setVisibleRange({ from, to });
+    syncing = false;
     return;
   }
+
+  // MKT mode: anchor to regular trading hours
   if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
   const from = viewStartEpoch;
   const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
   const to = Math.min(marketCloseEpoch, Math.max(lastCandle + 7200, levelStartEpoch + 7200));
-  // Populate anchor series across full range so LWC extends the time axis
   const anchors = [];
   for (let t = from; t <= to; t += 300) anchors.push({ time: t, value: 0 });
   anchorSeries.setData(anchors);
   macdAnchorSeries.setData(anchors);
-  // Set range on both charts — syncing flag prevents callback fight
   syncing = true;
   candleChart.timeScale().setVisibleRange({ from, to });
   macdChart.timeScale().setVisibleRange({ from, to });
