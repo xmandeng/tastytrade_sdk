@@ -426,7 +426,11 @@ async def _run_subscription_once(
         # Start position symbol resolver — event-driven via Redis pub/sub
         from tastytrade.subscription.resolver import PositionSymbolResolver
 
-        resolver = PositionSymbolResolver(dxlink=dxlink)
+        resolver = PositionSymbolResolver(
+            dxlink=dxlink,
+            candle_subscriber=dxlink,
+            intervals=intervals,
+        )
         resolver_task = asyncio.create_task(resolver.listen(), name="position_resolver")
 
         monitor_task = asyncio.create_task(reconnect_signal.wait())
