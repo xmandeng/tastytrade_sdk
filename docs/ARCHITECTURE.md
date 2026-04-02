@@ -139,7 +139,7 @@ AccountStreamer.handle_event()
 asyncio.Queue (one per AccountEventType)
     │
     ▼
-consume_positions() / consume_balances() / consume_orders()
+consume_positions() / consume_balances() / consume_orders() / consume_order_chains()
     │  straight-through consumers, one per event type
     ▼
 AccountStreamPublisher → Redis HSET + pub/sub
@@ -154,7 +154,13 @@ AccountStreamPublisher → Redis HSET + pub/sub
     │       │
     │       └── publish_entry_credits() (close fills ignored — position removal handles cleanup)
     │
-    └── tastytrade:events:EntryCreditsUpdated (pub/sub, downstream)
+    ├── tastytrade:events:EntryCreditsUpdated (pub/sub, downstream)
+    │
+    └── consume_order_chains() → extract_execution_greeks()
+            │  for each TradeChainNode with a market-state-snapshot:
+            │    per-leg Greeks → TradeChainGreeks (InfluxDB)
+            │    net position Greeks → TradeChainGreeksNet (InfluxDB)
+            │    correlated by shared timestamp (node occurred-at)
 ```
 
 **Key properties:**
@@ -171,7 +177,44 @@ AccountStreamPublisher → Redis HSET + pub/sub
 - `config/configurations.py` — `CHANNEL_SPECS` channel-to-event-type mapping
 - `accounts/messages.py` — `StreamerEventEnvelope`, `StreamerConnectMessage`, `StreamerResponse`
 - `accounts/streamer.py` — `AccountStreamer.socket_listener()`, `handle_event()`, `parse_event()`
-- `accounts/orchestrator.py` — `consume_positions()`, `consume_balances()`, `consume_orders()`
+- `accounts/orchestrator.py` — `consume_positions()`, `consume_balances()`, `consume_orders()`, `consume_order_chains()`, `extract_execution_greeks()`
+
+### InfluxDB Data Model
+
+All measurements are written via `TelegrafHTTPEventProcessor.process_event()`. Each point is tagged by `eventSymbol` and timestamped from the model's designated time field.
+
+#### Market Data Measurements (subscribe service)
+
+| Measurement | Source | Tag (`eventSymbol`) | Time | Key Fields |
+|---|---|---|---|---|
+| `CandleEvent` | DXLink Channel 1 | Candle symbol (e.g. `SPX{=m}`) | Event time | `open`, `high`, `low`, `close`, `volume` |
+| `QuoteEvent` | DXLink Channel 7 | Symbol | Event time | `bidPrice`, `askPrice`, `bidSize`, `askSize` |
+| `TradeEvent` | DXLink Channel 3 | Symbol | Event time | `price`, `size`, `dayVolume` |
+| `TradeSignal` | Signal engine | Symbol | Signal time | `signal_type`, `price`, `engine` |
+
+#### Account Measurements (account-stream service)
+
+| Measurement | Source | Tag (`eventSymbol`) | Time | Key Fields |
+|---|---|---|---|---|
+| `Position` | Account Streamer | Streamer symbol | `updated_at` | `quantity`, `close_price`, `mark`, `average_open_price` |
+| `AccountBalance` | Account Streamer | Account identifier | `updated_at` | `net_liquidating_value`, `cash_balance`, `buying_power` |
+| `PlacedOrder` | Account Streamer | Underlying symbol | `updated_at` | `status`, `order_type`, `price`, `legs` (JSON) |
+| `TradeChain` | Account Streamer | Underlying symbol | `last_occurred_at` | `description`, `computed_data` (JSON), `lite_nodes` (JSON) |
+| `EntryCredit` | Fill processing | Option symbol | `computed_at` | `value`, `per_unit_price`, `fees` |
+
+#### Trade Chain Greeks (account-stream service)
+
+Extracted from `TradeChain.lite_nodes[].market_state_snapshot` — the market state TastyTrade captures at each order lifecycle event. All three measurements share the same timestamp (node's `occurred-at`) for correlation.
+
+| Measurement | Granularity | Tag (`eventSymbol`) | Time | Key Fields |
+|---|---|---|---|---|
+| `TradeChain` | Per chain | Underlying symbol | `last_occurred_at` | Full chain lifecycle (JSON blobs) |
+| `TradeChainGreeks` | Per option leg | Option leg symbol | Node `occurred-at` | `delta`, `gamma`, `theta`, `vega`, `rho`, `bid`, `ask`, `last`, `underlying_bid/ask/last` |
+| `TradeChainGreeksNet` | Per node | Underlying symbol | Node `occurred-at` | `total_delta`, `total_theta`, `underlying_bid/ask/last` |
+
+**Correlation:** `TradeChainGreeks` and `TradeChainGreeksNet` points from the same order event share an identical millisecond-precision timestamp from TastyTrade's `occurred-at`. This timestamp acts as a natural join key — filter by `_time` and `underlying` to see all leg Greeks and the net position Greeks for a specific order event.
+
+**Fields:** `chain_id` (links to `TradeChain.id`), `strategy` (e.g. "Iron Condor"), `node_description` (e.g. "Closing"), `underlying` (underlying symbol).
 
 ### 2. ReconnectSignal — Decoupled Connection Lifecycle
 
