@@ -151,8 +151,8 @@ def extract_execution_greeks(
     """Extract flat, queryable InfluxDB points from TradeChain market snapshots.
 
     Produces two types of points per node that has a market-state-snapshot:
-    - ExecutionGreeks: one per option leg with per-leg Greeks + spot prices
-    - ExecutionGreeksAggregate: one per node with total_delta, total_theta
+    - TradeChainGreeks: one per option leg with per-leg Greeks + spot prices
+    - TradeChainGreeksNet: one per node with total_delta, total_theta
     """
     points: list[SimpleNamespace] = []
 
@@ -184,7 +184,7 @@ def extract_execution_greeks(
             if md.delta is None and md.gamma is None:
                 continue
 
-            leg_cls = type("ExecutionGreeks", (SimpleNamespace,), {})
+            leg_cls = type("TradeChainGreeks", (SimpleNamespace,), {})
             points.append(
                 leg_cls(
                     eventSymbol=md.symbol,
@@ -208,7 +208,7 @@ def extract_execution_greeks(
             )
 
         # Position-level net Greeks at this order's execution
-        agg_cls = type("ExecutionGreeksPosition", (SimpleNamespace,), {})
+        agg_cls = type("TradeChainGreeksNet", (SimpleNamespace,), {})
         points.append(
             agg_cls(
                 eventSymbol=chain.underlying_symbol,

@@ -559,7 +559,7 @@ class TestSafeFloat:
         assert safe_float("bad") is None
 
 
-class TestExtractExecutionGreeks:
+class TestExtractTradeChainGreeks:
     def test_iron_condor_produces_per_leg_and_aggregate(self) -> None:
         chain = TradeChain.model_validate(make_iron_condor_chain_data())
         points = extract_execution_greeks(chain)
@@ -567,10 +567,8 @@ class TestExtractExecutionGreeks:
         # 2 nodes: close (2 option legs + 1 agg) + entry (4 option legs + 1 agg) = 8
         assert len(points) == 8
 
-        per_leg = [p for p in points if p.__class__.__name__ == "ExecutionGreeks"]
-        aggregate = [
-            p for p in points if p.__class__.__name__ == "ExecutionGreeksPosition"
-        ]
+        per_leg = [p for p in points if p.__class__.__name__ == "TradeChainGreeks"]
+        aggregate = [p for p in points if p.__class__.__name__ == "TradeChainGreeksNet"]
         assert len(per_leg) == 6  # 2 close legs + 4 entry legs
         assert len(aggregate) == 2  # 1 per node
 
@@ -579,7 +577,7 @@ class TestExtractExecutionGreeks:
         points = extract_execution_greeks(chain)
 
         # First per-leg point is from the close node
-        leg = next(p for p in points if p.__class__.__name__ == "ExecutionGreeks")
+        leg = next(p for p in points if p.__class__.__name__ == "TradeChainGreeks")
         assert leg.chain_id == "149452436"
         assert leg.underlying == "/RTY"
         assert leg.strategy == "Iron Condor"
@@ -600,9 +598,7 @@ class TestExtractExecutionGreeks:
         points = extract_execution_greeks(chain)
 
         # First aggregate is from the close node
-        agg = next(
-            p for p in points if p.__class__.__name__ == "ExecutionGreeksPosition"
-        )
+        agg = next(p for p in points if p.__class__.__name__ == "TradeChainGreeksNet")
         assert agg.eventSymbol == "/RTY"
         assert agg.total_delta == pytest.approx(0.00848133)
         assert agg.total_theta == pytest.approx(-0.057309664)
@@ -616,7 +612,7 @@ class TestExtractExecutionGreeks:
         entry_legs = [
             p
             for p in points
-            if p.__class__.__name__ == "ExecutionGreeks"
+            if p.__class__.__name__ == "TradeChainGreeks"
             and p.node_description == "Iron Condor"
         ]
         assert len(entry_legs) == 4
@@ -634,7 +630,7 @@ class TestExtractExecutionGreeks:
         entry_agg = [
             p
             for p in points
-            if p.__class__.__name__ == "ExecutionGreeksPosition"
+            if p.__class__.__name__ == "TradeChainGreeksNet"
             and p.node_description == "Iron Condor"
         ]
         assert len(entry_agg) == 1
@@ -648,7 +644,7 @@ class TestExtractExecutionGreeks:
         points = extract_execution_greeks(chain)
 
         class_names = {p.__class__.__name__ for p in points}
-        assert class_names == {"ExecutionGreeks", "ExecutionGreeksPosition"}
+        assert class_names == {"TradeChainGreeks", "TradeChainGreeksNet"}
 
     def test_timestamps_are_datetime_objects(self) -> None:
         """process_event() requires time to be a datetime, not a string."""
@@ -701,5 +697,5 @@ class TestConsumeOrderChainsWithGreeks:
             call.args[0].__class__.__name__
             for call in mock_influx.process_event.call_args_list
         }
-        assert "ExecutionGreeks" in class_names
-        assert "ExecutionGreeksPosition" in class_names
+        assert "TradeChainGreeks" in class_names
+        assert "TradeChainGreeksNet" in class_names
