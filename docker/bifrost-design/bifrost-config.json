@@ -1,0 +1,17 @@
+{
+  "mcp": {
+    "client_configs": [
+      {
+        "name": "playwright",
+        "connection_type": "stdio",
+        "stdio_config": {
+          "command": "npx",
+          "args": ["-y", "@playwright/mcp@latest", "--headless"],
+          "envs": ["HOME", "PATH"]
+        },
+        "is_ping_available": true,
+        "tools_to_execute": ["*"]
+      }
+    ]
+  }
+}
