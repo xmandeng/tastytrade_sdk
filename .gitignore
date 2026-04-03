@@ -70,3 +70,8 @@ test.ipynb
 src/devtools/*
 
 .claude*tar.gz
+
+# Screenshots (drop folder for review, not tracked)
+docs/screenshots/
+
+.claude.bk/
