@@ -96,6 +96,23 @@ services:
     networks:
       - internal_net
 
+  bifrost-dev:
+    build: ./docker/bifrost-dev
+    container_name: bifrost-dev
+    ports:
+      - "3001:8080"
+    environment:
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null",
+             "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal_net
+
 networks:
   internal_net:
     driver: bridge

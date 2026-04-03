@@ -1,0 +1,17 @@
+{
+  "mcp": {
+    "client_configs": [
+      {
+        "name": "github",
+        "connection_type": "stdio",
+        "stdio_config": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "envs": ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+        },
+        "is_ping_available": true,
+        "tools_to_execute": ["*"]
+      }
+    ]
+  }
+}

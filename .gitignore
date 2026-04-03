@@ -75,3 +75,4 @@ src/devtools/*
 docs/screenshots/
 
 .claude.bk/
+node_modules/
