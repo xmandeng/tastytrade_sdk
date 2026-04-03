@@ -113,6 +113,23 @@ services:
     networks:
       - internal_net
 
+  bifrost-design:
+    build: ./docker/bifrost-design
+    container_name: bifrost-design
+    ports:
+      - "3002:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null",
+             "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - internal_net
+
 networks:
   internal_net:
     driver: bridge
