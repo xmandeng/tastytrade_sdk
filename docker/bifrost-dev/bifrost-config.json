@@ -11,6 +11,17 @@
         },
         "is_ping_available": true,
         "tools_to_execute": ["*"]
+      },
+      {
+        "name": "jira",
+        "connection_type": "stdio",
+        "stdio_config": {
+          "command": "mcp-atlassian",
+          "args": [],
+          "envs": ["JIRA_URL", "JIRA_USERNAME", "JIRA_API_TOKEN"]
+        },
+        "is_ping_available": true,
+        "tools_to_execute": ["*"]
       }
     ]
   }
