@@ -148,6 +148,10 @@ class MarketDataProvider:
 
             if isinstance(raw, list):
                 raw = _pd.concat(raw, ignore_index=True) if raw else _pd.DataFrame()
+
+            if raw.empty:
+                return pl.DataFrame()
+
             df = raw.assign(time=lambda d: d["_time"].dt.tz_localize(None))
 
             # Remove InfluxDB metadata columns

@@ -119,6 +119,28 @@ def test_get_daily_candle_skips_null_close(monkeypatch: pytest.MonkeyPatch):
     assert result.close == 6025.0
 
 
+def test_download_empty_result_returns_empty_dataframe(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """When InfluxDB returns no rows, download() returns an empty Polars DataFrame."""
+    monkeypatch.setattr(
+        "tastytrade.providers.market.config",
+        MagicMock(get=MagicMock(return_value="test-bucket")),
+    )
+    mock_influx = _mock_query_api(pd.DataFrame())
+    provider = MarketDataProvider(data_feed=MagicMock(), influx=mock_influx)
+
+    result = provider.download(
+        symbol="SPX{=m}",
+        start=datetime(2026, 2, 11, 14, 0),
+        stop=datetime(2026, 2, 11, 21, 0),
+        debug_mode=True,
+    )
+
+    assert isinstance(result, pl.DataFrame)
+    assert result.is_empty()
+
+
 def test_get_daily_candle_bare_symbol(monkeypatch: pytest.MonkeyPatch):
     """Call with bare symbol (no {=...} suffix), assert download called with SPX{=d}."""
     provider = _make_provider()
