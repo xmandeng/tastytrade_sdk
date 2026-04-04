@@ -39,6 +39,8 @@ Direct calls are **intentionally blocked**. If you get "Skill execution blocked 
 
 You MUST delegate ALL Jira operations to the jira-workflow agent. No exceptions.
 
+**Delegation rule:** Tell the agent WHAT to do, not HOW. Do NOT prescribe API calls, curl commands, or specific tools in the delegation prompt. The agent has its own MCP tool manifest and decides how to execute.
+
 **Operations:** create/update/search/comment on tickets, get details, link to Epics.
 
 **Verbatim Content Rule:** When passing plans or implementation details to jira-workflow, include:
@@ -57,6 +59,8 @@ You MUST delegate ALL Jira operations to the jira-workflow agent. No exceptions.
 ### GitHub Operations — MANDATORY DELEGATION
 
 You MUST delegate ALL GitHub operations to the github-workflow agent. No exceptions.
+
+**Delegation rule:** Tell the agent WHAT to do, not HOW. Do NOT prescribe `gh` commands, curl calls, or specific tools in the delegation prompt. The agent has its own MCP tool manifest and decides how to execute. Example: say "List open pull requests" not "Use gh pr list --state open."
 
 **Autonomous PR creation:** When all ACs pass and code is pushed → create PR immediately. Do NOT ask permission.
 
