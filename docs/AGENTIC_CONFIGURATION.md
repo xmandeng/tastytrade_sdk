@@ -10,18 +10,67 @@ For the design rationale and architecture decisions, see [docs/requirements/TT-1
 
 Claude Code subagents cannot access MCP tools registered in the parent session. This is a platform-level bug — subagents spawned via the `Task` tool have no MCP runtime. Without a workaround, every external integration (Jira, GitHub, Playwright) requires hand-rolled shell scripts, capping adoption at a few integrations.
 
+```mermaid
+flowchart TD
+    A[Primary Agent] -->|has access| B[MCP Tools]
+    A -->|spawns| C[Subagent via Task]
+    C -.- |no access| B
+
+    style B fill:#2d6a4f,color:#fff
+    style C fill:#9b2226,color:#fff
+    style A fill:#1d3557,color:#fff
+```
+
 ## Solution
 
 MCP servers run as containerized services behind [Bifrost](https://github.com/MaximHQ/bifrost), an open-source MCP gateway. Subagents call the gateway over HTTP via curl. From the subagent's perspective, the gateway is just a REST API — no MCP client knowledge required.
 
-```
-Primary Agent → spawns → Subagent (Bash only)
-                              │
-                              ├─ curl POST http://localhost:3001/mcp  (GitHub, Jira)
-                              │       └─ Bifrost → STDIO → MCP server → External API
-                              │
-                              └─ curl POST http://localhost:3002/mcp  (Playwright)
-                                      └─ Bifrost → STDIO → MCP server → Browser
+```mermaid
+flowchart LR
+    subgraph Claude Code
+        PA[Primary Agent]
+        SA1[jira-workflow]
+        SA2[github-workflow]
+        SA3[ui-tester]
+        PA -->|spawns| SA1
+        PA -->|spawns| SA2
+        PA -->|spawns| SA3
+    end
+
+    subgraph Docker Compose
+        subgraph "Dev Cluster :3001"
+            BF1[Bifrost]
+            GH[GitHub MCP]
+            JR[Jira MCP]
+            BF1 -->|stdio| GH
+            BF1 -->|stdio| JR
+        end
+        subgraph "Design Cluster :3002"
+            BF2[Bifrost]
+            PW[Playwright MCP]
+            BF2 -->|stdio| PW
+        end
+    end
+
+    subgraph External
+        GHA[GitHub API]
+        JIRA[Atlassian API]
+        BWSR[Browser]
+    end
+
+    SA1 -->|curl| BF1
+    SA2 -->|curl| BF1
+    SA3 -->|curl| BF2
+    GH --> GHA
+    JR --> JIRA
+    PW --> BWSR
+
+    style PA fill:#1d3557,color:#fff
+    style SA1 fill:#457b9d,color:#fff
+    style SA2 fill:#457b9d,color:#fff
+    style SA3 fill:#457b9d,color:#fff
+    style BF1 fill:#2d6a4f,color:#fff
+    style BF2 fill:#2d6a4f,color:#fff
 ```
 
 ---
@@ -36,6 +85,29 @@ MCP servers are grouped into logical clusters, one Bifrost instance per cluster.
 |---------|------|-------------|--------------|
 | Dev | 3001 | GitHub (`@modelcontextprotocol/server-github`), Jira (`mcp-atlassian`) | `docker/bifrost-dev/` |
 | Design | 3002 | Playwright (`@playwright/mcp`) | `docker/bifrost-design/` |
+
+```mermaid
+flowchart TD
+    subgraph "bifrost-dev container"
+        BG1[Bifrost :3001]
+        GH[github MCP\nnpx server-github]
+        JR[jira MCP\nmcp-atlassian]
+        BG1 -->|stdio| GH
+        BG1 -->|stdio| JR
+    end
+
+    subgraph "bifrost-design container"
+        BG2[Bifrost :3002]
+        PW[playwright MCP\n@playwright/mcp]
+        BG2 -->|stdio| PW
+    end
+
+    ENV[.env] -->|GITHUB_PERSONAL_ACCESS_TOKEN| GH
+    ENV -->|JIRA_URL, JIRA_USERNAME, JIRA_API_TOKEN| JR
+
+    style BG1 fill:#2d6a4f,color:#fff
+    style BG2 fill:#2d6a4f,color:#fff
+```
 
 ### Docker Compose
 
@@ -91,6 +163,17 @@ Bifrost automatically namespaces tools with the client name: `github-create_issu
 
 Credentials flow from `.env` → docker-compose environment → Bifrost container → STDIO MCP server process. Each MCP server only receives the credentials it needs. Subagent definitions contain no secrets.
 
+```mermaid
+flowchart LR
+    ENV[.env] -->|mapped in\ndocker-compose| DC[Container Env]
+    DC -->|envs array in\nbifrost-config| MCP[MCP Server Process]
+    SA[Subagent] -->|knows only\ngateway URL| BF[Bifrost]
+
+    style SA fill:#457b9d,color:#fff
+    style BF fill:#2d6a4f,color:#fff
+    style ENV fill:#e9c46a,color:#000
+```
+
 ---
 
 ## Agent Definitions
@@ -104,6 +187,18 @@ Each agent is composed of two parts:
 2. **Generated tool manifest** — tool names, descriptions, JSON schemas, invocation pattern, response contract. Produced by the generator script from a live gateway.
 
 The generator combines header + manifest into the final `.claude/agents/<name>.md` file.
+
+```mermaid
+flowchart LR
+    H[agent-headers/\njira-workflow.md\n— domain logic —] --> GEN[generate-bifrost-agents.sh]
+    BF[Bifrost Gateway\ntools/list] --> GEN
+    GEN --> OUT[agents/\njira-workflow.md\n— header + manifest —]
+
+    style H fill:#e9c46a,color:#000
+    style BF fill:#2d6a4f,color:#fff
+    style GEN fill:#1d3557,color:#fff
+    style OUT fill:#457b9d,color:#fff
+```
 
 ### Current Agents
 
@@ -122,6 +217,30 @@ RESULT=$(curl -sf -X POST "http://localhost:3001/mcp" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"TOOL_NAME","arguments":{...}}}')
 echo "$RESULT" | jq -r '.result.content[0].text // .error.message'
+```
+
+### Runtime Flow
+
+```mermaid
+sequenceDiagram
+    participant PA as Primary Agent
+    participant SA as Subagent (LLM)
+    participant BF as Bifrost
+    participant MCP as MCP Server
+    participant API as External API
+
+    PA->>SA: "List open pull requests"
+    Note over SA: Reads baked tool manifest
+    Note over SA: Selects github-list_pull_requests
+    SA->>BF: curl POST /mcp {tools/call}
+    BF->>MCP: Route by prefix → github
+    MCP->>API: GitHub REST API
+    API->>MCP: Response
+    MCP->>BF: MCP result
+    BF->>SA: JSON-RPC response
+    Note over SA: Parses .result.content[0].text
+    Note over SA: Formats output
+    SA->>PA: Formatted result + JSON status block
 ```
 
 ### Response Contract
@@ -160,6 +279,25 @@ bash scripts/generate-bifrost-agents.sh --list-tools
 
 ### How It Works
 
+```mermaid
+flowchart TD
+    A[generate-bifrost-agents.sh] -->|health check| G1[Bifrost Dev :3001]
+    A -->|health check| G2[Bifrost Design :3002]
+    G1 -->|tools/list| A
+    G2 -->|tools/list| A
+    A -->|filter by prefix\n+ prepend header| J[agents/jira-workflow.md\n49 jira tools]
+    A -->|filter by prefix\n+ prepend header| G[agents/github-workflow.md\n26 github tools]
+    A -->|filter by prefix\n+ prepend header| P[agents/ui-tester.md\n21 playwright tools]
+    J --> R[git commit]
+    G --> R
+    P --> R
+
+    style A fill:#1d3557,color:#fff
+    style G1 fill:#2d6a4f,color:#fff
+    style G2 fill:#2d6a4f,color:#fff
+```
+
+Steps:
 1. Reads the agent registry (name, gateway URL, tool prefix, transport mode)
 2. Health-checks each gateway
 3. Calls `tools/list` via JSON-RPC to get the full tool manifest
@@ -194,6 +332,14 @@ docker compose ps bifrost-dev bifrost-design
 Both should show `(healthy)` status.
 
 ### Adding a New MCP Server to an Existing Cluster
+
+```mermaid
+flowchart LR
+    A[Add to Dockerfile\n+ bifrost-config.json] --> B[Add creds\nto .env]
+    B --> C[docker compose\nbuild + up]
+    C --> D[Run generator]
+    D --> E[Review diff\n+ commit]
+```
 
 1. Add the runtime dependency to the cluster's `docker/bifrost-<cluster>/Dockerfile`
 2. Add the STDIO config entry to `docker/bifrost-<cluster>/bifrost-config.json`
