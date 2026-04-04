@@ -1,73 +1,36 @@
 #!/usr/bin/env bash
 # generate-bifrost-agents.sh — Query Bifrost gateways and generate subagent definitions
-# Usage: ./scripts/generate-bifrost-agents.sh
+#
+# Usage:
+#   ./scripts/generate-bifrost-agents.sh                    # Generate all agents
+#   ./scripts/generate-bifrost-agents.sh --list-tools       # List available tools by prefix
 set -euo pipefail
 
 AGENTS_DIR=".claude/agents"
+HEADERS_DIR=".claude/agent-headers"
 mkdir -p "$AGENTS_DIR"
 
-# Gateway registry: name|url_env|transport
-GATEWAYS=(
-  "dev|BIFROST_DEV_URL|stateless"
+# Agent registry: agent_name|gateway_url_env|prefix_filter|transport
+# prefix_filter: tool name prefix to include (e.g., "github", "jira", "playwright")
+AGENTS=(
+  "jira-workflow|BIFROST_DEV_URL|jira|stateless"
+  "github-workflow|BIFROST_DEV_URL|github|stateless"
+  "ui-tester|BIFROST_DESIGN_URL|playwright|stateless"
 )
 
-generate_agent() {
-  local name="$1" url="$2" transport="$3"
+generate_tool_section() {
+  local response="$1" prefix="$2"
 
-  echo "Querying $name gateway at $url ..."
+  echo "$response" | jq -r --arg prefix "$prefix" \
+    '.result.tools[] | select(.name | startswith($prefix)) | @base64' | while read -r tool_b64; do
+    local tool_name tool_desc tool_schema required_fields optional_fields
+    tool_name=$(echo "$tool_b64" | base64 -d | jq -r '.name')
+    tool_desc=$(echo "$tool_b64" | base64 -d | jq -r '.description')
+    tool_schema=$(echo "$tool_b64" | base64 -d | jq '.inputSchema')
+    required_fields=$(echo "$tool_schema" | jq -r '(.required // []) | join(", ")')
+    optional_fields=$(echo "$tool_schema" | jq -r 'if .properties then [.properties | to_entries[] | select(.key as $k | ('"$(echo "$tool_schema" | jq -c '.required // []')"' | index($k)) == null) | .key] | join(", ") else "" end')
 
-  # Health check
-  if ! curl -sf "$url/health" >/dev/null 2>&1; then
-    echo "ERROR: $name gateway not healthy at $url/health" >&2
-    return 1
-  fi
-
-  # Fetch tool manifest
-  local response
-  response=$(curl -sf -X POST "$url/mcp" \
-    -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
-
-  local tool_count
-  tool_count=$(echo "$response" | jq '.result.tools | length')
-  echo "  Found $tool_count tools"
-
-  # Extract MCP server prefixes for description
-  local prefixes
-  prefixes=$(echo "$response" | jq -r '.result.tools[].name' | cut -d- -f1 | sort -u | paste -sd', ')
-
-  # Build the agent file
-  local outfile="$AGENTS_DIR/${name}-agent.md"
-  {
-    # Frontmatter
-    cat <<FRONTMATTER
----
-name: ${name}-agent
-description: Handles ${prefixes} operations via Bifrost gateway
-tools: Bash
----
-
-You are a tool-calling agent. You execute operations by calling MCP tools through the Bifrost gateway via curl.
-
-## Gateway
-
-- URL: \$BIFROST_${name^^}_URL (from environment, currently: $url)
-- Transport: $transport
-
-## Available Tools
-
-FRONTMATTER
-
-    # Generate tool entries
-    echo "$response" | jq -r '.result.tools[] | @base64' | while read -r tool_b64; do
-      local tool_name tool_desc tool_schema required_fields optional_fields
-      tool_name=$(echo "$tool_b64" | base64 -d | jq -r '.name')
-      tool_desc=$(echo "$tool_b64" | base64 -d | jq -r '.description')
-      tool_schema=$(echo "$tool_b64" | base64 -d | jq '.inputSchema')
-      required_fields=$(echo "$tool_schema" | jq -r '(.required // []) | join(", ")')
-      optional_fields=$(echo "$tool_schema" | jq -r '[.properties | to_entries[] | select(.key as $k | ('"$(echo "$tool_schema" | jq -c '.required // []')"' | index($k)) == null) | .key] | join(", ")')
-
-      cat <<TOOL
+    cat <<TOOL
 ### \`$tool_name\`
 
 $tool_desc
@@ -83,58 +46,82 @@ $(echo "$tool_schema" | jq '.')
 </details>
 
 TOOL
-    done
+  done
+}
+
+generate_agent() {
+  local agent_name="$1" url="$2" prefix="$3" transport="$4"
+  local url_env_name="BIFROST_${url##*_}"
+
+  echo "Generating $agent_name (prefix: $prefix, gateway: $url) ..."
+
+  # Health check
+  if ! curl -sf "$url/health" >/dev/null 2>&1; then
+    echo "ERROR: Gateway not healthy at $url/health" >&2
+    return 1
+  fi
+
+  # Fetch tool manifest
+  local response
+  response=$(curl -sf -X POST "$url/mcp" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+
+  local tool_count
+  tool_count=$(echo "$response" | jq --arg prefix "$prefix" \
+    '[.result.tools[] | select(.name | startswith($prefix))] | length')
+  echo "  Found $tool_count $prefix tools"
+
+  local outfile="$AGENTS_DIR/${agent_name}.md"
+  local header_file="$HEADERS_DIR/${agent_name}.md"
+
+  {
+    # If a hand-maintained header exists, use it; otherwise generate a minimal one
+    if [ -f "$header_file" ]; then
+      cat "$header_file"
+    else
+      cat <<FRONTMATTER
+---
+name: ${agent_name}
+description: Handles ${prefix} operations via Bifrost gateway
+tools: Bash
+---
+
+You are a tool-calling agent. You execute operations by calling MCP tools through the Bifrost gateway via curl.
+FRONTMATTER
+    fi
+
+    # Gateway info
+    cat <<GATEWAY
+
+## Gateway
+
+- URL: $url
+- Transport: $transport
+
+## Available Tools (${tool_count} ${prefix} tools)
+
+GATEWAY
+
+    # Generate tool entries filtered by prefix
+    generate_tool_section "$response" "$prefix"
 
     # Invocation pattern
-    if [ "$transport" = "stateless" ]; then
-      cat <<'INVOKE'
+    cat <<INVOKE
 ## Invocation Pattern
 
 To call a tool, use this curl pattern via Bash:
 
-```bash
-RESULT=$(curl -sf -X POST "$BIFROST_DEV_URL/mcp" \
-  -H "Content-Type: application/json" \
+\`\`\`bash
+RESULT=\$(curl -sf -X POST "$url/mcp" \\
+  -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"TOOL_NAME","arguments":{...}}}')
-echo "$RESULT" | jq -r '.result.content[0].text // .error.message'
-```
+echo "\$RESULT" | jq -r '.result.content[0].text // .error.message'
+\`\`\`
 
-Replace `TOOL_NAME` with the tool name from the manifest above. Replace `{...}` with a JSON object matching the tool's schema.
-
-INVOKE
-    elif [ "$transport" = "stateful" ]; then
-      cat <<'INVOKE'
-## Invocation Pattern (Stateful)
-
-### Session initialization (run once at start)
-
-```bash
-INIT=$(curl -sf -X POST "$BIFROST_DESIGN_URL/mcp" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"subagent"}}}')
-SESSION_ID=$(echo "$INIT" | jq -r '.result.sessionId')
-echo "Session: $SESSION_ID"
-
-curl -sf -X POST "$BIFROST_DESIGN_URL/mcp" \
-  -H "Content-Type: application/json" \
-  -H "Mcp-Session-Id: $SESSION_ID" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"notifications/initialized"}'
-```
-
-### Tool calls (use session ID from initialization)
-
-```bash
-RESULT=$(curl -sf -X POST "$BIFROST_DESIGN_URL/mcp" \
-  -H "Content-Type: application/json" \
-  -H "Mcp-Session-Id: $SESSION_ID" \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"TOOL_NAME","arguments":{...}}}')
-echo "$RESULT" | jq -r '.result.content[0].text // .error.message'
-```
-
-Read the session ID from the initialization output and pass it as a literal string in the `Mcp-Session-Id` header on every subsequent call.
+Replace \`TOOL_NAME\` with the tool name from the manifest above. Replace \`{...}\` with a JSON object matching the tool's schema.
 
 INVOKE
-    fi
 
     # Response handling + contract
     cat <<'RESPONSE'
@@ -169,15 +156,31 @@ RESPONSE
   echo "  Generated $outfile ($tool_count tools)"
 }
 
-# Main
-for entry in "${GATEWAYS[@]}"; do
-  IFS='|' read -r name url_env transport <<< "$entry"
+# Handle --list-tools flag
+if [ "${1:-}" = "--list-tools" ]; then
+  for entry in "${AGENTS[@]}"; do
+    IFS='|' read -r agent_name url_env prefix transport <<< "$entry"
+    url="${!url_env:-}"
+    [ -z "$url" ] && continue
+    echo "=== $agent_name ($prefix) ==="
+    curl -sf -X POST "$url/mcp" \
+      -H "Content-Type: application/json" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+      | jq -r --arg prefix "$prefix" '.result.tools[] | select(.name | startswith($prefix)) | .name'
+    echo
+  done
+  exit 0
+fi
+
+# Main: generate all agents
+for entry in "${AGENTS[@]}"; do
+  IFS='|' read -r agent_name url_env prefix transport <<< "$entry"
   url="${!url_env:-}"
   if [ -z "$url" ]; then
-    echo "SKIP: $name — \$$url_env not set" >&2
+    echo "SKIP: $agent_name — \$$url_env not set" >&2
     continue
   fi
-  generate_agent "$name" "$url" "$transport"
+  generate_agent "$agent_name" "$url" "$prefix" "$transport"
 done
 
 echo "Done."
