@@ -2,7 +2,7 @@
 
 Start here. This document describes the current-state architecture of the tastytrade SDK — what the system does, how the pieces connect, and the design patterns that hold it together.
 
-For service-level operational details, see [STREAMING_SERVICES.md](STREAMING_SERVICES.md). For signal detection specifics, see [SIGNAL_ARCHITECTURE.md](SIGNAL_ARCHITECTURE.md).
+For service-level operational details, see [STREAMING_SERVICES.md](STREAMING_SERVICES.md). For signal detection specifics, see [SIGNAL_ARCHITECTURE.md](SIGNAL_ARCHITECTURE.md). For agentic tool access via MCP, see [AGENTIC_CONFIGURATION.md](AGENTIC_CONFIGURATION.md).
 
 ---
 
