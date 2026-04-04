@@ -168,6 +168,7 @@ Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket i
 ## Reference Documents
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture overview (start here)
+- [docs/AGENTIC_CONFIGURATION.md](docs/AGENTIC_CONFIGURATION.md) - MCP gateway and subagent configuration
 - [CHANGELOG.md](CHANGELOG.md) - Sprint-by-sprint change history
 - [docs/STREAMING_SERVICES.md](docs/STREAMING_SERVICES.md) - Streaming services operations guide
 - [docs/SIGNAL_ARCHITECTURE.md](docs/SIGNAL_ARCHITECTURE.md) - Signal detection pipeline
