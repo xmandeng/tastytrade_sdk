@@ -238,7 +238,12 @@ class ChartServer:
                 stop=utc_stop,
                 debug_mode=True,
             )
-            if hist_df is not None and not hist_df.is_empty():
+            required_cols = {"open", "high", "low", "close"}
+            if (
+                hist_df is not None
+                and not hist_df.is_empty()
+                and required_cols.issubset(hist_df.columns)
+            ):
                 target_date = d
                 prior_date = find_last_trading_day(d - timedelta(days=1))
                 break
