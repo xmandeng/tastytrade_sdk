@@ -122,3 +122,11 @@ fixable = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/devtools/*.ipynb" = ["B018"]  # Bare expressions are idiomatic in notebooks
+
+# Override reactivex to use git master for Python 3.13 compatibility.
+# The released 4.0.4 has broken imports on 3.13 (missing ioloopscheduler).
+# Remove this override once reactivex publishes a 3.13-compatible release.
+[tool.uv]
+override-dependencies = [
+    "reactivex @ git+https://github.com/ReactiveX/RxPY.git",
+]
