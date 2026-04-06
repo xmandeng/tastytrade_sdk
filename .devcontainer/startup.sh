@@ -314,10 +314,14 @@ echo ""
 
 # Step 1: Ensure Python virtual environment exists
 # This must run early so VS Code extensions (Ruff, Pylance) find the interpreter.
-# On first creation, postCreateCommand also runs uv sync, but on restarts
-# only postStartCommand runs (which calls this script), so we need it here.
+# The host's .venv is bind-mounted but has broken symlinks (different Python).
+# Delete it if the interpreter is missing so uv sync rebuilds cleanly.
 echo "Ensuring Python virtual environment..."
 cd /workspace
+if [ -d ".venv" ] && ! .venv/bin/python3 --version &>/dev/null; then
+    echo "  Removing stale .venv (broken Python symlink from host)"
+    rm -rf .venv
+fi
 if [ -f "pyproject.toml" ]; then
     uv sync 2>&1 | tail -1 || echo "WARNING: uv sync failed"
 else
