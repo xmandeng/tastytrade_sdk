@@ -1229,12 +1229,16 @@ Does this revised architecture accurately reflect the intended design?`
       "replay-ordering": "approved",
       "replay-partial": "approved",
       "concern-strategy-detection": "approved",
+      "q-retention": "approved",
       "q-source-of-truth": "approved",
       "q-failure-mode": "approved",
       "q-stream-key-schema": "approved",
       "q-deduplication": "approved",
       "recommended-architecture": "approved",
     };
+
+    // Clear stale comments from prior review rounds — all feedback is now in section content
+    try { localStorage.removeItem('review-state:' + PLAN_NAME); } catch(e) {}
 
     // ============================================================
     // PLAN NAME: Update this string for the copy-to-prompt output.
