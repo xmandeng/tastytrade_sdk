@@ -42,9 +42,11 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
             )
 
         self.client = InfluxDBClient(url=url, token=token, org=org)
-        # Use asynchronous (non-batching) writes to avoid reactivex operators
-        # that are broken on Python 3.13. Each write dispatches to a thread
-        # pool immediately — no event loop blocking, no reactivex dependency.
+        # TT-108: Use asynchronous (non-batching) writes to avoid reactivex
+        # operators broken on Python 3.13 (e.g. _windowwithtimeorcount).
+        # The git override in pyproject.toml fixes import-time errors, but
+        # batching still fails at runtime. Async writes dispatch to a thread
+        # pool — no event loop blocking, no reactivex operators needed.
         self.write_api = self.client.write_api(
             write_options=WriteOptions(write_type=WriteType.asynchronous)
         )

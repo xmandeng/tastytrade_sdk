@@ -123,9 +123,13 @@ fixable = ["ALL"]
 [tool.ruff.lint.per-file-ignores]
 "src/devtools/*.ipynb" = ["B018"]  # Bare expressions are idiomatic in notebooks
 
-# Override reactivex to use git master for Python 3.13 compatibility.
-# The released 4.0.4 has broken imports on 3.13 (missing ioloopscheduler).
+# TT-108: Override reactivex to use git master for Python 3.13 compatibility.
+# The released 4.0.4 has broken imports on 3.13 (missing ioloopscheduler,
+# _windowwithtimeorcount). This override fixes the import-time errors.
+# The batching write API still uses broken operators at runtime, so
+# influxdb.py also switches to WriteType.asynchronous (see that file).
 # Remove this override once reactivex publishes a 3.13-compatible release.
+# Tracking: https://github.com/ReactiveX/RxPY/issues — no fix released as of 2026-04.
 [tool.uv]
 override-dependencies = [
     "reactivex @ git+https://github.com/ReactiveX/RxPY.git",
