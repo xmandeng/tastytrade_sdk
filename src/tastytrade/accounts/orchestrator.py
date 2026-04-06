@@ -336,6 +336,10 @@ async def monitor_fills_for_entry_credits(
     Close fills are ignored for entry credits but ARE recorded in the stream —
     the full fill sequence is needed for position lifecycle tracking.
     """
+    # Track fill_ids already written to streams to deduplicate
+    # cumulative FILLED updates from the broker (TT-108 / TT-111).
+    seen_fill_ids: set[str] = set()
+
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(publisher.ORDER_CHANNEL)
     try:
@@ -352,14 +356,19 @@ async def monitor_fills_for_entry_credits(
             if order.status != OrderStatus.FILLED:
                 continue
 
-            # TT-108: XADD all fills to Redis Stream for position lifecycle
+            # TT-108: XADD new fills to Redis Stream for position lifecycle.
+            # The broker sends cumulative FILLED updates — each delivery
+            # contains all prior fills plus any new ones. Only XADD fills
+            # we haven't seen yet.
             underlying = order.underlying_symbol
             if underlying:
-                fill_count = 0
                 for leg in order.legs:
                     if leg.action not in FILL_ACTIONS or not leg.fills:
                         continue
                     for fill in leg.fills:
+                        if fill.fill_id in seen_fill_ids:
+                            continue
+                        seen_fill_ids.add(fill.fill_id)
                         fill_entry: dict[str, str] = {
                             "fill_id": fill.fill_id,
                             "order_id": str(order.id),
@@ -374,7 +383,6 @@ async def monitor_fills_for_entry_credits(
                         await publisher.xadd_fill(
                             account_number, underlying, fill_entry
                         )
-                        fill_count += 1
 
             # Compute entry credits for option legs with open fills.
             # Close fills are ignored — position removal handles cleanup.
