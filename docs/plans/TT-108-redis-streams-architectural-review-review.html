@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plan Review: TITLE HERE</title>
+  <title>Plan Review: TT-108: Redis Streams — Architectural Review</title>
   <style>
     * {
       margin: 0;
@@ -668,7 +668,7 @@
         </svg>
       </button>
     </div>
-    <h1>Plan Review: TITLE HERE</h1>
+    <h1>TT-108: Redis Streams — Architectural Review</h1>
     <div class="stats" id="stats"></div>
     <div class="topbar-toggles">
       <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
@@ -709,53 +709,508 @@
     // ============================================================
     const docSections = [
       {
-        id: "example-context",
-        title: "Context & Problem Statement",
-        content: `Describe the problem this plan addresses.
+        id: "proposal-summary",
+        title: "Proposal Summary",
+        content: `### What's Being Proposed
 
-- **What's broken** — explain the current behavior
-- **Why it matters** — impact on users or system
-- **What we'll do** — high-level approach
+Use Redis Streams as a persistent, ordered log of fill events to model position construction as an event-sourced sequence.
 
-**User context:** Any relevant quotes or constraints.`
+- **Core idea:** A position is not a static object — it is the result of a sequence of fills over time
+- **Only fills recorded** (not orders) — each fill is a state-changing event
+- **Streams grouped by underlying** — all fills for a given underlying (stock, options, futures) in one stream
+- **Complements existing architecture** — Pub/Sub stays for market data, Streams added for durable fill history
+
+### Current Architecture (unchanged)
+
+| Component | Role | Stays? |
+|-----------|------|--------|
+| Redis Pub/Sub | Real-time market data (quotes, candles) | Yes |
+| InfluxDB | Time-series analysis | Yes |
+| account-stream | Positions, balances, orders from brokerage | Yes |
+| subscribe | Quotes, Greeks, candles from DXLink | Yes |
+
+### What Streams Would Enable
+
+1. Deterministic position reconstruction from fill replay
+2. Accurate realized/unrealized P&L tracking
+3. Strategy lifecycle visibility (entry → scaling → adjustment → exit)
+4. Replay and debugging of complex multi-leg strategies
+5. Decoupled consumption via consumer groups`
       },
       {
-        id: "example-step-1",
-        title: "Step 1: First Implementation Step",
-        content: `**File:** \`src/path/to/file.py\`
+        id: "core-insight",
+        title: "Strength: Event-Sourcing Positions from Fills",
+        content: `### Assessment: Strong
 
-Describe what this step does and why.
+The fundamental insight — that positions are event-sourced constructs built from a sequence of fills — is architecturally sound and worth pursuing.
 
-\`\`\`python
-def example_function(arg: str) -> bool:
-    """Docstring here."""
-    return True
+**Why this matters:**
+
+- Today, position state is derived from brokerage snapshots. The *how we got here* is not explicitly modeled as a first-class construct
+- Fills are the atomic unit of position change — modeling them explicitly enables deterministic reconstruction
+- This aligns with how trading actually occurs: entry → scaling → adjustment → exit
+
+**This is a genuine capability gap.** The current system handles "what is the position now" well, but "how did this position get built" requires manual investigation.
+
+### Reviewer Decision Point
+
+Does the team agree that event-sourcing positions from fills addresses a real gap in the current system?`
+      },
+      {
+        id: "consumer-groups",
+        title: "Strength: Consumer Groups & Decoupled Consumption",
+        content: `### Assessment: Strong
+
+Redis Streams consumer groups solve a real limitation of Pub/Sub for fill processing.
+
+**What Pub/Sub lacks:**
+
+- Message acknowledgment — if a consumer is down, fills are lost
+- Backpressure — slow consumers can't catch up
+- Independent offsets — consumers can't rewind or replay
+
+**What Streams provide:**
+
+- Each consumer group tracks its own offset independently
+- Messages are acknowledged after processing — no silent data loss
+- Multiple consumers (P&L engine, risk analysis, analytics) can process the same fill stream at their own pace without interfering
+
+This is the real unlock — not just durability, but **decoupled, reliable fan-out for state-changing events**.
+
+### Reviewer Decision Point
+
+Is the consumer-group model the right fit for the downstream consumers we envision (P&L, risk, analytics)?`
+      },
+      {
+        id: "concern-durability",
+        title: "Hydration & Lifecycle (Revised)",
+        revised: true,
+        content: `### Reviewer Questions — Answered
+
+**Q1: Do we overwrite old streams if not previously flushed in a prior session? How does Redis handle that?**
+
+Redis Streams are append-only. If a stream from a prior session still exists, new XADDs append to it — they don't overwrite. This means a stale stream could contain old fills followed by fresh hydration data, creating duplicates.
+
+**Recommended approach:** On startup, **DEL the stream key before hydrating**. This gives us a clean slate each time. Since InfluxDB is the system of record, we lose nothing — we're just rebuilding the working set.
+
+\`\`\`mermaid
+graph LR
+    subgraph startup["Startup Sequence"]
+        A["DEL fills:*<br/><i>clean slate</i>"] --> B["Fetch open<br/>positions"]
+        B --> C["Query InfluxDB<br/>for fills"]
+        C --> D["XADD to<br/>streams"]
+        D --> E["Begin live<br/>appending"]
+    end
+
+    style startup fill:transparent,stroke:#58a6ff
+    style A fill:#1c2128,stroke:#f85149,color:#e6edf3
+    style B fill:#1c2128,stroke:#3fb950,color:#e6edf3
+    style C fill:#1c2128,stroke:#3fb950,color:#e6edf3
+    style D fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+    style E fill:#1c2128,stroke:#58a6ff,color:#e6edf3
 \`\`\`
 
-### Key Decisions
+**Q2: Is it idempotent?**
 
-- **CHOSEN:** Decision A over Decision B — because reason
-- Some other important note`
+With the DEL-then-hydrate approach, yes — running startup twice produces the same result. The stream is always a fresh projection of InfluxDB + any live fills since hydration.
+
+Without the DEL step, it would **not** be idempotent (duplicate fills would accumulate).
+
+**Q3: Do we need a mechanism to flush on restart?**
+
+Yes. The DEL-before-hydrate pattern handles this naturally — every restart is a clean rebuild. No separate flush mechanism needed. If we want to be explicit, account-stream's shutdown handler can also DEL known stream keys as a belt-and-suspenders measure.
+
+### Reviewer Decision Point
+
+Does the DEL-then-hydrate pattern (clean slate on every startup) satisfy the idempotency and flush concerns?`
       },
       {
-        id: "example-step-2",
-        title: "Step 2: Second Implementation Step",
-        // revised: true,  // Uncomment to highlight as revised
-        content: `Continue describing your implementation plan.
+        id: "concern-influxdb-overlap",
+        title: "InfluxDB + Streams Relationship (Revised)",
+        revised: true,
+        content: `### Assessment: Clarified — No Overlap
 
-### Before / After
+**Reviewer feedback:** Initialization from InfluxDB, then all subsequent fills are added directly to the stream. A parallel path already writes to InfluxDB and Redis pub/sub.
 
-| Aspect | Before | After |
-|--------|--------|-------|
-| Behavior | Old way | New way |
-| Performance | Slow | Fast |`
+### Revised Architecture
+
+There is no dual-write concern. The existing pipeline already writes fills to both InfluxDB and Redis pub/sub. Adding Streams is a third output from the same pipeline:
+
+\`\`\`mermaid
+graph LR
+    BK["Brokerage<br/>WebSocket"] --> AS["account-stream"]
+    AS -->|"existing"| INF[("InfluxDB<br/><i>System of Record</i>")]
+    AS -->|"existing"| PS["Redis Pub/Sub<br/><i>Real-time Notifications</i>"]
+    AS -->|"new: XADD"| RS["Redis Streams<br/><i>Sequenced Compute Layer</i>"]
+    INF -->|"hydrate on startup"| RS
+
+    style BK fill:#1c2128,stroke:#30363d,color:#8b949e
+    style AS fill:#1c2128,stroke:#d29922,color:#e6edf3
+    style INF fill:#1c2128,stroke:#3fb950,color:#e6edf3
+    style PS fill:#1c2128,stroke:#30363d,color:#8b949e
+    style RS fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+\`\`\`
+
+### Data Flow
+
+\`\`\`mermaid
+sequenceDiagram
+    participant INF as InfluxDB
+    participant AS as account-stream
+    participant RS as Redis Streams
+
+    Note over INF,RS: Startup / Hydration Phase
+    INF->>RS: Query historical fills for open positions
+    Note right of RS: Stream populated with ordered fills
+
+    Note over INF,RS: Live Phase
+    AS->>INF: Write fill (existing)
+    AS->>RS: XADD fill (new)
+    Note right of RS: Consumers process sequenced fills
+\`\`\`
+
+### Key Implications
+
+- **InfluxDB is authoritative** — always. Streams are derived.
+- **No consistency problem** — if a Stream write fails, the fill is still in InfluxDB. Rehydrate to recover.
+- **No new write path** — we're adding an XADD alongside the existing InfluxDB write and PUBLISH, not replacing either.
+
+### Reviewer Decision Point
+
+Does this accurately reflect the data flow? Any edge cases in the hydration-then-live-append transition?`
       },
       {
-        id: "example-verification",
-        title: "Verification",
-        content: `1. **Unit tests:** \`uv run pytest tests/ -v\`
-2. **Type checking:** \`uv run mypy src/\`
-3. **Functional test:** Describe how to verify with real data`
+        id: "concern-fill-source",
+        title: "Fill Source & Backfill (Revised)",
+        revised: true,
+        content: `### Assessment: Builds on Existing Processes
+
+**Reviewer feedback:** We already have semi-successful processes. We should do a review of actual trades and available data to demonstrate typical use cases.
+
+### What Already Exists
+
+The codebase already does fill-based position reconstruction in two places:
+
+1. **\`transactions.py\` — LIFO Entry Credit Computation**
+   - Fetches fills from \`GET /accounts/{acct}/transactions\`
+   - \`compute_entry_credit_lifo()\` walks transactions newest-to-oldest
+   - Reconstructs which specific fills constitute the current position
+   - Computes dollar-valued entry credits from those fills
+
+2. **\`orchestrator.py\` — \`monitor_fills_for_entry_credits()\`**
+   - Subscribes to the Order pub/sub channel
+   - On \`FILLED\` status: extracts fills from \`order.legs[*].fills\`
+   - Resolves multiplier, computes entry credits, publishes to Redis
+
+**Redis Streams would improve this by:**
+- Making the fill sequence a **persistent, queryable working set** instead of recomputing from the API each time
+- Enabling **multiple consumers** (P&L, analytics, strategy tracking) to independently process the same fill history
+- Replacing the per-request API fetch with a local ordered log
+
+### Proposed Data Review
+
+To determine backfill granularity, investigate actual trades for representative scenarios:
+
+- **Single-leg option** — simple open/close lifecycle
+- **Vertical spread** — multi-leg simultaneous entry
+- **Rolling/adjusting** — position that transforms over time (e.g., vertical → iron condor)
+- **Partial fills** — orders that fill across multiple executions
+
+This review will show what data is available in InfluxDB vs. what needs to come from the Transactions API.
+
+### Reviewer Decision Point
+
+Should we create a follow-up ticket for the data review investigation?`
+      },
+      {
+        id: "replay-duplicate",
+        title: "Replay: Duplicate Processing",
+        revised: true,
+        content: `A consumer crashes after processing a fill but before acknowledging it. On restart, it replays the fill.
+
+**Is the processing idempotent?**
+
+With the approved DEL-then-hydrate startup pattern, this is largely resolved — streams are rebuilt fresh. For live fills during normal operation, consumer groups track acknowledgment via XACK. An unacknowledged fill will be redelivered.
+
+**Suggested approach:** Consumers should be idempotent by design — applying the same fill twice should produce the same state. For position tabulation, this means "set quantity to X" rather than "add X to quantity."
+
+### Reviewer Decision Point
+
+Is idempotent consumer design sufficient, or do we need explicit dedup at the consumer level?`
+      },
+      {
+        id: "replay-ordering",
+        title: "Replay: Out-of-Order Fills",
+        revised: true,
+        content: `The brokerage sends a correction or a late fill that should have been sequenced earlier. Does the stream order match the actual execution order?
+
+**Context:** Redis Streams enforce append order (the order of XADD calls). This matches the order fills arrive from the brokerage websocket, which is generally chronological.
+
+**Edge cases:**
+
+- Brokerage reconnection may replay fills from a prior session
+- A fill correction (e.g., busted trade) has no standard representation
+
+**Suggested approach:** Trust the brokerage delivery order for live fills. For hydration, InfluxDB fills are queried with \`ORDER BY filled_at\`, so chronological order is guaranteed. If a correction arrives, treat it as a new event (not an edit to an existing entry).
+
+### Reviewer Decision Point
+
+Is "trust brokerage delivery order + chronological hydration from InfluxDB" sufficient?`
+      },
+      {
+        id: "replay-partial",
+        title: "Replay: Partial Replay & Schema Evolution",
+        revised: true,
+        content: `**Partial replay:** A consumer wants to rebuild state from a point in time, not from the beginning. How does it know where to start?
+
+Redis Streams support \`XRANGE key <start-id> +\` — consumers can read from any point. Combined with consumer group offsets, a consumer can resume exactly where it left off.
+
+With the DEL-then-hydrate pattern, full replay from the beginning is the default. Partial replay is an optimization for consumers that maintain their own checkpoint.
+
+**Schema evolution:** The fill event format may change over time (new fields, renamed fields). Can old events still be replayed?
+
+Given that streams are ephemeral (rebuilt from InfluxDB on each startup), schema evolution is a non-issue for the stream layer. Old events are never retained across restarts — they're always re-projected from InfluxDB through current code.
+
+### Reviewer Decision Point
+
+Does the ephemeral nature of streams (rebuilt each startup) make partial replay and schema evolution non-concerns?
+
+**Subtask:** [TT-112](https://mandeng.atlassian.net/browse/TT-112) — Revisit this assumption before merging the TT-108 PR.`
+      },
+      {
+        id: "concern-strategy-detection",
+        title: "Strategy Detection — Orthogonal (Revised)",
+        revised: true,
+        content: `### Assessment: Orthogonal to Streams — Out of Scope
+
+**Reviewer feedback:** StrategyClassifier is orthogonal. It can be applied against open positions or for point-in-time (historic) classification.
+
+### Two Independent Capabilities
+
+\`\`\`mermaid
+graph LR
+    subgraph classifier["StrategyClassifier (existing)"]
+        SC["Pattern Matcher"] -->|"classifies"| SNAP["Position Snapshot<br/><i>open or historic</i>"]
+    end
+
+    subgraph streams["Redis Streams (TT-108)"]
+        RS["Fill Sequence"] -->|"reconstructs"| POS["Position State<br/><i>at any point in time</i>"]
+    end
+
+    POS -.->|"can feed into"| SC
+
+    style classifier fill:transparent,stroke:#3fb950
+    style streams fill:transparent,stroke:#58a6ff
+    style SC fill:#1c2128,stroke:#3fb950,color:#e6edf3
+    style SNAP fill:#1c2128,stroke:#3fb950,color:#8b949e
+    style RS fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+    style POS fill:#1c2128,stroke:#58a6ff,color:#8b949e
+\`\`\`
+
+- **StrategyClassifier** takes a position snapshot (current or historic) and classifies it. It doesn't care where the snapshot came from.
+- **Redis Streams** provide the fill sequence that can reconstruct position state at any point in time.
+- **Future synergy:** Streams could feed point-in-time snapshots into the classifier to answer "what strategy was this position at time T?" — but that's a later enhancement, not part of TT-108.
+
+**Confirmed: strategy detection is not part of this proposal's scope. No changes to the classifier.**
+
+### Reviewer Decision Point
+
+Acknowledged — StrategyClassifier is orthogonal and out of scope for TT-108.
+
+**Follow-up:** [TT-113](https://mandeng.atlassian.net/browse/TT-113) — Strategy classification within Redis Streams.`
+      },
+      {
+        id: "q-retention",
+        title: "Q: Stream Retention Policy (Revised)",
+        revised: true,
+        content: `### Decision: All Fills for Open Positions by Underlying
+
+**Hydration scope:** On startup, pull **all fills** from InfluxDB for each underlying that has an open position. No time-window filtering — the full fill history for that underlying is loaded into the stream.
+
+### Retention Model
+
+\`\`\`mermaid
+graph TD
+    subgraph retained["Streams Retained During Session"]
+        A["fills:{account}:SPY<br/><i>all SPY fills (open position)</i>"]
+        B["fills:{account}:/ESM6<br/><i>all /ESM6 fills (open position)</i>"]
+    end
+
+    subgraph flushed["Flushed at Shutdown / No Open Position"]
+        C["fills:{account}:AAPL<br/><i>position closed mid-session</i>"]
+    end
+
+    INF[("InfluxDB")] -->|"all fills by underlying"| A
+    INF -->|"all fills by underlying"| B
+
+    style retained fill:transparent,stroke:#3fb950
+    style flushed fill:transparent,stroke:#30363d
+    style INF fill:#1c2128,stroke:#3fb950,color:#e6edf3
+    style A fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+    style B fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+    style C fill:#1c2128,stroke:#30363d,color:#8b949e
+\`\`\`
+
+### Rules
+
+- **Startup:** DEL existing streams, then hydrate all fills per underlying for open positions
+- **During session:** Live fills appended via XADD as they arrive
+- **Position closes:** Stream retained until shutdown (may be needed for final P&L)
+- **Shutdown:** DEL all streams — rebuilt from InfluxDB on next startup
+- **No MAXLEN/MINID needed** — streams are session-scoped, not persistent
+
+### Open Area: Roll Behavior
+
+TastyTrade may handle some roll mechanics automatically, but we haven't studied the mechanism well enough to make a final assessment. Key questions for [TT-110](https://mandeng.atlassian.net/browse/TT-110):
+
+- How much roll tracking can we rely on from the broker?
+- What needs to be reconstructed from fills?
+- **Longer-term goal:** a broker-agnostic approach to fill tracking that could shift to other broker feeds. We're not there yet — TT-108 builds on TastyTrade's data, but the stream design should avoid baking in broker-specific assumptions where possible.
+
+### Dependencies
+
+- **[TT-110](https://mandeng.atlassian.net/browse/TT-110)** — Futures rollover, broker roll mechanics, contract key schema
+- Backfill data review will confirm typical fill counts per underlying
+
+### Reviewer Decision Point
+
+Confirmed: all fills by underlying for open positions, session-scoped, DEL at shutdown?`
+      },
+      {
+        id: "q-source-of-truth",
+        title: "Q: Source-of-Truth Consumer",
+        revised: true,
+        content: `If multiple consumers derive position state independently from the same stream, who wins on disagreement?
+
+**Context:** The brokerage already provides position snapshots with \`quantity\`, \`average_open_price\`, etc. These are authoritative. Fill-derived state from Streams is a **cross-check**, not a replacement.
+
+**Suggested approach:** Brokerage snapshot is always authoritative. If fill-derived state diverges, log a warning and investigate — don't override the brokerage.
+
+### Reviewer Decision Point
+
+Is the brokerage snapshot the definitive source, with Streams providing the "how we got here" narrative?`
+      },
+      {
+        id: "q-failure-mode",
+        title: "Q: Failure Mode if Redis Loses Data",
+        revised: true,
+        content: `What happens if Redis streams are lost (restart, memory pressure, operational error)?
+
+**Given the approved architecture:**
+
+- InfluxDB is the system of record — no data is lost
+- Streams are rehydrated from InfluxDB on account-stream startup
+- Consumers that were mid-processing will re-read from the rehydrated stream
+
+**Impact:** Temporary loss of the compute layer. Consumers pause until rehydration completes. No data loss, no manual intervention beyond restarting account-stream.
+
+### Reviewer Decision Point
+
+Is this failure mode acceptable? Any additional recovery steps needed?`
+      },
+      {
+        id: "q-stream-key-schema",
+        title: "Q: Stream Key Schema (Revised)",
+        revised: true,
+        content: `### Decision: \`fills:{account}:{underlying}\`
+
+**Agreed** — use expiry contract as the underlying for futures (e.g., \`/ESM6\` for June /ES, \`/CLK6\` for May /CL).
+
+### Default Schema
+
+- **Equities/equity options:** \`fills:{account}:SPY\`, \`fills:{account}:AAPL\`
+- **Futures/futures options:** \`fills:{account}:/ESM6\`, \`fills:{account}:/CLK6\`
+
+This keeps each contract's fills together, which is the natural grouping for P&L and strategy tracking within a single expiry cycle.
+
+### Open Item: Futures Contract Rollover
+
+How do we handle rolls between contracts (e.g., /ESM6 → /ESU6)? Should the roll be:
+
+- Two separate streams (close one, open another)
+- Or linked in some way for continuity?
+
+**Deferred to subtask Jira** for investigation after initial implementation.
+
+### Reviewer Decision Point
+
+Confirmed: \`fills:{account}:{expiry_contract}\` for futures. Rollover handling deferred to [TT-110](https://mandeng.atlassian.net/browse/TT-110).`
+      },
+      {
+        id: "q-deduplication",
+        title: "Q: Fill Deduplication — Deferred (Revised)",
+        revised: true,
+        content: `### Decision: Assume No Duplicates, Investigate Separately
+
+**Reviewer feedback:** This is an outlier case. Assume the problem does not exist and create a subtask Jira to investigate separately.
+
+**For TT-108:** No deduplication logic. XADD fills as they arrive. The DEL-then-hydrate startup pattern means any duplicates from a prior session are wiped anyway.
+
+**Subtask:** Investigate whether the brokerage actually sends duplicate fills, and if so, design a dedup mechanism. Deferred to a subtask Jira under TT-108.
+
+### Reviewer Decision Point
+
+Confirmed: deduplication deferred to [TT-111](https://mandeng.atlassian.net/browse/TT-111).`
+      },
+      {
+        id: "recommended-architecture",
+        title: "Recommended Architecture (Revised)",
+        revised: true,
+        content: `Updated to reflect reviewer feedback: InfluxDB is the system of record, Streams is a compute layer hydrated from InfluxDB.
+
+### Architecture
+
+\`\`\`mermaid
+graph TD
+    BK["Brokerage WebSocket"] --> AS["account-stream<br/><i>existing service</i>"]
+    AS -->|"write (existing)"| INF[("InfluxDB<br/><i>System of Record</i>")]
+    AS -->|"publish (existing)"| PS["Pub/Sub"]
+    AS -->|"XADD (new)"| RS["Redis Streams<br/><i>Compute Layer</i>"]
+    INF -->|"hydrate"| RS
+
+    RS --> CG{"Consumer Groups"}
+    CG --> PL["P&L Chart<br/>over time"]
+    CG --> PT["Position<br/>Tabulation"]
+    CG --> SL["Strategy<br/>Lifecycle"]
+
+    style BK fill:#1c2128,stroke:#30363d,color:#8b949e
+    style AS fill:#1c2128,stroke:#d29922,color:#e6edf3
+    style INF fill:#1c2128,stroke:#3fb950,color:#e6edf3
+    style PS fill:#1c2128,stroke:#30363d,color:#8b949e
+    style RS fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+    style CG fill:#1c2128,stroke:#58a6ff,color:#e6edf3
+    style PL fill:#1c2128,stroke:#30363d,color:#8b949e
+    style PT fill:#1c2128,stroke:#30363d,color:#8b949e
+    style SL fill:#1c2128,stroke:#30363d,color:#8b949e
+\`\`\`
+
+### Key Design Decisions
+
+- **InfluxDB = system of record** — all fills persist here, always authoritative
+- **Redis Streams = compute layer** — sequenced working set for position tabulation and P&L charting
+- **Hydration from InfluxDB** — stream is populated from historical fills on startup/demand
+- **Live fills appended** — account-stream adds an XADD alongside existing InfluxDB + Pub/Sub writes
+- **Streams are disposable** — can be rebuilt from InfluxDB at any time, no durability concern
+
+### What Changes
+
+| Component | Before | After |
+|-----------|--------|-------|
+| account-stream | Writes to InfluxDB + Pub/Sub | Adds XADD to Redis Stream |
+| Redis | Pub/Sub + HSET for state | Adds Streams for sequenced fills |
+| InfluxDB | Stores fills | Unchanged — also serves as hydration source |
+| Consumers | React to Pub/Sub events | Can also read sequenced fill history from Streams |
+
+### What Doesn't Change
+
+- Pub/Sub for real-time market data and notifications
+- InfluxDB as the durable store
+- account-stream as the brokerage integration point
+- Brokerage snapshots for current position state
+
+### Reviewer Decision Point
+
+Does this revised architecture accurately reflect the intended design?`
       }
     ];
 
@@ -764,13 +1219,27 @@ def example_function(arg: str) -> bool:
     // Map section id -> status ("approved", "revision", "question").
     // ============================================================
     const priorApprovals = {
-      // "example-context": "approved",
+      "proposal-summary": "approved",
+      "core-insight": "approved",
+      "consumer-groups": "approved",
+      "concern-durability": "approved",
+      "concern-influxdb-overlap": "approved",
+      "concern-fill-source": "approved",
+      "replay-duplicate": "approved",
+      "replay-ordering": "approved",
+      "replay-partial": "approved",
+      "concern-strategy-detection": "approved",
+      "q-source-of-truth": "approved",
+      "q-failure-mode": "approved",
+      "q-stream-key-schema": "approved",
+      "q-deduplication": "approved",
+      "recommended-architecture": "approved",
     };
 
     // ============================================================
     // PLAN NAME: Update this string for the copy-to-prompt output.
     // ============================================================
-    const PLAN_NAME = "TITLE HERE";
+    const PLAN_NAME = "TT-108: Redis Streams — Architectural Review";
 
     // Persistence — save/restore review state across sessions
     const STORAGE_KEY = 'review-state:' + PLAN_NAME;
