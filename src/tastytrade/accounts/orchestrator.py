@@ -40,6 +40,13 @@ from tastytrade.connections.signals import ReconnectSignal
 from tastytrade.market.instruments import InstrumentsClient
 from tastytrade.messaging.processors.influxdb import TelegrafHTTPEventProcessor
 
+FILL_ACTIONS = {
+    OrderAction.BUY_TO_OPEN,
+    OrderAction.SELL_TO_OPEN,
+    OrderAction.BUY_TO_CLOSE,
+    OrderAction.SELL_TO_CLOSE,
+}
+
 logger = logging.getLogger(__name__)
 
 # Minimum seconds a connection must be alive before failure resets retry counter
@@ -373,6 +380,112 @@ async def monitor_fills_for_entry_credits(
         await pubsub.close()
 
 
+def extract_fills_from_order_record(
+    record: object,
+    underlying: str,
+) -> list[dict[str, str]]:
+    """Extract individual fill entries from an InfluxDB PlacedOrder record.
+
+    Parses the JSON-serialized legs field and denormalizes each fill
+    into a flat dict suitable for XADD to a Redis Stream.
+    """
+    values = record.values  # type: ignore[attr-defined]
+    legs_json = values.get("legs")
+    order_id = values.get("id")
+    if not legs_json:
+        return []
+
+    try:
+        legs_data = json.loads(legs_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    entries: list[dict[str, str]] = []
+    for leg in legs_data:
+        action = leg.get("action", "")
+        symbol = leg.get("symbol", "")
+        instrument_type = leg.get("instrument-type", "")
+
+        for fill in leg.get("fills", []):
+            entries.append(
+                {
+                    "fill_id": str(fill.get("fill-id", "")),
+                    "order_id": str(order_id or ""),
+                    "symbol": symbol,
+                    "underlying": underlying,
+                    "action": action,
+                    "instrument_type": instrument_type,
+                    "fill_price": str(fill.get("fill-price", "")),
+                    "quantity": str(fill.get("quantity", "")),
+                    "filled_at": str(fill.get("filled-at", "")),
+                }
+            )
+    return entries
+
+
+async def hydrate_fill_streams(
+    publisher: AccountStreamPublisher,
+    influx: TelegrafHTTPEventProcessor,
+    account_number: str,
+    positions: list[Position],
+) -> None:
+    """Hydrate Redis Streams with historical fills for open positions (TT-108).
+
+    For each unique underlying in the open positions list:
+    1. DEL the existing stream (clean slate for idempotency)
+    2. Query InfluxDB for filled orders matching that underlying
+    3. Extract individual fills from order legs
+    4. XADD each fill to the stream in chronological order
+    """
+    underlyings = {
+        p.underlying_symbol
+        for p in positions
+        if p.underlying_symbol and p.quantity != 0.0
+    }
+
+    if not underlyings:
+        logger.info("No open positions to hydrate fill streams for")
+        return
+
+    query_api = influx.client.query_api()
+    bucket = influx.bucket
+    total_fills = 0
+
+    for underlying in sorted(underlyings):
+        stream_key = publisher.fill_stream_key(account_number, underlying)
+        await publisher.redis.delete(stream_key)
+
+        query = f"""
+        from(bucket: "{bucket}")
+          |> range(start: -365d)
+          |> filter(fn: (r) => r["_measurement"] == "PlacedOrder")
+          |> filter(fn: (r) => r["eventSymbol"] == "{underlying}")
+          |> filter(fn: (r) => r["_field"] == "legs" or r["_field"] == "status" or r["_field"] == "id" or r["_field"] == "underlying_symbol")
+          |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+          |> filter(fn: (r) => r["status"] == "Filled")
+          |> sort(columns: ["_time"], desc: false)
+        """
+
+        tables = query_api.query(query)
+        fill_count = 0
+
+        for table in tables:
+            for record in table.records:
+                for fill_entry in extract_fills_from_order_record(record, underlying):
+                    await publisher.xadd_fill(account_number, underlying, fill_entry)
+                    fill_count += 1
+
+        if fill_count > 0:
+            logger.info("Hydrated %d fills into stream %s", fill_count, stream_key)
+        total_fills += fill_count
+
+    logger.info(
+        "Fill stream hydration complete: %d fills across %d underlyings",
+        total_fills,
+        len(underlyings),
+    )
+
+
 async def account_failure_trigger_listener(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
     reconnect_signal: ReconnectSignal,
@@ -441,6 +554,7 @@ async def run_account_stream_once(
     failure_redis: aioredis.Redis | None = None  # type: ignore[type-arg]
     fill_monitor_redis: aioredis.Redis | None = None  # type: ignore[type-arg]
     connection_established_at: float | None = None
+    account_number: str | None = None
 
     try:
         # === Configuration ===
@@ -451,6 +565,7 @@ async def run_account_stream_once(
         env_setting = config.get("ENVIRONMENT", "LIVE").upper()
         env = "Live" if env_setting == "LIVE" else "Test"
         credentials = Credentials(config=config, env=env)
+        account_number = credentials.account_number
         logger.info("Using %s environment (%s)", env, credentials.base_url)
 
         # === Reset and create AccountStreamer ===
@@ -567,6 +682,15 @@ async def run_account_stream_once(
                 await publisher.publish_entry_credits(entry_credits)
                 for credit in entry_credits.values():
                     influx.process_event(credit.for_influx())  # type: ignore[arg-type]
+
+        # === Hydrate Redis Streams with historical fills (TT-108) ===
+        if hydrated_positions:
+            await hydrate_fill_streams(
+                publisher=publisher,
+                influx=influx,
+                account_number=credentials.account_number,
+                positions=hydrated_positions,
+            )
 
         for item in hydrated_items:
             position_queue.put_nowait(item)
@@ -720,7 +844,15 @@ async def run_account_stream_once(
             logger.info("Closing AccountStreamer")
             await streamer.close()
 
-        if publisher is not None:
+        if publisher is not None and account_number is not None:
+            # Flush fill streams at shutdown (TT-108)
+            try:
+                await publisher.flush_fill_streams(account_number)
+            except Exception:
+                logger.warning(
+                    "Failed to flush fill streams at shutdown", exc_info=True
+                )
+
             await update_account_connection_status(
                 publisher.redis, state="disconnected"
             )
