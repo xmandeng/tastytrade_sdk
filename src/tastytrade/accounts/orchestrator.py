@@ -462,7 +462,7 @@ async def hydrate_fill_streams(
           |> filter(fn: (r) => r["eventSymbol"] == "{underlying}")
           |> filter(fn: (r) => r["_field"] == "legs" or r["_field"] == "status" or r["_field"] == "id" or r["_field"] == "underlying_symbol")
           |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-          |> filter(fn: (r) => r["status"] == "Filled")
+          |> filter(fn: (r) => r["status"] == "OrderStatus.FILLED")
           |> sort(columns: ["_time"], desc: false)
         """
 
