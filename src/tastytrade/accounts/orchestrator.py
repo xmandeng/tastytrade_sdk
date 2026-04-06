@@ -325,15 +325,16 @@ async def monitor_fills_for_entry_credits(
     redis_client: aioredis.Redis,  # type: ignore[type-arg]
     publisher: AccountStreamPublisher,
     influx: TelegrafHTTPEventProcessor,
+    account_number: str,
 ) -> None:
-    """Compute entry credits directly from filled order data.
+    """Compute entry credits and append fills to Redis Streams (TT-108).
 
-    Subscribes to the Order pub/sub channel. When a FILLED order with option
-    open-fills is detected, computes entry credits from the fill prices in
-    the order event itself — no position lookup or REST API call needed.
+    Subscribes to the Order pub/sub channel. When a FILLED order is detected:
+    1. XADD all fills to the Redis Stream for the order's underlying
+    2. Compute entry credits for option open-fills (existing behavior)
 
-    Close fills are ignored; position removal is handled by the position
-    consumer (publish_position removes qty=0 positions from Redis).
+    Close fills are ignored for entry credits but ARE recorded in the stream —
+    the full fill sequence is needed for position lifecycle tracking.
     """
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(publisher.ORDER_CHANNEL)
@@ -350,6 +351,36 @@ async def monitor_fills_for_entry_credits(
 
             if order.status != OrderStatus.FILLED:
                 continue
+
+            # TT-108: XADD all fills to Redis Stream for position lifecycle
+            underlying = order.underlying_symbol
+            if underlying:
+                fill_count = 0
+                for leg in order.legs:
+                    if leg.action not in FILL_ACTIONS or not leg.fills:
+                        continue
+                    for fill in leg.fills:
+                        fill_entry: dict[str, str] = {
+                            "fill_id": fill.fill_id,
+                            "order_id": str(order.id),
+                            "symbol": leg.symbol,
+                            "underlying": underlying,
+                            "action": leg.action.value,
+                            "instrument_type": leg.instrument_type.value,
+                            "fill_price": str(fill.fill_price),
+                            "quantity": str(fill.quantity),
+                            "filled_at": fill.filled_at.isoformat(),
+                        }
+                        await publisher.xadd_fill(
+                            account_number, underlying, fill_entry
+                        )
+                        fill_count += 1
+                if fill_count:
+                    logger.info(
+                        "XADD %d fills to stream %s",
+                        fill_count,
+                        publisher.fill_stream_key(account_number, underlying),
+                    )
 
             # Compute entry credits for option legs with open fills.
             # Close fills are ignored — position removal handles cleanup.
@@ -748,6 +779,7 @@ async def run_account_stream_once(
                 redis_client=fill_monitor_redis,
                 publisher=publisher,
                 influx=influx,
+                account_number=account_number,
             ),
             name="fill_monitor",
         )
