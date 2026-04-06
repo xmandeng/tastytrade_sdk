@@ -467,13 +467,19 @@ async def hydrate_fill_streams(
         """
 
         tables = query_api.query(query)
-        fill_count = 0
 
+        fill_entries: list[dict[str, str]] = []
         for table in tables:
             for record in table.records:
-                for fill_entry in extract_fills_from_order_record(record, underlying):
-                    await publisher.xadd_fill(account_number, underlying, fill_entry)
-                    fill_count += 1
+                fill_entries.extend(extract_fills_from_order_record(record, underlying))
+
+        if fill_entries:
+            pipe = publisher.redis.pipeline()
+            for entry in fill_entries:
+                pipe.xadd(stream_key, entry)  # type: ignore[arg-type]
+            await pipe.execute()
+
+        fill_count = len(fill_entries)
 
         if fill_count > 0:
             logger.info("Hydrated %d fills into stream %s", fill_count, stream_key)
