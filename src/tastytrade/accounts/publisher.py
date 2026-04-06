@@ -2,6 +2,7 @@
 
 Reads from AccountStreamer asyncio queues and writes to Redis HSET
 for on-demand reads, plus pub/sub for real-time consumers.
+Also manages Redis Streams for fill lifecycle tracking (TT-108).
 Single responsibility: account events -> Redis.
 """
 
@@ -52,6 +53,7 @@ class AccountStreamPublisher:
     ENTRY_CREDITS_CHANNEL = "tastytrade:events:EntryCreditsUpdated"
     TRADE_CHAINS_KEY = "tastytrade:trade_chains"
     TRADE_CHAIN_CHANNEL = "tastytrade:events:OrderChain"
+    FILL_STREAM_PREFIX = "tastytrade:fills"
 
     def __init__(
         self,
@@ -179,6 +181,44 @@ class AccountStreamPublisher:
         """Remove an entry credit record for a closed position."""
         await self.redis.hdel(self.ENTRY_CREDITS_KEY, symbol)
         logger.info("Removed entry credit for closed position: %s", symbol)
+
+    @staticmethod
+    def fill_stream_key(account_number: str, underlying: str) -> str:
+        """Build the Redis Stream key for fills by underlying.
+
+        Schema: tastytrade:fills:{account}:{underlying}
+        For futures, underlying is the expiry contract (e.g. /ESM6).
+        """
+        return (
+            f"{AccountStreamPublisher.FILL_STREAM_PREFIX}:{account_number}:{underlying}"
+        )
+
+    async def xadd_fill(
+        self,
+        account_number: str,
+        underlying: str,
+        fill_data: dict[str, str],
+    ) -> None:
+        """Append a fill event to the Redis Stream for an underlying."""
+        key = self.fill_stream_key(account_number, underlying)
+        await self.redis.xadd(key, fill_data)  # type: ignore[arg-type]
+
+    async def flush_fill_streams(self, account_number: str) -> None:
+        """Delete all fill streams for an account. Called at shutdown."""
+        pattern = f"{self.FILL_STREAM_PREFIX}:{account_number}:*"
+        cursor = 0
+        deleted = 0
+        while True:
+            cursor, keys = await self.redis.scan(
+                cursor=cursor, match=pattern, count=100
+            )
+            if keys:
+                await self.redis.delete(*keys)
+                deleted += len(keys)
+            if cursor == 0:
+                break
+        if deleted:
+            logger.info("Flushed %d fill streams for account", deleted)
 
     async def close(self) -> None:
         """Close Redis connection."""
