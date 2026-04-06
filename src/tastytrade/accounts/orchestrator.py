@@ -375,12 +375,6 @@ async def monitor_fills_for_entry_credits(
                             account_number, underlying, fill_entry
                         )
                         fill_count += 1
-                if fill_count:
-                    logger.info(
-                        "XADD %d fills to stream %s",
-                        fill_count,
-                        publisher.fill_stream_key(account_number, underlying),
-                    )
 
             # Compute entry credits for option legs with open fills.
             # Close fills are ignored — position removal handles cleanup.
