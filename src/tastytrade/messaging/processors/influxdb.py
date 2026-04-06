@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 
 from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import WriteOptions, WriteType
 
 from tastytrade.messaging.models.events import BaseEvent
 from tastytrade.messaging.processors.default import BaseEventProcessor
@@ -41,7 +42,12 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
             )
 
         self.client = InfluxDBClient(url=url, token=token, org=org)
-        self.write_api = self.client.write_api()
+        # Use asynchronous (non-batching) writes to avoid reactivex operators
+        # that are broken on Python 3.13. Each write dispatches to a thread
+        # pool immediately — no event loop blocking, no reactivex dependency.
+        self.write_api = self.client.write_api(
+            write_options=WriteOptions(write_type=WriteType.asynchronous)
+        )
         self.bucket = bucket
 
     def process_event(self, event: BaseEvent) -> None:
