@@ -646,6 +646,12 @@
 <div class="detail-panel" id="detailPanel">
   <button class="close-btn" onclick="closeDetail()">x</button>
   <div id="detailContent"></div>
+  <button id="copyNodeBtn" onclick="copySelectedMetadata()" style="
+    margin-top: 12px; padding: 8px 16px; width: 100%;
+    background: var(--accent-blue); color: #0d1117; border: none;
+    border-radius: 6px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  ">Copy as JSON</button>
 </div>
 
 <div class="legend" id="legend"></div>
@@ -690,29 +696,29 @@
 // Top-down flow: Brokerage → account-stream → sinks
 
 const BEFORE_NODES = [
-  { id: 'brokerage', x: 350, y: 30, layer: 'signal',
+  { id: 'brokerage', x: 156, y: 27, layer: 'signal',
     label: 'Brokerage WS', type: 'WebSocket',
     desc: 'TastyTrade streaming websocket delivering account events (positions, orders, balances).',
   },
-  { id: 'account-stream', x: 350, y: 180, layer: 'orchestration',
+  { id: 'account-stream', x: 104, y: 197, layer: 'orchestration',
     label: 'account-stream', type: 'Orchestrator',
     file: 'src/tastytrade/accounts/orchestrator.py',
     desc: 'Self-healing orchestrator that consumes brokerage events, publishes to Redis and InfluxDB.',
     badge: 'positions, orders, balances',
   },
-  { id: 'influxdb', x: 120, y: 360, layer: 'orchestration',
-    label: 'InfluxDB', type: 'Time-Series DB',
-    desc: 'System of record for all time-series data including fills, positions, and market data.',
-    badge: 'system of record',
+  { id: 'redis-hset', x: -88, y: 419, layer: 'queue',
+    label: 'Redis HSET', type: 'State Store',
+    desc: 'Current position state, instrument metadata, entry credits. Snapshot of latest values.',
   },
-  { id: 'redis-pubsub', x: 350, y: 360, layer: 'queue',
+  { id: 'redis-pubsub', x: 130, y: 411, layer: 'queue',
     label: 'Redis Pub/Sub', type: 'Message Bus',
     desc: 'Real-time event distribution for positions, orders, quotes. Fire-and-forget — no replay.',
     badge: 'transient',
   },
-  { id: 'redis-hset', x: 580, y: 360, layer: 'queue',
-    label: 'Redis HSET', type: 'State Store',
-    desc: 'Current position state, instrument metadata, entry credits. Snapshot of latest values.',
+  { id: 'influxdb', x: 363, y: 421, layer: 'orchestration',
+    label: 'InfluxDB', type: 'Time-Series DB',
+    desc: 'System of record for all time-series data including fills, positions, and market data.',
+    badge: 'system of record',
   },
 ];
 
@@ -727,11 +733,11 @@ const BEFORE_EDGES = [
 // Same top-down flow, Redis Streams added as terminal sink
 
 const AFTER_NODES = [
-  { id: 'brokerage', x: 350, y: 30, layer: 'signal',
+  { id: 'brokerage', x: 313, y: 44, layer: 'signal',
     label: 'Brokerage WS', type: 'WebSocket',
     desc: 'TastyTrade streaming websocket. Unchanged.',
   },
-  { id: 'account-stream', x: 350, y: 180, layer: 'orchestration',
+  { id: 'account-stream', x: 259, y: 206, layer: 'orchestration',
     label: 'account-stream', type: 'Orchestrator',
     file: 'src/tastytrade/accounts/orchestrator.py',
     desc: 'Enhanced: on startup DEL+hydrate streams from InfluxDB for open positions. Live fills appended via XADD alongside existing writes. DEL streams at shutdown.',
@@ -739,33 +745,33 @@ const AFTER_NODES = [
     change: 'modified',
     code: '# Startup: DEL-then-hydrate\nawait redis.delete(f"fills:{account}:{underlying}")\nfor fill in await influx.query_fills(underlying):\n    await redis.xadd(f"fills:{account}:{underlying}", fill.dict())\n\n# Live: append alongside existing writes\nawait redis.xadd(f"fills:{account}:{underlying}", fill_event)',
   },
-  { id: 'influxdb', x: 80, y: 360, layer: 'orchestration',
+  { id: 'influxdb', x: 466, y: 372, layer: 'orchestration',
     label: 'InfluxDB', type: 'Time-Series DB',
     desc: 'System of record. Unchanged — also serves as hydration source for streams on startup.',
     badge: 'system of record',
   },
-  { id: 'redis-pubsub', x: 280, y: 360, layer: 'queue',
+  { id: 'hydration', x: 466, y: 511, layer: 'orchestration',
+    label: 'Hydration', type: 'Startup Process',
+    desc: 'At startup: queries InfluxDB for all fills by underlying for open positions, XADDs them into streams in chronological order.',
+    change: 'new',
+    code: 'positions = await fetch_positions(account)\nunderlyings = {p.underlying_symbol for p in positions}\nfor sym in underlyings:\n    await redis.delete(f"fills:{account}:{sym}")\n    fills = await influx.query_fills(sym)\n    for fill in fills:\n        await redis.xadd(f"fills:{account}:{sym}", fill)',
+  },
+  { id: 'redis-hset', x: -68, y: 694, layer: 'queue',
+    label: 'Redis HSET', type: 'State Store',
+    desc: 'Current position state. Unchanged.',
+  },
+  { id: 'redis-pubsub', x: 96, y: 682, layer: 'queue',
     label: 'Redis Pub/Sub', type: 'Message Bus',
     desc: 'Real-time event distribution. Unchanged.',
     badge: 'transient',
   },
-  { id: 'redis-hset', x: 480, y: 360, layer: 'queue',
-    label: 'Redis HSET', type: 'State Store',
-    desc: 'Current position state. Unchanged.',
-  },
-  { id: 'redis-streams', x: 680, y: 360, layer: 'orchestration',
+  { id: 'redis-streams', x: 288, y: 682, layer: 'orchestration',
     label: 'Redis Streams', type: 'Compute Layer',
     desc: 'Persistent ordered log of fills per underlying. Session-scoped: DEL at shutdown, hydrated from InfluxDB at startup.',
     badge: 'fills:{account}:{underlying}',
     change: 'new',
     code: '# Stream key schema\nfills:{account}:{underlying}\n\n# Examples\nfills:5WT00001:SPY\nfills:5WT00001:/ESM6',
     note: 'Session-scoped — DEL at shutdown, rebuilt from InfluxDB on startup',
-  },
-  { id: 'hydration', x: 380, y: 540, layer: 'orchestration',
-    label: 'Hydration', type: 'Startup Process',
-    desc: 'At startup: queries InfluxDB for all fills by underlying for open positions, XADDs them into streams in chronological order.',
-    change: 'new',
-    code: 'positions = await fetch_positions(account)\nunderlyings = {p.underlying_symbol for p in positions}\nfor sym in underlyings:\n    await redis.delete(f"fills:{account}:{sym}")\n    fills = await influx.query_fills(sym)\n    for fill in fills:\n        await redis.xadd(f"fills:{account}:{sym}", fill)',
   },
 ];
 
@@ -1295,11 +1301,8 @@ function updateLegend() {
 
   let html = '<div class="legend-title">Edge Types</div>';
   html += `<div class="legend-row"><div class="legend-line solid" style="border-color:var(--border)"></div> Data flow</div>`;
-  if (isBeforeVisible) {
-    html += `<div class="legend-row"><div class="legend-line dashed" style="border-color:var(--accent-red)"></div> Wasteful / duplicated</div>`;
-  }
   if (isAfterVisible) {
-    html += `<div class="legend-row"><div class="legend-line solid" style="border-color:var(--accent-green)"></div> Shared processor path</div>`;
+    html += `<div class="legend-row"><div class="legend-line solid" style="border-color:var(--accent-green)"></div> New data flow</div>`;
   }
   if (isAfterVisible) {
     html += '<div class="legend-title" style="margin-top:8px">Node Changes</div>';
@@ -1425,7 +1428,7 @@ function getNodeMetadata(nodeId) {
   return meta;
 }
 
-async function copySelectedMetadata() {
+function copySelectedMetadata() {
   let metadata;
   if (groupSelected.size > 0) {
     metadata = [...groupSelected].map(id => getNodeMetadata(id)).filter(Boolean);
@@ -1434,9 +1437,24 @@ async function copySelectedMetadata() {
   } else {
     return false;
   }
-  await navigator.clipboard.writeText(JSON.stringify(metadata, null, 2));
+  const text = JSON.stringify(metadata, null, 2);
   const count = groupSelected.size || 1;
-  showToast(`Copied ${count} node${count > 1 ? 's' : ''} metadata`);
+  function onSuccess() { showToast(`Copied ${count} node${count > 1 ? 's' : ''} metadata`); }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(fallback);
+  } else {
+    fallback();
+  }
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); onSuccess(); } catch(e) { showToast('Copy failed'); }
+    document.body.removeChild(ta);
+  }
   return true;
 }
 

@@ -646,6 +646,12 @@
 <div class="detail-panel" id="detailPanel">
   <button class="close-btn" onclick="closeDetail()">x</button>
   <div id="detailContent"></div>
+  <button id="copyNodeBtn" onclick="copySelectedMetadata()" style="
+    margin-top: 12px; padding: 8px 16px; width: 100%;
+    background: var(--accent-blue); color: #0d1117; border: none;
+    border-radius: 6px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  ">Copy as JSON</button>
 </div>
 
 <div class="legend" id="legend"></div>
@@ -1246,11 +1252,8 @@ function updateLegend() {
 
   let html = '<div class="legend-title">Edge Types</div>';
   html += `<div class="legend-row"><div class="legend-line solid" style="border-color:var(--border)"></div> Data flow</div>`;
-  if (isBeforeVisible) {
-    html += `<div class="legend-row"><div class="legend-line dashed" style="border-color:var(--accent-red)"></div> Wasteful / duplicated</div>`;
-  }
   if (isAfterVisible) {
-    html += `<div class="legend-row"><div class="legend-line solid" style="border-color:var(--accent-green)"></div> Shared processor path</div>`;
+    html += `<div class="legend-row"><div class="legend-line solid" style="border-color:var(--accent-green)"></div> New data flow</div>`;
   }
   if (isAfterVisible) {
     html += '<div class="legend-title" style="margin-top:8px">Node Changes</div>';
@@ -1376,7 +1379,7 @@ function getNodeMetadata(nodeId) {
   return meta;
 }
 
-async function copySelectedMetadata() {
+function copySelectedMetadata() {
   let metadata;
   if (groupSelected.size > 0) {
     metadata = [...groupSelected].map(id => getNodeMetadata(id)).filter(Boolean);
@@ -1385,9 +1388,24 @@ async function copySelectedMetadata() {
   } else {
     return false;
   }
-  await navigator.clipboard.writeText(JSON.stringify(metadata, null, 2));
+  const text = JSON.stringify(metadata, null, 2);
   const count = groupSelected.size || 1;
-  showToast(`Copied ${count} node${count > 1 ? 's' : ''} metadata`);
+  function onSuccess() { showToast(`Copied ${count} node${count > 1 ? 's' : ''} metadata`); }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(fallback);
+  } else {
+    fallback();
+  }
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); onSuccess(); } catch(e) { showToast('Copy failed'); }
+    document.body.removeChild(ta);
+  }
   return true;
 }
 
