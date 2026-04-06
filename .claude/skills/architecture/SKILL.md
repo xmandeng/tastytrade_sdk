@@ -92,6 +92,35 @@ This skill fits into the development workflow as:
 2. `/architecture TT-XXX Title` — **solidify implementation details** with visual architecture
 3. Implementation begins
 
+## Node Layout Guidelines
+
+Arrange nodes as a **top-down tree**, not a circular web. The user expects a clear directional flow:
+
+1. **Source nodes at the top** — data origins (e.g., Brokerage WS, API) get the highest `y` values (smallest numbers)
+2. **Processing nodes in the middle** — orchestrators, services that transform or route data
+3. **Sink nodes at the bottom** — databases, message buses, terminal outputs get the largest `y` values
+4. **Fan-out horizontally** — when a node writes to multiple sinks, spread them across the `x` axis on the same row
+5. **Center the primary flow** — the main data path should run down the center; secondary paths branch left/right
+
+**Typical spacing:** ~170px vertical gap between tiers, ~200px horizontal gap between siblings.
+
+**Before pane example (3-tier):**
+```
+Source:     x:150, y:30   (centered)
+Process:    x:100, y:200  (centered)
+Sinks:      x:-90/130/360, y:420  (fanned out left-to-right)
+```
+
+**After pane with new intermediate tier:**
+```
+Source:     x:310, y:44
+Process:    x:260, y:206
+Middle:     x:466, y:372 / x:466, y:511  (new nodes between process and sinks)
+Sinks:      x:-70/96/288, y:682  (fanned out, pushed down)
+```
+
+Avoid circular layouts where edges loop back up. Every edge should flow **downward** or **horizontally** — never upward except for explicit feedback/hydration paths.
+
 ## Layer Colors
 
 | Layer | Color | Use For |
