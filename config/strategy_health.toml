@@ -8,6 +8,7 @@ dte_critical = 7
 max_loss_warning = 0.75
 max_loss_critical = 0.90
 delta_drift_warning = 0.30
+delta_drift_critical = 0.50
 
 [iron_condor]
 dte_warning = 14
@@ -24,4 +25,5 @@ dte_warning = 5
 dte_critical = 3
 
 [jade_lizard]
-delta_drift_warning = 0.35
+delta_drift_warning = 0.40
+delta_drift_critical = 0.50
