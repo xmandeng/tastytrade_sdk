@@ -34,6 +34,7 @@ class HealthThresholds:
     max_loss_warning: float = 0.75
     max_loss_critical: float = 0.90
     delta_drift_warning: float = 0.30
+    delta_drift_critical: float = 0.50
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class StrategyHealthMonitor:
             max_loss_warning=default_section.get("max_loss_warning", 0.75),
             max_loss_critical=default_section.get("max_loss_critical", 0.90),
             delta_drift_warning=default_section.get("delta_drift_warning", 0.30),
+            delta_drift_critical=default_section.get("delta_drift_critical", 0.50),
         )
 
         # Load per-strategy-type overrides
@@ -95,6 +97,10 @@ class StrategyHealthMonitor:
                 delta_drift_warning=section.get(
                     "delta_drift_warning",
                     self.default_thresholds.delta_drift_warning,
+                ),
+                delta_drift_critical=section.get(
+                    "delta_drift_critical",
+                    self.default_thresholds.delta_drift_critical,
                 ),
             )
 
@@ -157,7 +163,19 @@ class StrategyHealthMonitor:
                 else 1
             )
             per_pos_delta = net_delta / qty if qty > 0 else net_delta
-            if abs(per_pos_delta) > thresholds.delta_drift_warning:
+            abs_delta = abs(per_pos_delta)
+            if abs_delta > thresholds.delta_drift_critical:
+                alerts.append(
+                    HealthAlert(
+                        strategy=strategy,
+                        level=AlertLevel.CRITICAL,
+                        message=(
+                            f"Net delta={per_pos_delta:.2f} exceeds "
+                            f"+/-{thresholds.delta_drift_critical}"
+                        ),
+                    )
+                )
+            elif abs_delta > thresholds.delta_drift_warning:
                 alerts.append(
                     HealthAlert(
                         strategy=strategy,

@@ -64,6 +64,7 @@ class TestHealthThresholds:
         assert t.max_loss_warning == 0.75
         assert t.max_loss_critical == 0.90
         assert t.delta_drift_warning == 0.30
+        assert t.delta_drift_critical == 0.50
 
     def test_frozen(self):
         t = HealthThresholds()
@@ -86,6 +87,13 @@ class TestStrategyHealthMonitor:
         assert t.dte_warning == 14
         assert t.dte_critical == 7
         assert t.delta_drift_warning == 0.20
+
+    def test_jade_lizard_thresholds(self):
+        """Jade lizard uses relaxed delta thresholds from TOML."""
+        monitor = StrategyHealthMonitor()
+        t = monitor.thresholds_for(StrategyType.JADE_LIZARD)
+        assert t.delta_drift_warning == 0.40
+        assert t.delta_drift_critical == 0.50
 
     def test_thresholds_for_unknown_type_falls_back_to_default(self):
         monitor = StrategyHealthMonitor()
@@ -207,6 +215,193 @@ class TestHealthChecks:
         delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
         assert len(delta_alerts) == 1
         assert delta_alerts[0].level == AlertLevel.WARNING
+
+    def test_delta_drift_critical(self):
+        """Very high net delta triggers delta drift critical."""
+        legs = (
+            ParsedLeg(
+                streamer_symbol=".SPYC310",
+                symbol="SPY  C310",
+                underlying="SPY",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="C",
+                strike=Decimal("310"),
+                expiration=date(2026, 3, 20),
+                days_to_expiration=30,
+                delta=-0.70,
+            ),
+        )
+        strategy = make_strategy(
+            strategy_type=StrategyType.NAKED_CALL,
+            legs=legs,
+        )
+        monitor = StrategyHealthMonitor()
+        alerts = monitor.check(strategy)
+        delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
+        assert len(delta_alerts) == 1
+        assert delta_alerts[0].level == AlertLevel.CRITICAL
+
+    def test_jade_lizard_no_warning_at_039(self):
+        """Jade lizard at delta=-0.39 should NOT trigger warning (threshold=0.40).
+
+        net_delta = (-1)(-0.40) + (1)(-0.35) + (-1)(0.44) = 0.40 - 0.35 - 0.44 = -0.39
+        """
+        legs = (
+            ParsedLeg(
+                streamer_symbol=".QQQP542",
+                symbol="QQQ  P542",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="P",
+                strike=Decimal("542"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=-0.40,
+            ),
+            ParsedLeg(
+                streamer_symbol=".QQQP538",
+                symbol="QQQ  P538",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=1,
+                option_type="P",
+                strike=Decimal("538"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=-0.35,
+            ),
+            ParsedLeg(
+                streamer_symbol=".QQQC600",
+                symbol="QQQ  C600",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="C",
+                strike=Decimal("600"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=0.44,
+            ),
+        )
+        strategy = make_strategy(
+            strategy_type=StrategyType.JADE_LIZARD,
+            underlying="QQQ",
+            legs=legs,
+        )
+        monitor = StrategyHealthMonitor()
+        alerts = monitor.check(strategy)
+        delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
+        assert len(delta_alerts) == 0
+
+    def test_jade_lizard_warning_at_045(self):
+        """Jade lizard at delta=-0.45 triggers WARNING (between 0.40 and 0.50).
+
+        net_delta = (-1)(-0.40) + (1)(-0.35) + (-1)(0.50) = 0.40 - 0.35 - 0.50 = -0.45
+        """
+        legs = (
+            ParsedLeg(
+                streamer_symbol=".QQQP542",
+                symbol="QQQ  P542",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="P",
+                strike=Decimal("542"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=-0.40,
+            ),
+            ParsedLeg(
+                streamer_symbol=".QQQP538",
+                symbol="QQQ  P538",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=1,
+                option_type="P",
+                strike=Decimal("538"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=-0.35,
+            ),
+            ParsedLeg(
+                streamer_symbol=".QQQC600",
+                symbol="QQQ  C600",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="C",
+                strike=Decimal("600"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=0.50,
+            ),
+        )
+        strategy = make_strategy(
+            strategy_type=StrategyType.JADE_LIZARD,
+            underlying="QQQ",
+            legs=legs,
+        )
+        monitor = StrategyHealthMonitor()
+        alerts = monitor.check(strategy)
+        delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
+        assert len(delta_alerts) == 1
+        assert delta_alerts[0].level == AlertLevel.WARNING
+
+    def test_jade_lizard_critical_at_055(self):
+        """Jade lizard at delta=-0.55 triggers CRITICAL (exceeds 0.50).
+
+        net_delta = (-1)(-0.40) + (1)(-0.35) + (-1)(0.60) = 0.40 - 0.35 - 0.60 = -0.55
+        """
+        legs = (
+            ParsedLeg(
+                streamer_symbol=".QQQP542",
+                symbol="QQQ  P542",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="P",
+                strike=Decimal("542"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=-0.40,
+            ),
+            ParsedLeg(
+                streamer_symbol=".QQQP538",
+                symbol="QQQ  P538",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=1,
+                option_type="P",
+                strike=Decimal("538"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=-0.35,
+            ),
+            ParsedLeg(
+                streamer_symbol=".QQQC600",
+                symbol="QQQ  C600",
+                underlying="QQQ",
+                instrument_type=InstrumentType.EQUITY_OPTION,
+                signed_quantity=-1,
+                option_type="C",
+                strike=Decimal("600"),
+                expiration=date(2026, 5, 15),
+                days_to_expiration=39,
+                delta=0.60,
+            ),
+        )
+        strategy = make_strategy(
+            strategy_type=StrategyType.JADE_LIZARD,
+            underlying="QQQ",
+            legs=legs,
+        )
+        monitor = StrategyHealthMonitor()
+        alerts = monitor.check(strategy)
+        delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
+        assert len(delta_alerts) == 1
+        assert delta_alerts[0].level == AlertLevel.CRITICAL
 
     def test_no_delta_alert_for_long_stock(self):
         """Long Stock is delta-exempt — no delta drift warning."""
