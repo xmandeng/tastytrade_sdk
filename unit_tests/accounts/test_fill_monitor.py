@@ -503,7 +503,7 @@ async def run_monitor_briefly(
     """Run the fill monitor and cancel it after a brief timeout."""
     influx = MagicMock()
     task = asyncio.create_task(
-        monitor_fills_for_entry_credits(redis_client, publisher, influx)
+        monitor_fills_for_entry_credits(redis_client, publisher, influx, "TEST00001")
     )
     await asyncio.sleep(timeout)
     task.cancel()
