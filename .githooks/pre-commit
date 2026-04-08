@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Checked-in pre-commit hook. Uses core.hooksPath so pre-commit install
+# is never needed and no absolute paths get baked in.
+#
+# Resolution order:
+#   1. .venv/bin/python relative to repo root (local dev, devcontainer, worktree)
+#   2. pre-commit on PATH (CI, global install)
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+REPO_PYTHON="${REPO_ROOT:-.}/.venv/bin/python"
+
+ARGS=(hook-impl --config=.pre-commit-config.yaml --hook-type=pre-commit --hook-dir "$(cd "$(dirname "$0")" && pwd)" -- "$@")
+
+if [ -x "$REPO_PYTHON" ]; then
+    exec "$REPO_PYTHON" -mpre_commit "${ARGS[@]}"
+elif command -v pre-commit > /dev/null; then
+    exec pre-commit "${ARGS[@]}"
+else
+    echo '`pre-commit` not found. Run: uv sync && git config core.hooksPath .githooks' 1>&2
+    exit 1
+fi

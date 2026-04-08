@@ -13,11 +13,11 @@ export PATH="$HOME/.local/bin:$PATH"
 # Step 1: Install all project dependencies
 echo "Installing dependencies with UV..."
 uv sync
-# Step 2: Install pre-commit hooks
+# Step 2: Activate checked-in pre-commit hooks
 if [ -d "/workspace/.git" ]; then
-    echo "Installing pre-commit hooks..."
+    echo "Activating pre-commit hooks via core.hooksPath..."
     cd /workspace
-    uv run pre-commit install 2>/dev/null || echo "  pre-commit install failed (non-critical)"
+    git config core.hooksPath .githooks
 fi
 
 # Step 3: Run startup.sh (env persistence, git, gh CLI)
