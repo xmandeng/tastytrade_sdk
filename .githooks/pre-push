@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Pre-push hook: run pytest before pushing commits.
+# Skips when there are no new commits ahead of the remote.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+REPO_PYTHON="${REPO_ROOT:-.}/.venv/bin/python"
+
+# Read push info from stdin (provided by git)
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Skip branch deletions
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # Skip if no new commits (initial push or no changes)
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # New branch — check if there are commits ahead of main
+        COMMIT_COUNT=$(git rev-list --count main.."$local_sha" 2>/dev/null || echo "0")
+    else
+        COMMIT_COUNT=$(git rev-list --count "$remote_sha".."$local_sha" 2>/dev/null || echo "0")
+    fi
+
+    if [ "$COMMIT_COUNT" -eq 0 ]; then
+        continue
+    fi
+
+    echo "pre-push: $COMMIT_COUNT new commit(s) — running pytest..."
+
+    if [ -x "$REPO_PYTHON" ]; then
+        exec "$REPO_PYTHON" -m pytest -q "$REPO_ROOT/unit_tests"
+    elif command -v uv > /dev/null; then
+        exec uv run pytest -q "$REPO_ROOT/unit_tests"
+    else
+        echo "pre-push: no python environment found, skipping tests" >&2
+        exit 0
+    fi
+done

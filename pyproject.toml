@@ -61,6 +61,7 @@ dev = [
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
     "pytest-mock>=3.14.1",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.12.5",
     "types-pillow>=10.0.0",
     "types-pytz>=2025.2.0.20250516",
@@ -79,6 +80,9 @@ build-backend = "hatchling.build"
 # ============================================================================
 # Tool Configuration
 # ============================================================================
+
+[tool.pytest.ini_options]
+addopts = "-n auto"
 
 [tool.ruff]
 line-length = 88
