@@ -1157,12 +1157,12 @@ const nodes = [
     connections: ['mkt-provider']
   },
   { id: 'redis', x: 920, y: 1140, layer: 'persistence',
-    label: 'Redis', type: 'Pub/Sub + Hash Store',
+    label: 'Redis', type: 'Pub/Sub + Hash Store + Streams',
     badge: 'TCP :6379',
-    desc: 'Dual role: pub/sub for real-time event distribution AND hash store for subscription tracking.',
-    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{engine}:{symbol} (TT-56 engine-aware)\n  → market:TradeSignal:hull_macd:SPX{=5m}\n  → market:TradeSignal:rsi:SPX{=5m}\n\nPSUBSCRIBE patterns (server-side filtering):\n• market:TradeSignal:hull_macd:* — one engine\n• market:TradeSignal:*:SPX{=5m} — one symbol\n• market:TradeSignal:* — all signals\n\nHash store:\n• HSET subscriptions {symbol} JSON({active, last_update, metadata})`,
+    desc: 'Three roles: pub/sub for real-time events, hash store for state, and Streams for ordered fill history (TT-108).',
+    details: `Pub/Sub channels:\n• market:TradeEvent:{symbol}\n• market:QuoteEvent:{symbol}\n• market:CandleEvent:{symbol}{=interval}\n• market:TradeSignal:{engine}:{symbol} (TT-56 engine-aware)\n  → market:TradeSignal:hull_macd:SPX{=5m}\n  → market:TradeSignal:rsi:SPX{=5m}\n\nPSUBSCRIBE patterns (server-side filtering):\n• market:TradeSignal:hull_macd:* — one engine\n• market:TradeSignal:*:SPX{=5m} — one symbol\n• market:TradeSignal:* — all signals\n\nHash store:\n• HSET subscriptions {symbol} JSON({active, last_update, metadata})\n\nStreams (TT-108):\n• tastytrade:fills:{account}:{underlying} — ordered fill log\n  Hydrated from InfluxDB at startup, live fills via XADD\n  DEL-then-hydrate for idempotency, flushed at shutdown\n  Fields: fill_id, order_id, symbol, underlying, action,\n  instrument_type, fill_price, quantity, filled_at`,
     insights: [
-      { author: 'claude', text: 'Redis serves two unrelated roles here: (1) pub/sub for real-time event fan-out to decoupled services, (2) hash store for subscription state persistence. These could theoretically be separate Redis instances, but sharing one simplifies the deployment.' },
+      { author: 'claude', text: 'Redis serves three roles: (1) pub/sub for real-time event fan-out, (2) hash store for state persistence, (3) Streams for ordered fill history (TT-108). Streams are a compute layer — disposable and rebuilt from InfluxDB on each startup.' },
     ],
     connections: ['redis-sub','sub-store']
   },
@@ -1365,9 +1365,9 @@ const nodes = [
     label: 'AccountStreamPublisher', type: 'Redis Writer',
     badge: 'TT-62',
     file: 'accounts/publisher.py',
-    desc: 'Publishes account events (positions, balances, instruments, entry credits) to Redis HSET for on-demand reads. Single responsibility: account data → Redis.',
-    details: `Four Redis HSET keys:\n• tastytrade:positions — keyed by streamer_symbol\n• tastytrade:balances — keyed by account\n• tastytrade:instruments — keyed by symbol\n• tastytrade:entry_credits — keyed by symbol (dollar cost basis per option leg)\n\nPositions: removes closed (qty=0) positions.\nEntry credits: computed directly from order fill data (TT-87) — fill monitor reacts to FILLED orders, extracts fill prices × multiplier, publishes immediately. No REST API call or position lookup needed.\nInstruments: accepts any instrument model type\n(EquityOptionInstrument, FutureOptionInstrument, etc.)`,
-    code: `class AccountStreamPublisher:\n  POSITIONS_KEY = "tastytrade:positions"\n  BALANCES_KEY = "tastytrade:balances"\n  INSTRUMENTS_KEY = "tastytrade:instruments"\n  ENTRY_CREDITS_KEY = "tastytrade:entry_credits"\n\n  async def publish_position(self, position):\n    if position.quantity == 0.0:\n      await redis.hdel(POSITIONS_KEY, key)\n    else:\n      await redis.hset(POSITIONS_KEY, key, json)\n\n  async def publish_entry_credits(self, credits):\n    for symbol, credit in credits.items():\n      await redis.hset(ENTRY_CREDITS_KEY, symbol, json)`,
+    desc: 'Publishes account events to Redis HSET + pub/sub + Streams. Manages fill lifecycle streams (TT-108).',
+    details: `Redis HSET keys:\n• tastytrade:positions — keyed by streamer_symbol\n• tastytrade:balances — keyed by account\n• tastytrade:instruments — keyed by symbol\n• tastytrade:entry_credits — keyed by symbol\n\nRedis Streams (TT-108):\n• tastytrade:fills:{account}:{underlying} — ordered fill log\n• fill_stream_key() — builds stream key\n• xadd_fill() — appends fill event\n• flush_fill_streams() — DEL all streams at shutdown\n\nPositions: removes closed (qty=0) positions.\nEntry credits: computed from order fill data (TT-87).\nFill streams: hydrated from InfluxDB at startup,\nlive fills via XADD, flushed at shutdown.`,
+    code: `class AccountStreamPublisher:\n  POSITIONS_KEY = "tastytrade:positions"\n  FILL_STREAM_PREFIX = "tastytrade:fills"\n\n  @staticmethod\n  def fill_stream_key(account, underlying):\n    return f"{FILL_STREAM_PREFIX}:{account}:{underlying}"\n\n  async def xadd_fill(self, account, underlying, data):\n    key = self.fill_stream_key(account, underlying)\n    await self.redis.xadd(key, data)\n\n  async def flush_fill_streams(self, account):\n    # SCAN + DEL all fill streams for account`,
     insights: [
       { author: 'claude', text: 'Instruments are keyed by the Position symbol (OCC format for equity options, broker format for futures). This allows PositionMetricsReader to look up instrument data by the same key used for positions.' },
     ],
