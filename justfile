@@ -3,6 +3,12 @@ set dotenv-load := true
 # TastyTrade SDK - Common development recipes
 # Run `just --list` to see all available recipes
 
+# First-time setup: install dependencies and activate pre-commit hooks
+setup:
+    uv sync
+    git config core.hooksPath .githooks
+    @echo "Setup complete. Pre-commit hooks active."
+
 # Default symbols and intervals for subscription
 default_symbols := "BTC/USD:CXTALP,NVDA,AAPL,QQQ,SPY,SPX"
 default_intervals := "1d,1h,30m,15m,5m,m"
