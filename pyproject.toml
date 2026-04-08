@@ -31,7 +31,7 @@ dependencies = [
     "fastapi>=0.115.8",
     "redis>=5.2.1",
     "hiredis>=3.1.0",
-    "kaleido==0.1.0",
+    "kaleido==0.2.1",
     "Pillow>=10.0.0",
     "ipykernel>=6.30.0",
     "opentelemetry-sdk>=1.20.0",
