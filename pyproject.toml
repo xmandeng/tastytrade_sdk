@@ -28,6 +28,7 @@ dependencies = [
     "plotly>=6.0.0",
     "influxdb-client>=1.48.0",
     "uvicorn>=0.34.0",
+    "fastapi>=0.115.8",
     "redis>=5.2.1",
     "hiredis>=3.1.0",
     "kaleido==0.1.0",

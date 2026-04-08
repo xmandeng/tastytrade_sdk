@@ -145,6 +145,7 @@ When working in git worktrees (e.g., `/tmp/worktrees/TT-XXX`):
    cp "$(git rev-parse --show-toplevel)/.env" .env
    uv venv
    uv sync
+   uv run pre-commit install
    ```
 3. Verify: `uv run pytest --co -q`
 
