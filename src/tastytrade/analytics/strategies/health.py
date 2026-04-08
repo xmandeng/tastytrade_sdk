@@ -195,10 +195,3 @@ class StrategyHealthMonitor:
             pass
 
         return alerts
-
-    def check_all(self, strategies: list[Strategy]) -> list[HealthAlert]:
-        """Check health of all strategies."""
-        alerts: list[HealthAlert] = []
-        for strategy in strategies:
-            alerts.extend(self.check(strategy))
-        return alerts

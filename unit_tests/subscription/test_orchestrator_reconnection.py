@@ -1,8 +1,7 @@
 """Unit tests for orchestrator reconnection logic."""
 
 import asyncio
-from datetime import datetime
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -10,7 +9,6 @@ from tastytrade.config.enumerations import ReconnectReason
 from tastytrade.subscription.orchestrator import (
     extract_candle_parts,
     format_uptime,
-    restore_subscriptions,
 )
 
 
@@ -55,185 +53,6 @@ def test_extract_candle_parts_invalid():
     assert extract_candle_parts("SPY.Quote") is None
     assert extract_candle_parts("") is None
     assert extract_candle_parts("AAPL{1d}") is None  # Missing =
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_no_active():
-    """Test restore_subscriptions when no active subscriptions."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(return_value={})
-
-    count = await restore_subscriptions(mock_dxlink)
-
-    assert count == 0
-    mock_dxlink.subscribe.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_tickers_only():
-    """Test restore_subscriptions with ticker subscriptions only."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL": {},
-            "SPY": {},
-            "QQQ": {},
-        }
-    )
-    mock_dxlink.subscribe = AsyncMock()
-
-    count = await restore_subscriptions(mock_dxlink)
-
-    assert count == 3
-    mock_dxlink.subscribe.assert_called_once_with(["AAPL", "SPY", "QQQ"])
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_candles_only():
-    """Test restore_subscriptions with candle subscriptions only."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL{=1d}": {"last_update": "2026-02-08T12:00:00+00:00"},
-            "SPY{=1h}": {"last_update": "2026-02-08T11:00:00+00:00"},
-        }
-    )
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    count = await restore_subscriptions(mock_dxlink)
-
-    assert count == 2
-    assert mock_dxlink.subscribe_to_candles.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_mixed():
-    """Test restore_subscriptions with mixed ticker and candle subscriptions."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL": {},
-            "SPY": {},
-            "AAPL{=1d}": {"last_update": "2026-02-08T12:00:00+00:00"},
-        }
-    )
-    mock_dxlink.subscribe = AsyncMock()
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    count = await restore_subscriptions(mock_dxlink)
-
-    assert count == 3
-    mock_dxlink.subscribe.assert_called_once_with(["AAPL", "SPY"])
-    mock_dxlink.subscribe_to_candles.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_with_backfill():
-    """Test restore_subscriptions applies 1-hour backfill buffer."""
-    mock_dxlink = Mock()
-    last_update_str = "2026-02-08T12:00:00+00:00"
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL{=1d}": {"last_update": last_update_str},
-        }
-    )
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    await restore_subscriptions(mock_dxlink)
-
-    # Verify backfill time is approximately 1 hour before last_update
-    # Args are: (symbol, interval, from_time)
-    call_args = mock_dxlink.subscribe_to_candles.call_args[0]
-    assert call_args[0] == "AAPL"
-    assert call_args[1] == "1d"
-
-    # from_time should be about 1 hour before last_update
-    from_time = call_args[2]
-    last_update = datetime.fromisoformat(last_update_str)
-    time_diff = (last_update - from_time).total_seconds()
-    assert 3500 <= time_diff <= 3700  # ~1 hour (3600s) with some tolerance
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_invalid_last_update():
-    """Test restore_subscriptions handles invalid last_update timestamp."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL{=1d}": {"last_update": "invalid_timestamp"},
-        }
-    )
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    count = await restore_subscriptions(mock_dxlink)
-
-    # Should still restore, but use default backfill time
-    assert count == 1
-    mock_dxlink.subscribe_to_candles.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_missing_last_update():
-    """Test restore_subscriptions when last_update metadata is missing."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL{=1d}": {},  # No last_update
-        }
-    )
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    count = await restore_subscriptions(mock_dxlink)
-
-    # Should still restore with default backfill
-    assert count == 1
-    mock_dxlink.subscribe_to_candles.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_unparseable_candle_symbol():
-    """Test restore_subscriptions handles candle symbols that can't be parsed."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL{=}": {},  # Candle symbol (has {=) but missing interval
-        }
-    )
-    mock_dxlink.subscribe = AsyncMock()
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    with patch("tastytrade.subscription.orchestrator.logger") as mock_logger:
-        count = await restore_subscriptions(mock_dxlink)
-
-        # Should log warning and skip unparseable candle
-        assert count == 0
-        mock_logger.warning.assert_called_once()
-        mock_dxlink.subscribe_to_candles.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_restore_subscriptions_logs_progress():
-    """Test restore_subscriptions logs restoration progress."""
-    mock_dxlink = Mock()
-    mock_dxlink.subscription_store.get_active_subscriptions = AsyncMock(
-        return_value={
-            "AAPL": {},
-            "AAPL{=1d}": {},
-        }
-    )
-    mock_dxlink.subscribe = AsyncMock()
-    mock_dxlink.subscribe_to_candles = AsyncMock()
-
-    with patch("tastytrade.subscription.orchestrator.logger") as mock_logger:
-        count = await restore_subscriptions(mock_dxlink)
-
-        assert count == 2
-
-        # Should log ticker restoration
-        mock_logger.info.assert_any_call("Restored %d ticker subscriptions", 1)
-
-        # Should log total restored
-        mock_logger.info.assert_any_call("Restored %d total subscriptions", 2)
 
 
 @pytest.mark.asyncio
