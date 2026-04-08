@@ -44,6 +44,7 @@ The system is a collection of independent services that coordinate through Redis
 │  HSET: positions, balances, quotes, Greeks, instruments     │
 │  HSET: account_connection, connection (health)              │
 │  pub/sub: position events, market events, failure triggers  │
+│  Streams: fills by underlying (TT-108)                      │
 └────────┬───────────────────────────────────┬────────────────┘
          │                                   │
          ▼                                   ▼
@@ -142,17 +143,21 @@ asyncio.Queue (one per AccountEventType)
 consume_positions() / consume_balances() / consume_orders() / consume_order_chains()
     │  straight-through consumers, one per event type
     ▼
-AccountStreamPublisher → Redis HSET + pub/sub
+AccountStreamPublisher → Redis HSET + pub/sub + Streams
     │
     ├── tastytrade:events:Order (pub/sub)
     │       │
     │       ▼
     │   monitor_fills_for_entry_credits()   ← reacts to filled orders
-    │       │  for each option leg with "X to Open" action:
-    │       │    compute entry_value from fill prices × multiplier
-    │       │    (multiplier resolved from instruments in Redis)
     │       │
-    │       └── publish_entry_credits() (close fills ignored — position removal handles cleanup)
+    │       ├── XADD fills to Redis Stream (TT-108)
+    │       │    stream key: tastytrade:fills:{account}:{underlying}
+    │       │    deduplicates cumulative broker updates via seen_fill_ids
+    │       │
+    │       └── compute entry credits for option open-fills
+    │            entry_value from fill prices × multiplier
+    │            (multiplier resolved from instruments in Redis)
+    │            publish_entry_credits() (close fills ignored)
     │
     ├── tastytrade:events:EntryCreditsUpdated (pub/sub, downstream)
     │
@@ -259,7 +264,28 @@ Each service is a black box: Redis in → process → output. The producer doesn
 - `tastytrade:events:EntryCreditsUpdated` — Entry credit recomputation notifications
 - `account:simulate_failure` / `subscription:simulate_failure` — Failure simulation
 
-### 4. Protocol-Based Design — Structural Subtyping
+### 4. Redis Streams — Fill Lifecycle Tracking (TT-108)
+
+Redis Streams provide a persistent, ordered log of fills per underlying. Unlike pub/sub (fire-and-forget) or HSET (latest state only), Streams retain the full fill sequence for position lifecycle reconstruction.
+
+**Stream key schema:** `tastytrade:fills:{account}:{underlying}`
+
+For futures, the underlying is the expiry contract (e.g. `/ESM6`, `/CLK6`). For equities, it's the ticker (e.g. `SPY`, `CSCO`).
+
+**Lifecycle:**
+- **Startup:** DEL existing streams, query InfluxDB for filled orders by underlying for all open positions, XADD fills in chronological order (hydration)
+- **Live:** `monitor_fills_for_entry_credits` XADDs each new fill alongside entry credit computation. Cumulative broker updates are deduplicated via in-memory `seen_fill_ids` set
+- **Shutdown:** Flush all fill streams (DEL)
+
+**InfluxDB is the system of record.** Streams are a compute layer — disposable and rebuilt from InfluxDB on every startup. Stream loss is an operational inconvenience, not data loss.
+
+**Fill entry fields:** `fill_id`, `order_id`, `symbol`, `underlying`, `action`, `instrument_type`, `fill_price`, `quantity`, `filled_at`
+
+**Files:**
+- `src/tastytrade/accounts/publisher.py` — `fill_stream_key()`, `xadd_fill()`, `flush_fill_streams()`
+- `src/tastytrade/accounts/orchestrator.py` — `hydrate_fill_streams()`, `extract_fills_from_order_record()`
+
+### 5. Protocol-Based Design — Structural Subtyping
 
 Interfaces are defined as Python `Protocol` classes. Any class with matching method signatures satisfies the protocol — no inheritance required.
 
@@ -272,7 +298,7 @@ Interfaces are defined as Python `Protocol` classes. Any class with matching met
 
 **Why:** Protocols enable dependency injection without inheritance hierarchies. New implementations can be added without modifying existing code. Testing uses mock objects that match the protocol shape.
 
-### 5. Self-Healing Orchestrators — Exponential Backoff
+### 6. Self-Healing Orchestrators — Exponential Backoff
 
 Both streaming services wrap their connection logic in a retry loop with exponential backoff. The pattern is identical across services:
 
@@ -296,7 +322,7 @@ while attempt < max_attempts:
 
 **Singleton lifecycle:** `DXLinkManager` and `MessageRouter` are singletons. On reconnect, the orchestrator resets singletons (`DXLinkManager.instance = None`) before constructing new instances, ensuring `__init__` runs fresh. The `close()` methods on both classes also reset their singleton state. The singleton guard uses `getattr(self, "initialized", False)` (not `hasattr`) to correctly detect uninitialized instances.
 
-### 6. Event-Driven Position Resolution
+### 7. Event-Driven Position Resolution
 
 The subscription service discovers which symbols to stream by listening to position changes — not by polling.
 
@@ -312,7 +338,7 @@ PositionSymbolResolver.listener() receives event
 
 **Why:** Polling introduces latency and wasted cycles. The pub/sub listener reacts to changes in real time. When a new position is opened on the TastyTrade platform, the market data subscription updates within milliseconds.
 
-### 7. Layered Configuration Resolution
+### 8. Layered Configuration Resolution
 
 Configuration values resolve through a three-layer precedence chain:
 
@@ -345,8 +371,8 @@ See [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) for full details.
 | File | Component | Purpose |
 |------|-----------|---------|
 | `accounts/streamer.py` | `AccountStreamer` | Account event WebSocket singleton |
-| `accounts/orchestrator.py` | `run_account_stream` | Self-healing lifecycle with consumers + fill monitor |
-| `accounts/publisher.py` | `AccountStreamPublisher` | Publish to Redis HSET + pub/sub |
+| `accounts/orchestrator.py` | `run_account_stream` | Self-healing lifecycle with consumers + fill monitor + fill stream hydration |
+| `accounts/publisher.py` | `AccountStreamPublisher` | Publish to Redis HSET + pub/sub + Streams |
 | `accounts/models.py` | `Position`, `AccountBalance` | Account data models |
 | `accounts/transactions.py` | `TransactionsClient` | REST API for option transactions + LIFO entry credit computation (startup backfill) |
 | `accounts/client.py` | `AccountsClient` | REST API for account operations |
