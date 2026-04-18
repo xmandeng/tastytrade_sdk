@@ -1492,6 +1492,12 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
         e.preventDefault();
         e.stopPropagation();
         if (rightPanel.classList.contains('collapsed')) {
+          // Opening feedback — close terminal first AND inherit its width.
+          if (!termPanel.classList.contains('collapsed')) {
+            termWidth = termPanel.offsetWidth;
+            rightWidth = termWidth;
+            termPanel.classList.add('collapsed');
+          }
           rightPanel.classList.remove('collapsed');
           rightPanel.style.width = rightWidth + 'px';
         } else {
@@ -1506,6 +1512,12 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
         e.preventDefault();
         e.stopPropagation();
         if (termPanel.classList.contains('collapsed')) {
+          // Opening terminal — close feedback first AND inherit its width.
+          if (!rightPanel.classList.contains('collapsed')) {
+            rightWidth = rightPanel.offsetWidth;
+            termWidth = rightWidth;
+            rightPanel.classList.add('collapsed');
+          }
           termPanel.classList.remove('collapsed');
           termPanel.style.width = termWidth + 'px';
           setTimeout(__fitTerminal, 220);
