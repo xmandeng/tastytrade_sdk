@@ -653,8 +653,111 @@
       max-width: 100%;
       height: auto;
     }
+    /* Terminal panel (TT-127) */
+    .terminal-panel {
+      width: 460px;
+      min-width: 240px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s ease, min-width 0.2s ease;
+    }
+
+    .terminal-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+
+    .terminal-panel.collapsed > * {
+      display: none;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .terminal-header .term-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .term-status {
+      font-size: 10px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--bg-surface-2);
+      color: var(--text-dim);
+    }
+
+    .term-status.connected {
+      color: var(--green);
+      background: var(--green-bg);
+    }
+
+    .term-status.error {
+      color: var(--red);
+      background: var(--red-bg);
+    }
+
+    .terminal-host {
+      flex: 1;
+      min-height: 0;
+      padding: 6px 8px 8px 8px;
+      overflow: hidden;
+    }
+
+    .terminal-host .xterm {
+      height: 100%;
+    }
+
+    /* Send to Claude button (TT-127) */
+    .send-claude-btn {
+      margin: 12px 16px 16px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #0d1117;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: filter 0.15s;
+      font-family: inherit;
+    }
+
+    .send-claude-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    .send-claude-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .send-claude-btn.sent {
+      background: var(--green);
+      border-color: var(--green);
+    }
   </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 </head>
 
 <body>
@@ -671,6 +774,12 @@
     <h1>TT-127: Living Next Turn Planning Portal (rev 2)</h1>
     <div class="stats" id="stats"></div>
     <div class="topbar-toggles">
+      <button class="collapse-toggle" id="termToggle" title="Toggle terminal">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 3h12v10H2V3zm1 1v8h10V4H3z" opacity="0.6"/>
+          <path d="M4 6l2 2-2 2M7 10h3" stroke="currentColor" stroke-width="1" fill="none" opacity="0.9"/>
+        </svg>
+      </button>
       <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
@@ -684,6 +793,17 @@
     <div class="nav" id="nav"></div>
     <div class="resize-handle" id="leftHandle"></div>
     <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="termHandle"></div>
+    <div class="terminal-panel" id="termPanel">
+      <div class="terminal-header">
+        <span class="term-title">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M2 3l3 3-3 3M6 9h4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+          claude --continue
+        </span>
+        <span class="term-status" id="termStatus">connecting…</span>
+      </div>
+      <div class="terminal-host" id="termHost"></div>
+    </div>
     <div class="resize-handle" id="rightHandle"></div>
     <div class="right-panel" id="rightPanel">
       <div class="right-panel-header">
@@ -697,7 +817,7 @@
         <div class="filter-tab" data-filter="question">Questions</div>
       </div>
       <div class="right-panel-content" id="feedbackList"></div>
-      <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">Copy Feedback as Prompt</button>
+      <button class="send-claude-btn" id="sendClaudeBtn" onclick="sendToClaude()" disabled>Send to Claude</button>
     </div>
   </div>
 
@@ -1301,33 +1421,43 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
     }
 
     // Resizable & collapsible panels (mouse + touch)
+    let __fitTerminal = () => { };
     (function () {
       const nav = document.getElementById('nav');
       const rightPanel = document.getElementById('rightPanel');
+      const termPanel = document.getElementById('termPanel');
       const leftHandle = document.getElementById('leftHandle');
       const rightHandle = document.getElementById('rightHandle');
+      const termHandle = document.getElementById('termHandle');
       const leftToggle = document.getElementById('leftToggle');
       const rightToggle = document.getElementById('rightToggle');
+      const termToggle = document.getElementById('termToggle');
 
       let dragging = null;
       let navWidth = 240;
       let rightWidth = 360;
+      let termWidth = 460;
 
       // Restore saved layout
       const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })();
       if (savedLayout.navWidth) navWidth = savedLayout.navWidth;
       if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth;
+      if (savedLayout.termWidth) termWidth = savedLayout.termWidth;
       if (savedLayout.navCollapsed) nav.classList.add('collapsed');
       else nav.style.width = navWidth + 'px';
       if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed');
       else rightPanel.style.width = rightWidth + 'px';
+      // Terminal defaults to closed; only expand if user previously opened it.
+      if (savedLayout.termCollapsed === false) termPanel.style.width = termWidth + 'px';
+      else termPanel.classList.add('collapsed');
 
       function saveLayout() {
         try {
           localStorage.setItem(LAYOUT_KEY, JSON.stringify({
-            navWidth, rightWidth,
+            navWidth, rightWidth, termWidth,
             navCollapsed: nav.classList.contains('collapsed'),
-            rightCollapsed: rightPanel.classList.contains('collapsed')
+            rightCollapsed: rightPanel.classList.contains('collapsed'),
+            termCollapsed: termPanel.classList.contains('collapsed')
           }));
         } catch (e) { }
       }
@@ -1335,10 +1465,13 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
       function updateToggles() {
         const navCollapsed = nav.classList.contains('collapsed');
         const rightCollapsed = rightPanel.classList.contains('collapsed');
+        const termCollapsed = termPanel.classList.contains('collapsed');
         leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
         leftToggle.classList.toggle('panel-collapsed', navCollapsed);
         rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
         rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+        termToggle.title = termCollapsed ? 'Show terminal' : 'Hide terminal';
+        termToggle.classList.toggle('panel-collapsed', termCollapsed);
       }
 
       function toggleNav(e) {
@@ -1369,13 +1502,31 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
         saveLayout();
       }
 
-      let touchFiredLeft = false, touchFiredRight = false;
+      function toggleTerm(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (termPanel.classList.contains('collapsed')) {
+          termPanel.classList.remove('collapsed');
+          termPanel.style.width = termWidth + 'px';
+          setTimeout(__fitTerminal, 220);
+        } else {
+          termWidth = termPanel.offsetWidth;
+          termPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      let touchFiredLeft = false, touchFiredRight = false, touchFiredTerm = false;
 
       leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
       leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
 
       rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
       rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+      termToggle.addEventListener('touchend', e => { touchFiredTerm = true; toggleTerm(e); }, { passive: false });
+      termToggle.addEventListener('click', e => { if (touchFiredTerm) { touchFiredTerm = false; return; } toggleTerm(e); });
 
       updateToggles();
 
@@ -1384,10 +1535,12 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
         e.preventDefault();
         dragging = side;
         document.body.classList.add('resizing');
-        (side === 'left' ? leftHandle : rightHandle).classList.add('dragging');
+        const handle = side === 'left' ? leftHandle : (side === 'term' ? termHandle : rightHandle);
+        handle.classList.add('dragging');
       }
 
       leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left'));
+      termHandle.addEventListener('mousedown', e => onDragStart(e, 'term'));
       rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right'));
 
       document.addEventListener('mousemove', e => {
@@ -1399,6 +1552,7 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
 
       // Drag resize (touch)
       leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false });
+      termHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'term'); }, { passive: false });
       rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false });
 
       document.addEventListener('touchmove', e => {
@@ -1415,11 +1569,21 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
           nav.classList.remove('collapsed');
           nav.style.width = w + 'px';
           navWidth = w;
-        } else {
+        } else if (dragging === 'right') {
           const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
           rightPanel.classList.remove('collapsed');
           rightPanel.style.width = w + 'px';
           rightWidth = w;
+        } else if (dragging === 'term') {
+          // termHandle sits between doc and terminal; the terminal's width is
+          // (everything to the right of clientX) minus the right-panel width
+          // (when expanded) and the right resize handle (1px).
+          const rightTaken = rightPanel.classList.contains('collapsed') ? 0 : rightPanel.offsetWidth + 1;
+          const w = Math.max(240, Math.min(900, window.innerWidth - clientX - rightTaken));
+          termPanel.classList.remove('collapsed');
+          termPanel.style.width = w + 'px';
+          termWidth = w;
+          __fitTerminal();
         }
         updateToggles();
       }
@@ -1429,10 +1593,160 @@ No separate \`/api/write\` endpoint, no special "Write" button in the UI. The \`
         document.body.classList.remove('resizing');
         leftHandle.classList.remove('dragging');
         rightHandle.classList.remove('dragging');
+        termHandle.classList.remove('dragging');
         dragging = null;
         saveLayout();
+        __fitTerminal();
       }
+
+      // Re-fit terminal on viewport changes
+      window.addEventListener('resize', () => __fitTerminal());
     })();
+
+    // ============================================================
+    // TT-127: Terminal panel + Send to Claude
+    // Mounts xterm.js in #termHost, opens a websocket to the
+    // devserver's /api/claude endpoint (which spawns
+    // `claude --continue` in a PTY), and exposes sendToClaude()
+    // which writes the existing feedback bundle to that session.
+    // ============================================================
+    let __claudeWS = null;
+    let __claudeReady = false;
+    let __claudeTerm = null;
+    let __claudeFitAddon = null;
+
+    (function initClaudeTerminal() {
+      const host = document.getElementById('termHost');
+      const status = document.getElementById('termStatus');
+      const sendBtn = document.getElementById('sendClaudeBtn');
+      if (!host || typeof Terminal === 'undefined') return;
+
+      const term = new Terminal({
+        fontFamily: '"SF Mono", "Fira Code", "JetBrains Mono", monospace',
+        fontSize: 12,
+        lineHeight: 1.2,
+        theme: {
+          background: '#161b22',
+          foreground: '#e6edf3',
+          cursor: '#58a6ff',
+          selectionBackground: 'rgba(88, 166, 255, 0.35)',
+        },
+        cursorBlink: true,
+        scrollback: 5000,
+        convertEol: false,
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(host);
+      try { fitAddon.fit(); } catch (e) { }
+
+      __claudeTerm = term;
+      __claudeFitAddon = fitAddon;
+      __fitTerminal = () => {
+        if (document.getElementById('termPanel').classList.contains('collapsed')) return;
+        try { fitAddon.fit(); } catch (e) { }
+        if (__claudeReady && __claudeWS && __claudeWS.readyState === WebSocket.OPEN) {
+          try {
+            __claudeWS.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          } catch (e) { }
+        }
+      };
+
+      function setStatus(text, kind) {
+        status.textContent = text;
+        status.classList.remove('connected', 'error');
+        if (kind) status.classList.add(kind);
+      }
+
+      function connect() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${proto}//${location.host}/api/claude`;
+        setStatus('connecting…');
+        let ws;
+        try {
+          ws = new WebSocket(url);
+        } catch (e) {
+          setStatus('error', 'error');
+          term.writeln(`\r\n[devserver] failed to open ${url}: ${e}\r\n`);
+          return;
+        }
+        ws.binaryType = 'arraybuffer';
+        __claudeWS = ws;
+
+        ws.onopen = () => {
+          __claudeReady = true;
+          setStatus('connected', 'connected');
+          sendBtn.disabled = false;
+          // send initial size so PTY matches xterm
+          try {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          } catch (e) { }
+        };
+
+        ws.onmessage = (ev) => {
+          if (typeof ev.data === 'string') {
+            // control message (e.g. error JSON); print to terminal for visibility
+            term.writeln('\r\n[devserver] ' + ev.data);
+            return;
+          }
+          term.write(new Uint8Array(ev.data));
+        };
+
+        ws.onerror = () => {
+          setStatus('error', 'error');
+        };
+
+        ws.onclose = () => {
+          __claudeReady = false;
+          sendBtn.disabled = true;
+          setStatus('disconnected');
+          term.writeln('\r\n[devserver] session closed. refresh page to reconnect.\r\n');
+        };
+
+        const encoder = new TextEncoder();
+        term.onData((data) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          try { ws.send(encoder.encode(data)); } catch (e) { }
+        });
+
+        term.onResize(({ cols, rows }) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          try { ws.send(JSON.stringify({ type: 'resize', cols, rows })); } catch (e) { }
+        });
+      }
+
+      connect();
+    })();
+
+    function sendToClaude() {
+      const btn = document.getElementById('sendClaudeBtn');
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      if (!__claudeWS || __claudeWS.readyState !== WebSocket.OPEN) {
+        btn.textContent = 'Terminal disconnected';
+        setTimeout(() => { btn.textContent = 'Send to Claude'; }, 2000);
+        return;
+      }
+      // On send: open terminal panel, collapse feedback panel — single focused surface.
+      const termPanel = document.getElementById('termPanel');
+      const rightPanel = document.getElementById('rightPanel');
+      if (termPanel.classList.contains('collapsed')) {
+        document.getElementById('termToggle').click();
+      }
+      if (!rightPanel.classList.contains('collapsed')) {
+        document.getElementById('rightToggle').click();
+      }
+      const encoder = new TextEncoder();
+      // Newline at the end so Claude Code submits the bundle as one turn.
+      __claudeWS.send(encoder.encode(prompt + '\n'));
+      btn.textContent = 'Sent';
+      btn.classList.add('sent');
+      if (__claudeTerm) __claudeTerm.focus();
+      setTimeout(() => {
+        btn.textContent = 'Send to Claude';
+        btn.classList.remove('sent');
+      }, 2000);
+    }
 
     mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: {
       primaryColor: '#1c2128', primaryTextColor: '#e6edf3', primaryBorderColor: '#30363d',
