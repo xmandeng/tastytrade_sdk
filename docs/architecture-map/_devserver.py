@@ -9,11 +9,19 @@ Serves the current directory. PUT requests write the body to the requested file 
 
 API endpoints:
     POST /api/refresh — re-export trade data and market data from Redis to JSON files.
+    WS   /api/claude  — bridges browser xterm.js to a local `claude --continue` PTY,
+                        so the review playground can drive the user's running Claude
+                        Code session. See TT-127.
 """
 
+import base64
+import hashlib
 import json
 import os
+import socket
+import struct
 import sys
+import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -117,8 +125,238 @@ def refresh_from_redis() -> dict[str, str]:
     return results
 
 
+# =============================================================================
+# WebSocket framing (RFC 6455) — minimal text/binary support for the
+# /api/claude PTY bridge. Hand-rolled to avoid pulling websockets/asyncio into
+# the otherwise-sync http.server.
+# =============================================================================
+
+WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+OP_CONT = 0x0
+OP_TEXT = 0x1
+OP_BINARY = 0x2
+OP_CLOSE = 0x8
+OP_PING = 0x9
+OP_PONG = 0xA
+
+
+def ws_recv_exactly(sock: socket.socket, n: int) -> bytes | None:
+    buf = bytearray()
+    while len(buf) < n:
+        try:
+            chunk = sock.recv(n - len(buf))
+        except OSError:
+            return None
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def ws_read_frame(sock: socket.socket) -> tuple[int, bytes] | None:
+    """Read one WebSocket frame. Returns (opcode, payload) or None on close/error."""
+    header = ws_recv_exactly(sock, 2)
+    if header is None:
+        return None
+    byte1, byte2 = header[0], header[1]
+    opcode = byte1 & 0x0F
+    masked = (byte2 & 0x80) != 0
+    length = byte2 & 0x7F
+    if length == 126:
+        ext = ws_recv_exactly(sock, 2)
+        if ext is None:
+            return None
+        length = struct.unpack("!H", ext)[0]
+    elif length == 127:
+        ext = ws_recv_exactly(sock, 8)
+        if ext is None:
+            return None
+        length = struct.unpack("!Q", ext)[0]
+    mask_key = b""
+    if masked:
+        mk = ws_recv_exactly(sock, 4)
+        if mk is None:
+            return None
+        mask_key = mk
+    payload = ws_recv_exactly(sock, length) if length else b""
+    if payload is None:
+        return None
+    if masked:
+        payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+    return (opcode, payload)
+
+
+def ws_send_frame(sock: socket.socket, opcode: int, payload: bytes) -> None:
+    """Send one unfragmented frame from server (no masking, FIN=1)."""
+    header = bytearray([0x80 | opcode])
+    length = len(payload)
+    if length < 126:
+        header.append(length)
+    elif length < (1 << 16):
+        header.append(126)
+        header.extend(struct.pack("!H", length))
+    else:
+        header.append(127)
+        header.extend(struct.pack("!Q", length))
+    sock.sendall(bytes(header) + payload)
+
+
+def find_repo_root() -> Path:
+    """Walk up from this file to the repo root (where .git lives)."""
+    p = Path(__file__).resolve()
+    for ancestor in [p, *p.parents]:
+        if (ancestor / ".git").exists():
+            return ancestor
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def bridge_ws_to_claude_pty(sock: socket.socket) -> None:
+    """Spawn `claude --continue` in a PTY and bridge stdin/stdout to the websocket.
+
+    Wire protocol:
+      - BINARY frames in both directions carry raw PTY bytes (terminal I/O).
+      - TEXT frames carry JSON control messages from the client. Currently
+        only `{"type":"resize","rows":N,"cols":N}` is recognised.
+    """
+    import ptyprocess
+
+    repo_root = find_repo_root()
+    env = os.environ.copy()
+    env.setdefault("TERM", "xterm-256color")
+
+    try:
+        proc = ptyprocess.PtyProcess.spawn(  # type: ignore[attr-defined]
+            ["claude", "--continue"],
+            cwd=str(repo_root),
+            env=env,
+            dimensions=(40, 120),
+        )
+    except Exception as exc:
+        try:
+            ws_send_frame(
+                sock,
+                OP_TEXT,
+                json.dumps({"error": f"failed to spawn claude: {exc}"}).encode(),
+            )
+            ws_send_frame(sock, OP_CLOSE, b"")
+        except OSError:
+            pass
+        return
+
+    pty_fd = proc.fd
+    stop = threading.Event()
+
+    def pty_to_ws() -> None:
+        try:
+            while not stop.is_set():
+                try:
+                    data = os.read(pty_fd, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                try:
+                    ws_send_frame(sock, OP_BINARY, data)
+                except OSError:
+                    break
+        finally:
+            stop.set()
+
+    def ws_to_pty() -> None:
+        try:
+            while not stop.is_set():
+                frame = ws_read_frame(sock)
+                if frame is None:
+                    break
+                opcode, payload = frame
+                if opcode == OP_CLOSE:
+                    break
+                if opcode == OP_PING:
+                    try:
+                        ws_send_frame(sock, OP_PONG, payload)
+                    except OSError:
+                        break
+                    continue
+                if opcode == OP_TEXT:
+                    try:
+                        msg = json.loads(payload.decode("utf-8", errors="replace"))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                    if isinstance(msg, dict) and msg.get("type") == "resize":
+                        try:
+                            rows = int(msg["rows"])
+                            cols = int(msg["cols"])
+                            proc.setwinsize(rows, cols)
+                        except (KeyError, ValueError, OSError):
+                            pass
+                    continue
+                if opcode == OP_BINARY:
+                    try:
+                        os.write(pty_fd, payload)
+                    except OSError:
+                        break
+        finally:
+            stop.set()
+
+    t1 = threading.Thread(target=pty_to_ws, name="claude-pty->ws", daemon=True)
+    t2 = threading.Thread(target=ws_to_pty, name="claude-ws->pty", daemon=True)
+    t1.start()
+    t2.start()
+    try:
+        stop.wait()
+    finally:
+        try:
+            if proc.isalive():
+                proc.terminate(force=True)
+        except Exception:
+            pass
+        try:
+            ws_send_frame(sock, OP_CLOSE, b"")
+        except OSError:
+            pass
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        t1.join(timeout=2)
+        t2.join(timeout=2)
+
+
 class DevHandler(SimpleHTTPRequestHandler):
     """Extends SimpleHTTPRequestHandler with PUT and API support."""
+
+    def do_GET(self) -> None:
+        if self.path == "/api/claude" and (
+            self.headers.get("Upgrade", "").lower() == "websocket"
+        ):
+            self.handle_claude_upgrade()
+            return
+        super().do_GET()
+
+    def handle_claude_upgrade(self) -> None:
+        key = self.headers.get("Sec-WebSocket-Key")
+        version = self.headers.get("Sec-WebSocket-Version", "")
+        if not key or version != "13":
+            self.send_error(400, "Bad WebSocket upgrade")
+            return
+        accept = base64.b64encode(
+            hashlib.sha1((key + WS_GUID).encode()).digest()
+        ).decode()
+        self.close_connection = True  # do not let BaseHTTPRequestHandler reuse
+        self.wfile.write(
+            (
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                f"Sec-WebSocket-Accept: {accept}\r\n"
+                "\r\n"
+            ).encode()
+        )
+        self.wfile.flush()
+        try:
+            bridge_ws_to_claude_pty(self.connection)
+        except Exception as exc:
+            self.log_message("WS /api/claude bridge error: %s", exc)
 
     def do_POST(self) -> None:
         if self.path == "/api/refresh":
@@ -183,7 +421,6 @@ class DevHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    import socket
 
     class ReusableThreadingHTTPServer(ThreadingHTTPServer):
         allow_reuse_address = True
@@ -201,6 +438,7 @@ def main() -> None:
     print(f"DevServer running on http://localhost:{port}/")
     print(f"Serving: {os.getcwd()}")
     print("PUT enabled for .json files (layout persistence)")
+    print(f"WS  /api/claude  bridges to `claude --continue` from {find_repo_root()}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
