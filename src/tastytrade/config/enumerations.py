@@ -35,17 +35,6 @@ class EventTypes(Enum):
     Candle = CandleEvent
 
 
-class SessionState(Enum):
-    """Defines possible states for a trading session."""
-
-    INITIALIZING = "initializing"
-    CONNECTED = "connected"
-    AUTHENTICATING = "authenticating"
-    AUTHENTICATED = "authenticated"
-    DISCONNECTED = "disconnected"
-    ERROR = "error"
-
-
 class DXLinkErrorType(Enum):
     """DXLink protocol error types from AsyncAPI spec."""
 

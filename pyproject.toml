@@ -64,6 +64,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ptyprocess>=0.7.0",
     "ruff>=0.12.5",
+    "vulture>=2.14",
     "types-pillow>=10.0.0",
     "types-pytz>=2025.2.0.20250516",
     "types-redis>=4.6.0.20241004",
@@ -84,6 +85,45 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 addopts = "-n auto"
+
+# ============================================================================
+# Coverage Configuration
+# ============================================================================
+
+[tool.coverage.run]
+source = ["src/tastytrade"]
+omit = [
+    # Tier 3: Justified exclusions (see docs/COVERAGE_STRATEGY.md)
+    "src/tastytrade/charting/*",
+    "src/tastytrade/subscription/cli.py",
+    "src/tastytrade/signal/cli.py",
+    "src/tastytrade/backtest/cli.py",
+    "src/tastytrade/analytics/visualizations/plots.py",
+    "src/tastytrade/analytics/indicators/momentum.py",
+    "src/tastytrade/common/observability.py",
+    "src/tastytrade/common/logging.py",
+]
+
+[tool.coverage.report]
+# Effective target after Tier 3 exclusions
+fail_under = 70
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]
+
+# ============================================================================
+# Vulture Configuration
+# ============================================================================
+
+[tool.vulture]
+min_confidence = 80
+paths = ["src/tastytrade"]
+exclude = []
 
 [tool.ruff]
 line-length = 88

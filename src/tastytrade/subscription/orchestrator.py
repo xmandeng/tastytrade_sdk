@@ -10,7 +10,6 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
 
 from tastytrade.config import RedisConfigManager
 from tastytrade.config.enumerations import Channels, ReconnectReason
@@ -120,69 +119,6 @@ def extract_candle_parts(symbol: str) -> tuple[str, str] | None:
     if match:
         return match.group(1), match.group(2)
     return None
-
-
-async def restore_subscriptions(dxlink: DXLinkManager) -> int:
-    """
-    Restore previously active subscriptions after reconnect.
-
-    Retrieves subscriptions from the Redis store and re-subscribes.
-    For candle subscriptions, uses a 1-hour backfill buffer from last_update.
-
-    Args:
-        dxlink: The DXLinkManager instance to restore subscriptions on.
-
-    Returns:
-        Number of subscriptions restored.
-    """
-    active: Dict[str, Any] = await dxlink.subscription_store.get_active_subscriptions()
-
-    if not active:
-        logger.info("No active subscriptions to restore")
-        return 0
-
-    # Separate ticker vs candle subscriptions
-    tickers = [s for s in active if "{=" not in s]
-    candles = [s for s in active if "{=" in s]
-
-    restored = 0
-
-    # Restore ticker subscriptions (Quote/Trade/Greeks)
-    if tickers:
-        await dxlink.subscribe(tickers)
-        restored += len(tickers)
-        logger.info("Restored %d ticker subscriptions", len(tickers))
-
-    # Restore candle subscriptions with backfill
-    for symbol in candles:
-        parts = extract_candle_parts(symbol)
-        if not parts:
-            logger.warning("Could not parse candle symbol: %s", symbol)
-            continue
-
-        base_symbol, interval = parts
-
-        # Determine backfill start time
-        metadata = active.get(symbol, {})
-        last_update_str = (
-            metadata.get("last_update") if isinstance(metadata, dict) else None
-        )
-
-        if last_update_str:
-            try:
-                last_update = datetime.fromisoformat(last_update_str)
-                from_time = last_update - BACKFILL_BUFFER
-            except (ValueError, TypeError):
-                from_time = datetime.now(timezone.utc) - BACKFILL_BUFFER
-        else:
-            from_time = datetime.now(timezone.utc) - BACKFILL_BUFFER
-
-        await dxlink.subscribe_to_candles(base_symbol, interval, from_time)
-        restored += 1
-        logger.info("Restored %s from %s", symbol, from_time.isoformat())
-
-    logger.info("Restored %d total subscriptions", restored)
-    return restored
 
 
 async def failure_trigger_listener(
