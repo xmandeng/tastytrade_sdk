@@ -1,0 +1,2058 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan Review: TT-117: Strategy Classification within Redis Streams</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-2: #1c2128;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --border-light: #484f58;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.10);
+      --amber: #d29922;
+      --amber-bg: rgba(210, 153, 34, 0.10);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.08);
+      --purple: #bc8cff;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      height: 100vh;
+      height: -webkit-fill-available;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      height: 52px;
+    }
+
+    .topbar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .topbar .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-pending {
+      background: var(--amber);
+    }
+
+    .dot-approved {
+      background: var(--green);
+    }
+
+    .dot-revision {
+      background: var(--red);
+    }
+
+    .dot-question {
+      background: var(--purple);
+    }
+
+    /* Main layout */
+    .main {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* Resize handles */
+    .resize-handle {
+      width: 1px;
+      cursor: col-resize;
+      background: var(--border);
+      position: relative;
+      flex-shrink: 0;
+      z-index: 10;
+      overflow: visible;
+    }
+
+    .resize-handle::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -10px;
+      right: -10px;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.dragging {
+      background: var(--accent);
+      width: 3px;
+    }
+
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    /* Topbar collapse toggle buttons */
+    .topbar-toggles {
+      display: flex;
+      gap: 6px;
+    }
+
+    .collapse-toggle {
+      width: 36px;
+      height: 32px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    @media (hover: hover) {
+      .collapse-toggle:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+        border-color: var(--accent);
+      }
+    }
+
+    .collapse-toggle.panel-collapsed {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    /* Collapsed panel states */
+    .nav.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed>* {
+      display: none;
+    }
+
+    .nav.collapsed>* {
+      display: none;
+    }
+
+    .nav,
+    .right-panel {
+      transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    }
+
+    /* Section nav */
+    .nav {
+      width: 240px;
+      min-width: 140px;
+      background: var(--bg-surface);
+      overflow-y: auto;
+      padding: 12px 0;
+    }
+
+    .nav-item {
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--bg-hover);
+      border-left-color: var(--accent);
+      color: var(--text);
+    }
+
+    .nav-item .status-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+
+    .nav-item .label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Document panel */
+    .doc-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      min-width: 0;
+    }
+
+    .doc-panel::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .doc-panel::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .doc-panel::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    /* Section rendering */
+    .section {
+      margin-bottom: 16px;
+      scroll-margin-top: 20px;
+      padding: 16px 16px 10px;
+      border-radius: 6px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-header h3 {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .section-content {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+
+    .section-content p {
+      margin-bottom: 12px;
+    }
+
+    .section-content strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content code {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: var(--bg-surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .section-content pre {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin: 12px 0;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    .section-content pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    .section-content ul,
+    .section-content ol {
+      margin: 8px 0 12px 24px;
+    }
+
+    .section-content li {
+      margin-bottom: 4px;
+    }
+
+    .section-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+
+    .section-content th,
+    .section-content td {
+      text-align: left;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+    }
+
+    .section-content th {
+      background: var(--bg-surface-2);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .section-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    /* Review actions */
+    .review-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .review-btn {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .review-btn:hover {
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+
+    .review-btn.active-approved {
+      background: var(--green-bg);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .review-btn.active-revision {
+      background: var(--red-bg);
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .review-btn.active-question {
+      background: rgba(188, 140, 255, 0.10);
+      border-color: var(--purple);
+      color: var(--purple);
+    }
+
+    .comment-area {
+      margin-top: 10px;
+      display: none;
+    }
+
+    .comment-area.visible {
+      display: block;
+    }
+
+    .comment-area textarea {
+      width: 100%;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 60px;
+      outline: none;
+      margin-bottom: 0;
+      display: block;
+    }
+
+    .comment-area textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .comment-area textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    .existing-comment {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      position: relative;
+    }
+
+    .existing-comment .edit-btn {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    /* Right panel: prompt output */
+    .right-panel {
+      width: 360px;
+      min-width: 200px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .right-panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .right-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .right-panel-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .right-panel-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .prompt-output {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .prompt-placeholder {
+      color: var(--text-dim);
+      font-style: italic;
+      font-size: 13px;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .copy-btn {
+      padding: 8px 16px;
+      margin: 12px 16px 16px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .copy-btn:hover {
+      opacity: 0.9;
+    }
+
+    .copy-btn.copied {
+      background: var(--green);
+    }
+
+    /* Filter tabs in right panel */
+    .filter-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .filter-tab {
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .filter-tab:hover {
+      background: var(--bg-hover);
+    }
+
+    .filter-tab.active {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    /* Feedback summary items */
+    .feedback-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .feedback-item:last-child {
+      border-bottom: none;
+    }
+
+    .feedback-item .fb-section {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .feedback-item .fb-status {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .fb-status.approved {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .fb-status.revision {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .fb-status.question {
+      background: rgba(188, 140, 255, 0.1);
+      color: var(--purple);
+    }
+
+    .feedback-item .fb-comment {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    /* Revised section highlight */
+    .section.revised {
+      border-left: 3px solid var(--accent) !important;
+      background: rgba(88, 166, 255, 0.04) !important;
+    }
+
+    .revised-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .mermaid-container {
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      margin: 12px 0;
+      overflow-x: auto;
+    }
+
+    .mermaid-container svg {
+      max-width: 100%;
+      height: auto;
+    }
+    /* Terminal panel (TT-127) */
+    .terminal-panel {
+      width: 460px;
+      min-width: 240px;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s ease, min-width 0.2s ease;
+    }
+
+    .terminal-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+
+    .terminal-panel.collapsed > * {
+      display: none;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .terminal-header .term-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .term-status {
+      font-size: 10px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--bg-surface-2);
+      color: var(--text-dim);
+    }
+
+    .term-status.connected {
+      color: var(--green);
+      background: var(--green-bg);
+    }
+
+    .term-status.error {
+      color: var(--red);
+      background: var(--red-bg);
+    }
+
+    .terminal-host {
+      flex: 1;
+      min-height: 0;
+      padding: 6px 8px 8px 8px;
+      overflow: hidden;
+    }
+
+    .terminal-host .xterm {
+      height: 100%;
+    }
+
+    /* Send to Claude button (TT-127) */
+    .send-claude-btn {
+      margin: 12px 16px 16px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #0d1117;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: filter 0.15s;
+      font-family: inherit;
+    }
+
+    .send-claude-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    .send-claude-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .send-claude-btn.sent {
+      background: var(--green);
+      border-color: var(--green);
+    }
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+</head>
+
+<body>
+
+  <div class="topbar">
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="leftToggle" title="Toggle sections">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="4" height="14" rx="1" opacity="0.9" />
+          <rect x="7" y="1" width="8" height="14" rx="1" opacity="0.3" />
+        </svg>
+      </button>
+    </div>
+    <h1>TT-117: Strategy Classification within Redis Streams</h1>
+    <div class="stats" id="stats"></div>
+    <div class="topbar-toggles">
+      <button class="collapse-toggle" id="termToggle" title="Toggle terminal">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 3h12v10H2V3zm1 1v8h10V4H3z" opacity="0.6"/>
+          <path d="M4 6l2 2-2 2M7 10h3" stroke="currentColor" stroke-width="1" fill="none" opacity="0.9"/>
+        </svg>
+      </button>
+      <button class="collapse-toggle" id="rightToggle" title="Toggle feedback">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="8" height="14" rx="1" opacity="0.3" />
+          <rect x="11" y="1" width="4" height="14" rx="1" opacity="0.9" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="nav" id="nav"></div>
+    <div class="resize-handle" id="leftHandle"></div>
+    <div class="doc-panel" id="docPanel"></div>
+    <div class="resize-handle" id="termHandle"></div>
+    <div class="terminal-panel" id="termPanel">
+      <div class="terminal-header">
+        <span class="term-title">
+          <svg width="14" height="14" viewBox="0 6.603 1192.672 1193.397" fill="#d97757" aria-hidden="true">
+            <path d="m233.96 800.215 234.684-131.678 3.947-11.436-3.947-6.363h-11.436l-39.221-2.416-134.094-3.624-116.296-4.832-112.67-6.04-28.35-6.04-26.577-35.035 2.738-17.477 23.84-16.027 34.147 2.98 75.463 5.155 113.235 7.812 82.147 4.832 121.692 12.644h19.329l2.738-7.812-6.604-4.832-5.154-4.832-117.182-79.41-126.845-83.92-66.443-48.321-35.92-24.484-18.12-22.953-7.813-50.093 32.618-35.92 43.812 2.98 11.195 2.98 44.375 34.147 94.792 73.37 123.786 91.167 18.12 15.06 7.249-5.154.886-3.624-8.135-13.61-67.329-121.692-71.838-123.785-31.974-51.302-8.456-30.765c-2.98-12.645-5.154-23.275-5.154-36.242l37.127-50.416 20.537-6.604 49.53 6.604 20.86 18.121 30.765 70.39 49.852 110.818 77.315 150.684 22.631 44.698 12.08 41.396 4.51 12.645h7.813v-7.248l6.362-84.886 11.759-104.215 11.436-134.094 3.946-37.772 18.685-45.262 37.127-24.482 28.994 13.852 23.839 34.148-3.303 22.067-14.174 92.134-27.785 144.323-18.121 96.644h10.55l12.08-12.08 48.887-64.913 82.147-102.685 36.242-40.752 42.282-45.02 27.14-21.423h51.303l37.772 56.135-16.913 57.986-52.832 67.007-43.812 56.779-62.82 84.563-39.22 67.651 3.623 5.396 9.343-.886 141.906-30.201 76.671-13.852 91.49-15.705 41.396 19.329 4.51 19.65-16.269 40.189-97.852 24.16-114.764 22.954-170.9 40.43-2.093 1.53 2.416 2.98 76.993 7.248 32.94 1.771h80.617l150.12 11.195 39.222 25.933 23.517 31.732-3.946 24.16-60.403 30.766-81.503-19.33-190.228-45.26-65.235-16.27h-9.02v5.397l54.362 53.154 99.624 89.96 124.752 115.973 6.362 28.671-16.027 22.63-16.912-2.415-109.611-82.47-42.282-37.127-95.758-80.618h-6.363v8.456l22.067 32.296 116.537 175.167 6.04 53.719-8.456 17.476-30.201 10.55-33.181-6.04-68.215-95.758-70.39-107.84-56.778-96.644-6.926 3.947-33.503 360.886-15.705 18.443-36.243 13.852-30.201-22.953-16.027-37.127 16.027-73.37 19.329-95.758 15.704-76.107 14.175-94.55 8.456-31.41-.563-2.094-6.927.886-71.275 97.852-108.402 146.497-85.772 91.812-20.537 8.134-35.597-18.443 3.301-32.94 19.893-29.315 118.712-151.007 71.597-93.583 46.228-54.04-.322-7.813h-2.738l-315.302 204.725-56.135 7.248-24.16-22.63 2.98-37.128 11.435-12.08 94.792-65.236-.322.323z"/>
+          </svg>
+          Claude Opus 4.7
+        </span>
+        <span class="term-status" id="termStatus">connecting…</span>
+      </div>
+      <div class="terminal-host" id="termHost"></div>
+    </div>
+    <div class="resize-handle" id="rightHandle"></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="right-panel-header">
+        <span>Review Feedback</span>
+        <span id="feedbackCount" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">All</div>
+        <div class="filter-tab" data-filter="approved">Approved</div>
+        <div class="filter-tab" data-filter="revision">Needs Revision</div>
+        <div class="filter-tab" data-filter="question">Questions</div>
+      </div>
+      <div class="right-panel-content" id="feedbackList"></div>
+      <button class="send-claude-btn" id="sendClaudeBtn" onclick="sendToClaude()" disabled>Send to Claude</button>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // CONTENT: Replace this array with your plan sections.
+    // Each section needs: id, title, content (markdown-like string).
+    // Optional: revised (boolean) to highlight as updated.
+    // ============================================================
+    const docSections = [
+      {
+        id: "context",
+        title: "1. Context & Goal",
+        content: `**Jira:** [TT-117](https://mandeng.atlassian.net/browse/TT-117) — Story under Epic [TT-27](https://mandeng.atlassian.net/browse/TT-27) (Portfolio Management). Relates to [TT-108](https://mandeng.atlassian.net/browse/TT-108) (Done).
+
+### Problem
+
+The \`StrategyClassifier\` (\`src/tastytrade/analytics/strategies/classifier.py\`) today classifies **only the current position snapshot** — it has no notion of time. We can see *what strategy I have right now*, but not *what strategy this position was at time T*.
+
+### Why now
+
+TT-108 delivered append-only per-underlying fill streams at \`tastytrade:fills:{account}:{underlying}\`. That is a complete, ordered, replayable log of everything that ever happened on an underlying. Combined with the current position (authoritative from the broker, in \`tastytrade:positions\`), we have enough signal to **reconstruct any prior position state and classify it**.
+
+### Goal (user story, verbatim from ticket)
+
+> As a portfolio analyst, I want point-in-time strategy classification derived from Redis Streams fill replay, so that I can visualize strategy lifecycles, track strategy transitions (e.g., vertical to iron condor), and perform historical strategy analysis.
+
+### Unlocks
+
+- Strategy timeline visualization (entry → adjustment → exit)
+- Strategy transition tracking (vertical → iron condor)
+- Point-in-time classification for backtesting and analysis
+
+### Not in scope
+
+- Modifying \`StrategyClassifier\` — it stays orthogonal to the data source
+- New data sources — everything reads from Redis (fill streams + HSETs) that TT-108 already populates
+- Brokerage calls or InfluxDB reads`
+      },
+      {
+        id: "design-approach",
+        title: "2. Design Approach — Reverse Walk from Ground Truth",
+        content: `**CHOSEN:** Walk the fill stream **backwards** from the current position (ground truth) to derive prior states, rather than walking forwards from an assumed-empty starting state.
+
+### Why reverse, not forward
+
+| Aspect | Forward walk | Reverse walk (chosen) |
+|--------|--------------|----------------------|
+| Starting state | Must assume flat, or find an earlier flat boundary | Start from current position (authoritative) |
+| Error accumulation | Any missed/dropped fill → wrong terminal state | Any missed fill → wrong prior state, but terminal state is always correct |
+| Stream retention | Requires the stream to go back to the last flat point | Works over any window we still retain |
+| Matches user intent | "Replay history from the beginning" | "What was the strategy at time T?" — the actual question |
+
+### Key observations from live data (from TT-117 design comment)
+
+1. **Multi-leg orders fill atomically** — all legs of an order share the same \`filled_at\` timestamp. Each distinct timestamp = one snapshot boundary.
+2. **The fill stream is an ordered log** — \`XRANGE\` gives us any window we want, forward or backward.
+3. **Current position = ground truth** — no need to guess initial state.
+
+### Worked example: /RTYM6 (from ticket)
+
+Walking backwards from today's position:
+
+| Date | Action | Strategy after this group (rewound) |
+|---|---|---|
+| Apr 06 | Roll put side (4 legs) | Current iron condor |
+| Mar 16 | Open iron condor (4 legs) | Prior iron condor |
+| Mar 16 | Close all (4 legs) | Flat |
+| Mar 10 | Open iron condor (4 legs) | Prior iron condor |
+| Mar 09 | Close call side (2 legs) | Put vertical only |
+| Mar 09 | Close put side (2 legs) | Iron condor |
+| Feb 24 | Open iron condor (4 legs) | Iron condor (initial) |`
+      },
+      {
+        id: "public-interface",
+        title: "3. Public Interface",
+        content: `Standalone async function in the analytics layer. Pure computation over data already in Redis — no brokerage calls, no InfluxDB, no new persistence.
+
+\`\`\`python
+# src/tastytrade/analytics/strategies/timeline.py  (new file)
+
+async def classify_strategy_timeline(
+    redis: Redis,
+    account_number: str,
+    underlying: str,
+    start: datetime,
+    end: datetime,
+) -> list[StrategySnapshot]:
+    """Classify strategy at each fill boundary for an underlying over a window.
+
+    Walks the fill stream backwards from the current position (ground truth)
+    to reconstruct prior states, then feeds each snapshot into StrategyClassifier.
+
+    Args:
+        redis: Async Redis client.
+        account_number: Account number for stream key construction.
+        underlying: Underlying symbol (or expiry contract for futures, e.g. /ESM6).
+        start: Inclusive start of the time window.
+        end: Inclusive end of the time window.
+
+    Returns:
+        List of StrategySnapshot in chronological order (oldest first).
+    """
+\`\`\`
+
+### Output type
+
+The ticket comment proposed \`list[tuple[datetime, str]]\`. **Proposed change:** return a lightweight frozen model instead, so consumers (charting, CLI, notebooks) can carry more context without breaking signatures later.
+
+\`\`\`python
+class StrategySnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    timestamp: datetime          # filled_at of the fill group
+    strategy_type: str           # "iron_condor", "vertical", "flat", ...
+    underlying: str
+    leg_count: int
+    fill_stream_id: str          # XRANGE id of the last fill in the group
+\`\`\`
+
+### Question for reviewer
+
+Is the \`StrategySnapshot\` model worth the extra surface, or should we stick to \`tuple[datetime, str]\` per the original comment?`
+      },
+      {
+        id: "data-sources",
+        title: "4. Data Sources (all Redis, all read-only)",
+        content: `| Source | Key pattern | Purpose | Owner |
+|---|---|---|---|
+| Fill stream | \`tastytrade:fills:{account}:{underlying}\` | Ordered fill sequence for reverse walk | TT-108 (publisher.py) |
+| Positions HSET | \`tastytrade:positions\` | Current position state (ground truth) | AccountStreamPublisher |
+| Instruments HSET | \`tastytrade:instruments\` | Strike, expiry, option type for classification | AccountStreamPublisher |
+| Entry credits HSET | \`tastytrade:entry_credits\` | Used by classifier for P&L context (optional input) | AccountStreamPublisher |
+
+### Reads only
+
+This feature **writes nothing to Redis**. No new keys, no new channels, no new streams. It is pure read + compute.
+
+### Retention implication
+
+Results are only as deep as the fill stream retention. If the oldest retained fill in the window post-dates \`start\`, the timeline begins at the first retained fill — we do **not** silently extrapolate. (Open question on retention policy in §13.)`
+      },
+      {
+        id: "algorithm",
+        title: "5. Algorithm — Reverse Walk",
+        content: `Given \`(account_number, underlying, start, end)\`:
+
+1. **Load ground truth** — read current positions for \`{account_number, underlying}\` from the positions HSET. This is the state at \`end\` (or "now" if \`end\` is in the future).
+2. **Fetch fill window** — \`XREVRANGE tastytrade:fills:{account}:{underlying} {end_ms} {start_ms}\`. Returns fills newest-first.
+3. **Group by \`filled_at\`** — each distinct timestamp = one atomic trade group (§6).
+4. **For each group, newest → oldest:**
+   - Classify the **current** reconstructed state → emit \`StrategySnapshot\` at that group's timestamp.
+   - Apply the reverse of each fill in the group to derive the **prior** state:
+     - \`Buy to Open\` → subtract quantity (we had less before)
+     - \`Sell to Open\` → add quantity
+     - \`Buy to Close\` → add quantity (we had more before the close)
+     - \`Sell to Close\` → subtract quantity
+5. **Terminate** when either: (a) we exhaust the fill window, or (b) the reconstructed state goes flat before \`start\`.
+6. **Reverse the emitted list** so output is chronological (oldest first).
+
+### Complexity
+
+- \`XREVRANGE\` is O(log(N) + M) where M is fills in the window — cheap.
+- Classification is O(legs) per group — cheap.
+- End-to-end: effectively O(fills_in_window).
+
+### Pseudocode
+
+\`\`\`python
+positions = await load_positions(redis, account_number, underlying)
+fills = await redis.xrevrange(fill_key, max=end_ms, min=start_ms)
+groups = group_by_filled_at(fills)
+
+snapshots: list[StrategySnapshot] = []
+for group in groups:  # newest first
+    instruments = await load_instruments(redis, {leg.symbol for leg in positions})
+    strategies = classifier.classify(positions, instruments)
+    snapshots.append(StrategySnapshot(
+        timestamp=group.filled_at,
+        strategy_type=primary_strategy(strategies),
+        underlying=underlying,
+        leg_count=len(positions),
+        fill_stream_id=group.last_id,
+    ))
+    positions = apply_reverse(positions, group.fills)  # derive prior state
+
+return list(reversed(snapshots))
+\`\`\``
+      },
+      {
+        id: "atomic-grouping",
+        title: "6. Atomic Fill Grouping (AC3)",
+        content: `**Rule:** all fills sharing the same \`filled_at\` timestamp are one atomic group and produce **one** snapshot boundary — not one per leg.
+
+### Why
+
+A 4-leg iron condor entry hits the tape as 4 fill records with identical \`filled_at\`. Treating them as 4 intermediate states would produce phantom strategies ("1-leg short call" → "2-leg strangle" → ...) that never actually existed on the broker's books.
+
+### Implementation
+
+\`\`\`python
+from itertools import groupby
+
+def group_by_filled_at(fills: list[FillRecord]) -> list[FillGroup]:
+    # fills arrive newest-first from XREVRANGE; groupby preserves order.
+    return [
+        FillGroup(filled_at=ts, fills=list(group), last_id=list(group)[-1].stream_id)
+        for ts, group in groupby(fills, key=lambda f: f.filled_at)
+    ]
+\`\`\`
+
+### Edge cases
+
+- **Exact-duplicate timestamps across different orders** (two separate orders filled in the same millisecond on different legs): treat as one group. The classifier sees the combined state, which is what was true at that instant.
+- **Partial fills of one leg across two timestamps**: each partial is its own group — the intermediate state did exist on the tape.
+- **Clock skew** between broker fill time and our ingest time: we key on broker-reported \`filled_at\`, not our receive time. TT-108 stores both; this function uses the broker value.`
+      },
+      {
+        id: "classifier-adapter",
+        title: "7. Classifier Input Adapter (DECISION NEEDED)",
+        content: `### The gap
+
+\`StrategyClassifier.classify()\` takes \`dict[str, SecurityMetrics]\` — keyed by symbol, each containing live Greeks, mid price, quantity direction, multiplier, etc. It was designed for **classifying live positions with live metrics**.
+
+The reverse-walk reconstruction produces **historical positions** — we know symbol, quantity, direction at time T, but we do **not** know historical Greeks or historical mid prices. Those are market-data-time-sensitive values we never stored in the fill stream.
+
+### Options
+
+**Option A — Synthesize \`SecurityMetrics\` with None Greeks (CHOSEN, proposed)**
+
+Build \`SecurityMetrics\` objects from the reconstructed position + historical fill data, leaving Greeks and mid price as \`None\`. Classification is purely structural (strike, expiry, put/call, direction, quantity) — it does not read Greeks. Verified by reading \`classifier.py\` lines 24–159: the classifier passes Greeks through to the output \`Strategy\` but does not branch on them.
+
+**Option B — Extract a leaner input protocol**
+
+Refactor \`StrategyClassifier\` to accept a narrower protocol (\`PositionLike\`) that only requires the structural fields. More principled but expands scope beyond TT-117 and touches the live classifier path.
+
+**Option C — Use \`ParsedLeg\` directly**
+
+Bypass \`SecurityMetrics\` and build \`ParsedLeg\` ourselves, calling \`build_parsed_leg\`'s internals. Breaks the classifier's public contract.
+
+### Recommendation
+
+**Option A.** Smallest blast radius, no changes to the live classifier, matches the ticket's "uses existing StrategyClassifier — no modifications needed" scope statement.
+
+### Question for reviewer
+
+Agree on Option A? Or does the \`None\`-Greeks synthesis feel like a smell that should be fixed by Option B?`
+      },
+      {
+        id: "module-location",
+        title: "8. Module Location & File Layout",
+        content: `### New files
+
+| File | Purpose | Lines (est) |
+|---|---|---|
+| \`src/tastytrade/analytics/strategies/timeline.py\` | \`classify_strategy_timeline\` + helpers | ~180 |
+| \`src/tastytrade/analytics/strategies/fill_replay.py\` | \`FillRecord\`, \`FillGroup\`, \`apply_reverse\`, grouping | ~120 |
+| \`src/tastytrade/analytics/strategies/models.py\` (extend) | Add \`StrategySnapshot\` (frozen pydantic) | +15 |
+| \`unit_tests/analytics/strategies/test_timeline.py\` | Unit tests for grouping + reverse walk | ~250 |
+| \`unit_tests/analytics/strategies/test_fill_replay.py\` | Unit tests for fill reversal logic | ~150 |
+
+### Why split \`timeline.py\` and \`fill_replay.py\`
+
+\`fill_replay.py\` is pure data transformation — no Redis, no classifier, fully unit-testable with in-memory fixtures. \`timeline.py\` is the Redis + classifier orchestration layer. Splitting keeps the pure logic trivially testable and the I/O layer thin.
+
+### Existing files touched
+
+- \`src/tastytrade/analytics/strategies/__init__.py\` — export \`classify_strategy_timeline\`, \`StrategySnapshot\`
+- No changes to \`classifier.py\`, \`patterns.py\`, \`health.py\`, or \`accounts/publisher.py\`
+
+### Pattern alignment
+
+Matches the existing analytics-layer pattern: pure async functions that take a \`Redis\` client and return immutable pydantic models. No protocol class needed for a single-implementation pure-function computation.`
+      },
+      {
+        id: "invocation",
+        title: "9. Invocation Surfaces",
+        content: `The ticket proposes three: CLI, API, notebook. **Proposed scope for this PR: notebook + a thin CLI subcommand. Defer the HTTP endpoint to a follow-up.**
+
+### A. Notebook / direct async call (shipped)
+
+\`\`\`python
+from tastytrade.analytics.strategies.timeline import classify_strategy_timeline
+snapshots = await classify_strategy_timeline(
+    redis, account_number="5WT00001", underlying="/RTYM6",
+    start=datetime(2026, 2, 1, tzinfo=UTC),
+    end=datetime.now(tz=UTC),
+)
+\`\`\`
+
+### B. CLI (shipped) — new subcommand on existing tool
+
+Add a subcommand to an existing CLI (likely \`tasty-subscription\` or a new \`tasty-timeline\`) — **exact tool TBD, open question**. Example:
+
+\`\`\`
+just strategy-history /RTYM6
+just strategy-history SPY --start 2026-01-01 --end 2026-04-01
+\`\`\`
+
+### C. HTTP endpoint for charting UI (DEFERRED)
+
+Add later when a charting consumer exists. No speculative API surface now.
+
+### Question for reviewer
+
+- Is deferring the HTTP endpoint acceptable, or does something already depend on it?
+- For the CLI: new binary \`tasty-timeline\`, or subcommand on an existing tool?`
+      },
+      {
+        id: "ac1-evidence",
+        title: "10. AC1 Evidence Plan — Fill Replay Produces Strategy Timeline",
+        content: `**AC1 (verbatim):** Replay fills from a Redis Stream and produce a strategy timeline for a multi-leg position. Each fill event produces a classified strategy snapshot showing strategy type transitions over time.
+
+### Target
+
+Use the **/RTYM6 lifecycle from the design comment** as the golden-path demo (30 fills, 7 orders, spans Feb 24 → Apr 06, includes entry, close, roll, adjustment).
+
+### Evidence captured in PR
+
+1. **Command run** — exact CLI invocation against production Redis (staging instance; account number redacted per PII rule).
+2. **Output dump** — the full \`list[StrategySnapshot]\` for /RTYM6, printed chronologically, with timestamps and strategy types.
+3. **Annotated timeline** — a table like the /RTYM6 example in §2 showing \`(date, action-description, strategy-after)\`, with our tool's classification in the right column.
+4. **Comparison column** — for each boundary, manual classification from the fill log vs. tool output. Must match 7/7.
+
+### Pass criteria
+
+- Timeline emits ≥ 1 snapshot per distinct \`filled_at\` in the window.
+- Strategy types match the manually derived truth column for every boundary.
+- Output is chronological.`
+      },
+      {
+        id: "ac2-evidence",
+        title: "11. AC2 Evidence Plan — Reverse Walk from Ground Truth",
+        content: `**AC2 (verbatim):** Start from current position (authoritative from broker) and walk the fill stream backwards to reconstruct prior position states. Each reconstructed state is correctly classified by the existing StrategyClassifier.
+
+### Approach
+
+The reverse walk is the **only** mechanism by which the function produces prior states. Proving AC1 on /RTYM6 largely proves AC2 — but AC2 calls for explicit reconstruction evidence.
+
+### Evidence captured in PR
+
+1. **Checkpoint comparison** — pick 3 historical boundaries from /RTYM6 where we also have a dated brokerage statement or prior position snapshot. For each, print:
+   - Reconstructed position from the reverse walk
+   - Known-true position at that date (from statement / historical HSET dump if retained)
+   - Diff (must be empty)
+2. **Invariant check** — at each boundary, \`sum(opens) - sum(closes) == current_position\`. Log per-boundary.
+3. **Second underlying** — run against a simpler 2-leg vertical lifecycle (e.g., a closed SPY put spread) to show the algorithm generalizes beyond the iron-condor example.
+
+### Pass criteria
+
+- All 3 checkpoint diffs are empty.
+- Invariant holds for every group.
+- Second-underlying run produces a correct timeline.
+
+### Open question
+
+Do we have retained historical position snapshots to diff against, or will we need to derive them from brokerage-side order history?`
+      },
+      {
+        id: "ac3-evidence",
+        title: "12. AC3 Evidence Plan — Atomic Fill Grouping",
+        content: `**AC3 (verbatim):** Multi-leg orders with the same \`filled_at\` timestamp are grouped and applied as a single atomic trade. Fills with identical timestamps produce one snapshot boundary, not multiple intermediate states.
+
+### Evidence captured in PR
+
+1. **Raw fills dump** — \`XRANGE\` output of the /RTYM6 Feb 24 iron condor entry showing 4 fill records with identical \`filled_at\`.
+2. **Snapshot count** — timeline output shows **exactly one** snapshot at that timestamp, not 4.
+3. **Leg count at snapshot** — \`StrategySnapshot.leg_count == 4\`; strategy_type is \`iron_condor\`, not any intermediate 1-/2-/3-leg classification.
+4. **Unit test** — \`test_group_by_filled_at_collapses_multi_leg\` in \`test_fill_replay.py\` with a synthetic 4-fill-same-timestamp fixture asserts one group is emitted.
+5. **Negative test** — \`test_group_by_filled_at_separates_distinct_timestamps\` with 4 fills across 4 timestamps emits 4 groups.
+
+### Pass criteria
+
+- One snapshot per \`filled_at\`, period.
+- Both unit tests green.
+- No phantom intermediate strategies in the /RTYM6 demo output.`
+      },
+      {
+        id: "testing-strategy",
+        title: "13. Testing Strategy",
+        content: `### Unit tests (mandatory)
+
+\`test_fill_replay.py\` — pure logic, fully in-memory:
+
+- Grouping: same-timestamp collapse, distinct-timestamp separation, empty input
+- Reverse application: each of the 4 action types (BtO/StO/BtC/StC)
+- Quantity arithmetic: long → flat, short → flat, partial close, roll
+- Edge: zero-quantity fill is skipped, negative reconstructed quantity raises
+
+\`test_timeline.py\` — integration-flavored but with \`fakeredis\`:
+
+- Empty stream → empty timeline
+- Single-group stream → single snapshot
+- Multi-group stream → correct chronological order
+- Start-of-window before any retained fill → timeline starts at first available
+
+### Type checking & linting
+
+\`uv run pyright src/tastytrade/analytics/strategies/\` — must be zero errors under strict mode.
+\`uv run ruff check src/tastytrade/analytics/strategies/ unit_tests/analytics/strategies/\` — must be clean.
+
+### Coverage target
+
+80%+ for the new \`timeline.py\` and \`fill_replay.py\` (project standard).
+
+### Functional tests (mandatory for PR — per CLAUDE.md)
+
+Unit tests alone do **not** satisfy PR approval. All three ACs require evidence from a run against **real Redis data** (staging fill streams + positions), not fixtures. See §10–§12.`
+      },
+      {
+        id: "open-questions",
+        title: "14. Open Questions & Scope Decisions",
+        content: `### Decisions requested
+
+1. **Output type (§3)** — \`StrategySnapshot\` pydantic model, or \`tuple[datetime, str]\` per the ticket comment?
+2. **Classifier adapter (§7)** — Option A (None-Greeks synthesis), B (extract protocol), or C (bypass)?
+3. **Invocation surface (§9)** — defer HTTP endpoint? New \`tasty-timeline\` binary vs. subcommand on an existing CLI?
+4. **Multiple strategies per snapshot (§5)** — the classifier returns \`list[Strategy]\` because one underlying can host multiple concurrent strategies (e.g., a vertical + a naked put on same underlying). Should \`StrategySnapshot\` carry all of them, or just a "primary" label? Current sketch picks one — but that throws away information.
+5. **Historical retention (§4, §11)** — how far back do fill streams retain in practice? Does that bound what we can claim for AC2 checkpoint evidence?
+
+### Explicit non-goals
+
+- Live streaming of classifications as new fills arrive (pub/sub emission) — not in scope
+- Storing computed timelines back to Redis/Influx — not in scope
+- Modifying \`StrategyClassifier\` internals — not in scope
+- Cross-underlying strategies (e.g., pairs trades) — not in scope
+
+### Risks
+
+- **Silent retention cliff** — if the fill stream is trimmed, the timeline can silently begin mid-lifecycle. Mitigation: return the earliest stream ID we saw so the caller knows the true start bound.
+- **Clock reordering** — broker \`filled_at\` is authoritative but not monotonic across different clearing systems. Mitigation: keep the \`filled_at\` + Redis stream ID as a composite ordering key.`
+      },
+      {
+        id: "delivery-plan",
+        title: "15. Delivery Plan",
+        content: `### Branch
+
+\`feature/TT-117-strategy-classification-redis-streams\` — created off \`main\`, pushed immediately on creation (triggers Jira "In Progress" automation per CLAUDE.md).
+
+### Sequence
+
+1. **Persist this plan to the Jira ticket** (per CLAUDE.md plan-ticket sync rule) and wait for reviewer approval of sections §1–§14 via this playground.
+2. **Apply any revisions** from the review; re-post to Jira.
+3. Implement \`fill_replay.py\` + unit tests → commit.
+4. Implement \`timeline.py\` + unit tests → commit.
+5. Extend \`models.py\` with \`StrategySnapshot\` → commit.
+6. Add CLI subcommand (if §9 confirms) → commit.
+7. Run functional tests against staging Redis; capture evidence (§10–§12).
+8. Open PR via github-workflow agent with evidence for all 3 ACs.
+
+### Commit style (per CLAUDE.md)
+
+\`TT-117: Add fill replay primitives\`, \`TT-117: Add classify_strategy_timeline\`, etc. — imperative, no emojis, no generated signatures.
+
+### Out-of-band artifacts
+
+- Plan file: \`docs/plans/TT-117-strategy-classification-redis-streams.md\` — written after sections are approved, mirrors the approved content from this playground.
+- Jira implementation comment (on PR merge): Expected Behaviors Before/After, Technical Implementation, Features, Verification Evidence.`
+      }
+    ];
+
+    // ============================================================
+    // OPTIONAL: Pre-approved sections from prior review rounds.
+    // Map section id -> status ("approved", "revision", "question").
+    // ============================================================
+    const priorApprovals = {
+      // "example-context": "approved",
+    };
+
+    // ============================================================
+    // PLAN NAME: Update this string for the copy-to-prompt output.
+    // ============================================================
+    const PLAN_NAME = "TT-117: Strategy Classification within Redis Streams";
+
+    // Persistence — save/restore review state across sessions
+    const STORAGE_KEY = 'review-state:' + PLAN_NAME;
+    const LAYOUT_KEY = 'review-layout:' + PLAN_NAME;
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          sections: state.sections.map(s => ({ id: s.id, status: s.status, comment: s.comment })),
+          activeSection: state.activeSection,
+          activeFilter: state.activeFilter
+        }));
+      } catch (e) { }
+    }
+
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.sections || []).forEach(saved => {
+          const s = state.sections.find(s => s.id === saved.id);
+          if (s) { s.status = saved.status || 'pending'; s.comment = saved.comment || ''; }
+        });
+        if (data.activeSection) state.activeSection = data.activeSection;
+        if (data.activeFilter) state.activeFilter = data.activeFilter;
+      } catch (e) { }
+    }
+
+    // State
+    const state = {
+      sections: docSections.map(s => ({
+        ...s,
+        status: priorApprovals[s.id] || 'pending',
+        comment: ''
+      })),
+      activeSection: docSections[0]?.id || '',
+      activeFilter: 'all'
+    };
+
+    // Render markdown-like content to HTML
+    function renderMarkdown(text) {
+      let html = '';
+      const lines = text.split('\n');
+      let inCode = false;
+      let codeLang = '';
+      let codeLines = [];
+      let inList = false;
+      let listTag = 'ul';
+      let inTable = false;
+      let tableRows = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.trim().startsWith('```')) {
+          if (inCode) {
+            if (codeLang === 'mermaid') {
+              html += '<div class="mermaid-container"><pre class="mermaid">' + codeLines.join('\n') + '</pre></div>';
+            } else {
+              html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+            }
+            codeLines = [];
+            inCode = false;
+            codeLang = '';
+          } else {
+            if (inList) { html += '</' + listTag + '>'; inList = false; }
+            if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+            codeLang = line.trim().slice(3).trim().toLowerCase();
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) { codeLines.push(line); continue; }
+
+        if (line.trim().startsWith('|')) {
+          if (inList) { html += '</' + listTag + '>'; inList = false; }
+          if (!inTable) inTable = true;
+          if (!line.trim().match(/^\|[\s-|]+\|$/)) {
+            tableRows.push(line);
+          }
+          continue;
+        } else if (inTable) {
+          html += renderTable(tableRows);
+          inTable = false;
+          tableRows = [];
+        }
+
+        if (line.trim() === '') {
+          if (inList) {
+            // Look ahead: if next non-blank line continues the list, keep it open
+            let keepList = false;
+            for (let j = i + 1; j < lines.length; j++) {
+              const next = lines[j].trim();
+              if (next === '') continue;
+              if (listTag === 'ol' && next.match(/^\d+\.\s/)) keepList = true;
+              if (listTag === 'ul' && (next.startsWith('- ') || next.startsWith('* '))) keepList = true;
+              break;
+            }
+            if (!keepList) { html += '</' + listTag + '>'; inList = false; }
+          }
+          continue;
+        }
+
+        if (line.startsWith('### ')) {
+          if (inList) { html += '</' + listTag + '>'; inList = false; }
+          html += '<h4 style="font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px">' + inlineFormat(line.slice(4)) + '</h4>';
+          continue;
+        }
+
+        if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          if (inList && listTag !== 'ul') { html += '</' + listTag + '>'; inList = false; }
+          if (!inList) { listTag = 'ul'; html += '<ul>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().slice(2)) + '</li>';
+          continue;
+        }
+        if (line.trim().match(/^\d+\.\s/)) {
+          if (inList && listTag !== 'ol') { html += '</' + listTag + '>'; inList = false; }
+          if (!inList) { listTag = 'ol'; html += '<ol>'; inList = true; }
+          html += '<li>' + inlineFormat(line.trim().replace(/^\d+\.\s/, '')) + '</li>';
+          continue;
+        }
+
+        if (inList) { html += '</' + listTag + '>'; inList = false; }
+        html += '<p>' + inlineFormat(line) + '</p>';
+      }
+
+      if (inCode) html += '<pre><code>' + codeLines.join('\n').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+      if (inList) html += '</' + listTag + '>';
+      if (inTable) html += renderTable(tableRows);
+
+      return html;
+    }
+
+    function renderTable(rows) {
+      if (rows.length === 0) return '';
+      let html = '<table>';
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').filter(c => c.trim() !== '');
+        const tag = idx === 0 ? 'th' : 'td';
+        html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
+      });
+      html += '</table>';
+      return html;
+    }
+
+    function inlineFormat(text) {
+      return text
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:none">$1</a>')
+        .replace(/\\`/g, '`');
+    }
+
+    // Render navigation
+    function renderNav() {
+      const nav = document.getElementById('nav');
+      nav.innerHTML = state.sections.map(s => {
+        const icon = s.status === 'approved' ? '<span style="color:var(--green)">&#10003;</span>'
+          : s.status === 'revision' ? '<span style="color:var(--red)">&#9998;</span>'
+            : s.status === 'question' ? '<span style="color:var(--purple)">?</span>'
+              : '<span style="color:var(--text-dim)">&bull;</span>';
+        return `<div class="nav-item ${s.id === state.activeSection ? 'active' : ''}"
+                 onclick="navigateTo('${s.id}')">
+      <span class="status-icon">${icon}</span>
+      <span class="label">${s.title}</span>
+      ${s.revised ? '<span style="font-size:9px;color:var(--accent);font-weight:700">REV</span>' : ''}
+    </div>`;
+      }).join('');
+    }
+
+    // Render document
+    function renderDoc() {
+      const panel = document.getElementById('docPanel');
+      panel.innerHTML = state.sections.map(s => {
+        const borderColor = s.status === 'approved' ? 'var(--green)'
+          : s.status === 'revision' ? 'var(--red)'
+            : s.status === 'question' ? 'var(--purple)' : 'transparent';
+        const bgColor = s.status === 'approved' ? 'var(--green-bg)'
+          : s.status === 'revision' ? 'var(--red-bg)'
+            : s.status === 'question' ? 'rgba(188,140,255,0.06)' : 'transparent';
+
+        const revisedAndPending = s.revised && s.status === 'pending';
+        const revisedClass = revisedAndPending ? ' revised' : '';
+        return `<div class="section${revisedClass}" id="section-${s.id}"
+                 style="border-left: 3px solid ${revisedAndPending ? 'var(--accent)' : borderColor}; background: ${revisedAndPending ? 'rgba(88,166,255,0.04)' : bgColor};">
+      <div class="section-header">
+        <h2>${s.title}</h2>
+        ${s.revised ? '<span class="revised-badge">Revised</span>' : ''}
+      </div>
+      <div class="section-content">${renderMarkdown(s.content)}</div>
+      <div class="review-bar">
+        <button class="review-btn ${s.status === 'approved' ? 'active-approved' : ''}"
+                onclick="setStatus('${s.id}','approved')">Approve</button>
+        <button class="review-btn ${s.status === 'revision' ? 'active-revision' : ''}"
+                onclick="setStatus('${s.id}','revision')">Needs Revision</button>
+        <button class="review-btn ${s.status === 'question' ? 'active-question' : ''}"
+                onclick="setStatus('${s.id}','question')">Question</button>
+        <button class="review-btn" onclick="toggleComment('${s.id}')"
+                style="margin-left:auto">Comment</button>
+      </div>
+      <div class="comment-area" id="comment-${s.id}">
+        ${s.comment
+            ? `<div class="existing-comment">${s.comment.replace(/</g, '&lt;').replace(/\n/g, '<br>')}
+               <button class="edit-btn" onclick="editComment('${s.id}')">edit</button></div>`
+            : `<textarea placeholder="Add your feedback for this section..."
+                      onblur="saveComment('${s.id}', this.value)"
+                      id="textarea-${s.id}"></textarea>`
+          }
+      </div>
+    </div>`;
+      }).join('');
+    }
+
+    // Render stats
+    function renderStats() {
+      const counts = { pending: 0, approved: 0, revision: 0, question: 0 };
+      state.sections.forEach(s => counts[s.status]++);
+      document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="dot dot-approved"></div>${counts.approved} Approved</div>
+    <div class="stat"><div class="dot dot-pending"></div>${counts.pending} Pending</div>
+    <div class="stat"><div class="dot dot-revision"></div>${counts.revision} Needs Revision</div>
+    <div class="stat"><div class="dot dot-question"></div>${counts.question} Questions</div>
+  `;
+    }
+
+    // Render feedback panel
+    function renderFeedback() {
+      const list = document.getElementById('feedbackList');
+      const filtered = state.sections.filter(s => {
+        if (state.activeFilter === 'all') return s.status !== 'pending';
+        return s.status === state.activeFilter;
+      });
+
+      const count = state.sections.filter(s => s.status !== 'pending').length;
+      document.getElementById('feedbackCount').textContent = count > 0 ? `${count} reviewed` : '';
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="prompt-placeholder">
+      ${state.activeFilter === 'all'
+            ? 'Review sections by clicking Approve, Needs Revision, or Question. Your feedback will appear here.'
+            : 'No sections with this status yet.'}
+    </div>`;
+        return;
+      }
+
+      list.innerHTML = filtered.map(s => `
+    <div class="feedback-item" onclick="navigateTo('${s.id}')" style="cursor:pointer">
+      <div class="fb-section">
+        <span class="fb-status ${s.status}">${s.status === 'approved' ? 'APPROVED' : s.status === 'revision' ? 'REVISION' : 'QUESTION'}</span>
+        ${s.title}
+      </div>
+      ${s.comment ? `<div class="fb-comment">"${s.comment}"</div>` : ''}
+    </div>
+  `).join('');
+    }
+
+    // Actions
+    function navigateTo(id) {
+      state.activeSection = id;
+      saveToStorage();
+      renderNav();
+      var el = document.getElementById('section-' + id);
+      var panel = document.getElementById('docPanel');
+      panel.scrollTo({ top: el.offsetTop - panel.offsetTop, behavior: 'smooth' });
+    }
+
+    function setStatus(id, status) {
+      const section = state.sections.find(s => s.id === id);
+      if (section.status === status) {
+        section.status = 'pending';
+      } else {
+        section.status = status;
+        if (status === 'revision' || status === 'question') {
+          setTimeout(() => {
+            const area = document.getElementById('comment-' + id);
+            if (area) area.classList.add('visible');
+          }, 50);
+        }
+      }
+      renderAll();
+      saveToStorage();
+    }
+
+    function toggleComment(id) {
+      const area = document.getElementById('comment-' + id);
+      area.classList.toggle('visible');
+      if (area.classList.contains('visible')) {
+        const ta = document.getElementById('textarea-' + id);
+        if (ta) ta.focus();
+      }
+    }
+
+    function saveComment(id, value) {
+      const section = state.sections.find(s => s.id === id);
+      section.comment = value.trim();
+      renderAll();
+      saveToStorage();
+    }
+
+    function editComment(id) {
+      const section = state.sections.find(s => s.id === id);
+      const area = document.getElementById('comment-' + id);
+      area.innerHTML = `<textarea placeholder="Edit your feedback..."
+    onblur="saveComment('${id}', this.value)"
+    id="textarea-${id}">${section.comment}</textarea>`;
+      area.classList.add('visible');
+      document.getElementById('textarea-' + id).focus();
+    }
+
+    function generatePrompt() {
+      const approved = state.sections.filter(s => s.status === 'approved');
+      const revision = state.sections.filter(s => s.status === 'revision');
+      const questions = state.sections.filter(s => s.status === 'question');
+
+      if (approved.length === 0 && revision.length === 0 && questions.length === 0) {
+        return '';
+      }
+
+      let prompt = `Here is my review of the ${PLAN_NAME} plan:\n\n`;
+
+      if (approved.length > 0) {
+        prompt += `## Approved Sections (${approved.length}/${state.sections.length})\n`;
+        approved.forEach(s => {
+          prompt += `- **${s.title}**: Approved`;
+          if (s.comment) prompt += ` — ${s.comment}`;
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (revision.length > 0) {
+        prompt += `## Needs Revision (${revision.length})\n`;
+        revision.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (no specific feedback provided)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      if (questions.length > 0) {
+        prompt += `## Questions (${questions.length})\n`;
+        questions.forEach(s => {
+          prompt += `- **${s.title}**`;
+          if (s.comment) prompt += `: ${s.comment}`;
+          else prompt += ': (question not specified)';
+          prompt += '\n';
+        });
+        prompt += '\n';
+      }
+
+      const remaining = state.sections.filter(s => s.status === 'pending');
+      if (remaining.length > 0) {
+        prompt += `## Not Yet Reviewed (${remaining.length})\n`;
+        remaining.forEach(s => prompt += `- ${s.title}\n`);
+      }
+
+      return prompt;
+    }
+
+    function copyPrompt() {
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      const btn = document.getElementById('copyBtn');
+      function onSuccess() {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy Feedback as Prompt'; btn.classList.remove('copied'); }, 2000);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(prompt).then(onSuccess).catch(fallbackCopy);
+      } else {
+        fallbackCopy();
+      }
+      function fallbackCopy() {
+        const ta = document.createElement('textarea');
+        ta.value = prompt;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); onSuccess(); } catch (e) { btn.textContent = 'Copy failed'; }
+        document.body.removeChild(ta);
+      }
+    }
+
+    // Filter tabs
+    document.getElementById('filterTabs').addEventListener('click', e => {
+      const tab = e.target.closest('.filter-tab');
+      if (!tab) return;
+      state.activeFilter = tab.dataset.filter;
+      document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderFeedback();
+      saveToStorage();
+    });
+
+    function renderAll() {
+      renderNav();
+      renderDoc();
+      renderStats();
+      renderFeedback();
+      document.querySelectorAll('.mermaid[data-processed]').forEach(el => el.removeAttribute('data-processed'));
+      if (typeof mermaid !== 'undefined') mermaid.run();
+    }
+
+    // Resizable & collapsible panels (mouse + touch)
+    let __fitTerminal = () => { };
+    (function () {
+      const nav = document.getElementById('nav');
+      const rightPanel = document.getElementById('rightPanel');
+      const termPanel = document.getElementById('termPanel');
+      const leftHandle = document.getElementById('leftHandle');
+      const rightHandle = document.getElementById('rightHandle');
+      const termHandle = document.getElementById('termHandle');
+      const leftToggle = document.getElementById('leftToggle');
+      const rightToggle = document.getElementById('rightToggle');
+      const termToggle = document.getElementById('termToggle');
+
+      let dragging = null;
+      let navWidth = 240;
+      let rightWidth = 360;
+      let termWidth = 460;
+
+      // Restore saved layout
+      const savedLayout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; } })();
+      if (savedLayout.navWidth) navWidth = savedLayout.navWidth;
+      if (savedLayout.rightWidth) rightWidth = savedLayout.rightWidth;
+      if (savedLayout.termWidth) termWidth = savedLayout.termWidth;
+      if (savedLayout.navCollapsed) nav.classList.add('collapsed');
+      else nav.style.width = navWidth + 'px';
+      if (savedLayout.rightCollapsed) rightPanel.classList.add('collapsed');
+      else rightPanel.style.width = rightWidth + 'px';
+      // Terminal defaults to closed; only expand if user previously opened it.
+      if (savedLayout.termCollapsed === false) termPanel.style.width = termWidth + 'px';
+      else termPanel.classList.add('collapsed');
+
+      function saveLayout() {
+        try {
+          localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+            navWidth, rightWidth, termWidth,
+            navCollapsed: nav.classList.contains('collapsed'),
+            rightCollapsed: rightPanel.classList.contains('collapsed'),
+            termCollapsed: termPanel.classList.contains('collapsed')
+          }));
+        } catch (e) { }
+      }
+
+      function updateToggles() {
+        const navCollapsed = nav.classList.contains('collapsed');
+        const rightCollapsed = rightPanel.classList.contains('collapsed');
+        const termCollapsed = termPanel.classList.contains('collapsed');
+        leftToggle.title = navCollapsed ? 'Show sections' : 'Hide sections';
+        leftToggle.classList.toggle('panel-collapsed', navCollapsed);
+        rightToggle.title = rightCollapsed ? 'Show feedback' : 'Hide feedback';
+        rightToggle.classList.toggle('panel-collapsed', rightCollapsed);
+        termToggle.title = termCollapsed ? 'Show terminal' : 'Hide terminal';
+        termToggle.classList.toggle('panel-collapsed', termCollapsed);
+      }
+
+      function toggleNav(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (nav.classList.contains('collapsed')) {
+          nav.classList.remove('collapsed');
+          nav.style.width = navWidth + 'px';
+        } else {
+          navWidth = nav.offsetWidth;
+          nav.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      function toggleRight(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightPanel.classList.contains('collapsed')) {
+          // Opening feedback — close terminal first AND inherit its width.
+          if (!termPanel.classList.contains('collapsed')) {
+            termWidth = termPanel.offsetWidth;
+            rightWidth = termWidth;
+            termPanel.classList.add('collapsed');
+          }
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = rightWidth + 'px';
+        } else {
+          rightWidth = rightPanel.offsetWidth;
+          rightPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      function toggleTerm(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (termPanel.classList.contains('collapsed')) {
+          // Opening terminal — close feedback first AND inherit its width.
+          if (!rightPanel.classList.contains('collapsed')) {
+            rightWidth = rightPanel.offsetWidth;
+            termWidth = rightWidth;
+            rightPanel.classList.add('collapsed');
+          }
+          termPanel.classList.remove('collapsed');
+          termPanel.style.width = termWidth + 'px';
+          setTimeout(__fitTerminal, 220);
+        } else {
+          termWidth = termPanel.offsetWidth;
+          termPanel.classList.add('collapsed');
+        }
+        updateToggles();
+        saveLayout();
+      }
+
+      let touchFiredLeft = false, touchFiredRight = false, touchFiredTerm = false;
+
+      leftToggle.addEventListener('touchend', e => { touchFiredLeft = true; toggleNav(e); }, { passive: false });
+      leftToggle.addEventListener('click', e => { if (touchFiredLeft) { touchFiredLeft = false; return; } toggleNav(e); });
+
+      rightToggle.addEventListener('touchend', e => { touchFiredRight = true; toggleRight(e); }, { passive: false });
+      rightToggle.addEventListener('click', e => { if (touchFiredRight) { touchFiredRight = false; return; } toggleRight(e); });
+
+      termToggle.addEventListener('touchend', e => { touchFiredTerm = true; toggleTerm(e); }, { passive: false });
+      termToggle.addEventListener('click', e => { if (touchFiredTerm) { touchFiredTerm = false; return; } toggleTerm(e); });
+
+      updateToggles();
+
+      // Drag resize (mouse)
+      function onDragStart(e, side) {
+        e.preventDefault();
+        dragging = side;
+        document.body.classList.add('resizing');
+        const handle = side === 'left' ? leftHandle : (side === 'term' ? termHandle : rightHandle);
+        handle.classList.add('dragging');
+      }
+
+      leftHandle.addEventListener('mousedown', e => onDragStart(e, 'left'));
+      termHandle.addEventListener('mousedown', e => onDragStart(e, 'term'));
+      rightHandle.addEventListener('mousedown', e => onDragStart(e, 'right'));
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        applyDrag(e.clientX);
+      });
+
+      document.addEventListener('mouseup', endDrag);
+
+      // Drag resize (touch)
+      leftHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'left'); }, { passive: false });
+      termHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'term'); }, { passive: false });
+      rightHandle.addEventListener('touchstart', e => { e.preventDefault(); onDragStart(e, 'right'); }, { passive: false });
+
+      document.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        e.preventDefault();
+        applyDrag(e.touches[0].clientX);
+      }, { passive: false });
+
+      document.addEventListener('touchend', endDrag);
+
+      function applyDrag(clientX) {
+        if (dragging === 'left') {
+          const w = Math.max(140, Math.min(400, clientX));
+          nav.classList.remove('collapsed');
+          nav.style.width = w + 'px';
+          navWidth = w;
+        } else if (dragging === 'right') {
+          const w = Math.max(200, Math.min(600, window.innerWidth - clientX));
+          rightPanel.classList.remove('collapsed');
+          rightPanel.style.width = w + 'px';
+          rightWidth = w;
+        } else if (dragging === 'term') {
+          // termHandle sits between doc and terminal; the terminal's width is
+          // (everything to the right of clientX) minus the right-panel width
+          // (when expanded) and the right resize handle (1px).
+          const rightTaken = rightPanel.classList.contains('collapsed') ? 0 : rightPanel.offsetWidth + 1;
+          const w = Math.max(240, Math.min(900, window.innerWidth - clientX - rightTaken));
+          termPanel.classList.remove('collapsed');
+          termPanel.style.width = w + 'px';
+          termWidth = w;
+          __fitTerminal();
+        }
+        updateToggles();
+      }
+
+      function endDrag() {
+        if (!dragging) return;
+        document.body.classList.remove('resizing');
+        leftHandle.classList.remove('dragging');
+        rightHandle.classList.remove('dragging');
+        termHandle.classList.remove('dragging');
+        dragging = null;
+        saveLayout();
+        __fitTerminal();
+      }
+
+      // Re-fit terminal on viewport changes
+      window.addEventListener('resize', () => __fitTerminal());
+    })();
+
+    // ============================================================
+    // TT-127: Terminal panel + Send to Claude
+    // Mounts xterm.js in #termHost, opens a websocket to the
+    // devserver's /api/claude endpoint (which spawns
+    // `claude --continue` in a PTY), and exposes sendToClaude()
+    // which writes the existing feedback bundle to that session.
+    // ============================================================
+    let __claudeWS = null;
+    let __claudeReady = false;
+    let __claudeTerm = null;
+    let __claudeFitAddon = null;
+
+    (function initClaudeTerminal() {
+      const host = document.getElementById('termHost');
+      const status = document.getElementById('termStatus');
+      const sendBtn = document.getElementById('sendClaudeBtn');
+      if (!host || typeof Terminal === 'undefined') return;
+
+      const term = new Terminal({
+        fontFamily: '"SF Mono", "Fira Code", "JetBrains Mono", monospace',
+        fontSize: 12,
+        lineHeight: 1.2,
+        theme: {
+          background: '#161b22',
+          foreground: '#e6edf3',
+          cursor: '#58a6ff',
+          selectionBackground: 'rgba(88, 166, 255, 0.35)',
+        },
+        cursorBlink: true,
+        scrollback: 5000,
+        convertEol: false,
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(host);
+      try { fitAddon.fit(); } catch (e) { }
+
+      __claudeTerm = term;
+      __claudeFitAddon = fitAddon;
+      __fitTerminal = () => {
+        if (document.getElementById('termPanel').classList.contains('collapsed')) return;
+        try { fitAddon.fit(); } catch (e) { }
+        if (__claudeReady && __claudeWS && __claudeWS.readyState === WebSocket.OPEN) {
+          try {
+            __claudeWS.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          } catch (e) { }
+        }
+      };
+
+      function setStatus(text, kind) {
+        status.textContent = text;
+        status.classList.remove('connected', 'error');
+        if (kind) status.classList.add(kind);
+      }
+
+      function connect() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${proto}//${location.host}/api/claude`;
+        setStatus('connecting…');
+        let ws;
+        try {
+          ws = new WebSocket(url);
+        } catch (e) {
+          setStatus('error', 'error');
+          term.writeln(`\r\n[devserver] failed to open ${url}: ${e}\r\n`);
+          return;
+        }
+        ws.binaryType = 'arraybuffer';
+        __claudeWS = ws;
+
+        ws.onopen = () => {
+          __claudeReady = true;
+          setStatus('connected', 'connected');
+          sendBtn.disabled = false;
+          // send initial size so PTY matches xterm
+          try {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          } catch (e) { }
+        };
+
+        ws.onmessage = (ev) => {
+          if (typeof ev.data === 'string') {
+            // control message (e.g. error JSON); print to terminal for visibility
+            term.writeln('\r\n[devserver] ' + ev.data);
+            return;
+          }
+          term.write(new Uint8Array(ev.data));
+        };
+
+        ws.onerror = () => {
+          setStatus('error', 'error');
+        };
+
+        ws.onclose = () => {
+          __claudeReady = false;
+          sendBtn.disabled = true;
+          setStatus('disconnected');
+          term.writeln('\r\n[devserver] session closed. refresh page to reconnect.\r\n');
+        };
+
+        const encoder = new TextEncoder();
+        term.onData((data) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          try { ws.send(encoder.encode(data)); } catch (e) { }
+        });
+
+        term.onResize(({ cols, rows }) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          try { ws.send(JSON.stringify({ type: 'resize', cols, rows })); } catch (e) { }
+        });
+      }
+
+      connect();
+    })();
+
+    function sendToClaude() {
+      const btn = document.getElementById('sendClaudeBtn');
+      const prompt = generatePrompt();
+      if (!prompt) return;
+      if (!__claudeWS || __claudeWS.readyState !== WebSocket.OPEN) {
+        btn.textContent = 'Terminal disconnected';
+        setTimeout(() => { btn.textContent = 'Send to Claude'; }, 2000);
+        return;
+      }
+      // On send: open terminal panel, collapse feedback panel — single focused surface.
+      const termPanel = document.getElementById('termPanel');
+      const rightPanel = document.getElementById('rightPanel');
+      if (termPanel.classList.contains('collapsed')) {
+        document.getElementById('termToggle').click();
+      }
+      if (!rightPanel.classList.contains('collapsed')) {
+        document.getElementById('rightToggle').click();
+      }
+      const encoder = new TextEncoder();
+      // Newline at the end so Claude Code submits the bundle as one turn.
+      __claudeWS.send(encoder.encode(prompt + '\n'));
+      btn.textContent = 'Sent';
+      btn.classList.add('sent');
+      if (__claudeTerm) __claudeTerm.focus();
+      setTimeout(() => {
+        btn.textContent = 'Send to Claude';
+        btn.classList.remove('sent');
+      }, 2000);
+    }
+
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: {
+      primaryColor: '#1c2128', primaryTextColor: '#e6edf3', primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff', secondaryColor: '#161b22', tertiaryColor: '#21262d',
+      nodeTextColor: '#e6edf3', edgeLabelBackground: '#161b22'
+    }});
+
+    loadFromStorage();
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.filter === state.activeFilter);
+    });
+    renderAll();
+  </script>
+</body>
+
+</html>
