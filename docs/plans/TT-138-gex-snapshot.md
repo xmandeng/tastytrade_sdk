@@ -2,8 +2,8 @@
 
 > **Jira:** [TT-138](https://mandeng.atlassian.net/browse/TT-138)
 > **Branch:** `feature/TT-138-spx-0dte-gex-snapshot` *(retained; v1 validation target is SPX 0DTE)*
-> **Design spec:** [docs/requirements/spx_0dte_gex_snapshot_design_spec.md](../requirements/spx_0dte_gex_snapshot_design_spec.md)
-> **Status:** Draft — open questions in §6 must be resolved before implementation begins.
+> **Design spec:** [docs/requirements/TT-138-gex-snapshot-spec.md](../requirements/TT-138-gex-snapshot-spec.md) *(treated as immutable point-in-time design; this plan is authoritative for current direction — see §6.12)*
+> **Status:** Round 1 review complete. Resolved decisions inlined below; deferred questions remain in §6.
 
 ---
 
@@ -113,116 +113,108 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 ---
 
-## 6. Open Questions
+## 6. Open Questions — Round 1 Status
 
-Each item is an independent decision. Resolve before starting implementation.
+Each subsection is tagged with one of:
 
-### 6.1 — Batch size for `equity-option=` query parameter
+- **RESOLVED** — decision made; inlined into the plan.
+- **DEFERRED** — gated by another open question; revisit when that one resolves.
+- **OPEN** — still needs a decision.
 
-SPXW today has ~282 strikes × 2 = 564 OCC symbols × ~28 chars/sym ≈ 16KB query string. AAPL or SPY weekly chains can run several thousand contracts across all strikes. The endpoint's actual cap is unknown.
+### 6.1 — Batch size for `equity-option=` query parameter — OPEN
 
-- (a) Empirical probe: test with 50, 100, 200, 500 symbols; find the break point.
-- (b) Pick a conservative batch (e.g., 50) and skip the test.
-- (c) Read latest chain size and dynamically chunk.
+**Reviewer constraint added:** the snapshot does NOT need every strike in the chain. Strikes far above or below spot for a given expiry are not relevant — they have zero or vanishing GEX contribution and add noise. The implementation should pre-filter the chain to a relevant strike window before fetching market-data. This shrinks the batching problem dramatically (e.g., SPX ±10% of spot is roughly ~80–120 strikes × 2, well under any reasonable URL cap).
 
-### 6.2 — Liveness of REST values during market hours
+**Still open:** what "relevant" means concretely (a fixed % of spot, an OI threshold, an absolute strike-distance cap, or an elbow-detection on |strike − spot|), and whether even that pre-filtered batch needs further chunking.
 
-Saturday probe returned EOD values from Friday's close. Need confirmation that values update continuously during RTH.
+Options for the cap test (only required if pre-filtered batch exceeds 100–200):
 
-- (a) Re-probe at market open Monday and verify `updated-at` advances continuously.
-- (b) Treat as verified-during-implementation; code defensively against stale `updated-at`.
+- (a) Empirical probe: test with 50, 100, 200 symbols; find the break point.
+- (b) Conservative default of 50 with chunking always on.
+- (c) Skip the cap test entirely if pre-filter keeps batches small.
 
-### 6.3 — Refresh cadence
+### 6.2 — Liveness of REST values during market hours — RESOLVED
 
-Spec §17.1 lists periodic refresh as future. With REST, periodic refresh is nearly free.
+**Decision: (a)** — re-probe at market open during RTH and verify `updated-at` advances continuously. Result determines whether REST is sufficient or whether we need to revisit the architecture.
 
-- (a) Pure one-shot CLI: invoke when wanted, write artifact, exit.
-- (b) Long-running snapshot loop with configurable interval (15/30 min).
-- (c) Both: CLI for one-shot, separate orchestrator for periodic.
+**Action item:** rerun `scripts/probe_rest_endpoints.py` Monday near 09:35 ET. Capture two snapshots ~60s apart and confirm `updated-at` for both spot and a near-ATM option advance.
 
-### 6.4 — Module placement
+### 6.3 — Refresh cadence — DEFERRED
 
-- (a) New package `src/tastytrade/analytics/gex/` (sibling to `analytics/positions.py`).
-- (b) Extend `charting/` (reuse server skeleton; add `/gex` route).
-- (c) Standalone `src/tastytrade/gex/` top-level.
+Gated on §6.2. If REST values are continuously fresh during RTH, periodic refresh is nearly free and (b)/(c) become attractive. If REST values lag, (a) may be the only sensible mode regardless.
 
-### 6.5 — CLI entry point
+Revisit after §6.2 probe.
+
+### 6.4 — Module placement — DEFERRED
+
+Gated on §6.8. If visualization (a) — right-axis overlay on `tasty-chart` — wins, then placement (b) "extend `charting/`" is the natural choice. If a standalone artifact wins, placement (a) "new `analytics/gex/`" is cleaner.
+
+Revisit after §6.8 mockups exist.
+
+### 6.5 — CLI entry point — OPEN (not yet reviewed)
+
+Original options stand:
 
 - (a) New entry point `tasty-gex` in `pyproject.toml`.
 - (b) Subcommand on `tasty-chart` (e.g. `tasty-chart gex --symbol SPX`).
 - (c) Subcommand on `tasty-signal`.
 
-### 6.6 — Output artifacts
+### 6.6 — Output artifacts — OPEN (not yet reviewed)
+
+Original options stand:
 
 - (a) Static PNG + markdown per snapshot, written to `output/` (matches spec §11).
 - (b) Live web view (HTML/SVG over HTTP).
 - (c) Both.
 
-### 6.7 — Persistence
+### 6.7 — Persistence — RESOLVED (with day-2 note)
 
-Per project rule: live → Redis pub/sub, historical → InfluxDB.
+**Decision (v1):** Redis snapshot only — write the latest aggregated strike-level GEX (per-symbol, per-expiration) to a Redis HSET keyed `tastytrade:latest:GEXSnapshot` (or similar), and publish on a Redis pub/sub channel for downstream consumers.
 
-- (a) No persistence — snapshot is ephemeral, output files only.
-- (b) Write GEX-by-strike rows to InfluxDB for historical replay.
-- (c) Publish via Redis pub/sub for downstream consumers.
+**Day-2 follow-up (NOT in v1):** also persist GEX-by-strike rows to InfluxDB for historical replay across days/weeks. This will be tracked as a separate ticket once v1 is shipped.
 
-### 6.8 — Visualization design
+Implementation impact: `render.py` (or a new `publisher.py`) emits a publish + HSET write at the tail of each snapshot. No InfluxDB schema work in v1.
 
-Three candidates:
+### 6.8 — Visualization design — RESOLVED (next step: mock all three)
 
-- (a) **Right-axis overlay on tasty-chart** — net GEX bars overlaid on intraday candles via right axis; maximum reuse of `lightweight-charts` frontend.
+**Decision:** mock up all three viz candidates before picking one. Decision deferred until mockups can be compared visually.
+
+Three candidates to mock:
+
+- (a) **Right-axis overlay on tasty-chart** — net GEX bars overlaid on intraday candles via right axis.
 - (b) **Standalone bar chart (spec §10.1)** — vertical bars of net GEX by strike with spot vline + wall labels.
-- (c) **Horizontal lollipop split** — strikes on y-axis; call_gex right, put_gex left.
+- (c) **Horizontal lollipop split** — strikes on y-axis; `call_gex` right, `put_gex` left.
 
-For multi-expiration view: small-multiples (one chart per expiry) vs overlay (color-coded expiries on one chart).
+Multi-expiration view (small-multiples vs overlay) will be addressed inside each mockup.
 
-### 6.9 — Strike window for display
+**Action item:** create three interactive HTML mockups under `.plan-review/mockups/TT-138-gex-viz-{a,b,c}.html` using sample SPX 0DTE data so the comparison is concrete.
 
-Spec §10.2 suggests spot ± 300. That value is SPX-scale; for SPY-scale (~$500) ±300 is far too wide.
+### 6.9 — Strike window for display — DEFERRED
 
-- (a) Hardcoded scalar — insufficient across symbols.
-- (b) Configurable via CLI flag (`--window 300`).
-- (c) Auto-fit to non-zero GEX strikes (symbol-agnostic).
-- (d) Configurable as a percentage of spot (e.g., ±5%) — symbol-agnostic and predictable.
+Gated on §6.8. Window semantics differ across viz styles (e.g., right-axis overlay uses spot-relative window for visual alignment with candles; standalone bar chart can auto-fit to non-zero GEX strikes). Pick the window approach once the viz is picked.
 
-### 6.10 — Default expirations for the CLI
+Note this is also the same parameter as §6.1's "relevant strike window for the fetch" — they should converge on a single concept.
 
-The architecture supports any number of expirations. The question is what the CLI defaults to.
+### 6.10 — Default expirations for the CLI — DEFERRED
 
-- (a) Today's expiration only (matches the spec's "0DTE snapshot" framing).
-- (b) Today + next expiration.
-- (c) All expirations within N days (e.g., next 7 days).
-- (d) No default — `--expiry` is required.
+Reviewer to research what standard convention calls for in published GEX tools (SpotGamma, MenthorQ, etc). Revisit after that read.
 
-### 6.11 — Spec doc rename
+### 6.11 — Spec doc rename — RESOLVED (applied)
 
-Original spec is at `docs/requirements/spx_0dte_gex_snapshot_design_spec.md` — its name reflects the original SPX 0DTE framing.
+**Decision: (a)** — renamed to `docs/requirements/TT-138-gex-snapshot-spec.md` via `git mv` (history preserved). Plan-doc references updated.
 
-- (a) Rename to `docs/requirements/TT-138-gex-snapshot-spec.md` (matches the generalized plan-doc).
-- (b) Leave alone — preserves the historical design framing.
+### 6.12 — Spec erratum for §6 step 6 — RESOLVED
 
-### 6.12 — Spec erratum for §6 step 6
+**Decision: (b)** — leave the spec immutable as a point-in-time design artifact. Plans evolve; the spec records the original reasoning and should not be rewritten retroactively. This plan is authoritative for current design direction.
 
-The original spec lists DXLink Greeks as preferred. The REST probe proved that's no longer the right design.
+### 6.13 — Futures-options probe — OPEN
 
-- (a) Edit the spec in place to point to REST as the gamma/OI source.
-- (b) Leave the spec immutable as a design-history artifact; let the plan be authoritative.
+Decision pending between:
 
-### 6.13 — Futures-options support
+- (a) Run a futures-options REST probe as part of v1.
+- (b) Spawn a separate exploration ticket later.
 
-**Currently unverified.** We have only probed `equity-option=`. The REST endpoint accepts `future-option=` for symbols like `/MESU5EX3M5 250620C6450`, but whether the response includes Greeks + OI is unknown. Futures-options also differ from equity-options in:
-
-- Symbol format (`/MESU5EX3M5 250620C6450` vs `SPXW  260511C07055000`)
-- Multiplier per product (varies by future; not always 100)
-- Settlement style and exercise mechanics
-- Chain endpoint (`/futures-option-chains/:symbol/nested`, not `/option-chains/...`)
-
-The futures-options exploration is an independent work item. **Decision needed:**
-
-- (a) Run a short futures-options REST probe as part of v1 (extend `scripts/probe_rest_endpoints.py` to also walk `/MES`, `/ES`, or similar). Defer the actual code-level support to a follow-up ticket regardless.
-- (b) Skip the probe in v1 entirely; spawn a separate exploration ticket later.
-
-Even if (a) confirms full field availability, futures-options *implementation* is still out of v1 scope per §1 — only the probe is in scope here.
+Either way, futures-options *implementation* is out of v1 scope.
 
 ---
 
