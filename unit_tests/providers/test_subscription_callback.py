@@ -1,6 +1,7 @@
 """Tests for RedisSubscription on_update callback (event-driven mode)."""
 
 import asyncio
+from typing import Any, Coroutine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,7 +30,15 @@ def test_callback_stored_on_subscribe(subscription: RedisSubscription) -> None:
     with patch.object(subscription, "pubsub", create=True, new=AsyncMock()):
         with patch.object(subscription, "listener_task", create=True, new=None):
             with patch("asyncio.create_task") as mock_task:
-                mock_task.return_value = MagicMock()
+                # Close the input coroutine to avoid an unawaited-coroutine
+                # warning — the real subscribe() evaluates self.listener()
+                # before create_task runs, so the coroutine exists even when
+                # create_task is patched out.
+                def fake_create_task(coro: Coroutine[Any, Any, Any]) -> MagicMock:
+                    coro.close()
+                    return MagicMock()
+
+                mock_task.side_effect = fake_create_task
                 asyncio.get_event_loop().run_until_complete(
                     subscription.subscribe(
                         "market:CandleEvent:SPX{=5m}",
@@ -46,7 +55,15 @@ def test_no_callback_means_empty_callbacks(subscription: RedisSubscription) -> N
     with patch.object(subscription, "pubsub", create=True, new=AsyncMock()):
         with patch.object(subscription, "listener_task", create=True, new=None):
             with patch("asyncio.create_task") as mock_task:
-                mock_task.return_value = MagicMock()
+                # Close the input coroutine to avoid an unawaited-coroutine
+                # warning — the real subscribe() evaluates self.listener()
+                # before create_task runs, so the coroutine exists even when
+                # create_task is patched out.
+                def fake_create_task(coro: Coroutine[Any, Any, Any]) -> MagicMock:
+                    coro.close()
+                    return MagicMock()
+
+                mock_task.side_effect = fake_create_task
                 asyncio.get_event_loop().run_until_complete(
                     subscription.subscribe(
                         "market:CandleEvent:SPX{=5m}",
