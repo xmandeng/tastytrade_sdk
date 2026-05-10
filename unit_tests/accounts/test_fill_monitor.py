@@ -6,6 +6,7 @@ data — no position lookup or REST API dependency.
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,7 +18,9 @@ from tastytrade.accounts.models import (
     OrderFill,
     OrderLeg,
     OrderStatus,
+    OrderType,
     PlacedOrder,
+    TimeInForce,
 )
 from tastytrade.accounts.orchestrator import (
     compute_leg_entry_credit,
@@ -39,8 +42,8 @@ def make_order(
         account_number="TEST123",
         status=status,
         legs=legs,
-        order_type="Limit",
-        time_in_force="Day",
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.DAY,
         underlying_symbol=underlying_symbol,
     )
 
@@ -54,7 +57,7 @@ def make_fill(
         fill_id="test-fill-1",
         quantity=quantity,
         fill_price=fill_price,
-        filled_at="2026-03-16T20:00:00Z",
+        filled_at=datetime(2026, 3, 16, 20, 0, 0, tzinfo=timezone.utc),
     )
 
 
