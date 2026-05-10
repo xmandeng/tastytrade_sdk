@@ -86,7 +86,7 @@ bash .claude/skills/jira-operations/scripts/create-issue.sh \
 
 **Arguments**:
 - `summary`: Issue title
-- `description`: Issue description (Jira markup supported)
+- `description`: Issue description. Use **Markdown** (the MCP gateway converts to ADF). Do NOT use Jira wiki markup (`h2.`, `{{code}}`, `[label|target]`) — Jira Cloud displays it as raw text.
 - `issue-type`: Optional (default: Task) - Task, Bug, Story, Epic, Subtask
 - `priority`: Optional (default: Medium) - Highest, High, Medium, Low, Lowest
 - `project-key`: Optional (default: TT)
@@ -177,7 +177,7 @@ bash .claude/skills/jira-operations/scripts/add-comment.sh \
 
 **Arguments**:
 - `issue-key`: Jira issue key
-- `comment`: Comment text (Jira markup supported)
+- `comment`: Comment text. Use **Markdown** (the MCP gateway converts to ADF). Do NOT use Jira wiki markup (`h2.`, `{{code}}`, `[label|target]`) — Jira Cloud displays it as raw text.
 
 **Example**:
 ```bash
