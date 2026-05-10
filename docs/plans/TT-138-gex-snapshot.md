@@ -121,17 +121,13 @@ Each subsection is tagged with one of:
 - **DEFERRED** — gated by another open question; revisit when that one resolves.
 - **OPEN** — still needs a decision.
 
-### 6.1 — Batch size for `equity-option=` query parameter — OPEN
+### 6.1 — Batch size — RESOLVED (single-expiry assumption)
 
-**Reviewer constraint added:** the snapshot does NOT need every strike in the chain. Strikes far above or below spot for a given expiry are not relevant — they have zero or vanishing GEX contribution and add noise. The implementation should pre-filter the chain to a relevant strike window before fetching market-data. This shrinks the batching problem dramatically (e.g., SPX ±10% of spot is roughly ~80–120 strikes × 2, well under any reasonable URL cap).
+**Decision:** the snapshot assumes a **single expiration per invocation**. Multi-expiry comparisons are achieved by multiple invocations, not by widening one fetch.
 
-**Still open:** what "relevant" means concretely (a fixed % of spot, an OI threshold, an absolute strike-distance cap, or an elbow-detection on |strike − spot|), and whether even that pre-filtered batch needs further chunking.
+**Implication:** SPX 0DTE single-expiry chain is ~282 strikes × 2 = 564 OCC symbols ≈ 16KB query string. Likely fits in one REST call. URL-cap concerns are essentially eliminated by this assumption; chunking only kicks in if a single chain exceeds the empirical cap (to be measured during implementation, not gated on it).
 
-Options for the cap test (only required if pre-filtered batch exceeds 100–200):
-
-- (a) Empirical probe: test with 50, 100, 200 symbols; find the break point.
-- (b) Conservative default of 50 with chunking always on.
-- (c) Skip the cap test entirely if pre-filter keeps batches small.
+**Open sub-decision:** within the single expiry, do we still pre-filter strikes (e.g., drop zero-OI far-OTM strikes) before the fetch, or fetch all strikes and filter post-fetch? Default is **fetch all strikes** unless empirical batch size proves problematic.
 
 ### 6.2 — Liveness of REST values during market hours — RESOLVED
 
