@@ -102,7 +102,6 @@ class DXLinkManager:
             config = DXLinkConfig()
             self.queues = {channel.value: asyncio.Queue() for channel in Channels}
             self.subscription_semaphore = Semaphore(config.max_subscriptions)
-            self.keepalive_stop = asyncio.Event()
             self.credentials = credentials
             self.reconnect_signal = reconnect_signal
 
