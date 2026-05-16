@@ -3,7 +3,7 @@
 > **Jira:** [TT-138](https://mandeng.atlassian.net/browse/TT-138)
 > **Branch:** `feature/TT-138-spx-0dte-gex-snapshot` *(retained; v1 validation target is SPX 0DTE)*
 > **Design spec:** [docs/requirements/TT-138-gex-snapshot-spec.md](../requirements/TT-138-gex-snapshot-spec.md) *(treated as immutable point-in-time design; this plan is authoritative for current direction — see §6.12)*
-> **Status:** Round 1 review complete. Resolved decisions inlined below; deferred questions remain in §6.
+> **Status:** Round 2 review complete. §6.13 futures-options probe completed; findings inlined.
 
 ---
 
@@ -19,13 +19,13 @@ Build a point-in-time **Gamma Exposure (GEX) snapshot** for any underlying with 
 - Any expiration date (0DTE, weekly, monthly, LEAP)
 - One or many expirations in a single snapshot
 
-**Futures-options support is unverified.** Only `equity-option=` has been probed. The same REST mechanism likely applies to `future-option=` but field availability (Greeks, OI) needs probing — see §6.13. Futures options are out of v1 scope until that probe runs.
+**Futures-options REST surface is now verified.** Probed `/MES` and `/ES` (see §6.13); `future-option=` returns the same field set as `equity-option=` (gamma, delta, theta, vega, rho, volatility, theo-price, open-interest). Implementation of futures-options in the GEX tool is still **out of v1 scope** — five implementation differences documented in §6.13.
 
-**Not in v1:** OPRA tape, Time & Sales, dealer-position inference, DXLink streaming, order execution, backtesting, futures options.
+**Not in v1:** OPRA tape, Time & Sales, dealer-position inference, DXLink streaming, order execution, backtesting, futures-options *implementation*.
 
 ---
 
-## 2. Architecture (verified by live REST probe — equity options only)
+## 2. Architecture (verified by live REST probe — equity-options is the v1 surface)
 
 The data surface is **three REST calls** for equity-option-style chains (verified):
 
@@ -47,7 +47,7 @@ Auth → Chain fetch → Filter expirations → Spot fetch
 
 **No async websocket lifecycle. No subscription cap. No snapshot-completion semantics. No dependency on `tasty-subscribe` running.**
 
-The `<spot-key>` branching is handled by a small mapping (`SPX → index`, ETF/equity → `equity`). Adding futures-options later means adding a `<symbol-prefix> → futures` branch and a separate `future-option=` market-data path **after the futures-options probe in §6.13 confirms the field surface**.
+The `<spot-key>` branching is handled by a small mapping (`SPX → index`, ETF/equity → `equity`). Adding futures-options later is a separate pathway with its own chain endpoint, symbol encoding, and multiplier rules — see §6.13. Same Greeks + OI surface, but **not** a drop-in extension of the equity-options client.
 
 ---
 
@@ -69,7 +69,7 @@ The probe at `scripts/probe_rest_endpoints.py` confirmed that `/market-data/by-t
 
 This eliminates: DXLink subscription cap concerns, snapshot-completion semantics, async websocket lifecycle, dependency on a running streamer service, and the Black-Scholes fallback. The spec needs an erratum noting REST is the source — see §6.12.
 
-**Caveat: only equity-options probed.** The same REST endpoint accepts a `future-option=` parameter, but whether the response includes Greeks + OI for futures options is **unverified**. See §6.13.
+The `future-option=` parameter delivers the **same field set** for futures-options (verified 2026-05-16 against `/MES` and `/ES`). See §6.13 for the five implementation differences vs equity-options.
 
 ---
 
@@ -85,7 +85,7 @@ Tentative new package `src/tastytrade/analytics/gex/`:
 | `render.py` | chart + markdown emitters |
 | `cli.py` | entry point |
 
-The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module hierarchy.
+The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module hierarchy. Futures-options support, when added, slots into `client.py` as a parallel dispatch path keyed on the leading `/` of the underlying.
 
 ---
 
@@ -113,104 +113,159 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 ---
 
-## 6. Open Questions — Round 1 Status
+## 6. Open Questions — Status
 
-Each subsection is tagged with one of:
+### 6.0 — Roll-up (read this first)
+
+#### Resolved — no further action
+
+| § | Decision |
+|---|---|
+| 6.1 | Single-expiry per invocation |
+| 6.6 | (b) Live web view (HTML/SVG over HTTP) |
+| 6.7 | Redis snapshot v1; InfluxDB persistence day-2 |
+| 6.8 | Mock all three viz candidates before picking — three mockups built; mockup (d) hybrid is the picked direction |
+| 6.11 | Spec doc renamed via `git mv` (applied) |
+| 6.12 | Spec left immutable (point-in-time artifact) |
+| 6.13 | Futures-options REST surface probed; field availability identical to equity-options. Implementation deferred to a post-v1 ticket; five differences vs equity-options recorded in §6.13. |
+
+#### Prerequisites — must complete before any code starts
+
+| § | What | Owner |
+|---|---|---|
+| 6.2 | Liveness experiment — rerun `scripts/probe_rest_endpoints.py` during RTH and confirm `updated-at` advances continuously | **Blocker for TT-139** |
+
+#### Cascade decisions — resolved automatically after prerequisites
+
+| § | Resolves once… |
+|---|---|
+| 6.3 | §6.2 liveness experiment captures evidence |
+| 6.4 | Mockup (d) hybrid is the picked viz → biases toward extending `charting/`; reviewer to confirm |
+
+#### Deferred to TT-139 (backend sub-task) — owner decides during implementation
+
+- **§6.1 sub-decision** — pre-filter strikes vs fetch all (default: fetch all)
+
+#### Deferred to TT-140 (frontend sub-task) — owner decides during implementation
+
+- **§6.5** — CLI entry point (new `tasty-gex` vs subcommand on `tasty-chart` or `tasty-signal`)
+- **§6.9** — Strike window for display (hardcoded vs configurable vs auto-fit vs percentage of spot)
+- **§6.10** — Default expirations for the CLI (today only vs today+next vs window vs required flag)
+
+### Ready to proceed?
+
+**Yes**, subject to one critical-path sequence:
+
+1. Run the §6.2 liveness experiment (one short session during RTH).
+2. Confirm §6.4 module placement (mockup d picks the direction).
+3. TT-139 implements backend (handles its own §6.1 sub-decision).
+4. TT-140 implements frontend (handles §6.5, §6.9, §6.10).
+5. Futures-options *implementation* is post-v1; field-surface compatibility already verified.
+
+### Per-subsection status legend
+
+Each numbered subsection below is tagged with one of:
 
 - **RESOLVED** — decision made; inlined into the plan.
-- **DEFERRED** — gated by another open question; revisit when that one resolves.
+- **DEFERRED** — gated by another open question in this plan; revisit when that one resolves.
+- **DEFERRED to TT-139** — moved to the backend sub-task; will be decided there.
+- **DEFERRED to TT-140** — moved to the frontend sub-task; will be decided there.
+- **OPEN — experiment required** — outstanding TODO that needs empirical data before a design decision can be made.
 - **OPEN** — still needs a decision.
 
-### 6.1 — Batch size — RESOLVED (single-expiry assumption)
+### 6.2 — Liveness of REST values during market hours — OPEN — experiment required
 
-**Decision:** the snapshot assumes a **single expiration per invocation**. Multi-expiry comparisons are achieved by multiple invocations, not by widening one fetch.
+**Not yet decided.** This is a TODO, not a design decision. The Saturday probe returned EOD values; whether REST values update continuously during RTH is unverified.
 
-**Implication:** SPX 0DTE single-expiry chain is ~282 strikes × 2 = 564 OCC symbols ≈ 16KB query string. Likely fits in one REST call. URL-cap concerns are essentially eliminated by this assumption; chunking only kicks in if a single chain exceeds the empirical cap (to be measured during implementation, not gated on it).
+**Experiment to run:** rerun `scripts/probe_rest_endpoints.py` near 09:35 ET on a trading day. Capture two snapshots ~60s apart and confirm `updated-at` advances for both SPX spot and at least one near-ATM SPXW option. Capture gamma and OI deltas between the two snapshots.
 
-**Open sub-decision:** within the single expiry, do we still pre-filter strikes (e.g., drop zero-OI far-OTM strikes) before the fetch, or fetch all strikes and filter post-fetch? Default is **fetch all strikes** unless empirical batch size proves problematic.
+**Outcomes that branch the design:**
 
-### 6.2 — Liveness of REST values during market hours — RESOLVED
+- ✅ Values advance continuously → REST is sufficient; proceed with the architecture in §2.
+- ❌ Values stale or lag noticeably → architecture must be revisited; DXLink streaming may be required after all. **Stop and replan.**
 
-**Decision: (a)** — re-probe at market open during RTH and verify `updated-at` advances continuously. Result determines whether REST is sufficient or whether we need to revisit the architecture.
+This experiment gates §6.3 (cadence) and any TT-139 implementation work.
 
-**Action item:** rerun `scripts/probe_rest_endpoints.py` Monday near 09:35 ET. Capture two snapshots ~60s apart and confirm `updated-at` for both spot and a near-ATM option advance.
+### 6.3 — Refresh cadence — OPEN (pending §6.2 experiment)
 
-### 6.3 — Refresh cadence — DEFERRED
+**Not yet decided.** Cannot be settled until the §6.2 liveness experiment runs.
 
-Gated on §6.2. If REST values are continuously fresh during RTH, periodic refresh is nearly free and (b)/(c) become attractive. If REST values lag, (a) may be the only sensible mode regardless.
+If REST values are continuously fresh during RTH, periodic refresh is nearly free and a long-running snapshot loop (b) or a CLI-plus-orchestrator pair (c) become attractive. If REST values lag, one-shot CLI (a) may be the only sensible mode regardless of preference.
 
-Revisit after §6.2 probe.
+**Action:** revisit after §6.2 probe captures evidence.
 
-### 6.4 — Module placement — DEFERRED
+### 6.4 — Module placement — DEFERRED (mockup d picks the direction)
 
-Gated on §6.8. If visualization (a) — right-axis overlay on `tasty-chart` — wins, then placement (b) "extend `charting/`" is the natural choice. If a standalone artifact wins, placement (a) "new `analytics/gex/`" is cleaner.
+Mockup (d) — hybrid right-anchored lollipop overlay on the candle chart — is the picked viz direction. That biases placement toward **(b) extend `charting/`**: the lollipop overlay layers onto the existing `src/tastytrade/charting/server.py` candle-rendering pattern.
 
-Revisit after §6.8 mockups exist.
+Reviewer to confirm (b) explicitly before TT-139 begins, since the file layout depends on this choice.
 
-### 6.5 — CLI entry point — OPEN (not yet reviewed)
+### 6.5 — CLI entry point — DEFERRED to TT-140
 
-Original options stand:
+CLI design belongs with the frontend sub-task. Decision moved to TT-140 (Frontend rendering and CLI).
+
+Options preserved for context when TT-140 is worked:
 
 - (a) New entry point `tasty-gex` in `pyproject.toml`.
 - (b) Subcommand on `tasty-chart` (e.g. `tasty-chart gex --symbol SPX`).
 - (c) Subcommand on `tasty-signal`.
 
-### 6.6 — Output artifacts — OPEN (not yet reviewed)
+### 6.8 — Visualization design — RESOLVED (mockup d is the picked direction)
 
-Original options stand:
+Three mockups (a/b/c) plus the hybrid (d) were built at `.plan-review/mockups/TT-138-gex-viz-{a,b,c,d}.html`. Mockup (d) is the picked direction:
 
-- (a) Static PNG + markdown per snapshot, written to `output/` (matches spec §11).
-- (b) Live web view (HTML/SVG over HTTP).
-- (c) Both.
+- **Candlestick fills the plot** — no side-by-side split; max reuse of `tasty-chart` patterns.
+- **Right-anchored lollipops** — call (green) and put (red) GEX stems extend left from the right edge, anchored at ~98.5% paper-x.
+- **Lollipop zone ~20% of plot width** — tightened from initial 34% per reviewer feedback.
+- **Stems at 35% opacity, dot heads at 50% opacity** — candles remain readable underneath.
+- **Split call/put only** — no net-GEX rendering mode in v1 (any netting is downstream/post-process per the TT-139 storage decision).
 
-### 6.7 — Persistence — RESOLVED (with day-2 note)
+Multi-expiration view (small-multiples vs overlay) deferred until TT-140 implementation.
 
-**Decision (v1):** Redis snapshot only — write the latest aggregated strike-level GEX (per-symbol, per-expiration) to a Redis HSET keyed `tastytrade:latest:GEXSnapshot` (or similar), and publish on a Redis pub/sub channel for downstream consumers.
+### 6.9 — Strike window for display — DEFERRED to TT-140
 
-**Day-2 follow-up (NOT in v1):** also persist GEX-by-strike rows to InfluxDB for historical replay across days/weeks. This will be tracked as a separate ticket once v1 is shipped.
+Display-window semantics belong with the frontend sub-task. Decision moved to TT-140.
 
-Implementation impact: `render.py` (or a new `publisher.py`) emits a publish + HSET write at the tail of each snapshot. No InfluxDB schema work in v1.
+Context for TT-140: window semantics differ across viz styles. For mockup (d) right-anchored lollipops, a spot-relative window (e.g., ±5% of spot) is the natural fit. This is also the same parameter as §6.1's "relevant strike window for the fetch" — they should converge on a single concept.
 
-### 6.8 — Visualization design — RESOLVED (next step: mock all three)
+### 6.10 — Default expirations for the CLI — DEFERRED to TT-140
 
-**Decision:** mock up all three viz candidates before picking one. Decision deferred until mockups can be compared visually.
+CLI defaults belong with the frontend sub-task. Decision moved to TT-140.
 
-Three candidates to mock:
+Context for TT-140: reviewer to research what standard convention calls for in published GEX tools (SpotGamma, MenthorQ, etc) before picking a default.
 
-- (a) **Right-axis overlay on tasty-chart** — net GEX bars overlaid on intraday candles via right axis.
-- (b) **Standalone bar chart (spec §10.1)** — vertical bars of net GEX by strike with spot vline + wall labels.
-- (c) **Horizontal lollipop split** — strikes on y-axis; `call_gex` right, `put_gex` left.
+### 6.13 — Futures-options probe — RESOLVED
 
-Multi-expiration view (small-multiples vs overlay) will be addressed inside each mockup.
+**Probed 2026-05-16 against `/MES` and `/ES`. REST surface is identical to equity-options.** Both products return gamma, delta, theta, vega, rho, volatility, theo-price, dx-mark, open-interest, plus standard quote fields via `GET /market-data/by-type?future-option=<sym>`. Decision: (a) — probe completed; *implementation* of futures-options in the GEX tool remains out of v1, but the pathway is now clear and recorded.
 
-**Action item:** create three interactive HTML mockups under `.plan-review/mockups/TT-138-gex-viz-{a,b,c}.html` using sample SPX 0DTE data so the comparison is concrete.
+Probe scripts in `scripts/`:
 
-### 6.9 — Strike window for display — DEFERRED
+- `probe_futures_options.py` — chain walk + field-availability check (run first)
+- `probe_futures_options_metadata.py` — symbol-format, multiplier-source, and instrument-endpoint follow-up
 
-Gated on §6.8. Window semantics differ across viz styles (e.g., right-axis overlay uses spot-relative window for visual alignment with candles; standalone bar chart can auto-fit to non-zero GEX strikes). Pick the window approach once the viz is picked.
+#### Five implementation differences vs equity-options (post-v1 work)
 
-Note this is also the same parameter as §6.1's "relevant strike window for the fetch" — they should converge on a single concept.
+1. **Chain endpoint shape** — `GET /futures-option-chains/<root>/nested` returns `data.option-chains[].expirations[].strikes[]`. Note the wrapper key is `option-chains` (NOT `futures-option-chains`).
+2. **URL path needs slash-stripping** — root comes back as `/MES`; the URL is `/futures-option-chains/MES/nested`. Same applies anywhere the root goes into a path component.
+3. **Symbol format is opaque, do not parse it** — examples: `./MESM6X3AK6 260518C7690` (1 space) vs `./ESM6 E3AK6 260518C5400` (2 spaces). The leading `.` flags a futures-option. The chain endpoint already breaks out `underlying-symbol` (the future), `option-contract-symbol` (the option series like `X3AK6`), `expiration-date`, `strike-price`, and the full `call` / `put` OCC strings. Use those structurally; pass the OCC string opaquely to `?future-option=...`. aiohttp URL-encodes it automatically for query params; for path components (e.g. `/instruments/future-options/<sym>`) you must call `urllib.parse.quote(sym, safe='')` explicitly.
+4. **Multiplier is on the *underlying future*, not the option** — equity-options use `100` (shares per contract). Futures-options need the per-product `notional-multiplier` (equivalently `contract-size`) from `GET /instruments/futures/<future_symbol>` — e.g., 5.0 for /MES, 50.0 for /ES. The option-instrument endpoint's `multiplier` field is 1.0 (a different concept — one option = one futures contract). The chain expiration's `notional-value` and `display-factor` are also *not* the GEX multiplier (0.05 and 0.01 respectively for /MES; not dollar-per-point). GEX formula becomes:
+   ```
+   gex = OI × gamma × notional_multiplier × spot² × 0.01 × sign
+   ```
+   where `notional_multiplier` is fetched per-product (5 for /MES, 50 for /ES, etc.) and `spot` is the *future's* price (from a Quote on the future symbol, or `GET /market-data/by-type?future=<sym>`).
+5. **Instrument-metadata endpoint requires URL-encoded path** — `GET /instruments/future-options/<urllib.parse.quote(sym, safe='')>` works (returns `multiplier`, `notional-value`, `display-factor`, `option-type`, `strike-price`, `is-vanilla`, etc.). The raw-path variant 404s; the `?symbol=` query variant 403s. For the *underlying future*, `GET /instruments/futures/<future_symbol_without_leading_slash>` (e.g. `MESM6`) returns `contract-size`, `notional-multiplier`, `display-factor`, `tick-size`, `product-code`.
 
-### 6.10 — Default expirations for the CLI — DEFERRED
+Field-availability summary (live 2026-05-16, EOD values):
 
-Reviewer to research what standard convention calls for in published GEX tools (SpotGamma, MenthorQ, etc). Revisit after that read.
-
-### 6.11 — Spec doc rename — RESOLVED (applied)
-
-**Decision: (a)** — renamed to `docs/requirements/TT-138-gex-snapshot-spec.md` via `git mv` (history preserved). Plan-doc references updated.
-
-### 6.12 — Spec erratum for §6 step 6 — RESOLVED
-
-**Decision: (b)** — leave the spec immutable as a point-in-time design artifact. Plans evolve; the spec records the original reasoning and should not be rewritten retroactively. This plan is authoritative for current design direction.
-
-### 6.13 — Futures-options probe — OPEN
-
-Decision pending between:
-
-- (a) Run a futures-options REST probe as part of v1.
-- (b) Spawn a separate exploration ticket later.
-
-Either way, futures-options *implementation* is out of v1 scope.
+| field | /MES | /ES |
+|---|---|---|
+| gamma | ✓ | ✓ |
+| delta | ✓ | ✓ |
+| theta / vega / rho | ✓ | ✓ |
+| volatility | ✓ | ✓ |
+| theo-price / dx-mark | ✓ | ✓ |
+| open-interest | ✓ | ✓ |
+| bid / ask / mark | ✓ | ✓ |
 
 ---
 
@@ -243,15 +298,18 @@ Compare SPX output against one external GEX chart for several days. Validate:
 
 Exact match is not expected.
 
-### 7.4 Futures-options probe (if §6.13 = a)
+### 7.4 Futures-options probe — DONE
 
-Extend `scripts/probe_rest_endpoints.py` to walk `/futures-option-chains/<root>/nested` and `/market-data/by-type?future-option=<batch>` for one liquid futures product (e.g. `/MES`). Capture the full response shape. Document field availability (Greeks present? OI present? same names?) in a follow-up note. **Does not gate v1 implementation.**
+Completed 2026-05-16 against `/MES` and `/ES`; see §6.13. Probe scripts retained under `scripts/probe_futures_options*.py`. No further validation is needed for v1; futures-options *implementation* will be its own ticket post-v1.
 
 ---
 
 ## 8. References
 
-- **Probe script:** `scripts/probe_rest_endpoints.py` (equity-options only; futures-options walk pending §6.13)
+- **Probe script (equity-options):** `scripts/probe_rest_endpoints.py`
+- **Probe script (futures-options field surface):** `scripts/probe_futures_options.py`
+- **Probe script (futures-options symbol, multiplier, instrument-endpoint):** `scripts/probe_futures_options_metadata.py`
+- **Viz mockups:** `.plan-review/mockups/TT-138-gex-viz-{a,b,c,d}.html`
 - **Existing chart skeleton:** `src/tastytrade/charting/server.py`
 - **Chain fetcher:** `src/tastytrade/market/option_chains.py`
 - **Greeks model (DXLink, not used in v1):** `src/tastytrade/messaging/models/events.py:85`

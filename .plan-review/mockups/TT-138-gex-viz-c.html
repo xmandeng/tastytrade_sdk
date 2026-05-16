@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TT-138 GEX Viz Mockup (c) — Horizontal lollipop split</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --green: #3fb950;
+      --red: #f85149;
+      --accent: #58a6ff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, 'Segoe UI', Helvetica, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    header {
+      padding: 14px 24px; background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: baseline; justify-content: space-between;
+    }
+    header h1 { font-size: 14px; font-weight: 600; }
+    header .nav { font-size: 12px; color: var(--text-muted); }
+    header .nav a { color: var(--accent); text-decoration: none; margin: 0 6px; }
+    .summary {
+      padding: 12px 24px; background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; gap: 24px; flex-wrap: wrap; font-size: 13px;
+    }
+    .summary .item { color: var(--text-muted); }
+    .summary .item b { color: var(--text); font-weight: 600; }
+    .summary .regime { padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+    .regime-neg { background: rgba(248,81,73,0.15); color: var(--red); }
+    .regime-pos { background: rgba(63,185,80,0.15); color: var(--green); }
+    .chart { flex: 1; padding: 12px; min-height: 600px; }
+    footer { padding: 10px 24px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); background: var(--bg-surface); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TT-138 GEX Viz Mockup (c) — Horizontal lollipop split</h1>
+    <div class="nav">
+      <a href="TT-138-gex-viz-a.html">(a) overlay</a> ·
+      <a href="TT-138-gex-viz-b.html">(b) bar</a> ·
+      <a href="TT-138-gex-viz-c.html">(c) lollipop</a>
+    </div>
+  </header>
+  <div class="summary" id="summary"></div>
+  <div class="chart" id="chart"></div>
+  <footer>
+    Mock data: SPX 0DTE, 17 strikes (5180–5260). Same data across all three mockups.
+    Production tech for the picked viz is TBD — this mockup uses Plotly purely for comparison.
+  </footer>
+  <script>
+    const DATA = {
+      spot: 5225,
+      rows: [
+        {strike:5180,call_gex:63243,put_gex:-173623,net_gex:-110380,abs_gex:236867},
+        {strike:5185,call_gex:234795,put_gex:-938243,net_gex:-703447,abs_gex:1173038},
+        {strike:5190,call_gex:747043,put_gex:-4038512,net_gex:-3291470,abs_gex:4785555},
+        {strike:5195,call_gex:2036950,put_gex:-13350167,net_gex:-11313218,abs_gex:15387117},
+        {strike:5200,call_gex:4769382,put_gex:-33319038,net_gex:-28549656,abs_gex:38088421},
+        {strike:5205,call_gex:9627404,put_gex:-62473271,net_gex:-52845867,abs_gex:72100675},
+        {strike:5210,call_gex:16980786,put_gex:-88437506,net_gex:-71456720,abs_gex:105418292},
+        {strike:5215,call_gex:26980318,put_gex:-96147458,net_gex:-69167141,abs_gex:123127776},
+        {strike:5220,call_gex:40376648,put_gex:-83260409,net_gex:-42883761,abs_gex:123637058},
+        {strike:5225,call_gex:58139411,put_gex:-61306284,net_gex:-3166872,abs_gex:119445694},
+        {strike:5230,call_gex:77376782,put_gex:-41630205,net_gex:35746577,abs_gex:119006986},
+        {strike:5235,call_gex:88127150,put_gex:-27349252,net_gex:60777898,abs_gex:115476402},
+        {strike:5240,call_gex:80432434,put_gex:-17057129,net_gex:63375305,abs_gex:97489563},
+        {strike:5245,call_gex:56588799,put_gex:-9640113,net_gex:46948685,abs_gex:66228912},
+        {strike:5250,call_gex:30145797,put_gex:-4772556,net_gex:25373241,abs_gex:34918352},
+        {strike:5255,call_gex:12092691,put_gex:-2036950,net_gex:10055741,abs_gex:14129640},
+        {strike:5260,call_gex:3672960,put_gex:-747043,net_gex:2925917,abs_gex:4420002},
+      ],
+      call_wall: 5240, put_wall: 5210, max_abs: 5220, total_net_gex: -38285168,
+    };
+
+    const fmtM = v => (v / 1e6).toFixed(1) + 'M';
+    const regime = DATA.total_net_gex >= 0 ? 'positive (pin/mean-revert)' : 'negative (expansion bias)';
+    const regimeClass = DATA.total_net_gex >= 0 ? 'regime-pos' : 'regime-neg';
+    document.getElementById('summary').innerHTML = `
+      <div class="item">Spot <b>${DATA.spot}</b></div>
+      <div class="item">Total Net GEX <b>${fmtM(DATA.total_net_gex)}</b></div>
+      <div class="item">Regime <span class="regime ${regimeClass}">${regime}</span></div>
+      <div class="item">Call Wall <b>${DATA.call_wall}</b></div>
+      <div class="item">Put Wall <b>${DATA.put_wall}</b></div>
+      <div class="item">Max |γ| <b>${DATA.max_abs}</b></div>
+    `;
+
+    const yStrikes = DATA.rows.map(r => r.strike);
+
+    const callStems = {
+      type: 'bar', orientation: 'h',
+      y: yStrikes, x: DATA.rows.map(r => r.call_gex),
+      marker: { color: '#3fb950', opacity: 0.35 },
+      width: 0.15, hoverinfo: 'skip', showlegend: false,
+    };
+    const callDots = {
+      type: 'scatter', mode: 'markers',
+      y: yStrikes, x: DATA.rows.map(r => r.call_gex),
+      marker: { color: '#3fb950', size: 10, line: { color: '#3fb950', width: 2 } },
+      name: 'Call GEX',
+      hovertemplate: 'Strike %{y}<br>Call GEX %{x:,.0f}<extra></extra>',
+    };
+    const putStems = {
+      type: 'bar', orientation: 'h',
+      y: yStrikes, x: DATA.rows.map(r => r.put_gex),
+      marker: { color: '#f85149', opacity: 0.35 },
+      width: 0.15, hoverinfo: 'skip', showlegend: false,
+    };
+    const putDots = {
+      type: 'scatter', mode: 'markers',
+      y: yStrikes, x: DATA.rows.map(r => r.put_gex),
+      marker: { color: '#f85149', size: 10, line: { color: '#f85149', width: 2 } },
+      name: 'Put GEX',
+      hovertemplate: 'Strike %{y}<br>Put GEX %{x:,.0f}<extra></extra>',
+    };
+
+    const layout = {
+      paper_bgcolor: '#0d1117', plot_bgcolor: '#0d1117',
+      font: { color: '#e6edf3', size: 11 },
+      margin: { l: 70, r: 80, t: 50, b: 60 },
+      barmode: 'overlay', bargap: 0.4,
+      xaxis: {
+        title: 'GEX ($) — puts ← 0 → calls',
+        gridcolor: '#21262d', zerolinecolor: '#58a6ff', zerolinewidth: 2,
+        tickformat: '.2s',
+      },
+      yaxis: {
+        title: 'Strike', gridcolor: '#21262d',
+        tickvals: yStrikes,
+      },
+      shapes: [
+        { type: 'line', yref: 'y', y0: DATA.spot, y1: DATA.spot, xref: 'paper', x0: 0, x1: 1,
+          line: { color: '#58a6ff', width: 1.5, dash: 'dot' } },
+      ],
+      annotations: [
+        { x: 1, y: DATA.spot, xref: 'paper', yref: 'y', text: ` spot ${DATA.spot}`,
+          showarrow: false, font: { color: '#58a6ff', size: 11 }, xanchor: 'left' },
+        { x: 1, y: DATA.call_wall, xref: 'paper', yref: 'y', text: ` call wall`,
+          showarrow: false, font: { color: '#3fb950', size: 10 }, xanchor: 'left' },
+        { x: 1, y: DATA.put_wall, xref: 'paper', yref: 'y', text: ` put wall`,
+          showarrow: false, font: { color: '#f85149', size: 10 }, xanchor: 'left' },
+      ],
+      showlegend: true,
+      legend: { x: 0.5, y: 1.08, xanchor: 'center', orientation: 'h', bgcolor: 'rgba(0,0,0,0)' },
+      title: { text: 'Strikes stacked vertically; call GEX right, put GEX left; spot crosshair', font: { size: 13 } },
+    };
+
+    Plotly.newPlot('chart',
+      [putStems, putDots, callStems, callDots], layout,
+      { displayModeBar: false, responsive: true });
+  </script>
+</body>
+</html>
