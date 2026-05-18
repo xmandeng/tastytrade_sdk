@@ -32,6 +32,7 @@ from tastytrade.connections.subscription import (
     InMemorySubscriptionStore,
     SubscriptionStore,
 )
+from tastytrade.messaging.handlers import ControlHandler
 from tastytrade.messaging.models.messages import (
     AddCandleItem,
     AddItem,
@@ -144,12 +145,19 @@ class DXLinkManager:
 
         try:
             await self.subscription_store.initialize()
-            await self.setup_connection()
-            await self.authorize_connection()
-            await self.open_channels()
-            await self.setup_feeds()
+            # Listener + router must be running before we send anything so the
+            # control handler can observe SETUP / AUTH_STATE / CHANNEL_OPENED acks.
             await self.start_listener()
             await self.start_router()
+
+            await self.setup_connection()
+            await self.await_setup_ack()
+
+            await self.authorize_connection()
+            await self.await_authorized()
+
+            await self.open_channels()  # sends + waits per channel
+            await self.setup_feeds()
 
             # Mark connection as established
             self.connection_state = ConnectionState.CONNECTED
@@ -242,12 +250,37 @@ class DXLinkManager:
     async def open_channels(self) -> None:
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
-        for channel in Channels:
-            if channel == Channels.Control:
-                continue
-
+        control = self.control_handler()
+        # Send all CHANNEL_REQUESTs first, then await each CHANNEL_OPENED ack in
+        # parallel. dxFeed serializes channel processing, so a fanned-out send
+        # followed by gathered waits is faster than per-channel round trips.
+        send_targets = [c for c in Channels if c != Channels.Control]
+        for channel in send_targets:
             request = OpenChannelModel(channel=channel.value).model_dump_json()
             await asyncio.wait_for(ws.send(request), timeout=5)
+
+        await asyncio.wait_for(
+            asyncio.gather(
+                *(control.channel_opened[c.value].wait() for c in send_targets)
+            ),
+            timeout=10,
+        )
+
+    async def await_setup_ack(self) -> None:
+        control = self.control_handler()
+        await asyncio.wait_for(control.setup_done.wait(), timeout=10)
+
+    async def await_authorized(self) -> None:
+        control = self.control_handler()
+        await asyncio.wait_for(control.authorized.wait(), timeout=10)
+
+    def control_handler(self) -> "ControlHandler":
+        assert self.router is not None, "router should be initialized"
+        handler = self.router.handler[Channels.Control]
+        assert isinstance(
+            handler, ControlHandler
+        ), "control channel must hold ControlHandler"
+        return handler
 
     async def setup_feeds(self) -> None:
         assert self.websocket is not None, "websocket should be initialized"
