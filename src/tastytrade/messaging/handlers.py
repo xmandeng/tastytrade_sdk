@@ -232,6 +232,15 @@ class ControlHandler(EventHandler):
         super().__init__(channel=Channels.Control)
         self.reconnect_signal = reconnect_signal
         self.was_authorized = False  # Track if we've been authorized before
+        # Handshake ack events — awaited by DXLinkManager.open() to enforce
+        # protocol ordering: SETUP -> AUTH_STATE:AUTHORIZED -> CHANNEL_OPENED per channel.
+        self.setup_done: asyncio.Event = asyncio.Event()
+        self.authorized: asyncio.Event = asyncio.Event()
+        self.channel_opened: Dict[int, asyncio.Event] = {
+            channel.value: asyncio.Event()
+            for channel in Channels
+            if channel != Channels.Control
+        }
         self.control_handlers: Dict[str, Callable[[Message], Awaitable[None]]] = {
             "SETUP": self.handle_setup,
             "AUTH_STATE": self.handle_auth_state,
@@ -250,15 +259,18 @@ class ControlHandler(EventHandler):
 
     async def handle_setup(self, message: Message) -> None:
         logger.info("%s", message.type)
+        self.setup_done.set()
 
     async def handle_auth_state(self, message: Message) -> None:
         state = message.headers.get("state", "UNKNOWN")
         if state == "AUTHORIZED":
             self.was_authorized = True
+            self.authorized.set()
             logger.info("%s:%s", message.type, state)
         elif state == "UNAUTHORIZED":
             # Only trigger reconnect if we were previously authorized
             # Initial UNAUTHORIZED during handshake is expected
+            self.authorized.clear()
             if self.was_authorized:
                 logger.error("DXLink AUTH_STATE: UNAUTHORIZED - triggering reconnect")
                 if self.reconnect_signal:
@@ -270,6 +282,9 @@ class ControlHandler(EventHandler):
 
     async def handle_channel_opened(self, message: Message) -> None:
         logger.info("%s:%s", message.type, message.channel)
+        event = self.channel_opened.get(message.channel)
+        if event is not None:
+            event.set()
 
     async def handle_feed_config(self, message: Message) -> None:
         data_format = message.headers.get("dataFormat", "")
