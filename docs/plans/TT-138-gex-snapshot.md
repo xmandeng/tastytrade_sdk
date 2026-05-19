@@ -3,7 +3,7 @@
 > **Jira:** [TT-138](https://mandeng.atlassian.net/browse/TT-138)
 > **Branch:** `feature/TT-138-spx-0dte-gex-snapshot` *(retained; v1 validation target is SPX 0DTE)*
 > **Design spec:** [docs/requirements/TT-138-gex-snapshot-spec.md](../requirements/TT-138-gex-snapshot-spec.md) *(treated as immutable point-in-time design; this plan is authoritative for current direction — see §6.12)*
-> **Status:** Round 2 review complete. §6.13 futures-options probe completed; findings inlined.
+> **Status:** Round 2 review complete. §6.13 futures-options probe completed; findings inlined. §6.2 RTH liveness probe **PASSED** 2026-05-19 — see [TT-138-liveness-probe-results.md](TT-138-liveness-probe-results.md). TT-139 unblocked.
 
 ---
 
@@ -128,18 +128,17 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 | 6.11 | Spec doc renamed via `git mv` (applied) |
 | 6.12 | Spec left immutable (point-in-time artifact) |
 | 6.13 | Futures-options REST surface probed; field availability identical to equity-options. Implementation deferred to a post-v1 ticket; five differences vs equity-options recorded in §6.13. |
+| 6.2 | **PASS (2026-05-19 RTH probe).** Both SPX spot and 0DTE option `updated-at` advanced ~60s between two snapshots taken 60s apart; option mark tracked spot move. REST surface confirmed live during RTH. Evidence: [TT-138-liveness-probe-results.md](TT-138-liveness-probe-results.md). |
+| 6.3 | **Refresh cadence: any practical interval works.** §6.2 PASS means REST is continuously fresh during RTH, so periodic refresh is nearly free. Exact cadence is a TT-139 implementation detail (driven by snapshot use case, not data freshness). |
 
 #### Prerequisites — must complete before any code starts
 
-| § | What | Owner |
-|---|---|---|
-| 6.2 | Liveness experiment — rerun `scripts/probe_rest_endpoints.py` during RTH and confirm `updated-at` advances continuously | **Blocker for TT-139** |
+_All prerequisites met._ §6.2 probe ran 2026-05-19 09:35 ET and PASSED. TT-139 is unblocked.
 
-#### Cascade decisions — resolved automatically after prerequisites
+#### Cascade decisions — remaining
 
 | § | Resolves once… |
 |---|---|
-| 6.3 | §6.2 liveness experiment captures evidence |
 | 6.4 | Mockup (d) hybrid is the picked viz → biases toward extending `charting/`; reviewer to confirm |
 
 #### Deferred to TT-139 (backend sub-task) — owner decides during implementation
@@ -154,11 +153,11 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 ### Ready to proceed?
 
-**Yes**, subject to one critical-path sequence:
+**Yes — TT-139 is unblocked as of 2026-05-19.** Remaining critical-path sequence:
 
-1. Run the §6.2 liveness experiment (one short session during RTH).
-2. Confirm §6.4 module placement (mockup d picks the direction).
-3. TT-139 implements backend (handles its own §6.1 sub-decision).
+1. ~~Run the §6.2 liveness experiment (one short session during RTH).~~ **DONE — PASS** ([results](TT-138-liveness-probe-results.md)).
+2. Confirm §6.4 module placement (mockup d picks the direction → extend `charting/`).
+3. **TT-139 implements backend** (handles its own §6.1 sub-decision). ← _next_
 4. TT-140 implements frontend (handles §6.5, §6.9, §6.10).
 5. Futures-options *implementation* is post-v1; field-surface compatibility already verified.
 
@@ -173,26 +172,23 @@ Each numbered subsection below is tagged with one of:
 - **OPEN — experiment required** — outstanding TODO that needs empirical data before a design decision can be made.
 - **OPEN** — still needs a decision.
 
-### 6.2 — Liveness of REST values during market hours — OPEN — experiment required
+### 6.2 — Liveness of REST values during market hours — RESOLVED (PASS)
 
-**Not yet decided.** This is a TODO, not a design decision. The Saturday probe returned EOD values; whether REST values update continuously during RTH is unverified.
+**Decided 2026-05-19** via RTH probe (09:35 ET, Tue, trading day). Full results in [TT-138-liveness-probe-results.md](TT-138-liveness-probe-results.md).
 
-**Experiment to run:** rerun `scripts/probe_rest_endpoints.py` near 09:35 ET on a trading day. Capture two snapshots ~60s apart and confirm `updated-at` advances for both SPX spot and at least one near-ATM SPXW option. Capture gamma and OI deltas between the two snapshots.
+Evidence summary:
 
-**Outcomes that branch the design:**
+- SPX spot `updated-at` advanced **+60.987 s** between two snapshots taken **61 s** apart; mark moved +$5.91 with the underlying.
+- Both sampled SPX 0DTE options' `updated-at` advanced ~60 s; deep-ITM call's mark moved +$5.35 (tracking spot).
+- Greeks (`gamma`, `theta`, `vega`, `volatility`) byte-identical over 60-s window — expected, as the IV surface only repaints on slower cadence. The probe verifies the *publication channel*, not Greek drift.
 
-- ✅ Values advance continuously → REST is sufficient; proceed with the architecture in §2.
-- ❌ Values stale or lag noticeably → architecture must be revisited; DXLink streaming may be required after all. **Stop and replan.**
+**Outcome:** ✅ Values advance continuously → REST is sufficient; architecture in §2 stands. No DXLink streaming dependency for v1.
 
-This experiment gates §6.3 (cadence) and any TT-139 implementation work.
+### 6.3 — Refresh cadence — RESOLVED (any practical interval)
 
-### 6.3 — Refresh cadence — OPEN (pending §6.2 experiment)
+**Resolved by §6.2 PASS.** REST surface is continuously fresh during RTH, so periodic refresh is nearly free. Mode (b) long-running snapshot loop and mode (c) CLI-plus-orchestrator pair are both viable; mode (a) one-shot CLI remains the simplest path for v1.
 
-**Not yet decided.** Cannot be settled until the §6.2 liveness experiment runs.
-
-If REST values are continuously fresh during RTH, periodic refresh is nearly free and a long-running snapshot loop (b) or a CLI-plus-orchestrator pair (c) become attractive. If REST values lag, one-shot CLI (a) may be the only sensible mode regardless of preference.
-
-**Action:** revisit after §6.2 probe captures evidence.
+Exact cadence (e.g., 30 s, 60 s, 5 min) is a **TT-139 implementation detail** — driven by the snapshot use case (interactive sanity check vs. always-on intraday dashboard), not by data freshness constraints.
 
 ### 6.4 — Module placement — DEFERRED (mockup d picks the direction)
 
