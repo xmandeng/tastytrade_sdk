@@ -23,6 +23,9 @@ class DXLinkConfig:
     version: str = "0.1-DXF-JS/0.3.0"
     channel_assignment: int = 1
     max_subscriptions: int = 20
+    # Concurrent in-flight candle subscriptions cap. dxFeed retail rejects
+    # bursts past ~20 with "subscription size too big"; 18 leaves headroom.
+    candle_subscription_concurrency: int = 18
     reconnect_attempts: int = 3  # for later use
     reconnect_delay: int = 5  # for later use
 

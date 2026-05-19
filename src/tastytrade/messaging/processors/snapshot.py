@@ -47,6 +47,11 @@ class CandleSnapshotTracker:
         self.completed_symbols: set[str] = set()
         self.completions: asyncio.Queue[str] = asyncio.Queue()
         self._all_complete = asyncio.Event()
+        # Per-symbol completion events. Lets subscribe-and-wait callers (e.g.
+        # the semaphore-paced subscriber) await a specific symbol's snapshot
+        # without contending with the completions queue, which is drained by
+        # the gap-fill consumer.
+        self._symbol_events: dict[str, asyncio.Event] = {}
 
     def register_symbol(self, event_symbol: str) -> None:
         """Register a symbol to track for snapshot completion.
@@ -55,6 +60,7 @@ class CandleSnapshotTracker:
             event_symbol: The candle event symbol (e.g., "AAPL{=d}").
         """
         self.pending_symbols.add(event_symbol)
+        self._symbol_events.setdefault(event_symbol, asyncio.Event())
         self._all_complete.clear()
 
     def process_event(self, event: BaseEvent) -> None:
@@ -77,6 +83,9 @@ class CandleSnapshotTracker:
             self.pending_symbols.discard(symbol)
             self.completed_symbols.add(symbol)
             self.completions.put_nowait(symbol)
+            completion = self._symbol_events.get(symbol)
+            if completion is not None:
+                completion.set()
             logger.debug(
                 "Snapshot complete for %s (flags=0x%02x) — %d remaining",
                 symbol,
@@ -89,6 +98,23 @@ class CandleSnapshotTracker:
                     "All %d candle snapshots received", len(self.completed_symbols)
                 )
                 self._all_complete.set()
+
+    async def wait_for_symbol(self, event_symbol: str, timeout: float) -> bool:
+        """Block until a single symbol's snapshot completes.
+
+        Args:
+            event_symbol: The candle event symbol (e.g., "AAPL{=d}").
+            timeout: Maximum seconds to wait.
+
+        Returns:
+            True if the snapshot completed within the timeout, False otherwise.
+        """
+        event = self._symbol_events.setdefault(event_symbol, asyncio.Event())
+        try:
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def wait_for_completion(self, timeout: float) -> set[str]:
         """Block until all registered symbols have completed their snapshots.
@@ -125,6 +151,9 @@ class CandleSnapshotTracker:
         self.pending_symbols.clear()
         self.completed_symbols.clear()
         self._all_complete.clear()
+        for event in self._symbol_events.values():
+            event.clear()
+        self._symbol_events.clear()
         # Drain the queue
         while not self.completions.empty():
             self.completions.get_nowait()

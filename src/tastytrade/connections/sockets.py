@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from asyncio import Semaphore
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -103,6 +104,20 @@ class DXLinkManager:
             config = DXLinkConfig()
             self.queues = {channel.value: asyncio.Queue() for channel in Channels}
             self.subscription_semaphore = Semaphore(config.max_subscriptions)
+            # Gates concurrent CANDLE subscribes against dxFeed's per-channel
+            # in-flight cap (~20 measured for tastytrade retail). Held until
+            # the symbol's initial snapshot lands (or per-call timeout) so
+            # bursts naturally pace as backfills complete.
+            # Env override (mirrors RedisConfigManager.get behavior) so the
+            # cap can be tuned without code changes.
+            env_concurrency = os.environ.get("CANDLE_SUBSCRIPTION_CONCURRENCY")
+            concurrency = (
+                int(env_concurrency)
+                if env_concurrency is not None
+                else config.candle_subscription_concurrency
+            )
+            self.candle_subscription_semaphore = Semaphore(concurrency)
+            self.candle_snapshot_tracker: Optional[Any] = None
             self.credentials = credentials
             self.reconnect_signal = reconnect_signal
 
@@ -440,8 +455,15 @@ class DXLinkManager:
         interval: str,
         from_time: datetime,
         to_time: Optional[datetime] = None,
+        snapshot_timeout: float = 60.0,
     ) -> None:
-        """Subscribe to candle data for a symbol."""
+        """Subscribe to candle data for a symbol.
+
+        Gated by ``candle_subscription_semaphore``; the slot is held until the
+        symbol's initial snapshot lands (via ``candle_snapshot_tracker``) or
+        ``snapshot_timeout`` elapses, naturally pacing bursts against dxFeed's
+        per-channel in-flight cap.
+        """
         assert self.websocket is not None, "websocket should be initialized"
         ws = self.websocket
 
@@ -464,11 +486,16 @@ class DXLinkManager:
             ],
         ).model_dump_json()
 
-        async with self.subscription_semaphore:
+        tracker = self.candle_snapshot_tracker
+        async with self.candle_subscription_semaphore:
+            if tracker is not None:
+                tracker.register_symbol(request.formatted)
             await asyncio.wait_for(ws.send(subscription), timeout=5)
-
-        # Track candle subscription
-        await self.track_subscription(request.formatted)
+            await self.track_subscription(request.formatted)
+            if tracker is not None:
+                await tracker.wait_for_symbol(
+                    request.formatted, timeout=snapshot_timeout
+                )
 
     async def unsubscribe_to_candles(self, event_symbol: str) -> None:
         """Unsubscribe from candle data for a symbol."""

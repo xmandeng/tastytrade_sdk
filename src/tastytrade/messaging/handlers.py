@@ -3,7 +3,7 @@ import logging
 import time
 from dataclasses import dataclass
 from itertools import chain, islice
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Union, cast
 
 from pydantic import ValidationError
 
@@ -176,7 +176,12 @@ class EventHandler:
 
                 try:
                     data = dict(zip(self.fields, chunk, strict=False))
-                    event = self.event.value(**data)
+                    # self.event.value is the EventTypes enum's class. For
+                    # every non-Control channel (the only ones reaching this
+                    # code path — ControlHandler overrides handle_message)
+                    # the result is a BaseEvent subclass. The cast narrows
+                    # the Union to satisfy the typed list.
+                    event = cast(BaseEvent, self.event.value(**data))
                     events.append(event)
 
                 except ValidationError as e:
@@ -309,6 +314,16 @@ class ControlHandler(EventHandler):
         elif error_type == "UNSUPPORTED_PROTOCOL":
             logger.critical("DXLink UNSUPPORTED_PROTOCOL: %s - fatal error", error_msg)
         elif error_type in ("INVALID_MESSAGE", "BAD_ACTION"):
+            # Subscription-cap rejections are application-level errors, not
+            # connection failures — reconnecting just hits the same cap. Log
+            # and let the application surface it.
+            if "subscription size" in error_msg.lower():
+                logger.warning(
+                    "DXLink %s: %s (cap reached; not reconnecting)",
+                    error_type,
+                    error_msg,
+                )
+                return
             logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
             if self.reconnect_signal:
                 self.reconnect_signal.trigger(ReconnectReason.PROTOCOL_ERROR)
