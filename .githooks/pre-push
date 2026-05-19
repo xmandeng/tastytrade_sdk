@@ -29,9 +29,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     echo "pre-push: $COMMIT_COUNT new commit(s) — running pytest..."
 
     if [ -x "$REPO_PYTHON" ]; then
-        exec "$REPO_PYTHON" -m pytest -q "$REPO_ROOT/unit_tests"
+        exec "$REPO_PYTHON" -m pytest -n auto -q "$REPO_ROOT/unit_tests"
     elif command -v uv > /dev/null; then
-        exec uv run pytest -q "$REPO_ROOT/unit_tests"
+        exec uv run pytest -n auto -q "$REPO_ROOT/unit_tests"
     else
         echo "pre-push: no python environment found, skipping tests" >&2
         exit 0
