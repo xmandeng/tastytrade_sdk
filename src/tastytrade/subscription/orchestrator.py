@@ -324,33 +324,41 @@ async def _run_subscription_once(
             start_date_str,
         )
 
-        successful = 0
-        failed = 0
-        for symbol in symbols:
-            for interval in intervals:
-                logger.debug(
-                    "Subscribing %s %s from %s", symbol, interval, start_date_str
+        # Hand the tracker to DXLinkManager so every candle subscribe (here
+        # AND any later callers, e.g. the position resolver) is paced by the
+        # semaphore-and-snapshot gate inside subscribe_to_candles.
+        dxlink.candle_snapshot_tracker = snapshot_tracker
+
+        per_symbol_timeout = 60.0
+
+        async def subscribe_one(symbol: str, interval: str) -> tuple[str, bool]:
+            event_symbol = format_candle_symbol(f"{symbol}{{={interval}}}")
+            try:
+                await dxlink.subscribe_to_candles(
+                    symbol=symbol,
+                    interval=interval,
+                    from_time=start_date,
+                    snapshot_timeout=per_symbol_timeout,
                 )
-                try:
-                    await asyncio.wait_for(
-                        dxlink.subscribe_to_candles(
-                            symbol=symbol,
-                            interval=interval,
-                            from_time=start_date,
-                        ),
-                        timeout=60,
-                    )
-                    successful += 1
-                    event_symbol = format_candle_symbol(f"{symbol}{{={interval}}}")
-                    session_symbols.add(event_symbol)
-                except asyncio.TimeoutError:
-                    failed += 1
-                    logger.warning(
-                        "Backfill timeout: %s %s (exceeded 60s)", symbol, interval
-                    )
-                except Exception as e:
-                    failed += 1
-                    logger.error("Backfill error: %s %s - %s", symbol, interval, e)
+                # subscribe_to_candles awaits snapshot internally; success here
+                # means the snapshot landed within snapshot_timeout.
+                return event_symbol, event_symbol in snapshot_tracker.completed_symbols
+            except Exception as e:
+                logger.error("Subscribe error: %s %s - %s", symbol, interval, e)
+                return event_symbol, False
+
+        results = await asyncio.gather(
+            *(
+                subscribe_one(symbol, interval)
+                for symbol in symbols
+                for interval in intervals
+            )
+        )
+        successful = sum(1 for _, ok in results if ok)
+        failed = len(results) - successful
+        for event_symbol, ok in results:
+            if ok:
+                session_symbols.add(event_symbol)
 
         if failed > 0:
             logger.warning(

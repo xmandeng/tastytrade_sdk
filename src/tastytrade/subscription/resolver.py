@@ -120,19 +120,29 @@ class PositionSymbolResolver:
             from_time = (datetime.now(timezone.utc) - timedelta(days=4)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
-            for symbol in sorted(candles_to_add):
-                for interval in self.intervals:
-                    await self.candle_subscriber.subscribe_to_candles(
-                        symbol, interval, from_time
-                    )
-                logger.info("Subscribed candles for underlying %s", symbol)
+            # Fan out subscribes; the semaphore inside subscribe_to_candles
+            # paces them against dxFeed's candle cap (~18 in-flight).
+            add_tasks = [
+                self.candle_subscriber.subscribe_to_candles(symbol, interval, from_time)
+                for symbol in sorted(candles_to_add)
+                for interval in self.intervals
+            ]
+            if add_tasks:
+                await asyncio.gather(*add_tasks, return_exceptions=True)
+                for symbol in sorted(candles_to_add):
+                    logger.info("Subscribed candles for underlying %s", symbol)
 
-            for symbol in sorted(candles_to_remove):
-                for interval in self.intervals:
-                    await self.candle_subscriber.unsubscribe_to_candles(
-                        f"{symbol}{{={interval}}}"
-                    )
-                logger.info("Unsubscribed candles for underlying %s", symbol)
+            remove_tasks = [
+                self.candle_subscriber.unsubscribe_to_candles(
+                    f"{symbol}{{={interval}}}"
+                )
+                for symbol in sorted(candles_to_remove)
+                for interval in self.intervals
+            ]
+            if remove_tasks:
+                await asyncio.gather(*remove_tasks, return_exceptions=True)
+                for symbol in sorted(candles_to_remove):
+                    logger.info("Unsubscribed candles for underlying %s", symbol)
 
             self.subscribed_candle_symbols = resolved_underlyings
 
