@@ -314,14 +314,16 @@ class ControlHandler(EventHandler):
         elif error_type == "UNSUPPORTED_PROTOCOL":
             logger.critical("DXLink UNSUPPORTED_PROTOCOL: %s - fatal error", error_msg)
         elif error_type in ("INVALID_MESSAGE", "BAD_ACTION"):
-            # Subscription-cap rejections are application-level errors, not
-            # connection failures — reconnecting just hits the same cap. Log
-            # and let the application surface it.
+            # dxFeed emits "subscription size for event type 'X' is too big"
+            # for both genuine cap violations AND duplicate re-subscribes
+            # against an already-active sub. Neither is a connection failure;
+            # the existing subscription (if any) keeps delivering data. We
+            # demote to debug — the dedup-via-Redis path is unreliable enough
+            # that re-subscribing as fail-safe is intentional.
             if "subscription size" in error_msg.lower():
-                logger.warning(
-                    "DXLink %s: %s (cap reached; not reconnecting)",
-                    error_type,
-                    error_msg,
+                logger.debug(
+                    "DXLink candle re-subscribe ignored by server "
+                    "(duplicate or over-cap; existing data flow unaffected)"
                 )
                 return
             logger.error("DXLink %s: %s - triggering reconnect", error_type, error_msg)
