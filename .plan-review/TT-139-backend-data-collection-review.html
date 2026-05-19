@@ -944,14 +944,19 @@ Plan steps 5.1 through 5.6:
 
 ### Out of Scope (parent Story — TT-138)
 
-- Futures-options support (plan §6.13 — needs separate REST probe)
+- Futures-options *implementation* (separate ticket; deferred)
 - DXLink streaming (REST is sufficient)
 - OPRA tape, dealer-position inference, intraday flow
+
+### Futures-options probe — already done informally
+
+Reviewer reports: *"We did do a review of Futures-options and found them largely the same."* A new sub-task under TT-138 will capture the documented findings (probe-script extension + notes on field availability, multiplier handling, symbol format). **Ticket key TBD** (creation blocked on a permissions issue — see end of this section).
 
 ### Reference
 
 - **Jira:** [TT-139](https://mandeng.atlassian.net/browse/TT-139) (Sub-task of Story [TT-138](https://mandeng.atlassian.net/browse/TT-138))
 - **Sibling sub-task:** TT-140 (frontend; depends on this sub-task)
+- **Futures-options findings sub-task:** *pending — see note above*
 - **Branch:** \`feature/TT-138-spx-0dte-gex-snapshot\` *(shared with frontend sub-task)*
 - **Plan file:** \`docs/plans/TT-138-gex-snapshot.md\` (sections §2, §4, §5.1–5.6, §7.1, §7.2)`
       },
@@ -993,7 +998,8 @@ Module placement is itself an open question — see §4 below.`
       },
       {
         id: "step-5-1-client",
-        title: "Step 5.1 — OptionMarketDataClient (single-expiry assumption)",
+        title: "Step 5.1 — OptionMarketDataClient — RESOLVED (fetch all + post-filter by |delta|)",
+        revised: true,
         content: `**File:** \`src/tastytrade/analytics/gex/client.py\` (assuming §4 = a)
 
 Batched REST client for \`/market-data/by-type?equity-option=...\`.
@@ -1004,9 +1010,17 @@ The snapshot assumes a **single expiration per invocation**. Multi-expiry compar
 
 **Implication:** SPX 0DTE single-expiry chain is ~282 strikes × 2 = 564 OCC symbols ≈ 16KB query string. Likely fits in one REST call. Chunking only kicks in if a single chain exceeds the empirical cap.
 
+### Resolved sub-decision: fetch all strikes, then post-filter by |delta|
+
+**Decision:** retrieve all strikes (the REST cost is the same) and filter post-fetch by an **absolute delta threshold** — drop strikes where \`|delta|\` is below the threshold (deep-OTM negligible gamma).
+
+**Threshold confirmed by reviewer:** **|delta| < 0.03**. Drop strikes whose absolute delta is below 0.03 (deep-OTM negligibles).
+
 ### Sketch
 
 \`\`\`python
+ABS_DELTA_THRESHOLD = 0.03  # confirm in next review
+
 class OptionMarketDataClient:
     async def fetch(
         self, occ_symbols: list[str], chunk_size: int = 500
@@ -1017,13 +1031,22 @@ class OptionMarketDataClient:
         pass one expiry's worth of symbols. Chunks only if the batch
         exceeds chunk_size.
         """
+
+
+def filter_meaningful_delta(
+    df: pl.DataFrame, threshold: float = ABS_DELTA_THRESHOLD
+) -> pl.DataFrame:
+    """Drop rows where |delta| < threshold — removes deep-OTM strikes
+    with negligible gamma exposure.
+    """
+    return df.filter(pl.col("delta").abs() >= threshold)
 \`\`\`
 
-### Sub-decision (open)
+### Why post-filter, not pre-filter
 
-Within the single expiry, do we still pre-filter strikes (e.g., drop zero-OI far-OTM strikes) before the fetch, or fetch all strikes and filter post-fetch?
-
-**Default:** fetch all strikes unless empirical batch size proves problematic.`
+- Fetching all strikes is essentially free at this chain size (one REST call).
+- Pre-filtering would require knowing delta before the fetch — which is what we're fetching.
+- Post-filter is one Polars filter operation; cleanest place for it.`
       },
       {
         id: "step-5-2-chain",
@@ -1050,10 +1073,17 @@ Per §6.1 resolution, this Story expects callers to pass exactly one expiration.
       },
       {
         id: "step-5-3-market-data",
-        title: "Step 5.3 — fetch_option_market_data",
+        title: "Step 5.3 — fetch_option_market_data — RESOLVED (Pydantic model)",
+        revised: true,
         content: `**Function:** \`fetch_option_market_data(occ_symbols: list[str]) -> pl.DataFrame\`
 
 Wraps the \`OptionMarketDataClient\` (Step 5.1) and projects the response to the GEX-relevant columns.
+
+### Decision: (b) Pydantic per response item
+
+Reviewer: *"Pydantic per response item — we would treat these as we do all objects from the brokerage feed. No exceptions."*
+
+REST market-data items deserialize into an \`OptionMarketData\` Pydantic model with \`extra="allow"\` (matching the inbound-brokerage convention). The Polars DataFrame is built from the validated models, not from raw JSON.
 
 ### Returned DataFrame columns
 
@@ -1061,21 +1091,30 @@ Wraps the \`OptionMarketDataClient\` (Step 5.1) and projects the response to the
 |---|---|---|
 | \`symbol\` | \`symbol\` | OCC, joins back to chain DataFrame |
 | \`gamma\` | \`gamma\` | per-option gamma (authoritative) |
+| \`delta\` | \`delta\` | required for the |delta| filter in Step 5.1 |
 | \`open_interest\` | \`open-interest\` | int |
 | \`mark\` | \`mark\` | for sanity / debug |
 | \`volatility\` | \`volatility\` | per-option IV (for sanity / debug) |
 | \`updated_at\` | \`updated-at\` | timestamp; freshness check |
 
-### Pydantic model needed?
+### Sketch
 
-The existing inbound-brokerage convention uses Pydantic models with \`extra="allow"\`. Should this REST response have its own \`OptionMarketData\` Pydantic model, or land directly into Polars?
-
-- **(a) Direct to Polars** — simpler; no model boilerplate.
-- **(b) Pydantic per response item** — consistent with the rest of the SDK; slight overhead.`
+\`\`\`python
+class OptionMarketData(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    symbol: str
+    gamma: Optional[float] = None
+    delta: Optional[float] = None
+    open_interest: Optional[int] = Field(default=None, alias="open-interest")
+    mark: Optional[float] = None
+    volatility: Optional[float] = None
+    updated_at: Optional[datetime] = Field(default=None, alias="updated-at")
+\`\`\``
       },
       {
         id: "step-5-4-spot",
-        title: "Step 5.4 — fetch_spot (symbol-class dispatch)",
+        title: "Step 5.4 — fetch_spot — RESOLVED (instruments lookup)",
+        revised: true,
         content: `**Function:** \`fetch_spot(symbol: str) -> float\`
 
 Hits \`/market-data/by-type\` with the appropriate query-key for the symbol class:
@@ -1086,15 +1125,27 @@ Hits \`/market-data/by-type\` with the appropriate query-key for the symbol clas
 | ETF / Equity | \`equity\` | SPY, AAPL, QQQ |
 | Future | \`future\` | (out of v1) |
 
-### Symbol-class detection
+### Decision: (b) Instruments lookup
 
-- (a) Hard-coded set of known indexes (SPX, NDX, RUT, ...) → fall back to \`equity\`
-- (b) Look up the symbol's instrument-type via \`/instruments/equity-options/...\` once and cache
-- (c) Try \`equity\` first, fall back to \`index\` on 404
+Reviewer: *"(b) seems less fragile. not sure what we gain by not implementing directly."*
 
-### Open question
+Symbol class is resolved by looking up the symbol's \`instrument-type\` via the instruments REST endpoint (e.g., \`/instruments/equities/<sym>\` or \`/instruments/cryptocurrencies/<sym>\`, with a probe order to find the right family). Cache the result per symbol so repeated invocations don't re-query.
 
-Which detection method? **Recommended: (a)** — fastest, no fallback complexity, set is small and well-known.`
+### Sketch
+
+\`\`\`python
+@lru_cache(maxsize=128)
+async def resolve_symbol_class(session, symbol: str) -> str:
+    """Return 'index' | 'equity' | 'cryptocurrency' | 'future' based on
+    the instrument-type returned by the instruments endpoint.
+    """
+    # Implementation queries the instruments endpoints in a defined order
+    # and returns the canonical class string used for /market-data/by-type.
+\`\`\`
+
+### Trade-off acknowledged
+
+One extra REST call per new symbol on first lookup. Cached thereafter. Less fragile than a hard-coded set (no maintenance as Tastytrade adds new indexes / ETFs).`
       },
       {
         id: "step-5-5-compute",
@@ -1178,49 +1229,33 @@ The backend code's import paths and the test directory layout depend entirely on
       },
       {
         id: "oq-pre-filter",
-        title: "5. Open Question — Pre-filter strikes before fetch?",
-        content: `Sub-decision from §6.1. Within the single expiry, do we fetch market data for all strikes or pre-filter?
+        title: "5. Pre-filter strikes before fetch? — RESOLVED (fetch all, post-filter by |delta|)",
+        revised: true,
+        content: `**Decision** (see Step 5.1 for full rationale): fetch all strikes; post-filter by absolute delta threshold.
 
-### Options
+The original options framed pre-filter vs post-filter on the *fetch*. The resolution is post-filter, but it's not on bandwidth — it's on **delta magnitude** to drop deep-OTM negligible-gamma strikes. The bandwidth question is moot because at single-expiry the fetch fits in one REST call.
 
-- **(a) Fetch all strikes** — simplest; no filter logic; ~564 symbols for SPX 0DTE fits in one call. **Recommended default.**
-- **(b) Pre-filter** to spot ± window before fetch — saves bandwidth on far-OTM strikes that have zero OI anyway.
-- **(c) Fetch all, then filter post-aggregation** — same bandwidth as (a) but simpler downstream.
-
-### Why this matters
-
-If (a) hits a URL-cap or rate-limit issue empirically, (b) becomes mandatory. Otherwise (a) is the cleanest.`
+**Threshold confirmed:** **|delta| < 0.03** (reviewer confirmed the bounded-delta interpretation).`
       },
       {
         id: "oq-pydantic",
-        title: "6. Open Question — Pydantic model for market-data response?",
-        content: `From Step 5.3. The SDK convention is inbound brokerage data as Pydantic models with \`extra="allow"\`.
+        title: "6. Pydantic model for market-data response? — RESOLVED → (b)",
+        revised: true,
+        content: `**Decision: (b) Pydantic per response item.**
 
-### Options
+Reviewer: *"we would treat these as we do all objects from the brokerage feed. No exceptions."*
 
-- **(a) Direct to Polars** — call REST, parse JSON, build DataFrame. Simpler, fewer types. **Less consistent with SDK convention.**
-- **(b) Pydantic per response item** — define \`OptionMarketDatum\` Pydantic model with the fields we use (gamma, open_interest, mark, volatility, updated_at). Consistent with rest of SDK.
-
-### Why this matters
-
-(b) gives type safety and matches the codebase pattern. (a) is faster to write but introduces a precedent of "REST data bypasses the model layer."
-
-**Recommendation:** (b) — consistency with the SDK pattern wins; the cost is one small dataclass.`
+Defines \`OptionMarketData\` Pydantic model with \`extra="allow"\` (matching the inbound-brokerage convention). See Step 5.3 for the model sketch.`
       },
       {
         id: "oq-symbol-class",
-        title: "7. Open Question — Symbol-class detection method (Step 5.4)",
-        content: `For \`fetch_spot(symbol)\`, how do we know whether to use \`index\` or \`equity\` query key?
+        title: "7. Symbol-class detection method — RESOLVED → (b) Instruments lookup",
+        revised: true,
+        content: `**Decision: (b) Instruments lookup.**
 
-### Options
+Reviewer: *"(b) seems less fragile. not sure what we gain by not implementing directly."*
 
-- **(a) Hard-coded index set** — \`{SPX, NDX, RUT, VIX, ...}\`; fall back to \`equity\`. Fast, predictable, small maintenance cost.
-- **(b) Instruments lookup** — query \`/instruments/...\` to get the instrument-type, cache the result.
-- **(c) Try-fallback** — try \`equity\` first, fall back to \`index\` on 404. Simple but does double work for indexes.
-
-### Recommendation
-
-**(a)** — explicit, no extra REST calls, the index set is short and changes rarely.`
+Symbol class is resolved by querying the instruments endpoint and caching the result. See Step 5.4 for the sketch. Less fragile than a hard-coded set (no maintenance as Tastytrade adds new indexes / ETFs).`
       },
       {
         id: "oq-large-level",
@@ -1305,7 +1340,10 @@ Run during RTH against multiple equity-option targets to prove generality:
     // Map section id -> status ("approved", "revision", "question").
     // ============================================================
     const priorApprovals = {
-      // "example-context": "approved",
+      "architecture": "approved",
+      "module-structure": "approved",
+      "step-5-2-chain": "approved",
+      "step-5-5-compute": "approved",
     };
 
     // ============================================================
