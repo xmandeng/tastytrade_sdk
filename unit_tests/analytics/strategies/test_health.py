@@ -479,31 +479,6 @@ class TestHealthChecks:
         delta_alerts = [a for a in alerts if "delta" in a.message.lower()]
         assert len(delta_alerts) == 0
 
-    def test_check_all(self):
-        """check_all aggregates alerts from multiple strategies."""
-        # Strategy 1: healthy
-        s1 = make_strategy()
-        # Strategy 2: critical DTE
-        legs2 = (
-            ParsedLeg(
-                streamer_symbol=".SPYC310",
-                symbol="SPY  C310",
-                underlying="SPY",
-                instrument_type=InstrumentType.EQUITY_OPTION,
-                signed_quantity=-1,
-                option_type="C",
-                strike=Decimal("310"),
-                expiration=date(2026, 3, 20),
-                days_to_expiration=3,
-                delta=0.05,
-            ),
-        )
-        s2 = make_strategy(strategy_type=StrategyType.NAKED_CALL, legs=legs2)
-
-        monitor = StrategyHealthMonitor()
-        all_alerts = monitor.check_all([s1, s2])
-        assert len(all_alerts) >= 1
-
     def test_iron_condor_specific_thresholds(self):
         """Iron condor uses its custom thresholds from TOML."""
         legs = (

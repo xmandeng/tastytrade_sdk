@@ -108,9 +108,6 @@ def plot_macd_with_hull(
             dt = dt.astimezone(display_tz)
         return dt
 
-    def convert_time(dt: Optional[datetime]):  # Backwards compatibility internal alias
-        return _normalize_dt(dt)
-
     # Create timezone-aware copies of dataframes for plotting
     df_plot = df.clone()
     hma_plot = hma_study.clone()

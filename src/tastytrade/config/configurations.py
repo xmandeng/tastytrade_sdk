@@ -6,17 +6,6 @@ from typing import List
 from tastytrade.config.enumerations import Channels, EventTypes
 
 
-# Connection configurations
-@dataclass
-class ConnectionConfig:
-    """Configuration for connection management."""
-
-    keepalive_timeout: int = 60
-    reconnect_attempts: int = 3
-    reconnect_delay: int = 5
-    max_queue_size: int = 1000
-
-
 @dataclass
 class DXLinkConfig:
     keepalive_timeout: int = 60

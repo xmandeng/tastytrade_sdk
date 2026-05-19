@@ -205,14 +205,3 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
         "vwap",
         "impVolatility",
     )
-
-
-class StudyEvent(BaseEvent):
-    time: Optional[datetime] = Field(default=None, description="Event timestamp")
-    name: str = Field(description="Study name")
-    model_config = ConfigDict(
-        frozen=True,
-        validate_assignment=True,
-        extra="allow",
-        str_strip_whitespace=True,
-    )
