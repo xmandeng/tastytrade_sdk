@@ -26,7 +26,6 @@
       gap: 16px;
     }
     .toolbar-section { display: flex; align-items: center; gap: 8px; }
-    .toolbar-section.controls { flex: 1; justify-content: center; gap: 6px; }
 
     .dropdown { position: relative; display: inline-block; }
     .dropdown-btn {
@@ -80,15 +79,15 @@
     .status-dot.disconnected { background: #ef5350; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
-    /* --- Legend (draggable) --- */
+    /* --- Legend (draggable, two sections) --- */
     .chart-legend {
-      position: absolute; top: 60%; left: 90px; z-index: 10;
+      position: absolute; top: 16px; left: 90px; z-index: 10;
       background: rgba(19,19,19,0.88); border: 1px solid var(--border);
       border-radius: 5px; overflow: hidden;
       font-family: monospace; font-size: 11px;
       color: var(--text-muted); user-select: none;
+      min-width: 200px;
     }
-    .chart-legend:empty { display: none; }
     .chart-legend.dragging .legend-grip { cursor: grabbing; }
     .legend-grip {
       height: 14px; cursor: grab; display: flex; align-items: center;
@@ -96,7 +95,18 @@
       border-bottom: 1px solid var(--border);
     }
     .legend-grip-dots { width: 24px; height: 2px; border-top: 2px dotted rgba(255,255,255,0.15); }
-    .legend-body { padding: 6px 12px 8px; }
+
+    .legend-values {
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+      align-items: baseline;
+    }
+    .legend-values .lbl { color: var(--text-dim); font-size: 10px; letter-spacing: 0.3px; }
+    .legend-values .val { color: var(--text); text-align: right; }
+    .legend-values .val.dim { color: var(--text-muted); }
+
+    .legend-rows { padding: 6px 12px 8px; }
     .legend-row {
       display: flex; align-items: center; gap: 8px; white-space: nowrap;
       padding: 3px 4px; border-radius: 3px; cursor: pointer;
@@ -143,7 +153,8 @@
 <div id="chart">
   <div class="chart-legend" id="chartLegend">
     <div class="legend-grip" id="legendGrip"><div class="legend-grip-dots"></div></div>
-    <div class="legend-body" id="legendBody"></div>
+    <div class="legend-values" id="legendValues"></div>
+    <div class="legend-rows" id="legendRows"></div>
   </div>
 </div>
 
@@ -156,10 +167,10 @@ const C = {
   hmaUp:'#01FFFF', hmaDown:'#FF66FE',
   macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
   priorClose:'#FF66FE', priorHigh:'#4CAF50', priorLow:'#F44336', orLevel:'#4CAF50',
+  watermark:'rgba(255,255,255,0.06)',
 };
 
 const MARKET_OPEN_H = 9, MARKET_OPEN_M = 30;
-
 const chartEl = document.getElementById('chart');
 
 function fmtTime(epochSec) {
@@ -170,7 +181,83 @@ function fmtTime(epochSec) {
   return `${hh}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
-// --- Single chart with native panes ---
+// ============================================================================
+// Custom series: colored polyline with per-point color (HMA up/down segments)
+// ============================================================================
+class ColoredLineRenderer {
+  constructor() { this._data = null; }
+  update(data) { this._data = data; }
+  draw(target, priceConverter) {
+    const data = this._data;
+    if (!data || !data.bars.length) return;
+    target.useBitmapCoordinateSpace(scope => {
+      const ctx = scope.context;
+      const xR = scope.horizontalPixelRatio;
+      const yR = scope.verticalPixelRatio;
+      ctx.lineWidth = Math.max(1, Math.round(yR));
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const bars = data.bars;
+      const range = data.visibleRange;
+      if (!range) return;
+      // Pad by 1 so the segment that crosses the left edge is drawn
+      const from = Math.max(0, range.from - 1);
+      const to = Math.min(bars.length, range.to + 1);
+      for (let i = from; i < to - 1; i++) {
+        const b1 = bars[i], b2 = bars[i + 1];
+        const o1 = b1.originalData, o2 = b2.originalData;
+        if (!o1 || !o2 || o1.value == null || o2.value == null) continue;
+        ctx.strokeStyle = o1.color || '#888';
+        ctx.beginPath();
+        ctx.moveTo(b1.x * xR, priceConverter(o1.value) * yR);
+        ctx.lineTo(b2.x * xR, priceConverter(o2.value) * yR);
+        ctx.stroke();
+      }
+    });
+  }
+}
+
+class ColoredLineView {
+  constructor() { this._renderer = new ColoredLineRenderer(); }
+  renderer() { return this._renderer; }
+  update(data) { this._renderer.update(data); }
+  priceValueBuilder(d) { return [d.value]; }
+  isWhitespace(d) { return d.value == null; }
+  defaultOptions() { return {}; }
+  destroy() {}
+}
+
+// ============================================================================
+// Pane primitive: text watermark (e.g. "MACD (12,26,9)" in the MACD pane)
+// ============================================================================
+class TextWatermark {
+  constructor(text, opt = {}) {
+    this._text = text;
+    this._opt = {
+      color: C.watermark, fontSize: 12, fontFamily: 'monospace',
+      padding: 8, ...opt,
+    };
+    this._paneView = {
+      renderer: () => ({
+        draw: (target) => {
+          target.useMediaCoordinateSpace(scope => {
+            const ctx = scope.context;
+            ctx.fillStyle = this._opt.color;
+            ctx.font = `${this._opt.fontSize}px ${this._opt.fontFamily}`;
+            ctx.textBaseline = 'top';
+            ctx.fillText(this._text, this._opt.padding, this._opt.padding);
+          });
+        },
+      }),
+    };
+  }
+  paneViews() { return [this._paneView]; }
+  updateAllViews() {}
+}
+
+// ============================================================================
+// Chart
+// ============================================================================
 const chart = LightweightCharts.createChart(chartEl, {
   layout: {
     background: { type: 'solid', color: C.bg },
@@ -206,8 +293,7 @@ const chart = LightweightCharts.createChart(chartEl, {
   handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
 });
 
-// --- Series ---
-// Pane 0 (default): candles + HMA
+// --- Pane 0: candles + HMA ---
 const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
   upColor: C.candleUpBody, downColor: C.candleDownBody,
   borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
@@ -216,49 +302,13 @@ const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
   priceScaleId: 'left',
 }, 0);
 
-// HMA: segment series per color run.
-// Deferred refinement: collapse into a single custom-series with per-point color.
-let hmaSegmentSeries = [];
+// One custom series, per-point color — replaces v4's N segment-series.
+const hmaSeries = chart.addCustomSeries(new ColoredLineView(), {
+  priceScaleId: 'left',
+  priceLineVisible: false, lastValueVisible: false,
+}, 0);
 
-function clearHmaSeries() {
-  hmaSegmentSeries.forEach(s => chart.removeSeries(s.series));
-  hmaSegmentSeries = [];
-}
-
-function createHmaSegmentSeries(color) {
-  const series = chart.addSeries(LightweightCharts.LineSeries, {
-    color, lineWidth: 1,
-    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-    priceScaleId: 'left',
-  }, 0);
-  if (!hmaVisible) series.applyOptions({ visible: false });
-  const entry = { series, color };
-  hmaSegmentSeries.push(entry);
-  return entry;
-}
-
-function buildHmaSegments(hmaData, candleTimes) {
-  clearHmaSeries();
-  if (!hmaData || !hmaData.length) return;
-  const timeSet = candleTimes ? new Set(candleTimes) : null;
-  let cur = null, curColor = null;
-
-  for (let i = 0; i < hmaData.length; i++) {
-    if (timeSet && !timeSet.has(hmaData[i].time)) continue;
-    const color = hmaData[i].color;
-    const pt = { time: hmaData[i].time, value: hmaData[i].value };
-    if (color !== curColor) {
-      const entry = createHmaSegmentSeries(color);
-      if (cur) cur.series.update(pt); // overlap for continuity
-      entry.series.setData([pt]);
-      cur = entry; curColor = color;
-    } else {
-      cur.series.update(pt);
-    }
-  }
-}
-
-// Pane 1: MACD
+// --- Pane 1: MACD ---
 const macdHistSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
   priceLineVisible: false, lastValueVisible: false,
   priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
@@ -276,11 +326,19 @@ const macdSignalSeries = chart.addSeries(LightweightCharts.LineSeries, {
   priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
   priceScaleId: 'left',
 }, 1);
-const macdZeroSeries = chart.addSeries(LightweightCharts.LineSeries, {
-  color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
-  priceLineVisible: false, lastValueVisible: false,
-  priceScaleId: 'left',
-}, 1);
+// MACD zero line: built-in price line on the value series — replaces the fake 2-point series.
+macdValueSeries.createPriceLine({
+  price: 0, color: C.macdZero, lineWidth: 1,
+  lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false,
+});
+
+// Watermark on the MACD pane via a pane primitive.
+function attachMacdWatermark() {
+  const panes = chart.panes();
+  if (panes.length < 2) { setTimeout(attachMacdWatermark, 30); return; }
+  panes[1].attachPrimitive(new TextWatermark('MACD (12,26,9)'));
+}
+attachMacdWatermark();
 
 // Initial pane sizing: 3:1 candle:macd
 function sizePanes() {
@@ -288,21 +346,22 @@ function sizePanes() {
   if (h < 100) return;
   const panes = chart.panes();
   if (panes.length < 2) return;
-  const candleH = Math.floor(h * 0.75);
-  panes[0].setHeight(candleH);
+  panes[0].setHeight(Math.floor(h * 0.75));
 }
 setTimeout(sizePanes, 50);
 
-// --- State ---
-let lastHmaColor = C.hmaUp;
+// ============================================================================
+// State
+// ============================================================================
 let hmaVisible = true;
 let lastCandles = [];
+let lastHmaByTime = new Map();  // time epoch -> { value, color }
+let lastMacdByTime = new Map(); // time epoch -> { value, signal, histogram }
 let viewStartEpoch = 0;
 let levelStartEpoch = 0;
 let levelEndEpoch = 0;
 let marketCloseEpoch = 0;
-// levels[id] = { lines: IPriceLine[], visible, entries }
-const levels = {};
+const levels = {};  // id -> { lines: IPriceLine[], visible, entries }
 
 function lwcStyle(s) {
   if (s === 'dot' || s === 'dotted') return LightweightCharts.LineStyle.Dotted;
@@ -314,34 +373,29 @@ let hasMarketHours = true;
 
 function computeBounds(candles) {
   viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
-
   for (const c of candles) {
     const d = new Date(c.time * 1000);
     const h = d.getUTCHours(), m = d.getUTCMinutes();
     if (h < 16 || (h === 16 && m <= 30)) levelEndEpoch = c.time;
   }
-
   if (candles.length) {
     const d = new Date(candles[0].time * 1000);
     const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
-    viewStartEpoch = Date.UTC(y, mo, day, 8, 30) / 1000;   // 8:30 AM
-    levelStartEpoch = Date.UTC(y, mo, day, 9, 30) / 1000;  // 9:30 AM
-    marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000; // 4:30 PM
+    viewStartEpoch = Date.UTC(y, mo, day, 8, 30) / 1000;
+    levelStartEpoch = Date.UTC(y, mo, day, 9, 30) / 1000;
+    marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;
   }
-
-  // Auto-detect: if no candles fall within MKT hours, switch to EXT.
   if (candles.length && hasMarketHours) {
     const anyInMarket = candles.some(c => c.time >= viewStartEpoch && c.time <= marketCloseEpoch);
     if (!anyInMarket) hasMarketHours = false;
   }
-
   if (!hasMarketHours) {
     viewStartEpoch = candles.length ? candles[0].time : 0;
     levelStartEpoch = viewStartEpoch;
     levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
     marketCloseEpoch = levelEndEpoch;
-  } else {
-    if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
+  } else if (levelEndEpoch === 0 && candles.length) {
+    levelEndEpoch = candles[candles.length - 1].time;
   }
 }
 
@@ -352,30 +406,30 @@ function toggleMarketHours() {
   renderControls();
 }
 
-// --- Toggles ---
 function toggleHma() {
   hmaVisible = !hmaVisible;
-  hmaSegmentSeries.forEach(s => s.series.applyOptions({ visible: hmaVisible }));
+  hmaSeries.applyOptions({ visible: hmaVisible });
   renderLegend();
 }
 
-// --- Level lines via createPriceLine ---
-// v5: no time data, no manual tick extension, no autoscaleInfoProvider:null hack.
-function createLevelLine(entry) {
+// ============================================================================
+// Level lines (createPriceLine, with axis labels on prior-day levels)
+// ============================================================================
+function createLevelLine(entry, axisLabel) {
   return candleSeries.createPriceLine({
     price: entry.price,
     color: entry.color,
     lineWidth: 1,
     lineStyle: lwcStyle(entry.lineStyle),
-    axisLabelVisible: false,
+    axisLabelVisible: !!axisLabel,
     title: entry.label,
   });
 }
 
-function createLevel(id, entries, visible) {
+function createLevel(id, entries, visible, axisLabel) {
   if (levels[id]) return;
-  const lines = visible ? entries.map(e => createLevelLine(e)) : [];
-  levels[id] = { lines, visible, entries };
+  const lines = visible ? entries.map(e => createLevelLine(e, axisLabel)) : [];
+  levels[id] = { lines, visible, entries, axisLabel: !!axisLabel };
 }
 
 function clearAllLevels() {
@@ -383,7 +437,6 @@ function clearAllLevels() {
     levels[id].lines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e) {} });
     delete levels[id];
   });
-  document.getElementById('legendBody').innerHTML = '';
 }
 
 function toggleLevel(id) {
@@ -393,17 +446,66 @@ function toggleLevel(id) {
     lv.lines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e) {} });
     lv.lines = []; lv.visible = false;
   } else {
-    lv.lines = lv.entries.map(e => createLevelLine(e));
+    lv.lines = lv.entries.map(e => createLevelLine(e, lv.axisLabel));
     lv.visible = true;
   }
   renderLegend();
 }
 
-function renderLegend() {
-  const el = document.getElementById('legendBody');
-  const rows = [];
+// ============================================================================
+// Legend — crosshair-driven values + toggleable rows
+// ============================================================================
+const PRICE_FMT_NONE = (v) => v == null ? '—' : '—';
+let priceFmt = (v) => v == null ? '—' : v.toFixed(2);
 
-  function row(id, label, color, style, priceText, onclick) {
+function setPriceFormatter(midPrice) {
+  if (midPrice == null) return;
+  const dec = midPrice >= 1000 ? 1 : midPrice >= 10 ? 2 : 4;
+  priceFmt = (v) => v == null ? '—' : v.toFixed(dec);
+}
+
+function macdFmt(v) { return v == null ? '—' : v.toFixed(2); }
+
+function updateValuesAtTime(time) {
+  const valEl = document.getElementById('legendValues');
+  let candle = null, hma = null, macd = null;
+  if (time != null) {
+    candle = lastCandles.find(c => c.time === time) || null;
+    hma = lastHmaByTime.get(time) || null;
+    macd = lastMacdByTime.get(time) || null;
+  }
+  // Fall back to most recent candle if hover isn't on a candle
+  if (!candle && lastCandles.length) candle = lastCandles[lastCandles.length - 1];
+  if (!hma && lastHmaByTime.size) {
+    const lastTime = lastCandles.length ? lastCandles[lastCandles.length - 1].time : null;
+    hma = lastTime != null ? lastHmaByTime.get(lastTime) : null;
+  }
+  if (!macd && lastMacdByTime.size) {
+    const lastTime = lastCandles.length ? lastCandles[lastCandles.length - 1].time : null;
+    macd = lastTime != null ? lastMacdByTime.get(lastTime) : null;
+  }
+
+  const sign = candle ? (candle.close >= candle.open ? C.candleUpBorder : C.candleDownBorder) : C.text;
+  const macdSign = macd && macd.histogram >= 0 ? C.candleUpBorder : C.candleDownBorder;
+  const hmaColor = hma ? hma.color : C.text;
+
+  valEl.innerHTML = `
+    <span class="lbl">O</span><span class="val">${candle ? priceFmt(candle.open) : '—'}</span>
+    <span class="lbl">H</span><span class="val">${candle ? priceFmt(candle.high) : '—'}</span>
+    <span class="lbl">L</span><span class="val">${candle ? priceFmt(candle.low) : '—'}</span>
+    <span class="lbl">C</span><span class="val" style="color:${sign}">${candle ? priceFmt(candle.close) : '—'}</span>
+    <span class="lbl">HMA</span><span class="val" style="color:${hmaColor}">${hma ? priceFmt(hma.value) : '—'}</span>
+    <span class="lbl">MACD</span><span class="val" style="color:${macdSign}">${macd ? `${macdFmt(macd.value)} / ${macdFmt(macd.signal)}` : '—'}</span>
+  `;
+}
+
+function renderLegend() {
+  // Values section uses last candle by default
+  updateValuesAtTime(null);
+
+  const el = document.getElementById('legendRows');
+  const rows = [];
+  function row(id, label, color, style, onclick) {
     const vis = id === 'hma' ? hmaVisible : (levels[id] && levels[id].visible);
     const cls = vis ? '' : 'off';
     const dash = style === 'dotted' ? 'dotted' : style === 'dashed' ? 'dashed' : '';
@@ -411,36 +513,33 @@ function renderLegend() {
     return `<div class="legend-row ${cls}" onclick="${handler}">
       <span class="legend-line ${dash}" style="border-color:${color}"></span>
       <span>${label}</span>
-      <span style="color:var(--text-dim)">${priceText}</span>
     </div>`;
   }
-
-  rows.push(row('hma', 'HMA', C.hmaUp, 'solid', '', 'toggleHma();renderLegend()'));
-
+  rows.push(row('hma', 'HMA', C.hmaUp, 'solid', 'toggleHma();renderLegend()'));
   ['priorClose','priorHigh','priorLow'].forEach(id => {
-    const lv = levels[id];
-    if (!lv) return;
+    const lv = levels[id]; if (!lv) return;
     const e = lv.entries[0];
-    rows.push(row(id, e.label, e.color, e.lineStyle, e.price.toFixed(0)));
+    rows.push(row(id, e.label, e.color, e.lineStyle));
   });
   ['or5','or15','or30'].forEach(id => {
-    const lv = levels[id];
-    if (!lv || !lv.entries.length) return;
+    const lv = levels[id]; if (!lv || !lv.entries.length) return;
     const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
-    const hi = lv.entries.find(e => e.label.includes('Hi'));
-    const lo = lv.entries.find(e => e.label.includes('Lo'));
-    const prices = [hi,lo].filter(Boolean).map(e => e.price.toFixed(0)).join(' / ');
-    rows.push(row(id, label, lv.entries[0].color, lv.entries[0].lineStyle, prices));
+    rows.push(row(id, label, lv.entries[0].color, lv.entries[0].lineStyle));
   });
   el.innerHTML = rows.join('');
 }
 
-// Draggable legend via grip bar
+// Crosshair-driven readout — only the values row updates, not the toggle rows.
+chart.subscribeCrosshairMove(param => {
+  const t = param.time;
+  updateValuesAtTime(typeof t === 'number' ? t : null);
+});
+
+// Draggable legend
 (function() {
   const legend = document.getElementById('chartLegend');
   const grip = document.getElementById('legendGrip');
   let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
-
   grip.addEventListener('mousedown', (e) => {
     dragging = true; startX = e.clientX; startY = e.clientY;
     origLeft = legend.offsetLeft; origTop = legend.offsetTop;
@@ -465,7 +564,9 @@ function renderControls() {
     <button class="seg-btn ${hasMarketHours ? '' : 'active'}" onclick="toggleMarketHours()">EXT</button>`;
 }
 
-// --- Opening range ---
+// ============================================================================
+// Opening range
+// ============================================================================
 const OR_WINDOWS = [
   { min:5, id:'or5', label:'5m', style:'solid', opacity:0.6 },
   { min:15, id:'or15', label:'15m', style:'dashed', opacity:0.4 },
@@ -482,7 +583,6 @@ function processCandleOR(candle) {
   const h = d.getUTCHours(), m = d.getUTCMinutes();
   const minSinceOpen = (h - MARKET_OPEN_H) * 60 + (m - MARKET_OPEN_M);
   if (minSinceOpen < 0) return;
-
   OR_WINDOWS.forEach(w => {
     const st = orState[w.min];
     if (!st || st.locked) return;
@@ -490,9 +590,9 @@ function processCandleOR(candle) {
       st.locked = true;
       if (st.high !== null) {
         createLevel(w.id, [
-          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
-          { price:st.low, label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
-        ], true);
+          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style },
+          { price:st.low,  label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style },
+        ], true, /*axisLabel=*/false);
         renderLegend();
       }
       return;
@@ -502,21 +602,20 @@ function processCandleOR(candle) {
   });
 }
 
-// --- View / scale ---
-function floorHour(epoch) { return epoch - (epoch % 3600); }
-function ceilHour(epoch) { return epoch % 3600 === 0 ? epoch : floorHour(epoch) + 3600; }
+// ============================================================================
+// View / scale
+// ============================================================================
+function floorHour(e) { return e - (e % 3600); }
+function ceilHour(e)  { return e % 3600 === 0 ? e : floorHour(e) + 3600; }
 
 function setTradingHoursView() {
   if (!hasMarketHours) {
     if (!lastCandles.length) return;
-    const first = lastCandles[0].time;
-    const last = lastCandles[lastCandles.length - 1].time;
-    const from = floorHour(first - 1800);
-    const to = ceilHour(last + 1800);
+    const from = floorHour(lastCandles[0].time - 1800);
+    const to = ceilHour(lastCandles[lastCandles.length - 1].time + 1800);
     chart.timeScale().setVisibleRange({ from, to });
     return;
   }
-
   if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
   const from = floorHour(viewStartEpoch);
   const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
@@ -524,38 +623,27 @@ function setTradingHoursView() {
   chart.timeScale().setVisibleRange({ from, to });
 }
 
-// Prior-day-levels autoscale: createPriceLine doesn't expand the price scale,
-// so extend the candle series y-range to include prior levels.
+// Prior-day levels: createPriceLine doesn't expand the price scale, so extend
+// candle y-range to include them.
 let priorLevelPrices = [];
-
 function applyPriorLevelScale(candles) {
   if (!priorLevelPrices.length || !candles.length) return;
   let lo = Infinity, hi = -Infinity;
-  candles.forEach(c => {
-    if (c.low < lo) lo = c.low;
-    if (c.high > hi) hi = c.high;
-  });
-  priorLevelPrices.forEach(p => {
-    if (p < lo) lo = p;
-    if (p > hi) hi = p;
-  });
+  candles.forEach(c => { if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high; });
+  priorLevelPrices.forEach(p => { if (p < lo) lo = p; if (p > hi) hi = p; });
   const pad = (hi - lo) * 0.03;
   candleSeries.applyOptions({
-    autoscaleInfoProvider: () => ({
-      priceRange: { minValue: lo - pad, maxValue: hi + pad },
-    }),
+    autoscaleInfoProvider: () => ({ priceRange: { minValue: lo - pad, maxValue: hi + pad } }),
   });
 }
 
-// --- WebSocket ---
+// ============================================================================
+// WebSocket + UI wiring (toolbar, dropdowns, connect)
+// ============================================================================
 let ws = null;
 let intentionalClose = false;
+function setStatus(state) { document.getElementById('statusDot').className = 'status-dot ' + state; }
 
-function setStatus(state) {
-  document.getElementById('statusDot').className = 'status-dot ' + state;
-}
-
-// --- Dropdown controls ---
 const INTERVALS = [
   { value:'m', label:'1m' }, { value:'5m', label:'5m' },
   { value:'15m', label:'15m' }, { value:'30m', label:'30m' },
@@ -569,7 +657,7 @@ function getParams() {
   return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm' };
 }
 
-function initDropdown(btnId, listId, items, onSelect) {
+function initDropdown(btnId, listId, onSelect) {
   const btn = document.getElementById(btnId);
   const list = document.getElementById(listId);
   btn.addEventListener('click', (e) => {
@@ -602,14 +690,14 @@ async function populateSymbols() {
     list.innerHTML = (data.symbols || []).map(s =>
       `<div class="dropdown-item ${s === currentSymbol ? 'active' : ''}" data-value="${s}">${s}</div>`
     ).join('');
-  } catch (e) { /* symbols endpoint unavailable */ }
+  } catch (e) { /* unavailable */ }
 }
 
 document.addEventListener('click', () => {
   document.querySelectorAll('.dropdown-list.open').forEach(el => el.classList.remove('open'));
 });
 
-initDropdown('symbolBtn', 'symbolList', [], (sym) => {
+initDropdown('symbolBtn', 'symbolList', (sym) => {
   currentSymbol = sym;
   const p = new URLSearchParams(window.location.search);
   p.set('symbol', sym); p.set('interval', currentInterval);
@@ -617,8 +705,7 @@ initDropdown('symbolBtn', 'symbolList', [], (sym) => {
   document.getElementById('symbolBtn').textContent = sym;
   connect();
 });
-
-initDropdown('intervalBtn', 'intervalList', [], (intv) => {
+initDropdown('intervalBtn', 'intervalList', (intv) => {
   currentInterval = intv;
   const label = INTERVALS.find(i => i.value === intv)?.label || intv;
   const p = new URLSearchParams(window.location.search);
@@ -637,7 +724,6 @@ function connect(dateOverride) {
 function doConnect(dateOverride) {
   setStatus('connecting');
   intentionalClose = true;
-
   const { symbol, interval } = getParams();
   currentSymbol = symbol; currentInterval = interval;
   document.getElementById('symbolBtn').textContent = symbol;
@@ -649,13 +735,9 @@ function doConnect(dateOverride) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}`;
   if (dateOverride) url += `&date=${dateOverride}`;
-
   ws = new WebSocket(url);
 
-  ws.onopen = () => {
-    intentionalClose = false;
-    setStatus('connected');
-  };
+  ws.onopen = () => { intentionalClose = false; setStatus('connected'); };
 
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
@@ -666,14 +748,18 @@ function doConnect(dateOverride) {
       clearAllLevels();
       initOR();
       hmaVisible = true;
+      hmaSeries.applyOptions({ visible: true });
+      lastHmaByTime.clear();
+      lastMacdByTime.clear();
 
       if (msg.date) document.getElementById('dateInput').value = msg.date;
 
       lastCandles = msg.candles;
       if (msg.candles.length) {
         const mid = msg.candles[Math.floor(msg.candles.length / 2)].close;
-        const prec = mid >= 100 ? 0 : mid >= 1 ? 2 : 4;
-        const mv = mid >= 100 ? 1 : mid >= 1 ? 0.01 : 0.0001;
+        setPriceFormatter(mid);
+        const prec = mid >= 1000 ? 0 : mid >= 100 ? 1 : mid >= 1 ? 2 : 4;
+        const mv = mid >= 1000 ? 1 : mid >= 100 ? 0.1 : mid >= 1 ? 0.01 : 0.0001;
         candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
       }
       candleSeries.setData(msg.candles);
@@ -681,34 +767,38 @@ function doConnect(dateOverride) {
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 
       if (msg.hma && msg.hma.length > 0) {
-        const candleTimes = msg.candles.map(c => c.time);
-        buildHmaSegments(msg.hma, candleTimes);
-        lastHmaColor = msg.hma[msg.hma.length - 1].color;
+        hmaSeries.setData(msg.hma);
+        msg.hma.forEach(p => lastHmaByTime.set(p.time, { value: p.value, color: p.color }));
+      } else {
+        hmaSeries.setData([]);
       }
 
       if (msg.macd && msg.macd.length > 0) {
         macdHistSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.histogram, color:p.histogramColor })));
         macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
         macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
-        macdZeroSeries.setData([
-          { time:msg.macd[0].time, value:0 },
-          { time:msg.macd[msg.macd.length-1].time, value:0 },
-        ]);
+        msg.macd.forEach(p => lastMacdByTime.set(p.time, { value: p.value, signal: p.signal, histogram: p.histogram }));
       }
 
       priorLevelPrices = [];
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
         if (dc.close != null) {
-          createLevel('priorClose',[{price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.35}], true);
+          createLevel('priorClose',
+            [{ price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted' }],
+            true, /*axisLabel=*/true);
           priorLevelPrices.push(dc.close);
         }
         if (dc.high != null) {
-          createLevel('priorHigh',[{price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.25}], true);
+          createLevel('priorHigh',
+            [{ price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted' }],
+            true, /*axisLabel=*/true);
           priorLevelPrices.push(dc.high);
         }
         if (dc.low != null) {
-          createLevel('priorLow',[{price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.25}], true);
+          createLevel('priorLow',
+            [{ price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted' }],
+            true, /*axisLabel=*/true);
           priorLevelPrices.push(dc.low);
         }
         applyPriorLevelScale(msg.candles);
@@ -722,38 +812,33 @@ function doConnect(dateOverride) {
 
     if (msg.type === 'update') {
       candleSeries.update(msg.candle);
+      // Keep lastCandles in sync so the legend's "last candle" fallback is current.
+      if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {
+        lastCandles[lastCandles.length - 1] = msg.candle;
+      } else {
+        lastCandles.push(msg.candle);
+      }
       processCandleOR(msg.candle);
 
-      // v5: no manual level-line extension needed — createPriceLine spans the whole chart.
-
       if (msg.hma) {
-        const pt = { time: msg.hma.time, value: msg.hma.value };
-        const color = msg.hma.color;
-        if (color !== lastHmaColor && hmaSegmentSeries.length > 0) {
-          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
-          const entry = createHmaSegmentSeries(color);
-          entry.series.setData([pt]);
-        } else if (hmaSegmentSeries.length > 0) {
-          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
-        } else {
-          const entry = createHmaSegmentSeries(color);
-          entry.series.setData([pt]);
-        }
-        lastHmaColor = color;
+        hmaSeries.update(msg.hma);
+        lastHmaByTime.set(msg.hma.time, { value: msg.hma.value, color: msg.hma.color });
       }
-
       if (msg.macd) {
         macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
         macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
         macdSignalSeries.update({ time:msg.macd.time, value:msg.macd.signal });
-        macdZeroSeries.update({ time:msg.macd.time, value:0 });
+        lastMacdByTime.set(msg.macd.time, { value: msg.macd.value, signal: msg.macd.signal, histogram: msg.macd.histogram });
       }
+      // Refresh the legend's current values (will use latest candle since no hover)
+      updateValuesAtTime(null);
       return;
     }
 
     if (msg.type === 'level') {
       const id = (msg.label||'').replace(/\s+/g,'').toLowerCase();
-      createLevel(id,[{price:msg.price,label:msg.label,color:msg.color,lineStyle:msg.lineStyle,opacity:msg.opacity}],true);
+      createLevel(id, [{ price:msg.price, label:msg.label, color:msg.color, lineStyle:msg.lineStyle }],
+                  true, /*axisLabel=*/false);
       renderLegend();
       return;
     }
@@ -764,7 +849,6 @@ function doConnect(dateOverride) {
     setStatus('disconnected');
     setTimeout(() => connect(), 3000);
   };
-
   ws.onerror = () => setStatus('disconnected');
 }
 
@@ -772,11 +856,8 @@ document.getElementById('dateInput').addEventListener('change', (e) => {
   if (e.isTrusted && e.target.value) connect(e.target.value);
 });
 
-// Single chart resize — v5 pane separator is built-in, no manual handle.
 function resize() {
-  if (chartEl.clientWidth && chartEl.clientHeight) {
-    chart.resize(chartEl.clientWidth, chartEl.clientHeight);
-  }
+  if (chartEl.clientWidth && chartEl.clientHeight) chart.resize(chartEl.clientWidth, chartEl.clientHeight);
 }
 window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(chartEl);
