@@ -79,7 +79,7 @@
     .status-dot.disconnected { background: #ef5350; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
-    /* --- Legend (draggable, two sections) --- */
+    /* --- Legend (draggable, values-only) --- */
     .chart-legend {
       position: absolute; top: 16px; left: 90px; z-index: 10;
       background: rgba(19,19,19,0.88); border: 1px solid var(--border);
@@ -98,28 +98,44 @@
 
     .legend-values {
       padding: 6px 12px;
-      border-bottom: 1px solid var(--border);
       display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
       align-items: baseline;
     }
     .legend-values .lbl { color: var(--text-dim); font-size: 10px; letter-spacing: 0.3px; }
     .legend-values .val { color: var(--text); text-align: right; }
-    .legend-values .val.dim { color: var(--text-muted); }
 
-    .legend-rows { padding: 6px 12px 8px; }
-    .legend-row {
-      display: flex; align-items: center; gap: 8px; white-space: nowrap;
-      padding: 3px 4px; border-radius: 3px; cursor: pointer;
-      transition: opacity 0.12s;
+    /* --- Studies panel (hierarchical toggle list inside the dropdown) --- */
+    .studies-panel {
+      padding: 6px 4px; min-width: 220px;
     }
-    .legend-row:hover { background: rgba(255,255,255,0.04); }
-    .legend-row.off { opacity: 0.3; }
-    .legend-line {
-      width: 18px; height: 0; flex-shrink: 0;
+    .study-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px;
+      font-size: 12px; color: var(--text-muted);
+      cursor: pointer; user-select: none;
+      border-radius: 3px;
+    }
+    .study-row:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+    .study-row.child { padding-left: 28px; font-size: 11px; }
+    .study-row.group { font-weight: 600; color: var(--text); }
+    .study-row .study-swatch {
+      width: 14px; height: 2px; flex-shrink: 0;
       border-top-width: 2px; border-top-style: solid;
     }
-    .legend-line.dotted { border-top-style: dotted; }
-    .legend-line.dashed { border-top-style: dashed; }
+    .study-row .study-swatch.dotted { border-top-style: dotted; }
+    .study-row .study-swatch.dashed { border-top-style: dashed; }
+    .study-row .study-checkbox {
+      width: 14px; height: 14px; flex-shrink: 0;
+      border: 1px solid var(--text-dim); border-radius: 2px;
+      background: transparent;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; line-height: 1; color: var(--accent);
+    }
+    .study-row.checked .study-checkbox { background: var(--accent); border-color: var(--accent); }
+    .study-row.checked .study-checkbox::before { content: '\2713'; color: #131313; font-size: 10px; font-weight: 700; }
+    .study-row.indeterminate .study-checkbox { background: var(--accent); border-color: var(--accent); }
+    .study-row.indeterminate .study-checkbox::before { content: '\2212'; color: #131313; font-size: 10px; font-weight: 700; }
+    .study-row .study-label { flex: 1; white-space: nowrap; }
 
     /* --- Single chart container (v5: native panes inside) --- */
     #chart { flex: 1; position: relative; min-height: 0; }
@@ -143,6 +159,12 @@
   <div class="toolbar-section" style="flex:1"></div>
 
   <div class="toolbar-section">
+    <div class="dropdown" id="studiesDropdown">
+      <div class="dropdown-btn" id="studiesBtn">Studies</div>
+      <div class="dropdown-list right" id="studiesList">
+        <div class="studies-panel" id="studiesPanel"></div>
+      </div>
+    </div>
     <div class="seg-ctrl" id="mktExtCtrl"></div>
     <div class="status">
       <div class="status-dot" id="statusDot"></div>
@@ -154,7 +176,6 @@
   <div class="chart-legend" id="chartLegend">
     <div class="legend-grip" id="legendGrip"><div class="legend-grip-dots"></div></div>
     <div class="legend-values" id="legendValues"></div>
-    <div class="legend-rows" id="legendRows"></div>
   </div>
 </div>
 
@@ -263,7 +284,8 @@ class HmaPrimitive {
 }
 
 // ============================================================================
-// Pane primitive: text watermark (e.g. "MACD (12,26,9)" in the MACD pane)
+// Pane primitive: text watermark (e.g. "MACD (12,26,9)" in the MACD pane).
+// Attach/detach to toggle visibility — pane primitives don't have a visible flag.
 // ============================================================================
 class TextWatermark {
   constructor(text, opt = {}) {
@@ -366,11 +388,23 @@ macdValueSeries.createPriceLine({
   lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false,
 });
 
-// Watermark on the MACD pane via a pane primitive.
+// Watermark on the MACD pane — held as a singleton so the studies toggle
+// can attach/detach it (pane primitives don't have a visible flag).
+const macdWatermark = new TextWatermark('MACD (12,26,9)');
+let macdWatermarkAttached = false;
 function attachMacdWatermark() {
   const panes = chart.panes();
   if (panes.length < 2) { setTimeout(attachMacdWatermark, 30); return; }
-  panes[1].attachPrimitive(new TextWatermark('MACD (12,26,9)'));
+  if (!macdWatermarkAttached) {
+    panes[1].attachPrimitive(macdWatermark);
+    macdWatermarkAttached = true;
+  }
+}
+function detachMacdWatermark() {
+  const panes = chart.panes();
+  if (panes.length < 2 || !macdWatermarkAttached) return;
+  panes[1].detachPrimitive(macdWatermark);
+  macdWatermarkAttached = false;
 }
 attachMacdWatermark();
 
@@ -387,12 +421,67 @@ setTimeout(sizePanes, 50);
 // ============================================================================
 // State
 // ============================================================================
-let hmaVisible = true;
 let lastCandles = [];
 let lastHmaByTime = new Map();  // time epoch -> { value, color }
 let lastMacdByTime = new Map(); // time epoch -> { value, signal, histogram }
 let latestHma = null;   // last known HMA — fallback when hovered candle has no HMA yet
 let latestMacd = null;  // same for MACD
+
+// ============================================================================
+// Studies registry + state.
+// Hierarchy: top-level keys are either standalone studies (kind: 'simple')
+// or groups with children (kind: 'group'). Group parent off → entire group
+// hidden regardless of child state. Children remember their own state.
+// ============================================================================
+const STUDIES = {
+  hma: {
+    kind: 'simple', label: 'Hull MA (20)',
+    swatch: { color: C.hmaUp, style: 'solid' },
+  },
+  macd: {
+    kind: 'simple', label: 'MACD (12,26,9)',
+    swatch: { color: C.macdValue, style: 'solid' },
+  },
+  priorOHLC: {
+    kind: 'group', label: 'Prior Day OHLC',
+    children: {
+      priorClose: { label: 'Prior Close', swatch: { color: C.priorClose, style: 'dotted' } },
+      priorHigh:  { label: 'Prior Hi',    swatch: { color: C.priorHigh,  style: 'dotted' } },
+      priorLow:   { label: 'Prior Lo',    swatch: { color: C.priorLow,   style: 'dotted' } },
+    },
+  },
+  openingRange: {
+    kind: 'group', label: 'Opening Range',
+    children: {
+      or5:  { label: '5m OR',  swatch: { color: C.orLevel, style: 'solid' } },
+      or15: { label: '15m OR', swatch: { color: C.orLevel, style: 'dashed' } },
+      or30: { label: '30m OR', swatch: { color: C.orLevel, style: 'dotted' } },
+    },
+  },
+};
+
+// All toggles default ON. Children of a group are also ON by default.
+const studyState = {
+  hma: true, macd: true,
+  priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
+  openingRange: true, or5: true, or15: true, or30: true,
+};
+
+// Map level id -> {group, child} so applyLevelVisibility can resolve via studyState.
+const LEVEL_STUDY_MAP = {
+  priorClose: { group: 'priorOHLC',    child: 'priorClose' },
+  priorHigh:  { group: 'priorOHLC',    child: 'priorHigh'  },
+  priorLow:   { group: 'priorOHLC',    child: 'priorLow'   },
+  or5:        { group: 'openingRange', child: 'or5'        },
+  or15:       { group: 'openingRange', child: 'or15'       },
+  or30:       { group: 'openingRange', child: 'or30'       },
+};
+
+function isLevelVisible(id) {
+  const m = LEVEL_STUDY_MAP[id];
+  if (!m) return true;                       // unmanaged (e.g. live levels from Redis)
+  return studyState[m.group] && studyState[m.child];
+}
 let viewStartEpoch = 0;
 let levelStartEpoch = 0;
 let levelEndEpoch = 0;
@@ -442,14 +531,10 @@ function toggleMarketHours() {
   renderControls();
 }
 
-function toggleHma() {
-  hmaVisible = !hmaVisible;
-  hmaPrimitive.setVisible(hmaVisible);
-  renderLegend();
-}
-
 // ============================================================================
-// Level lines (createPriceLine, with axis labels on prior-day levels)
+// Level lines (createPriceLine, with axis labels on prior-day levels).
+// Visibility is owned by studyState — entries are always registered, and
+// applyLevelVisibility(id) reconciles the rendered lines with current state.
 // ============================================================================
 function createLevelLine(entry, axisLabel) {
   return candleSeries.createPriceLine({
@@ -462,10 +547,21 @@ function createLevelLine(entry, axisLabel) {
   });
 }
 
-function createLevel(id, entries, visible, axisLabel) {
+function registerLevel(id, entries, axisLabel) {
   if (levels[id]) return;
-  const lines = visible ? entries.map(e => createLevelLine(e, axisLabel)) : [];
-  levels[id] = { lines, visible, entries, axisLabel: !!axisLabel };
+  levels[id] = { entries, axisLabel: !!axisLabel, lines: [] };
+  applyLevelVisibility(id);
+}
+
+function applyLevelVisibility(id) {
+  const lv = levels[id];
+  if (!lv) return;
+  // Tear down current lines
+  lv.lines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e) {} });
+  lv.lines = [];
+  if (isLevelVisible(id)) {
+    lv.lines = lv.entries.map(e => createLevelLine(e, lv.axisLabel));
+  }
 }
 
 function clearAllLevels() {
@@ -475,17 +571,24 @@ function clearAllLevels() {
   });
 }
 
-function toggleLevel(id) {
-  const lv = levels[id];
-  if (!lv) return;
-  if (lv.visible) {
-    lv.lines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e) {} });
-    lv.lines = []; lv.visible = false;
-  } else {
-    lv.lines = lv.entries.map(e => createLevelLine(e, lv.axisLabel));
-    lv.visible = true;
-  }
-  renderLegend();
+// ============================================================================
+// MACD pane: hide/show series + watermark together.
+// ============================================================================
+function setMacdVisible(visible) {
+  macdHistSeries.applyOptions({ visible });
+  macdValueSeries.applyOptions({ visible });
+  macdSignalSeries.applyOptions({ visible });
+  if (visible) attachMacdWatermark(); else detachMacdWatermark();
+}
+
+// ============================================================================
+// Apply the full studyState to the chart. Called on every toggle.
+// ============================================================================
+function applyStudyState() {
+  hmaPrimitive.setVisible(studyState.hma);
+  setMacdVisible(studyState.macd);
+  Object.keys(levels).forEach(id => applyLevelVisibility(id));
+  renderStudiesPanel();
 }
 
 // ============================================================================
@@ -532,34 +635,90 @@ function updateValuesAtTime(time) {
 }
 
 function renderLegend() {
-  // Values section uses last candle by default
+  // Values section uses last candle by default. The studies panel owns toggles now.
   updateValuesAtTime(null);
-
-  const el = document.getElementById('legendRows');
-  const rows = [];
-  function row(id, label, color, style, onclick) {
-    const vis = id === 'hma' ? hmaVisible : (levels[id] && levels[id].visible);
-    const cls = vis ? '' : 'off';
-    const dash = style === 'dotted' ? 'dotted' : style === 'dashed' ? 'dashed' : '';
-    const handler = onclick || `toggleLevel('${id}');renderLegend()`;
-    return `<div class="legend-row ${cls}" onclick="${handler}">
-      <span class="legend-line ${dash}" style="border-color:${color}"></span>
-      <span>${label}</span>
-    </div>`;
-  }
-  rows.push(row('hma', 'HMA', C.hmaUp, 'solid', 'toggleHma();renderLegend()'));
-  ['priorClose','priorHigh','priorLow'].forEach(id => {
-    const lv = levels[id]; if (!lv) return;
-    const e = lv.entries[0];
-    rows.push(row(id, e.label, e.color, e.lineStyle));
-  });
-  ['or5','or15','or30'].forEach(id => {
-    const lv = levels[id]; if (!lv || !lv.entries.length) return;
-    const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
-    rows.push(row(id, label, lv.entries[0].color, lv.entries[0].lineStyle));
-  });
-  el.innerHTML = rows.join('');
 }
+
+// ============================================================================
+// Studies panel rendering and toggle handling.
+// ============================================================================
+function isGroupIndeterminate(groupKey) {
+  const study = STUDIES[groupKey];
+  if (!study || !study.children) return false;
+  const states = Object.keys(study.children).map(k => studyState[k]);
+  const allOn = states.every(Boolean);
+  const allOff = states.every(s => !s);
+  return !allOn && !allOff;
+}
+
+function renderStudiesPanel() {
+  const panel = document.getElementById('studiesPanel');
+  if (!panel) return;
+  const out = [];
+
+  function swatchHtml(swatch) {
+    if (!swatch) return '<span class="study-swatch" style="border-color:transparent"></span>';
+    const cls = swatch.style === 'dotted' ? 'dotted' : swatch.style === 'dashed' ? 'dashed' : '';
+    return `<span class="study-swatch ${cls}" style="border-color:${swatch.color}"></span>`;
+  }
+  function checkboxState(key, indeterminate) {
+    if (indeterminate) return 'indeterminate';
+    return studyState[key] ? 'checked' : '';
+  }
+
+  Object.keys(STUDIES).forEach(key => {
+    const s = STUDIES[key];
+    if (s.kind === 'simple') {
+      out.push(`
+        <div class="study-row ${checkboxState(key)}" data-study="${key}">
+          <span class="study-checkbox"></span>
+          ${swatchHtml(s.swatch)}
+          <span class="study-label">${s.label}</span>
+        </div>
+      `);
+    } else if (s.kind === 'group') {
+      const indet = isGroupIndeterminate(key);
+      out.push(`
+        <div class="study-row group ${checkboxState(key, indet)}" data-study="${key}">
+          <span class="study-checkbox"></span>
+          <span class="study-label">${s.label}</span>
+        </div>
+      `);
+      Object.keys(s.children).forEach(ck => {
+        const c = s.children[ck];
+        out.push(`
+          <div class="study-row child ${checkboxState(ck)}" data-study="${ck}">
+            <span class="study-checkbox"></span>
+            ${swatchHtml(c.swatch)}
+            <span class="study-label">${c.label}</span>
+          </div>
+        `);
+      });
+    }
+  });
+  panel.innerHTML = out.join('');
+}
+
+// Toggle handler: clicking anywhere on a row flips its checkbox.
+document.addEventListener('click', (e) => {
+  const row = e.target.closest('.study-row');
+  if (!row) return;
+  const panel = row.closest('#studiesPanel');
+  if (!panel) return;
+  e.stopPropagation();
+  const key = row.dataset.study;
+  if (!key) return;
+  const study = STUDIES[key];
+  if (study && study.kind === 'group') {
+    // Toggling a group flips the parent flag. Children keep their own state —
+    // when the parent is back on, only the children that are individually on
+    // become visible. Predictable, no surprises.
+    studyState[key] = !studyState[key];
+  } else {
+    studyState[key] = !studyState[key];
+  }
+  applyStudyState();
+});
 
 // Crosshair-driven readout — only the values row updates, not the toggle rows.
 chart.subscribeCrosshairMove(param => {
@@ -621,11 +780,11 @@ function processCandleOR(candle) {
     if (minSinceOpen >= w.min) {
       st.locked = true;
       if (st.high !== null) {
-        createLevel(w.id, [
+        registerLevel(w.id, [
           { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style },
           { price:st.low,  label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style },
-        ], true, /*axisLabel=*/false);
-        renderLegend();
+        ], /*axisLabel=*/false);
+        renderStudiesPanel();
       }
       return;
     }
@@ -747,6 +906,22 @@ initDropdown('intervalBtn', 'intervalList', (intv) => {
   connect();
 });
 
+// Studies dropdown opens the toggle panel. No onSelect — clicks on rows
+// inside the panel are handled by the document-level click listener above.
+(function () {
+  const btn = document.getElementById('studiesBtn');
+  const list = document.getElementById('studiesList');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.dropdown-list.open').forEach(el => {
+      if (el.id !== 'studiesList') el.classList.remove('open');
+    });
+    list.classList.toggle('open');
+  });
+  // Clicks inside the panel shouldn't close it — they toggle rows.
+  list.addEventListener('click', (e) => e.stopPropagation());
+})();
+
 let connectTimer = null;
 function connect(dateOverride) {
   if (connectTimer) clearTimeout(connectTimer);
@@ -779,8 +954,6 @@ function doConnect(dateOverride) {
     if (msg.type === 'init') {
       clearAllLevels();
       initOR();
-      hmaVisible = true;
-      hmaPrimitive.setVisible(true);
       lastHmaByTime.clear();
       lastMacdByTime.clear();
       latestHma = null;
@@ -822,28 +995,30 @@ function doConnect(dateOverride) {
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
         if (dc.close != null) {
-          createLevel('priorClose',
+          registerLevel('priorClose',
             [{ price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted' }],
-            true, /*axisLabel=*/true);
+            /*axisLabel=*/true);
           priorLevelPrices.push(dc.close);
         }
         if (dc.high != null) {
-          createLevel('priorHigh',
+          registerLevel('priorHigh',
             [{ price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted' }],
-            true, /*axisLabel=*/true);
+            /*axisLabel=*/true);
           priorLevelPrices.push(dc.high);
         }
         if (dc.low != null) {
-          createLevel('priorLow',
+          registerLevel('priorLow',
             [{ price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted' }],
-            true, /*axisLabel=*/true);
+            /*axisLabel=*/true);
           priorLevelPrices.push(dc.low);
         }
         applyPriorLevelScale(msg.candles);
       }
 
       renderControls();
+      renderStudiesPanel();
       renderLegend();
+      applyStudyState();
       setTimeout(() => { setTradingHoursView(); sizePanes(); }, 100);
       return;
     }
@@ -877,9 +1052,9 @@ function doConnect(dateOverride) {
 
     if (msg.type === 'level') {
       const id = (msg.label||'').replace(/\s+/g,'').toLowerCase();
-      createLevel(id, [{ price:msg.price, label:msg.label, color:msg.color, lineStyle:msg.lineStyle }],
-                  true, /*axisLabel=*/false);
-      renderLegend();
+      registerLevel(id, [{ price:msg.price, label:msg.label, color:msg.color, lineStyle:msg.lineStyle }],
+                    /*axisLabel=*/false);
+      renderStudiesPanel();
       return;
     }
   };
