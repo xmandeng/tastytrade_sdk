@@ -408,7 +408,9 @@ function isLevelVisible(id) {
 function applyLevelVisibility(id) {
   const lv = levels[id];
   if (!lv) return;
-  lv.overlayIds.forEach(oid => { try { chart.removeOverlay(oid); } catch (e) {} });
+  // v9 removeOverlay(string) removes by NAME (all 'priceLine' instances); pass
+  // the {id} object form to remove a specific overlay.
+  lv.overlayIds.forEach(oid => { try { chart.removeOverlay({ id: oid }); } catch (e) {} });
   lv.overlayIds = [];
   if (isLevelVisible(id)) {
     lv.overlayIds = lv.entries.map(e => createLevelOverlay(e));
@@ -417,7 +419,7 @@ function applyLevelVisibility(id) {
 
 function clearAllLevels() {
   Object.keys(levels).forEach(id => {
-    levels[id].overlayIds.forEach(oid => { try { chart.removeOverlay(oid); } catch (e) {} });
+    levels[id].overlayIds.forEach(oid => { try { chart.removeOverlay({ id: oid }); } catch (e) {} });
     delete levels[id];
   });
 }
