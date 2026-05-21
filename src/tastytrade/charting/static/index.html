@@ -79,35 +79,17 @@
     .status-dot.disconnected { background: #ef5350; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
-    /* --- Legend (draggable, values-only) --- */
-    .chart-legend {
-      position: absolute; top: 16px; left: 90px; z-index: 10;
-      background: rgba(19,19,19,0.88); border: 1px solid var(--border);
-      border-radius: 5px; overflow: hidden;
-      font-family: monospace; font-size: 11px;
-      color: var(--text-muted); user-select: none;
-      min-width: 200px;
-    }
-    .chart-legend.dragging .legend-grip { cursor: grabbing; }
-    .legend-grip {
-      height: 14px; cursor: grab; display: flex; align-items: center;
-      justify-content: center; background: rgba(255,255,255,0.03);
-      border-bottom: 1px solid var(--border);
-    }
-    .legend-grip-dots { width: 24px; height: 2px; border-top: 2px dotted rgba(255,255,255,0.15); }
-
-    .legend-values {
-      padding: 6px 12px;
-      display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
-      align-items: baseline;
-    }
-    .legend-values .lbl { color: var(--text-dim); font-size: 10px; letter-spacing: 0.3px; }
-    .legend-values .val { color: var(--text); text-align: right; }
-
     /* --- Studies panel (hierarchical toggle list inside the dropdown) --- */
     .studies-panel {
       padding: 6px 4px; min-width: 220px;
     }
+    .studies-section-header {
+      padding: 8px 10px 4px;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+    .studies-section-header:first-child { padding-top: 4px; }
     .study-row {
       display: flex; align-items: center; gap: 8px;
       padding: 5px 10px;
@@ -172,12 +154,7 @@
   </div>
 </div>
 
-<div id="chart">
-  <div class="chart-legend" id="chartLegend">
-    <div class="legend-grip" id="legendGrip"><div class="legend-grip-dots"></div></div>
-    <div class="legend-values" id="legendValues"></div>
-  </div>
-</div>
+<div id="chart"></div>
 
 <script>
 // --- Colors (plots.py) ---
@@ -422,28 +399,21 @@ setTimeout(sizePanes, 50);
 // State
 // ============================================================================
 let lastCandles = [];
-let lastHmaByTime = new Map();  // time epoch -> { value, color }
-let lastMacdByTime = new Map(); // time epoch -> { value, signal, histogram }
-let latestHma = null;   // last known HMA — fallback when hovered candle has no HMA yet
-let latestMacd = null;  // same for MACD
 
 // ============================================================================
 // Studies registry + state.
-// Hierarchy: top-level keys are either standalone studies (kind: 'simple')
-// or groups with children (kind: 'group'). Group parent off → entire group
-// hidden regardless of child state. Children remember their own state.
+// Each study declares its section ('overlay' = drawn on candle pane,
+// 'lower' = its own pane below). Top-level keys are either standalone
+// studies (kind: 'simple') or groups with children (kind: 'group').
+// Group parent off → entire group hidden regardless of child state.
 // ============================================================================
 const STUDIES = {
   hma: {
-    kind: 'simple', label: 'Hull MA (20)',
+    kind: 'simple', section: 'overlay', label: 'Hull MA (20)',
     swatch: { color: C.hmaUp, style: 'solid' },
   },
-  macd: {
-    kind: 'simple', label: 'MACD (12,26,9)',
-    swatch: { color: C.macdValue, style: 'solid' },
-  },
   priorOHLC: {
-    kind: 'group', label: 'Prior Day OHLC',
+    kind: 'group', section: 'overlay', label: 'Prior Day OHLC',
     children: {
       priorClose: { label: 'Prior Close', swatch: { color: C.priorClose, style: 'dotted' } },
       priorHigh:  { label: 'Prior Hi',    swatch: { color: C.priorHigh,  style: 'dotted' } },
@@ -451,14 +421,23 @@ const STUDIES = {
     },
   },
   openingRange: {
-    kind: 'group', label: 'Opening Range',
+    kind: 'group', section: 'overlay', label: 'Opening Range',
     children: {
       or5:  { label: '5m OR',  swatch: { color: C.orLevel, style: 'solid' } },
       or15: { label: '15m OR', swatch: { color: C.orLevel, style: 'dashed' } },
       or30: { label: '30m OR', swatch: { color: C.orLevel, style: 'dotted' } },
     },
   },
+  macd: {
+    kind: 'simple', section: 'lower', label: 'MACD (12,26,9)',
+    swatch: { color: C.macdValue, style: 'solid' },
+  },
 };
+
+const SECTIONS = [
+  { id: 'overlay', label: 'Overlays' },
+  { id: 'lower',   label: 'Lower Panes' },
+];
 
 // All toggles default ON. Children of a group are also ON by default.
 const studyState = {
@@ -592,54 +571,6 @@ function applyStudyState() {
 }
 
 // ============================================================================
-// Legend — crosshair-driven values + toggleable rows
-// ============================================================================
-const PRICE_FMT_NONE = (v) => v == null ? '—' : '—';
-let priceFmt = (v) => v == null ? '—' : v.toFixed(2);
-
-function setPriceFormatter(midPrice) {
-  if (midPrice == null) return;
-  const dec = midPrice >= 1000 ? 1 : midPrice >= 10 ? 2 : 4;
-  priceFmt = (v) => v == null ? '—' : v.toFixed(dec);
-}
-
-function macdFmt(v) { return v == null ? '—' : v.toFixed(2); }
-
-function updateValuesAtTime(time) {
-  const valEl = document.getElementById('legendValues');
-  let candle = null, hma = null, macd = null;
-  if (time != null) {
-    candle = lastCandles.find(c => c.time === time) || null;
-    hma = lastHmaByTime.get(time) || null;
-    macd = lastMacdByTime.get(time) || null;
-  }
-  // Fall back to most recent values. Indicators lag candles by one period
-  // (they only advance on candle close), so the hovered candle's time may
-  // not exist in lastHmaByTime / lastMacdByTime yet — use the latest known instead.
-  if (!candle && lastCandles.length) candle = lastCandles[lastCandles.length - 1];
-  if (!hma) hma = latestHma;
-  if (!macd) macd = latestMacd;
-
-  const sign = candle ? (candle.close >= candle.open ? C.candleUpBorder : C.candleDownBorder) : C.text;
-  const macdSign = macd && macd.histogram >= 0 ? C.candleUpBorder : C.candleDownBorder;
-  const hmaColor = hma ? hma.color : C.text;
-
-  valEl.innerHTML = `
-    <span class="lbl">O</span><span class="val">${candle ? priceFmt(candle.open) : '—'}</span>
-    <span class="lbl">H</span><span class="val">${candle ? priceFmt(candle.high) : '—'}</span>
-    <span class="lbl">L</span><span class="val">${candle ? priceFmt(candle.low) : '—'}</span>
-    <span class="lbl">C</span><span class="val" style="color:${sign}">${candle ? priceFmt(candle.close) : '—'}</span>
-    <span class="lbl">HMA</span><span class="val" style="color:${hmaColor}">${hma ? priceFmt(hma.value) : '—'}</span>
-    <span class="lbl">MACD</span><span class="val" style="color:${macdSign}">${macd ? `${macdFmt(macd.value)} / ${macdFmt(macd.signal)}` : '—'}</span>
-  `;
-}
-
-function renderLegend() {
-  // Values section uses last candle by default. The studies panel owns toggles now.
-  updateValuesAtTime(null);
-}
-
-// ============================================================================
 // Studies panel rendering and toggle handling.
 // ============================================================================
 function isGroupIndeterminate(groupKey) {
@@ -665,36 +596,40 @@ function renderStudiesPanel() {
     if (indeterminate) return 'indeterminate';
     return studyState[key] ? 'checked' : '';
   }
-
-  Object.keys(STUDIES).forEach(key => {
+  function renderStudy(key) {
     const s = STUDIES[key];
     if (s.kind === 'simple') {
-      out.push(`
+      return `
         <div class="study-row ${checkboxState(key)}" data-study="${key}">
           <span class="study-checkbox"></span>
           ${swatchHtml(s.swatch)}
           <span class="study-label">${s.label}</span>
-        </div>
-      `);
-    } else if (s.kind === 'group') {
-      const indet = isGroupIndeterminate(key);
-      out.push(`
-        <div class="study-row group ${checkboxState(key, indet)}" data-study="${key}">
-          <span class="study-checkbox"></span>
-          <span class="study-label">${s.label}</span>
-        </div>
-      `);
-      Object.keys(s.children).forEach(ck => {
-        const c = s.children[ck];
-        out.push(`
-          <div class="study-row child ${checkboxState(ck)}" data-study="${ck}">
-            <span class="study-checkbox"></span>
-            ${swatchHtml(c.swatch)}
-            <span class="study-label">${c.label}</span>
-          </div>
-        `);
-      });
+        </div>`;
     }
+    // group
+    const indet = isGroupIndeterminate(key);
+    const rows = [`
+      <div class="study-row group ${checkboxState(key, indet)}" data-study="${key}">
+        <span class="study-checkbox"></span>
+        <span class="study-label">${s.label}</span>
+      </div>`];
+    Object.keys(s.children).forEach(ck => {
+      const c = s.children[ck];
+      rows.push(`
+        <div class="study-row child ${checkboxState(ck)}" data-study="${ck}">
+          <span class="study-checkbox"></span>
+          ${swatchHtml(c.swatch)}
+          <span class="study-label">${c.label}</span>
+        </div>`);
+    });
+    return rows.join('');
+  }
+
+  SECTIONS.forEach(sec => {
+    const keys = Object.keys(STUDIES).filter(k => STUDIES[k].section === sec.id);
+    if (!keys.length) return;
+    out.push(`<div class="studies-section-header">${sec.label}</div>`);
+    keys.forEach(k => out.push(renderStudy(k)));
   });
   panel.innerHTML = out.join('');
 }
@@ -715,34 +650,6 @@ document.getElementById('studiesPanel').addEventListener('click', (e) => {
   studyState[key] = !studyState[key];
   applyStudyState();
 });
-
-// Crosshair-driven readout — only the values row updates, not the toggle rows.
-chart.subscribeCrosshairMove(param => {
-  const t = param.time;
-  updateValuesAtTime(typeof t === 'number' ? t : null);
-});
-
-// Draggable legend
-(function() {
-  const legend = document.getElementById('chartLegend');
-  const grip = document.getElementById('legendGrip');
-  let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
-  grip.addEventListener('mousedown', (e) => {
-    dragging = true; startX = e.clientX; startY = e.clientY;
-    origLeft = legend.offsetLeft; origTop = legend.offsetTop;
-    legend.classList.add('dragging');
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    legend.style.left = (origLeft + e.clientX - startX) + 'px';
-    legend.style.top = (origTop + e.clientY - startY) + 'px';
-  });
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false; legend.classList.remove('dragging');
-  });
-})();
 
 function renderControls() {
   const seg = document.getElementById('mktExtCtrl');
@@ -950,17 +857,12 @@ function doConnect(dateOverride) {
     if (msg.type === 'init') {
       clearAllLevels();
       initOR();
-      lastHmaByTime.clear();
-      lastMacdByTime.clear();
-      latestHma = null;
-      latestMacd = null;
 
       if (msg.date) document.getElementById('dateInput').value = msg.date;
 
       lastCandles = msg.candles;
       if (msg.candles.length) {
         const mid = msg.candles[Math.floor(msg.candles.length / 2)].close;
-        setPriceFormatter(mid);
         const prec = mid >= 1000 ? 0 : mid >= 100 ? 1 : mid >= 1 ? 2 : 4;
         const mv = mid >= 1000 ? 1 : mid >= 100 ? 0.1 : mid >= 1 ? 0.01 : 0.0001;
         candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
@@ -971,9 +873,6 @@ function doConnect(dateOverride) {
 
       if (msg.hma && msg.hma.length > 0) {
         hmaPrimitive.setData(msg.hma);
-        msg.hma.forEach(p => lastHmaByTime.set(p.time, { value: p.value, color: p.color }));
-        const last = msg.hma[msg.hma.length - 1];
-        latestHma = { value: last.value, color: last.color };
       } else {
         hmaPrimitive.clear();
       }
@@ -982,9 +881,6 @@ function doConnect(dateOverride) {
         macdHistSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.histogram, color:p.histogramColor })));
         macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
         macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
-        msg.macd.forEach(p => lastMacdByTime.set(p.time, { value: p.value, signal: p.signal, histogram: p.histogram }));
-        const lastM = msg.macd[msg.macd.length - 1];
-        latestMacd = { value: lastM.value, signal: lastM.signal, histogram: lastM.histogram };
       }
 
       priorLevelPrices = [];
@@ -1013,7 +909,6 @@ function doConnect(dateOverride) {
 
       renderControls();
       renderStudiesPanel();
-      renderLegend();
       applyStudyState();
       setTimeout(() => { setTradingHoursView(); sizePanes(); }, 100);
       return;
@@ -1021,7 +916,7 @@ function doConnect(dateOverride) {
 
     if (msg.type === 'update') {
       candleSeries.update(msg.candle);
-      // Keep lastCandles in sync so the legend's "last candle" fallback is current.
+      // Keep lastCandles in sync (used by computeBounds, applyPriorLevelScale, OR).
       if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {
         lastCandles[lastCandles.length - 1] = msg.candle;
       } else {
@@ -1029,20 +924,12 @@ function doConnect(dateOverride) {
       }
       processCandleOR(msg.candle);
 
-      if (msg.hma) {
-        hmaPrimitive.update(msg.hma);
-        lastHmaByTime.set(msg.hma.time, { value: msg.hma.value, color: msg.hma.color });
-        latestHma = { value: msg.hma.value, color: msg.hma.color };
-      }
+      if (msg.hma) hmaPrimitive.update(msg.hma);
       if (msg.macd) {
         macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
         macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
         macdSignalSeries.update({ time:msg.macd.time, value:msg.macd.signal });
-        lastMacdByTime.set(msg.macd.time, { value: msg.macd.value, signal: msg.macd.signal, histogram: msg.macd.histogram });
-        latestMacd = { value: msg.macd.value, signal: msg.macd.signal, histogram: msg.macd.histogram };
       }
-      // Refresh the legend's current values (will use latest candle since no hover)
-      updateValuesAtTime(null);
       return;
     }
 
