@@ -924,62 +924,61 @@
       {
         id: "goal-scope",
         title: "1. Goal & Scope",
-        content: `Build the **backend data layer** for the GEX snapshot tool: REST clients, computation, aggregation, and level identification. Produces a finalized strike-level GEX DataFrame and a \`Levels\` object — but **not** how those are rendered or invoked.
+        revised: true,
+        content: `This sub-task builds the backend data layer for the GEX snapshot tool. Given a symbol and an expiration date, it produces a finalized strike-level GEX DataFrame and a \`Levels\` object — the data that the frontend sub-task renders.
 
-### In Scope (this sub-task)
+### What this sub-task delivers
 
-Plan steps 5.1 through 5.6:
-- REST client for batched \`/market-data/by-type?equity-option=...\`
-- Chain fetcher for one or more expirations
-- Spot fetcher with symbol-class dispatch (index vs equity)
-- Per-option GEX formula
-- Strike-level aggregation
-- Level identification (call wall, put wall, max gamma, net wall)
+- A REST client for batched per-option market data (gamma, OI, delta, IV, mark)
+- An option-chain fetcher for one or more expirations
+- A symbol-context resolver (spot-key, multiplier \`M\`, chain endpoint) — one cached lookup per symbol
+- A spot fetcher dispatched by symbol class
+- A per-option GEX formula that takes \`multiplier\` as a parameter (never hard-coded)
+- A strike-level aggregator keyed on \`(expiration, strike)\`
+- A level identifier (call wall, put wall, max gamma, net wall)
 
-### Out of Scope (this sub-task → TT-140)
+### Not in scope
 
-- Chart rendering, markdown report
-- CLI entry point
-- Output directory layout
+This sub-task does not produce charts, markdown reports, or a CLI entry point. Futures-options *implementation*, DXLink streaming, OPRA tape, dealer-position inference, intraday flow, and cross-product overlays are out of v1 entirely.
 
-### Out of Scope (parent Story — TT-138)
+### Tickets and references
 
-- Futures-options *implementation* (separate ticket; deferred)
-- DXLink streaming (REST is sufficient)
-- OPRA tape, dealer-position inference, intraday flow
-
-### Futures-options probe — already done informally
-
-Reviewer reports: *"We did do a review of Futures-options and found them largely the same."* A new sub-task under TT-138 will capture the documented findings (probe-script extension + notes on field availability, multiplier handling, symbol format). **Ticket key TBD** (creation blocked on a permissions issue — see end of this section).
-
-### Reference
-
-- **Jira:** [TT-139](https://mandeng.atlassian.net/browse/TT-139) (Sub-task of Story [TT-138](https://mandeng.atlassian.net/browse/TT-138))
-- **Sibling sub-task:** TT-140 (frontend; depends on this sub-task)
-- **Futures-options findings sub-task:** *pending — see note above*
-- **Branch:** \`feature/TT-138-spx-0dte-gex-snapshot\` *(shared with frontend sub-task)*
-- **Plan file:** \`docs/plans/TT-138-gex-snapshot.md\` (sections §2, §4, §5.1–5.6, §7.1, §7.2)`
+- [TT-139](https://mandeng.atlassian.net/browse/TT-139) — this sub-task (under Story [TT-138](https://mandeng.atlassian.net/browse/TT-138))
+- [TT-140](https://mandeng.atlassian.net/browse/TT-140) — sibling sub-task: frontend rendering and CLI
+- [TT-142](https://mandeng.atlassian.net/browse/TT-142) — post-v1 follow-up: futures-options documentation and implementation pathway
+- Branch: \`feature/TT-138-spx-0dte-gex-snapshot\`
+- Plan: \`docs/plans/TT-138-gex-snapshot.md\``
       },
       {
         id: "architecture",
-        title: "2. Architecture (verified for equity-options)",
-        content: `Three REST calls, no streaming. Verified by live probe (\`scripts/probe_rest_endpoints.py\`, captured 2026-05-09):
+        title: "2. Architecture (verified for equity-options and futures-options)",
+        revised: true,
+        content: `The data surface is **four REST calls per snapshot**. Equity-options and futures-options share an identical Greeks + OI field shape but use distinct query keys and chain endpoints.
 
-1. \`GET /option-chains/<symbol>/nested\` — strikes + OCC symbols + streamer symbols
-2. \`GET /market-data/by-type?<spot-key>=<symbol>\` — spot price (\`spot-key\` = \`index\` for SPX, \`equity\` for AAPL/SPY)
-3. \`GET /market-data/by-type?equity-option=<batch>\` — gamma + OI + IV + mark per option
+1. **Symbol context resolution** — \`GET /instruments/<family>/<symbol>\` reads \`instrument-type\` to pick the dispatch family. For futures, a second call to \`/instruments/futures/<sym>\` reads \`notional-multiplier\`. Cached per symbol.
+2. **Chain fetch** — \`GET /option-chains/<symbol>/nested\` for indexes/equities; \`GET /futures-option-chains/<root>/nested\` for futures. Returns strikes + OCC symbols + structural fields.
+3. **Spot fetch** — \`GET /market-data/by-type?<spot-key>=<symbol>\` with \`spot-key ∈ {index, equity, future}\`.
+4. **Batched option market-data** — \`GET /market-data/by-type?equity-option=<batch>\` or \`?future-option=<batch>\`. Both return: \`gamma\`, \`delta\`, \`theta\`, \`vega\`, \`rho\`, \`volatility\`, \`theo-price\`, \`dx-mark\`, \`open-interest\`, plus standard quote fields.
 
 \`\`\`
-Auth → Chain fetch → Filter expirations → Spot fetch
+Auth → Resolve symbol context (spot-key, multiplier M, chain endpoint)
+                              ↓
+            Chain fetch → Filter expirations → Spot fetch
                               ↓
             Batched market-data fetch (Greeks + OI per option)
                               ↓
-            Compute per-option GEX → Aggregate by (expiration, strike)
+            Compute per-option GEX (multiplier from context)
                               ↓
-            Identify levels (call wall, put wall, max γ, net wall)
+            Aggregate by (expiration, strike) → Identify levels
 \`\`\`
 
-The probe confirmed \`equity-option=\` returns: \`volatility\`, \`delta\`, \`gamma\`, \`theta\`, \`vega\`, \`rho\`, \`theo-price\`, \`dx-mark\`, \`open-interest\`, plus standard quote fields.`
+### Probe evidence
+
+- **Equity-options:** SPX/SPXW verified 2026-05-09 (\`scripts/probe_rest_endpoints.py\`)
+- **Futures-options:** /MES and /ES verified 2026-05-16 (\`scripts/probe_futures_options.py\`, \`scripts/probe_futures_options_metadata.py\`)
+- **Liveness during RTH:** verified 2026-05-19 for SPX (\`docs/plans/TT-138-liveness-probe-results.md\`)
+
+Identical Greeks + OI field shape across product classes. Futures-options *implementation* in the GEX tool is post-v1 (tracked under TT-142); the symbol-context resolver and parameterized multiplier in this sub-task already accommodate the dispatch with minimal future code change.`
       },
       {
         id: "module-structure",
@@ -998,55 +997,51 @@ Module placement is itself an open question — see §4 below.`
       },
       {
         id: "step-5-1-client",
-        title: "Step 5.1 — OptionMarketDataClient — RESOLVED (fetch all + post-filter by |delta|)",
+        title: "Step 5.1 — OptionMarketDataClient",
         revised: true,
-        content: `**File:** \`src/tastytrade/analytics/gex/client.py\` (assuming §4 = a)
+        content: `### File
 
-Batched REST client for \`/market-data/by-type?equity-option=...\`.
+\`src/tastytrade/analytics/gex/client.py\` (assuming §4 = a).
 
-### Resolved assumption (plan §6.1)
+### Behavior
 
-The snapshot assumes a **single expiration per invocation**. Multi-expiry comparisons are achieved by multiple invocations, not by widening one fetch.
+Batched REST client for \`/market-data/by-type?equity-option=...\`. Accepts a list of OCC symbols (one expiration's worth — single-expiry per snapshot), submits them in chunks if needed, and returns a Polars DataFrame keyed on the symbol.
 
-**Implication:** SPX 0DTE single-expiry chain is ~282 strikes × 2 = 564 OCC symbols ≈ 16KB query string. Likely fits in one REST call. Chunking only kicks in if a single chain exceeds the empirical cap.
+### Chunking
 
-### Resolved sub-decision: fetch all strikes, then post-filter by |delta|
+Single-expiry chains fit comfortably in one REST call. SPX 0DTE: ~282 strikes × 2 = 564 OCC symbols ≈ 16KB query string. Chunking only kicks in if a single chain exceeds the empirical URL cap.
 
-**Decision:** retrieve all strikes (the REST cost is the same) and filter post-fetch by an **absolute delta threshold** — drop strikes where \`|delta|\` is below the threshold (deep-OTM negligible gamma).
+### Strike filtering
 
-**Threshold confirmed by reviewer:** **|delta| < 0.03**. Drop strikes whose absolute delta is below 0.03 (deep-OTM negligibles).
+After the fetch, drop strikes where \`|delta| < 0.03\` — deep-OTM negligibles whose gamma contribution is rounding error. The threshold is a constant at the top of \`client.py\`, retunable in code if a different product needs it.
 
 ### Sketch
 
 \`\`\`python
-ABS_DELTA_THRESHOLD = 0.03  # confirm in next review
+ABS_DELTA_THRESHOLD = 0.03
 
 class OptionMarketDataClient:
     async def fetch(
         self, occ_symbols: list[str], chunk_size: int = 500
     ) -> pl.DataFrame:
         """Fetch market data for a batch of equity-option OCC symbols.
-
-        Single-expiry assumption per plan §6.1: caller is expected to
-        pass one expiry's worth of symbols. Chunks only if the batch
-        exceeds chunk_size.
+        Caller passes one expiry's worth of symbols. Chunks only if the
+        batch exceeds chunk_size.
         """
 
 
 def filter_meaningful_delta(
     df: pl.DataFrame, threshold: float = ABS_DELTA_THRESHOLD
 ) -> pl.DataFrame:
-    """Drop rows where |delta| < threshold — removes deep-OTM strikes
-    with negligible gamma exposure.
-    """
+    """Drop rows where |delta| < threshold."""
     return df.filter(pl.col("delta").abs() >= threshold)
 \`\`\`
 
 ### Why post-filter, not pre-filter
 
-- Fetching all strikes is essentially free at this chain size (one REST call).
-- Pre-filtering would require knowing delta before the fetch — which is what we're fetching.
-- Post-filter is one Polars filter operation; cleanest place for it.`
+- The fetch is essentially free at single-expiry chain size.
+- Pre-filtering would require knowing delta before the fetch — which is what's being fetched.
+- One Polars filter operation; cleanest place for it.`
       },
       {
         id: "step-5-2-chain",
@@ -1073,17 +1068,17 @@ Per §6.1 resolution, this Story expects callers to pass exactly one expiration.
       },
       {
         id: "step-5-3-market-data",
-        title: "Step 5.3 — fetch_option_market_data — RESOLVED (Pydantic model)",
+        title: "Step 5.3 — fetch_option_market_data",
         revised: true,
-        content: `**Function:** \`fetch_option_market_data(occ_symbols: list[str]) -> pl.DataFrame\`
+        content: `### Function
+
+\`fetch_option_market_data(occ_symbols: list[str]) -> pl.DataFrame\`
 
 Wraps the \`OptionMarketDataClient\` (Step 5.1) and projects the response to the GEX-relevant columns.
 
-### Decision: (b) Pydantic per response item
+### Pydantic model
 
-Reviewer: *"Pydantic per response item — we would treat these as we do all objects from the brokerage feed. No exceptions."*
-
-REST market-data items deserialize into an \`OptionMarketData\` Pydantic model with \`extra="allow"\` (matching the inbound-brokerage convention). The Polars DataFrame is built from the validated models, not from raw JSON.
+REST market-data items deserialize into an \`OptionMarketData\` Pydantic model with \`extra="allow"\`, matching the inbound-brokerage convention used elsewhere in the SDK. The Polars DataFrame is built from validated models, not from raw JSON.
 
 ### Returned DataFrame columns
 
@@ -1113,50 +1108,76 @@ class OptionMarketData(BaseModel):
       },
       {
         id: "step-5-4-spot",
-        title: "Step 5.4 — fetch_spot — RESOLVED (instruments lookup)",
+        title: "Step 5.4 — resolve_symbol_context",
         revised: true,
-        content: `**Function:** \`fetch_spot(symbol: str) -> float\`
+        content: `### Function
 
-Hits \`/market-data/by-type\` with the appropriate query-key for the symbol class:
+\`resolve_symbol_context(symbol: str) -> SymbolContext\`
 
-| Symbol class | Query key | Example |
-|---|---|---|
-| Index | \`index\` | SPX, NDX, RUT |
-| ETF / Equity | \`equity\` | SPY, AAPL, QQQ |
-| Future | \`future\` | (out of v1) |
+Returns a frozen dataclass carrying the per-symbol context the snapshot needs: spot-key, multiplier, and chain-endpoint template.
 
-### Decision: (b) Instruments lookup
+\`\`\`python
+@dataclass(frozen=True)
+class SymbolContext:
+    symbol: str
+    spot_key: Literal["index", "equity", "future"]
+    multiplier: float           # 100 for equity-options; notional-multiplier for futures
+    chain_endpoint: str         # path template for chain fetch
+\`\`\`
 
-Reviewer: *"(b) seems less fragile. not sure what we gain by not implementing directly."*
+### Symbol-class dispatch
 
-Symbol class is resolved by looking up the symbol's \`instrument-type\` via the instruments REST endpoint (e.g., \`/instruments/equities/<sym>\` or \`/instruments/cryptocurrencies/<sym>\`, with a probe order to find the right family). Cache the result per symbol so repeated invocations don't re-query.
+Resolved by querying the instruments REST endpoint and reading \`instrument-type\`. The result is cached per symbol.
+
+| Symbol class | spot_key | multiplier | chain_endpoint |
+|---|---|---|---|
+| Index (SPX, NDX) | \`index\` | 100 | \`/option-chains/<sym>/nested\` |
+| ETF / Equity (SPY, AAPL) | \`equity\` | 100 | \`/option-chains/<sym>/nested\` |
+| Future (/ES, /MES) | \`future\` | from \`/instruments/futures/<sym>\`.\`notional-multiplier\` | \`/futures-option-chains/<root>/nested\` *(post-v1)* |
+
+### Why one resolver
+
+Both \`M\` and the spot endpoint vary by product class. Bundling them into one resolver avoids parallel dispatches and keeps the formula site product-agnostic. \`M\` is a parameter, never hard-coded — equity-options return 100, futures-options return the per-product \`notional-multiplier\`.
 
 ### Sketch
 
 \`\`\`python
 @lru_cache(maxsize=128)
-async def resolve_symbol_class(session, symbol: str) -> str:
-    """Return 'index' | 'equity' | 'cryptocurrency' | 'future' based on
-    the instrument-type returned by the instruments endpoint.
-    """
-    # Implementation queries the instruments endpoints in a defined order
-    # and returns the canonical class string used for /market-data/by-type.
+async def resolve_symbol_context(session, symbol: str) -> SymbolContext:
+    instr = await fetch_instrument(session, symbol)
+    instrument_type = instr["instrument-type"]
+    if instrument_type == "Index":
+        return SymbolContext(symbol, "index", 100.0, "/option-chains/{}/nested")
+    if instrument_type in ("Equity", "Equity ETF"):
+        return SymbolContext(symbol, "equity", 100.0, "/option-chains/{}/nested")
+    if instrument_type == "Future":
+        m = await fetch_future_multiplier(session, symbol)
+        return SymbolContext(symbol, "future", m, "/futures-option-chains/{}/nested")
+    raise ValueError(f"Unsupported instrument-type: {instrument_type}")
 \`\`\`
 
-### Trade-off acknowledged
+### Trade-off
 
-One extra REST call per new symbol on first lookup. Cached thereafter. Less fragile than a hard-coded set (no maintenance as Tastytrade adds new indexes / ETFs).`
+One extra REST call per new symbol on first lookup (or two for futures, including the underlying's instruments fetch). Cached thereafter. Less fragile than a hard-coded set; futures-options drops in cleanly when TT-142 implementation lands.`
       },
       {
         id: "step-5-5-compute",
         title: "Step 5.5 — compute_option_gex + aggregate_by_strike",
-        content: `### compute_option_gex(df, spot)
+        content: `### compute_option_gex(df, spot, multiplier)
 
-Per-option GEX formula:
+Per-option GEX formula. \`multiplier\` is a parameter — the formula site never branches on product class.
 
 \`\`\`python
-gex = open_interest * gamma * 100 * spot * spot * sign
-# sign = +1 for calls, -1 for puts (plan §6 of design spec)
+def compute_option_gex(
+    df: pl.DataFrame, spot: float, multiplier: float
+) -> pl.DataFrame:
+    """Per-option GEX. Multiplier is supplied by the caller (typically
+    SymbolContext.multiplier) — 100 for equity-options, per-product for
+    futures-options.
+    """
+    # gex = OI × γ × multiplier × spot² × 0.01 × sign
+    # sign = +1 for calls, -1 for puts
+    ...
 \`\`\`
 
 Returns DataFrame with original columns + \`gex\` column.
@@ -1178,12 +1199,14 @@ Even though §6.1 says single-expiry per invocation, aggregating by the tuple ke
 
 ### Edge cases
 
-- **Missing gamma** → row excluded from gex computation (plan §15.1 unit test)
-- **Zero OI** → gex = 0 (not excluded; row remains for completeness)`
+- **Missing gamma** → row excluded from gex computation
+- **Zero OI** → gex = 0 (not excluded; row remains for completeness)
+- **Multiplier-parameter passthrough** → parametrize unit tests with \`multiplier ∈ {100, 50, 5}\` and verify gex scales linearly`
       },
       {
         id: "step-5-6-levels",
-        title: "Step 5.6 — identify_levels",
+        title: "Step 5.6 — identify_levels — RESOLVED (c) threshold ratio",
+        revised: true,
         content: `**Function:** \`identify_levels(strike_df: pl.DataFrame, spot: float) -> Levels\`
 
 Returns a frozen dataclass per expiration:
@@ -1197,105 +1220,47 @@ class Levels:
     put_wall: float           # strike with min(put_gex)
     max_abs_gamma: float      # strike with max(abs_gex)
     net_gamma_wall: float     # strike with max(abs(net_gex))
-    nearest_above_spot: Optional[float]  # nearest large positive net_gex above spot
-    nearest_below_spot: Optional[float]  # nearest large negative net_gex below spot
+    nearest_above_spot: Optional[float]  # nearest "large" positive net_gex above spot
+    nearest_below_spot: Optional[float]  # nearest "large" negative net_gex below spot
     total_net_gex: float      # sum of net_gex (regime indicator)
 \`\`\`
 
-### Definition of "large" for nearest-above/below
-
-The plan doesn't pin this down. Options:
-
-- (a) Top-N by abs(net_gex) — pick N=5
-- (b) Above a threshold percentile — e.g. top 10% by abs(net_gex)
-- (c) Explicit threshold — e.g. > 0.1 × max(abs(net_gex))
-
-### Open question
-
-Which definition? Defer to implementation if no preference; **recommended (c)** for predictability across symbols/dates.`
+**"Large" = (c) threshold ratio.** \`abs(net_gex) > LARGE_LEVEL_RATIO × max(abs(net_gex))\` with \`LARGE_LEVEL_RATIO = 0.1\` as the v1 default — symbol-agnostic, sensitivity tunable, predictable across symbols/dates.`
       },
       {
         id: "oq-module-placement",
-        title: "4. Open Question — Module Placement (plan §6.4)",
-        content: `Where does the new code live?
-
-- **(a) New package** \`src/tastytrade/analytics/gex/\` — sibling to \`analytics/positions.py\`. Symbol-agnostic naming; co-located with other analytics.
-- **(b) Extend \`charting/\`** — would tie backend to charting frontend prematurely.
-- **(c) Top-level** \`src/tastytrade/gex/\` — stand-alone, but separates from analytics siblings.
-
-### Why this matters for TT-139
-
-The backend code's import paths and the test directory layout depend entirely on this decision. Picking (a) lets us start the file layout now.`
-      },
-      {
-        id: "oq-pre-filter",
-        title: "5. Pre-filter strikes before fetch? — RESOLVED (fetch all, post-filter by |delta|)",
+        title: "4. Module Placement — RESOLVED (a) new analytics/gex/ package",
         revised: true,
-        content: `**Decision** (see Step 5.1 for full rationale): fetch all strikes; post-filter by absolute delta threshold.
+        content: `**Decision: (a)** — new package \`src/tastytrade/analytics/gex/\`, sibling to \`analytics/positions.py\`. Symbol-agnostic naming; co-located with other analytics.
 
-The original options framed pre-filter vs post-filter on the *fetch*. The resolution is post-filter, but it's not on bandwidth — it's on **delta magnitude** to drop deep-OTM negligible-gamma strikes. The bandwidth question is moot because at single-expiry the fetch fits in one REST call.
-
-**Threshold confirmed:** **|delta| < 0.03** (reviewer confirmed the bounded-delta interpretation).`
-      },
-      {
-        id: "oq-pydantic",
-        title: "6. Pydantic model for market-data response? — RESOLVED → (b)",
-        revised: true,
-        content: `**Decision: (b) Pydantic per response item.**
-
-Reviewer: *"we would treat these as we do all objects from the brokerage feed. No exceptions."*
-
-Defines \`OptionMarketData\` Pydantic model with \`extra="allow"\` (matching the inbound-brokerage convention). See Step 5.3 for the model sketch.`
-      },
-      {
-        id: "oq-symbol-class",
-        title: "7. Symbol-class detection method — RESOLVED → (b) Instruments lookup",
-        revised: true,
-        content: `**Decision: (b) Instruments lookup.**
-
-Reviewer: *"(b) seems less fragile. not sure what we gain by not implementing directly."*
-
-Symbol class is resolved by querying the instruments endpoint and caching the result. See Step 5.4 for the sketch. Less fragile than a hard-coded set (no maintenance as Tastytrade adds new indexes / ETFs).`
+Plan §6.4 updated to RESOLVED. Module layout per §3 above can be created.`
       },
       {
         id: "oq-large-level",
-        title: "8. Open Question — Definition of nearest-above/below-spot levels",
-        content: `For \`identify_levels\`, we need to define what counts as a "large" gamma concentration when picking the nearest above/below spot.
-
-### Options
-
-- **(a) Top-N by abs(net_gex)** — e.g. N=5; predictable count.
-- **(b) Top percentile** — e.g. top 10%; scales with chain size.
-- **(c) Threshold ratio** — e.g. \`abs(net_gex) > 0.1 × max(abs(net_gex))\`; symbol-agnostic, sensitivity tunable.
-
-### Recommendation
-
-**(c)** — predictable across symbols/dates; one tunable parameter.`
+        title: "5. Nearest-above/below-spot level definition — RESOLVED (c) threshold ratio",
+        revised: true,
+        content: `**Decision: (c)** — \`abs(net_gex) > LARGE_LEVEL_RATIO × max(abs(net_gex))\` with \`LARGE_LEVEL_RATIO = 0.1\` as the v1 default. Symbol-agnostic, sensitivity tunable. Captured in Step 5.6.`
       },
       {
         id: "liveness-action",
-        title: "9. Action Item — Liveness verification (plan §6.2)",
-        content: `Plan §6.2 resolved: re-probe at market open during RTH and verify \`updated-at\` advances continuously. **This is a TT-139 prerequisite** because if REST values are stale during RTH, the entire backend architecture is wrong.
+        title: "6. Liveness verification status",
+        revised: true,
+        content: `**REST values advance continuously during RTH.** Backend architecture in §2 is sound; no DXLink streaming dependency. RTH probe captured 2026-05-19 at 09:35 ET. Full results: \`docs/plans/TT-138-liveness-probe-results.md\`.
 
-### Action
+### Evidence (snapshots 61 s apart)
 
-Rerun \`scripts/probe_rest_endpoints.py\` Monday near 09:35 ET. Capture two snapshots ~60s apart. Confirm:
+| Surface | \`updated-at\` Δ | Price Δ |
+|---|---|---|
+| SPX spot | +60.987 s — advanced | mark 7360.33 → 7366.24 (+5.91) |
+| SPXW 260519P07225000 (0DTE put) | +60.731 s — advanced | mark unchanged (deep-OTM, $0.50) |
+| SPXW 260519C07225000 (0DTE call, deep-ITM) | +60.187 s — advanced | mark 135.70 → 141.05 (+5.35, tracks spot) |
 
-- \`updated-at\` for SPX spot advances
-- \`updated-at\` for at least one near-ATM SPXW option advances
-- gamma/OI values move (not frozen at Friday EOD)
-
-### Outcome
-
-- ✅ Values advance → proceed with implementation
-- ❌ Values frozen / stale → **stop**; revisit architecture (DXLink streaming may be required after all)
-
-This needs to land before any code in TT-139 is written.`
+Greeks (\`gamma\`, \`theta\`, \`vega\`, \`volatility\`) held byte-identical over the 60-s window — the IV surface repaints on a slower cadence than the trade-driven quote stream. The probe verifies the publication channel, not Greek drift.`
       },
       {
         id: "validation",
-        title: "10. Validation Plan",
-        content: `### 10.1 Unit tests
+        title: "7. Validation Plan",
+        content: `### 7.1 Unit tests
 
 - Call sign positive
 - Put sign negative
@@ -1303,8 +1268,10 @@ This needs to land before any code in TT-139 is written.`
 - Missing gamma excluded
 - Aggregation sums correctly per (expiration, strike)
 - Level identification on synthetic data (small fixture chain)
+- \`compute_option_gex\` multiplier-parameter passthrough — parametrize with \`multiplier ∈ {100, 50, 5}\` and verify gex scales linearly
+- \`resolve_symbol_context\` returns correct context per symbol class — SPX → multiplier 100, spot_key \`index\`; SPY/AAPL → 100, \`equity\`; /MES → 5, \`future\`; /ES → 50, \`future\` (mocked instruments-endpoint responses)
 
-### 10.2 Live REST sanity (per plan §7.2)
+### 7.2 Live REST sanity (per plan §7.2)
 
 Run during RTH against multiple equity-option targets to prove generality:
 
@@ -1317,21 +1284,21 @@ Run during RTH against multiple equity-option targets to prove generality:
 - Chart correctness (TT-140)
 - Markdown report content (TT-140)
 - CLI invocation paths (TT-140)
-- External GEX comparison (Epic-level validation, plan §7.3 — needs frontend rendering to compare)`
+- External GEX comparison (Epic-level validation, plan §7.3 — needs frontend rendering to compare)
+- Futures-options *implementation* (out of v1 scope; TT-142 / post-v1 follow-up)`
       },
       {
         id: "definition-of-done",
-        title: "11. Definition of Done",
-        content: `This Story is done when:
+        title: "8. Definition of Done",
+        content: `This sub-task is done when:
 
 1. All six functions (5.1–5.6) implemented in the chosen module location (§4 decision)
 2. All unit tests pass (\`uv run pytest\` clean)
 3. Type checking clean (\`uv run pyright\` clean for new modules)
-4. Live REST sanity (10.2) captured against SPX, SPY, AAPL with evidence in the PR
-5. Liveness verification (§9) completed and passed
-6. PR opened against \`feature/TT-138-spx-0dte-gex-snapshot\` with functional evidence per project PR rules
+4. Live REST sanity (§7.2) captured against SPX, SPY, AAPL with evidence in the PR
+5. PR opened against \`feature/TT-138-spx-0dte-gex-snapshot\` with functional evidence per project PR rules
 
-**Hand-off to TT-140:** the four exposed functions (\`fetch_chain_for_expirations\`, \`fetch_option_market_data\`, \`fetch_spot\`, \`identify_levels\`) plus the \`compute_option_gex\` / \`aggregate_by_strike\` pipeline must be importable and documented enough for the frontend Story to consume them.`
+**Hand-off to TT-140:** the exposed functions (\`fetch_chain_for_expirations\`, \`fetch_option_market_data\`, \`resolve_symbol_context\`, \`identify_levels\`) plus the \`compute_option_gex\` / \`aggregate_by_strike\` pipeline must be importable and documented enough for the frontend sub-task to consume them.`
       }
     ];
 
@@ -1340,10 +1307,20 @@ Run during RTH against multiple equity-option targets to prove generality:
     // Map section id -> status ("approved", "revision", "question").
     // ============================================================
     const priorApprovals = {
+      "goal-scope": "approved",
       "architecture": "approved",
       "module-structure": "approved",
+      "step-5-1-client": "approved",
       "step-5-2-chain": "approved",
+      "step-5-3-market-data": "approved",
+      "step-5-4-spot": "approved",
       "step-5-5-compute": "approved",
+      "step-5-6-levels": "approved",
+      "oq-module-placement": "approved",
+      "oq-large-level": "approved",
+      "liveness-action": "approved",
+      "validation": "approved",
+      "definition-of-done": "approved",
     };
 
     // ============================================================
@@ -1353,7 +1330,7 @@ Run during RTH against multiple equity-option targets to prove generality:
     // Populated by the plan-review skill at HTML-generation time with the
     // authoring session's id. The terminal panel uses this to spawn
     // `claude --resume <sid>` via the devserver's /api/claude?session= endpoint.
-    const CLAUDE_SESSION = "51125b27-344c-4018-afb5-995e9d6b08be";
+    const CLAUDE_SESSION = "48117d14-7fae-4873-a9c9-6563ab3c46b3";
 
     // Persistence — save/restore review state across sessions
     const STORAGE_KEY = 'review-state:' + PLAN_NAME;

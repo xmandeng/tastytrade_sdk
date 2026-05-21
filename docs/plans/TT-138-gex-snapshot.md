@@ -19,35 +19,44 @@ Build a point-in-time **Gamma Exposure (GEX) snapshot** for any underlying with 
 - Any expiration date (0DTE, weekly, monthly, LEAP)
 - One or many expirations in a single snapshot
 
-**Futures-options REST surface is now verified.** Probed `/MES` and `/ES` (see §6.13); `future-option=` returns the same field set as `equity-option=` (gamma, delta, theta, vega, rho, volatility, theo-price, open-interest). Implementation of futures-options in the GEX tool is still **out of v1 scope** — five implementation differences documented in §6.13.
+**Hard rule: single-product per snapshot.** Each snapshot invocation binds to exactly one underlying instrument; metrics are rendered in that product's units. No cross-product overlays in v1. Comparing /MES vs /ES vs SPX requires running separate snapshots and is intentionally not a v1 feature — the pinning interpretation, axis units, and label semantics differ enough across products that mixing them would be misleading.
 
-**Not in v1:** OPRA tape, Time & Sales, dealer-position inference, DXLink streaming, order execution, backtesting, futures-options *implementation*.
+**Contract multiplier `M` is captured per product, never hard-coded.** Equity-options return `M=100`, futures-options return per-product values from `/instruments/futures/<sym>` (e.g., /MES=5, /ES=50, /NQ=20). The GEX formula reads `M` from the symbol context regardless of product class. This is what lets futures-options support land as a small extension rather than a parallel pipeline.
+
+**Futures-options REST surface is verified.** Probed `/MES` and `/ES` (see §6.13); `future-option=` returns the same field set as `equity-option=` (gamma, delta, theta, vega, rho, volatility, theo-price, open-interest). Implementation of futures-options in the GEX tool is still **out of v1 scope** — five implementation differences documented in §6.13.
+
+**Not in v1:** OPRA tape, Time & Sales, dealer-position inference, DXLink streaming, order execution, backtesting, futures-options *implementation*, cross-product overlays.
 
 ---
 
 ## 2. Architecture (verified by live REST probe — equity-options is the v1 surface)
 
-The data surface is **three REST calls** for equity-option-style chains (verified):
+The data surface is **four REST calls** for any single-product snapshot:
 
-1. `GET /option-chains/<symbol>/nested` — strikes + OCC symbols + streamer symbols
-2. `GET /market-data/by-type?<spot-key>=<symbol>` — spot price (`spot-key` is `index` for SPX, `equity` for AAPL/SPY)
-3. `GET /market-data/by-type?equity-option=<batch>` — gamma + OI + IV + mark per option (batched)
+1. `GET /option-chains/<symbol>/nested` — strikes + OCC symbols + streamer symbols *(equity-options path; futures-options uses `/futures-option-chains/<root>/nested` — see §6.13)*
+2. `GET /market-data/by-type?<spot-key>=<symbol>` — spot price for the snapshotted product (`index` for SPX, `equity` for SPY/AAPL, `future` for /ES/MES)
+3. **Multiplier lookup** — `M=100` for equity-options (constant); for futures-options, `GET /instruments/futures/<future_sym>` returns `notional-multiplier`. Resolved once per snapshot, cached.
+4. `GET /market-data/by-type?equity-option=<batch>` — gamma + OI + IV + mark per option (batched). Futures-options uses `?future-option=<batch>` with the same field shape.
 
-Then: per-option GEX, group by strike, identify levels, render.
+Then: per-option GEX (using the looked-up `M`), group by strike, identify levels, render.
 
 ```
-Auth → Chain fetch → Filter expirations → Spot fetch
+Auth → Resolve symbol context (spot-key, multiplier M, chain endpoint)
+                              ↓
+            Chain fetch → Filter expirations → Spot fetch
                               ↓
             Batched market-data fetch (Greeks + OI per option)
                               ↓
-            Compute per-option GEX → Aggregate by strike (per expiry)
+            Compute per-option GEX with M from context
                               ↓
-            Identify levels → Render chart + markdown
+            Aggregate by strike (per expiry)
+                              ↓
+            Identify levels → Render in snapshotted product's units
 ```
 
 **No async websocket lifecycle. No subscription cap. No snapshot-completion semantics. No dependency on `tasty-subscribe` running.**
 
-The `<spot-key>` branching is handled by a small mapping (`SPX → index`, ETF/equity → `equity`). Adding futures-options later is a separate pathway with its own chain endpoint, symbol encoding, and multiplier rules — see §6.13. Same Greeks + OI surface, but **not** a drop-in extension of the equity-options client.
+The symbol-context resolution (spot-key, multiplier, chain endpoint) is a single dispatch step keyed on the symbol class. `M` is just another value carried in the context — the formula site never knows the difference between equity-options and futures-options. This is what makes futures-options support a small extension (add the chain-endpoint and spot-key branches) rather than a parallel pipeline.
 
 ---
 
@@ -79,13 +88,13 @@ Tentative new package `src/tastytrade/analytics/gex/`:
 
 | File | Responsibility |
 |---|---|
-| `client.py` | REST batch fetchers (chain, market-data, spot); chunking; symbol-class dispatch (index vs equity) |
-| `compute.py` | per-option GEX formula + strike-level aggregation |
+| `client.py` | REST batch fetchers (chain, market-data, spot, multiplier); chunking; symbol-context resolution (spot-key + M + chain endpoint per product class) |
+| `compute.py` | per-option GEX formula + strike-level aggregation; **takes `M` as a parameter, never hard-codes 100** |
 | `levels.py` | call wall, put wall, max-gamma, net-gamma-wall |
-| `render.py` | chart + markdown emitters |
+| `render.py` | chart + markdown emitters; **always labels in the snapshotted product's units** |
 | `cli.py` | entry point |
 
-The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module hierarchy. Futures-options support, when added, slots into `client.py` as a parallel dispatch path keyed on the leading `/` of the underlying.
+The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module hierarchy. Futures-options support, when added, plugs into `client.py`'s symbol-context resolver — the formula in `compute.py` is unchanged.
 
 ---
 
@@ -97,9 +106,9 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 5.3 — `fetch_option_market_data(occ_symbols) -> pl.DataFrame` chunked → DataFrame of `gamma`, `open_interest`, `mark`, `volatility` per option.
 
-5.4 — `fetch_spot(symbol) -> float` — dispatches on symbol class (`index` for SPX, `equity` for SPY/AAPL/etc).
+5.4 — `resolve_symbol_context(symbol) -> SymbolContext` — returns a frozen dataclass containing `spot_key` (`index` / `equity` / `future`), `multiplier` (100 for equity-options; `notional-multiplier` from `/instruments/futures/<sym>` for futures-options), and `chain_endpoint` (path template for the chain fetch). One REST call per new symbol, cached. Both `fetch_spot(symbol)` and the chain fetcher consume this context.
 
-5.5 — `compute_option_gex(df, spot) -> pl.DataFrame` and `aggregate_by_strike(df) -> pl.DataFrame` with columns `strike, expiration, call_gex, put_gex, net_gex, abs_gex`. Aggregates by `(expiration, strike)` so multi-expiry snapshots are first-class.
+5.5 — `compute_option_gex(df, spot, multiplier) -> pl.DataFrame` and `aggregate_by_strike(df) -> pl.DataFrame` with columns `strike, expiration, call_gex, put_gex, net_gex, abs_gex`. Formula: `gex = OI × γ × multiplier × spot² × 0.01 × sign`. The function takes `multiplier` as a parameter — **never** hard-codes 100. Aggregates by `(expiration, strike)` so multi-expiry snapshots are first-class.
 
 5.6 — `identify_levels(strike_df, spot) -> Levels` per expiration: `call_wall`, `put_wall`, `max_abs_gamma`, `net_gamma_wall`, optional `nearest_above_spot`, `nearest_below_spot`.
 
@@ -130,6 +139,7 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 | 6.13 | Futures-options REST surface probed; field availability identical to equity-options. Implementation deferred to a post-v1 ticket; five differences vs equity-options recorded in §6.13. |
 | 6.2 | **PASS (2026-05-19 RTH probe).** Both SPX spot and 0DTE option `updated-at` advanced ~60s between two snapshots taken 60s apart; option mark tracked spot move. REST surface confirmed live during RTH. Evidence: [TT-138-liveness-probe-results.md](TT-138-liveness-probe-results.md). |
 | 6.3 | **Refresh cadence: any practical interval works.** §6.2 PASS means REST is continuously fresh during RTH, so periodic refresh is nearly free. Exact cadence is a TT-139 implementation detail (driven by snapshot use case, not data freshness). |
+| 6.4 | **Module placement split by sub-task.** TT-139 backend lives in (a) **new `src/tastytrade/analytics/gex/`** (analytics sibling, symbol-agnostic compute). TT-140 frontend extends `src/tastytrade/charting/` (the mockup (d) hybrid lollipop overlay layers onto the existing candle-rendering server). Both can coexist; the backend doesn't import the frontend. |
 
 #### Prerequisites — must complete before any code starts
 
@@ -137,9 +147,7 @@ _All prerequisites met._ §6.2 probe ran 2026-05-19 09:35 ET and PASSED. TT-139 
 
 #### Cascade decisions — remaining
 
-| § | Resolves once… |
-|---|---|
-| 6.4 | Mockup (d) hybrid is the picked viz → biases toward extending `charting/`; reviewer to confirm |
+_All cascade decisions resolved._ §6.4 settled 2026-05-20 (see Resolved table above).
 
 #### Deferred to TT-139 (backend sub-task) — owner decides during implementation
 
@@ -190,11 +198,13 @@ Evidence summary:
 
 Exact cadence (e.g., 30 s, 60 s, 5 min) is a **TT-139 implementation detail** — driven by the snapshot use case (interactive sanity check vs. always-on intraday dashboard), not by data freshness constraints.
 
-### 6.4 — Module placement — DEFERRED (mockup d picks the direction)
+### 6.4 — Module placement — RESOLVED (split by sub-task)
 
-Mockup (d) — hybrid right-anchored lollipop overlay on the candle chart — is the picked viz direction. That biases placement toward **(b) extend `charting/`**: the lollipop overlay layers onto the existing `src/tastytrade/charting/server.py` candle-rendering pattern.
+**Decision (TT-139 backend):** **(a)** — new package `src/tastytrade/analytics/gex/`, sibling to `analytics/positions.py`. Symbol-agnostic compute lives here. Decided in TT-139 round-3 review (2026-05-20).
 
-Reviewer to confirm (b) explicitly before TT-139 begins, since the file layout depends on this choice.
+**Decision (TT-140 frontend):** extends `src/tastytrade/charting/`. Mockup (d) hybrid right-anchored lollipop overlay layers onto the existing `src/tastytrade/charting/server.py` candle-rendering pattern.
+
+The two are compatible: backend computes; frontend reads the backend's published Redis snapshot and renders. The backend has no import dependency on `charting/`.
 
 ### 6.5 — CLI entry point — DEFERRED to TT-140
 
@@ -241,14 +251,12 @@ Probe scripts in `scripts/`:
 
 #### Five implementation differences vs equity-options (post-v1 work)
 
+Note: §1's "M is captured per product" rule plus §2's `resolve_symbol_context` already absorb the multiplier and spot-key concerns into the v1 architecture. The remaining work to add futures-options is mainly the chain-endpoint and OCC-encoding plumbing.
+
 1. **Chain endpoint shape** — `GET /futures-option-chains/<root>/nested` returns `data.option-chains[].expirations[].strikes[]`. Note the wrapper key is `option-chains` (NOT `futures-option-chains`).
 2. **URL path needs slash-stripping** — root comes back as `/MES`; the URL is `/futures-option-chains/MES/nested`. Same applies anywhere the root goes into a path component.
 3. **Symbol format is opaque, do not parse it** — examples: `./MESM6X3AK6 260518C7690` (1 space) vs `./ESM6 E3AK6 260518C5400` (2 spaces). The leading `.` flags a futures-option. The chain endpoint already breaks out `underlying-symbol` (the future), `option-contract-symbol` (the option series like `X3AK6`), `expiration-date`, `strike-price`, and the full `call` / `put` OCC strings. Use those structurally; pass the OCC string opaquely to `?future-option=...`. aiohttp URL-encodes it automatically for query params; for path components (e.g. `/instruments/future-options/<sym>`) you must call `urllib.parse.quote(sym, safe='')` explicitly.
-4. **Multiplier is on the *underlying future*, not the option** — equity-options use `100` (shares per contract). Futures-options need the per-product `notional-multiplier` (equivalently `contract-size`) from `GET /instruments/futures/<future_symbol>` — e.g., 5.0 for /MES, 50.0 for /ES. The option-instrument endpoint's `multiplier` field is 1.0 (a different concept — one option = one futures contract). The chain expiration's `notional-value` and `display-factor` are also *not* the GEX multiplier (0.05 and 0.01 respectively for /MES; not dollar-per-point). GEX formula becomes:
-   ```
-   gex = OI × gamma × notional_multiplier × spot² × 0.01 × sign
-   ```
-   where `notional_multiplier` is fetched per-product (5 for /MES, 50 for /ES, etc.) and `spot` is the *future's* price (from a Quote on the future symbol, or `GET /market-data/by-type?future=<sym>`).
+4. **Multiplier source differs (already absorbed by §2 architecture)** — equity-options have `M=100` constant; futures-options pull `notional-multiplier` from `/instruments/futures/<future_symbol>` (e.g., 5.0 for /MES, 50.0 for /ES). Because v1 already routes M through `resolve_symbol_context`, the formula site is unchanged. *Side note: the option-instrument endpoint's `multiplier` field is 1.0 — a different concept (one option = one futures contract). Chain expiration's `notional-value` and `display-factor` are also not the GEX multiplier.*
 5. **Instrument-metadata endpoint requires URL-encoded path** — `GET /instruments/future-options/<urllib.parse.quote(sym, safe='')>` works (returns `multiplier`, `notional-value`, `display-factor`, `option-type`, `strike-price`, `is-vanilla`, etc.). The raw-path variant 404s; the `?symbol=` query variant 403s. For the *underlying future*, `GET /instruments/futures/<future_symbol_without_leading_slash>` (e.g. `MESM6`) returns `contract-size`, `notional-multiplier`, `display-factor`, `tick-size`, `product-code`.
 
 Field-availability summary (live 2026-05-16, EOD values):
@@ -275,6 +283,8 @@ Field-availability summary (live 2026-05-16, EOD values):
 - missing gamma excluded
 - aggregation sums correctly per (expiration, strike)
 - level identification on synthetic data
+- **`compute_option_gex` takes `multiplier` as a parameter** — assert formula uses passed value, not a hard-coded 100. Parametrize with `multiplier ∈ {100, 50, 5}` and verify scales linearly
+- **`resolve_symbol_context` returns correct multiplier per symbol class** — SPX/SPY/AAPL → 100; /MES → 5; /ES → 50 (mocked instruments-endpoint response)
 
 ### 7.2 Live REST sanity (per spec §15.2)
 

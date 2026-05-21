@@ -1044,6 +1044,8 @@ The package name \`gex\` is symbol-agnostic — no \`spx_\` or \`0dte_\` in the 
 | § | Decision |
 |---|---|
 | 6.1 | Single-expiry per invocation |
+| 6.2 | **PASS (2026-05-19 RTH probe).** Both SPX spot and SPX 0DTE option \`updated-at\` advanced ~60 s between snapshots taken 61 s apart; option mark tracked spot. REST surface confirmed live during RTH. Evidence: \`docs/plans/TT-138-liveness-probe-results.md\`. |
+| 6.3 | **Any practical interval works.** §6.2 PASS makes REST continuously fresh; exact cadence is a TT-139 implementation detail driven by use case, not data freshness. |
 | 6.6 | (b) Live web view (HTML/SVG over HTTP) |
 | 6.7 | Redis snapshot v1; InfluxDB persistence day-2 |
 | 6.8 | Mock all three viz candidates before picking |
@@ -1052,16 +1054,16 @@ The package name \`gex\` is symbol-agnostic — no \`spx_\` or \`0dte_\` in the 
 
 ### Prerequisites — must complete before any code starts
 
+_§6.2 prerequisite cleared 2026-05-19._ Remaining: §6.8 viz mockups still gate TT-140 and §6.4.
+
 | § | What | Owner |
 |---|---|---|
-| 6.2 | Liveness experiment — rerun \`scripts/probe_rest_endpoints.py\` during RTH and confirm \`updated-at\` advances continuously | **Blocker for TT-139** |
 | 6.8 | Build three viz mockups (a/b/c) for visual comparison | **Blocker for TT-140; also gates §6.4** |
 
 ### Cascade decisions — resolved automatically after prerequisites
 
 | § | Resolves once… |
 |---|---|
-| 6.3 | §6.2 liveness experiment captures evidence |
 | 6.4 | §6.8 mockups pick a winner (overlay → extend \`charting/\`; standalone → new \`analytics/gex/\`) |
 
 ### Deferred to TT-139 (backend sub-task)
@@ -1080,47 +1082,58 @@ The package name \`gex\` is symbol-agnostic — no \`spx_\` or \`0dte_\` in the 
 
 ### Critical path to start coding
 
-1. Run §6.2 liveness experiment (one short session during RTH).
+1. ~~Run §6.2 liveness experiment (one short session during RTH).~~ **DONE 2026-05-19 — PASS.**
 2. Build §6.8 viz mockups (three HTML files in \`.plan-review/mockups/\`).
-3. Pick a viz winner → resolves §6.4 → unblocks TT-139.
+3. Pick a viz winner → resolves §6.4 → **unblocks TT-139** (the §6.2 prereq is already cleared).
 4. TT-139 implements backend (handles its own §6.1 sub-decision).
 5. TT-140 implements frontend (handles §6.5, §6.9, §6.10).
 6. §6.13 runs in parallel anytime; doesn't block v1.`
       },
       {
         id: "oq-liveness",
-        title: "6.2 — Liveness of REST values during market hours — OPEN — experiment required",
-        content: `**This is a TODO, not a design decision.** The Saturday probe returned EOD values; whether REST values update continuously during RTH is unverified.
+        title: "6.2 — Liveness of REST values during market hours — RESOLVED (PASS, 2026-05-19)",
+        revised: true,
+        content: `**Resolved 2026-05-19** via an RTH probe at 09:35 ET (Tue, US equities trading day). Full results: \`docs/plans/TT-138-liveness-probe-results.md\`. Raw output: \`.probe-out/TT-138-liveness-{1,2}.txt\` (gitignored).
 
-### Experiment to run
+### Verdict
 
-Rerun \`scripts/probe_rest_endpoints.py\` near 09:35 ET on a trading day. Capture two snapshots ~60s apart and confirm \`updated-at\` advances for both SPX spot and at least one near-ATM SPXW option. Capture gamma and OI deltas between the two snapshots.
+✅ **REST values advance continuously during RTH.** The architecture in §2 stands. No DXLink streaming dependency for v1.
 
-### Outcomes that branch the design
+### Evidence summary
 
-- ✅ Values advance continuously → REST is sufficient; proceed with the architecture in §2.
-- ❌ Values stale or lag noticeably → architecture must be revisited; DXLink streaming may be required after all. **Stop and replan.**
+| Surface | Snap 1 \`updated-at\` | Snap 2 \`updated-at\` | Δ |
+|---|---|---|---|
+| SPX spot (\`/market-data/by-type?index=SPX\`) | 13:35:12.467Z | 13:36:13.454Z | **+60.987 s — advanced** |
+| SPXW 260519P07225000 (0DTE put) | 13:35:08.982Z | 13:36:09.713Z | **+60.731 s — advanced** |
+| SPXW 260519C07225000 (0DTE call, deep-ITM) | 13:35:11.163Z | 13:36:11.350Z | **+60.187 s — advanced** |
 
-### Why this matters
+Price tracking sanity:
 
-This experiment gates §6.3 (cadence) and any TT-139 implementation work. Until the result is captured, the entire REST-only architecture is provisional.`
+- SPX spot mark: 7360.33 → 7366.24 (**+5.91**)
+- Deep-ITM call mark: 135.70 → 141.05 (**+5.35**, tracks spot move)
+
+Greeks (\`gamma\`, \`theta\`, \`vega\`, \`volatility\`) held byte-identical across the 60-s window — expected, as the IV surface repaints on a slower cadence. The probe verifies the *publication channel*, not Greek drift.
+
+### Cascade triggered
+
+- §6.3 cadence → also resolved (any practical interval works; see roll-up).
+- TT-139 prerequisite cleared; backend implementation unblocked once §6.8 viz pick lands.`
       },
       {
         id: "oq-cadence",
-        title: "6.3 — Refresh cadence — OPEN (pending §6.2 experiment)",
-        content: `**Cannot be settled until the §6.2 liveness experiment runs.**
+        title: "6.3 — Refresh cadence — RESOLVED (any practical interval)",
+        revised: true,
+        content: `**Resolved by §6.2 PASS (2026-05-19).** REST surface is continuously fresh during RTH, so periodic refresh is nearly free. All three original options remain viable; mode (a) one-shot CLI is the simplest path for v1.
 
-If REST values are continuously fresh during RTH, periodic refresh is nearly free and a long-running snapshot loop (b) or a CLI-plus-orchestrator pair (c) become attractive. If REST values lag, one-shot CLI (a) may be the only sensible mode regardless of preference.
+### Original options (all viable now)
 
-### Options (revisit after §6.2)
-
-- **(a) Pure one-shot CLI** — invoke when wanted, write artifact, exit.
-- **(b) Long-running snapshot loop** — configurable interval (15/30 min).
+- **(a) Pure one-shot CLI** — invoke when wanted, write artifact, exit. **Simplest; default for v1.**
+- **(b) Long-running snapshot loop** — configurable interval (15/30 min). Free given §6.2 PASS.
 - **(c) Both** — CLI for one-shot, separate orchestrator for periodic.
 
-### Action
+### Resolution
 
-Block on §6.2 experiment. Reopen this section once liveness evidence is captured.`
+Exact cadence is a **TT-139 implementation detail**, driven by the snapshot use case (interactive sanity check vs. always-on intraday dashboard), not by data freshness constraints. No further design decision needed at the plan level.`
       },
       {
         id: "oq-module-placement",
