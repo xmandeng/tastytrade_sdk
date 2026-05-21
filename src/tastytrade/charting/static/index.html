@@ -3,12 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>tasty-chart</title>
-  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <title>tasty-chart (KLineChart)</title>
+  <script src="https://unpkg.com/klinecharts@9/dist/umd/klinecharts.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    /* Hide TradingView branding — only <a> tags in chart containers are attribution links */
-    #chart-candle a, #chart-macd a { display: none !important; }
     :root {
       --bg: #131313; --surface: #1a1a1a; --surface-2: #222;
       --border: #2a2a2a; --text: #d1d4dc; --text-muted: #787b86;
@@ -20,23 +18,16 @@
       height: 100vh; display: flex; flex-direction: column; overflow: hidden;
     }
 
-    /* --- Toolbar --- */
+    /* --- Toolbar (same shape as TT-147) --- */
     .toolbar {
       display: flex; align-items: center;
       padding: 0 16px; background: var(--surface);
       border-bottom: 1px solid var(--border); height: 40px; flex-shrink: 0;
       gap: 16px;
     }
-    .toolbar-section {
-      display: flex; align-items: center; gap: 8px;
-    }
-    .toolbar-section.controls {
-      flex: 1; justify-content: center; gap: 6px;
-    }
-    /* Dropdown controls */
-    .dropdown {
-      position: relative; display: inline-block;
-    }
+    .toolbar-section { display: flex; align-items: center; gap: 8px; }
+
+    .dropdown { position: relative; display: inline-block; }
     .dropdown-btn {
       background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
       color: var(--text); font-size: 12px; font-family: monospace; font-weight: 600;
@@ -53,11 +44,11 @@
     .dropdown-list {
       display: none; position: absolute; top: 100%; left: 0; z-index: 30;
       background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
-      margin-top: 2px; max-height: 300px; overflow-y: auto; min-width: 100%;
+      margin-top: 2px; max-height: 360px; overflow-y: auto; min-width: 100%;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     }
-    .dropdown-list.open { display: block; }
     .dropdown-list.right { left: auto; right: 0; }
+    .dropdown-list.open { display: block; }
     .dropdown-item {
       padding: 6px 12px; font-size: 12px; font-family: monospace;
       color: var(--text-muted); cursor: pointer; white-space: nowrap;
@@ -72,10 +63,7 @@
     .date-input:hover { border-color: var(--text-dim); }
     .date-input:focus { outline: none; border-color: var(--accent); }
 
-    /* Segmented control (MKT/EXT) */
-    .seg-ctrl {
-      display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
-    }
+    .seg-ctrl { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
     .seg-btn {
       padding: 3px 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
       color: var(--text-dim); background: transparent; border: none;
@@ -85,8 +73,6 @@
     .seg-btn.active { color: var(--text); background: rgba(255,255,255,0.06); }
     .seg-btn:hover:not(.active) { color: var(--text-muted); }
 
-
-    /* Status */
     .status { display: flex; align-items: center; gap: 5px; }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
     .status-dot.connected { background: #3fb950; }
@@ -94,58 +80,45 @@
     .status-dot.disconnected { background: #ef5350; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
-    /* Chart legend */
-    .chart-legend {
-      position: absolute; top: 60%; left: 90px; z-index: 10;
-      background: rgba(19,19,19,0.88); border: 1px solid var(--border);
-      border-radius: 5px; overflow: hidden;
-      font-family: monospace; font-size: 11px;
-      color: var(--text-muted); user-select: none;
+    /* --- Studies panel (sectioned: Overlays vs Sub-pane studies) --- */
+    .studies-panel { padding: 6px 4px; min-width: 240px; }
+    .studies-section-header {
+      padding: 8px 10px 4px;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
+      color: var(--text-dim); text-transform: uppercase;
     }
-    .chart-legend:empty { display: none; }
-    .chart-legend.dragging .legend-grip { cursor: grabbing; }
-    .legend-grip {
-      height: 14px; cursor: grab; display: flex; align-items: center;
-      justify-content: center; background: rgba(255,255,255,0.03);
-      border-bottom: 1px solid var(--border);
+    .studies-section-header:first-child { padding-top: 4px; }
+    .study-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px;
+      font-size: 12px; color: var(--text-muted);
+      cursor: pointer; user-select: none;
+      border-radius: 3px;
     }
-    .legend-grip-dots {
-      width: 24px; height: 2px;
-      border-top: 2px dotted rgba(255,255,255,0.15);
-    }
-    .legend-body { padding: 6px 12px 8px; }
-    .legend-row {
-      display: flex; align-items: center; gap: 8px; white-space: nowrap;
-      padding: 3px 4px; border-radius: 3px; cursor: pointer;
-      transition: opacity 0.12s;
-    }
-    .legend-row:hover { background: rgba(255,255,255,0.04); }
-    .legend-row.off { opacity: 0.3; }
-    .legend-line {
-      width: 18px; height: 0; flex-shrink: 0;
+    .study-row:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+    .study-row.child { padding-left: 28px; font-size: 11px; }
+    .study-row.group { font-weight: 600; color: var(--text); }
+    .study-row .study-swatch {
+      width: 14px; height: 2px; flex-shrink: 0;
       border-top-width: 2px; border-top-style: solid;
     }
-    .legend-line.dotted { border-top-style: dotted; }
-    .legend-line.dashed { border-top-style: dashed; }
-
-    /* --- Charts --- */
-    .charts-container { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
-    #chart-candle { min-height: 100px; position: relative; }
-    #chart-macd { min-height: 60px; }
-
-    /* Resize handle between charts */
-    .chart-resize-handle {
-      height: 3px; cursor: row-resize;
-      background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.08) 15%, rgba(255,255,255,0.08) 85%, transparent 100%);
-      position: relative; z-index: 5; flex-shrink: 0;
-      transition: all 0.15s;
+    .study-row .study-swatch.dotted { border-top-style: dotted; }
+    .study-row .study-swatch.dashed { border-top-style: dashed; }
+    .study-row .study-checkbox {
+      width: 14px; height: 14px; flex-shrink: 0;
+      border: 1px solid var(--text-dim); border-radius: 2px;
+      background: transparent;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; line-height: 1; color: var(--accent);
     }
-    .chart-resize-handle:hover, .chart-resize-handle.dragging {
-      background: linear-gradient(to right, transparent 0%, var(--accent) 15%, var(--accent) 85%, transparent 100%);
-    }
-    body.chart-resizing { cursor: row-resize; user-select: none; }
+    .study-row.checked .study-checkbox { background: var(--accent); border-color: var(--accent); }
+    .study-row.checked .study-checkbox::before { content: '\2713'; color: #131313; font-size: 10px; font-weight: 700; }
+    .study-row.indeterminate .study-checkbox { background: var(--accent); border-color: var(--accent); }
+    .study-row.indeterminate .study-checkbox::before { content: '\2212'; color: #131313; font-size: 10px; font-weight: 700; }
+    .study-row .study-label { flex: 1; white-space: nowrap; }
 
-    /* Charts need explicit overflow visible for canvas rendering */
+    /* --- Chart container — KLineChart fills it entirely --- */
+    #chart { flex: 1; position: relative; min-height: 0; }
   </style>
 </head>
 <body>
@@ -166,6 +139,12 @@
   <div class="toolbar-section" style="flex:1"></div>
 
   <div class="toolbar-section">
+    <div class="dropdown" id="studiesDropdown">
+      <div class="dropdown-btn" id="studiesBtn">Studies</div>
+      <div class="dropdown-list right" id="studiesList">
+        <div class="studies-panel" id="studiesPanel"></div>
+      </div>
+    </div>
     <div class="seg-ctrl" id="mktExtCtrl"></div>
     <div class="status">
       <div class="status-dot" id="statusDot"></div>
@@ -173,372 +152,373 @@
   </div>
 </div>
 
-<div class="charts-container" id="chartsContainer">
-  <div id="chart-candle" style="flex:3">
-    <div class="chart-legend" id="chartLegend">
-      <div class="legend-grip" id="legendGrip"><div class="legend-grip-dots"></div></div>
-      <div class="legend-body" id="legendBody"></div>
-    </div>
-  </div>
-  <div class="chart-resize-handle" id="chartResizeHandle"></div>
-  <div id="chart-macd" style="flex:1"></div>
-</div>
+<div id="chart"></div>
 
 <script>
-// --- Colors (plots.py) ---
+// ============================================================================
+// Colors + constants
+// ============================================================================
 const C = {
-  bg:'#131313', grid:'rgba(255,255,255,0.03)', text:'#787b86', border:'#2a2a2a',
-  candleUpBorder:'#4CAF50', candleUpBody:'rgba(19,19,19,0.1)',
-  candleDownBorder:'#EF5350', candleDownBody:'#EF5350',
+  bg:'#131313', grid:'rgba(255,255,255,0.03)', text:'#787b86', textHi:'#d1d4dc',
+  border:'#2a2a2a',
+  candleUp:'#4CAF50', candleDown:'#EF5350',
   hmaUp:'#01FFFF', hmaDown:'#FF66FE',
-  macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
+  macdValue:'#01FFFF', macdSignal:'#F8E9A6',
   priorClose:'#FF66FE', priorHigh:'#4CAF50', priorLow:'#F44336', orLevel:'#4CAF50',
 };
-
 const MARKET_OPEN_H = 9, MARKET_OPEN_M = 30;
 
-const candleEl = document.getElementById('chart-candle');
-const macdEl = document.getElementById('chart-macd');
-
-// Format time as AM/PM — shared by tick labels and crosshair tooltip
-function fmtTime(epochSec) {
-  const d = new Date(epochSec * 1000);
-  const h = d.getUTCHours(), m = d.getUTCMinutes();
-  const hh = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-  const mm = m < 10 ? '0' + m : '' + m;
-  return `${hh}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
+// ============================================================================
+// Custom indicator: Hull Moving Average with directional color.
+// Two figures (up, down). Bar contributes to the figure matching its slope,
+// the other field is null. Transition bars are included in both so the line
+// doesn't break visibly.
+// ============================================================================
+function wma(values, length) {
+  if (values.length < length) return null;
+  let num = 0, denom = 0;
+  for (let i = 0; i < length; i++) {
+    const w = length - i;
+    num += values[values.length - 1 - i] * w;
+    denom += w;
+  }
+  return num / denom;
 }
 
-const chartOpts = () => ({
-  layout: { background: { type: 'solid', color: C.bg }, textColor: C.text, fontFamily: 'monospace' },
-  grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
-  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  rightPriceScale: { visible: false },
-  leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
-  localization: {
-    timeFormatter: (t) => fmtTime(t),
+function calcHmaSeries(closes, length) {
+  const halfLen = Math.round(length / 2);
+  const sqrtLen = Math.round(Math.sqrt(length));
+  const diff = new Array(closes.length).fill(null);
+  const hma = new Array(closes.length).fill(null);
+  for (let i = 0; i < closes.length; i++) {
+    const sliceHalf = closes.slice(Math.max(0, i + 1 - halfLen), i + 1);
+    const sliceFull = closes.slice(Math.max(0, i + 1 - length), i + 1);
+    const wh = sliceHalf.length >= halfLen ? wma(sliceHalf, halfLen) : null;
+    const wf = sliceFull.length >= length  ? wma(sliceFull, length)  : null;
+    diff[i] = (wh != null && wf != null) ? 2 * wh - wf : null;
+  }
+  for (let i = 0; i < closes.length; i++) {
+    const sliceDiff = [];
+    for (let j = Math.max(0, i + 1 - sqrtLen); j <= i; j++) {
+      if (diff[j] != null) sliceDiff.push(diff[j]);
+    }
+    hma[i] = sliceDiff.length >= sqrtLen ? wma(sliceDiff, sqrtLen) : null;
+  }
+  return hma;
+}
+
+klinecharts.registerIndicator({
+  name: 'HMA',
+  shortName: 'HMA',
+  series: 'price',
+  precision: 2,
+  calcParams: [20],
+  figures: [
+    { key: 'up',   title: 'HMA: ', type: 'line', styles: () => ({ color: C.hmaUp,   size: 1 }) },
+    { key: 'down', title: '',      type: 'line', styles: () => ({ color: C.hmaDown, size: 1 }) },
+  ],
+  calc: (kLineDataList, { calcParams }) => {
+    const closes = kLineDataList.map(k => k.close);
+    const hma = calcHmaSeries(closes, calcParams[0]);
+    const out = new Array(kLineDataList.length);
+    for (let i = 0; i < kLineDataList.length; i++) {
+      const v = hma[i], prev = hma[i - 1];
+      if (v == null || prev == null) { out[i] = { up: null, down: null }; continue; }
+      // Rising bar: contributes to 'up'. Falling: 'down'. Also seed the
+      // current value into the previous direction's figure if there's a
+      // direction change, so the polyline crosses cleanly at the transition.
+      const rising = v >= prev;
+      const prevRising = hma[i - 2] != null ? prev >= hma[i - 2] : rising;
+      out[i] = {
+        up:   rising  ? v : (prevRising  ? v : null),
+        down: !rising ? v : (!prevRising ? v : null),
+      };
+    }
+    return out;
   },
-  timeScale: {
-    borderColor: C.border, timeVisible: true, secondsVisible: false,
-    tickMarkFormatter: (time, tickMarkType) => {
-      if (tickMarkType <= 2) {
-        const d = new Date(time * 1000);
-        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return `${months[d.getUTCMonth()]} ${d.getUTCDate()}`;
-      }
-      return fmtTime(time);
+});
+
+// ============================================================================
+// Chart
+// ============================================================================
+const chart = klinecharts.init('chart', {
+  styles: {
+    grid: {
+      show: true,
+      horizontal: { color: C.grid },
+      vertical: { color: C.grid },
+    },
+    candle: {
+      type: 'candle_solid',
+      bar: {
+        upColor: C.candleUp, downColor: C.candleDown,
+        noChangeColor: '#888',
+        upBorderColor: C.candleUp, downBorderColor: C.candleDown,
+        upWickColor: C.candleUp, downWickColor: C.candleDown,
+      },
+      priceMark: {
+        last: { show: false },
+        high: { show: false },
+        low: { show: false },
+      },
+      tooltip: {
+        showRule: 'always',
+        showType: 'standard',
+        custom: [
+          { title: 'O', value: '{open}' },
+          { title: 'H', value: '{high}' },
+          { title: 'L', value: '{low}' },
+          { title: 'C', value: '{close}' },
+        ],
+        text: { color: C.textHi, family: 'monospace', size: 11 },
+        title: { color: C.text, family: 'monospace', size: 10, weight: 'normal' },
+      },
+    },
+    indicator: {
+      tooltip: { showRule: 'always', showName: true, showParams: true },
+      lines: [{ size: 1 }],
+    },
+    crosshair: {
+      show: true,
+      horizontal: {
+        line: { color: C.border, style: 'dashed' },
+        text: { color: C.textHi, backgroundColor: C.border },
+      },
+      vertical: {
+        line: { color: C.border, style: 'dashed' },
+        text: { color: C.textHi, backgroundColor: C.border },
+      },
+    },
+    xAxis: {
+      axisLine: { color: C.border },
+      tickText: { color: C.text },
+      tickLine: { color: C.border },
+    },
+    yAxis: {
+      axisLine: { color: C.border },
+      tickText: { color: C.text },
+      tickLine: { color: C.border },
+      position: 'left',
+      inside: false,
+    },
+    separator: { color: C.border, size: 1 },
+    overlay: {
+      text: { color: C.textHi, family: 'monospace', size: 10 },
     },
   },
-  handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
-  handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
 });
 
-// Create charts with explicit dimensions — flex containers may not have
-// concrete pixel sizes at creation time
-// Pad price labels to consistent width so both charts' left axes align.
-// LWC auto-sizes price scales from label width — matching char count = matching width.
-// Pad both formatters to same width so left axes align
-const fmtWidth = 7;
-const candleFmt = (p) => {
-  const abs = Math.abs(p);
-  const dec = abs >= 1000 ? 0 : abs >= 10 ? 2 : 4;
-  return p.toFixed(dec).padStart(fmtWidth);
-};
-const macdFmt = (p) => p.toFixed(2).padStart(fmtWidth);
+// Indicator pane IDs returned by createIndicator — we hold them so toggles
+// can remove the right pane.
+const indicatorPanes = {};
 
-const candleChart = LightweightCharts.createChart(candleEl, {
-  ...chartOpts(),
-  localization: { ...chartOpts().localization, priceFormatter: candleFmt },
-  timeScale: { ...chartOpts().timeScale, visible: false },
-  width: candleEl.clientWidth || window.innerWidth,
-  height: candleEl.clientHeight || Math.floor(window.innerHeight * 0.65),
-});
-const macdChart = LightweightCharts.createChart(macdEl, {
-  ...chartOpts(),
-  localization: { ...chartOpts().localization, priceFormatter: macdFmt },
-  watermark: {
-    visible: true, text: 'MACD (12,26,9)',
-    color: 'rgba(255,255,255,0.06)', fontSize: 12,
-    horzAlign: 'left', vertAlign: 'top',
+// ============================================================================
+// Studies registry
+// kind:  'simple' or 'group'
+// place: 'overlay' (lives on main candle pane) | 'subPane' (own sub-pane below)
+// ============================================================================
+const STUDIES = {
+  hma: {
+    kind: 'simple', place: 'overlay', label: 'Hull MA (20)',
+    swatch: { color: C.hmaUp, style: 'solid' },
+    enable: () => {
+      if (indicatorPanes.hma) return;
+      indicatorPanes.hma = chart.createIndicator({ name: 'HMA', calcParams: [20] }, true, { id: 'candle_pane' });
+    },
+    disable: () => {
+      if (!indicatorPanes.hma) return;
+      chart.removeIndicator(indicatorPanes.hma, 'HMA');
+      delete indicatorPanes.hma;
+    },
   },
-  width: macdEl.clientWidth || window.innerWidth,
-  height: macdEl.clientHeight || Math.floor(window.innerHeight * 0.2),
-});
+  macd: {
+    kind: 'simple', place: 'subPane', label: 'MACD (12,26,9)',
+    swatch: { color: C.macdValue, style: 'solid' },
+    enable: () => {
+      if (indicatorPanes.macd) return;
+      indicatorPanes.macd = chart.createIndicator('MACD', false);
+    },
+    disable: () => {
+      if (!indicatorPanes.macd) return;
+      chart.removeIndicator(indicatorPanes.macd, 'MACD');
+      delete indicatorPanes.macd;
+    },
+  },
+  priorOHLC: {
+    kind: 'group', place: 'overlay', label: 'Prior Day OHLC',
+    children: {
+      priorClose: { label: 'Prior Close', swatch: { color: C.priorClose, style: 'dotted' } },
+      priorHigh:  { label: 'Prior Hi',    swatch: { color: C.priorHigh,  style: 'dotted' } },
+      priorLow:   { label: 'Prior Lo',    swatch: { color: C.priorLow,   style: 'dotted' } },
+    },
+  },
+  openingRange: {
+    kind: 'group', place: 'overlay', label: 'Opening Range',
+    children: {
+      or5:  { label: '5m OR',  swatch: { color: C.orLevel, style: 'solid'  } },
+      or15: { label: '15m OR', swatch: { color: C.orLevel, style: 'dashed' } },
+      or30: { label: '30m OR', swatch: { color: C.orLevel, style: 'dotted' } },
+    },
+  },
+};
 
+const studyState = {
+  hma: true, macd: true,
+  priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
+  openingRange: true, or5: true, or15: true, or30: true,
+};
 
+// ============================================================================
+// Level overlays — built-in priceLine overlay for prior-day + opening-range.
+// Entries are held so toggles can recreate them.
+// ============================================================================
+const levels = {};  // id -> { entries, overlayIds, parentKey, childKey }
 
-// Sync time scales
-let syncing = false;
-candleChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
-  if (syncing || !r) return; syncing = true;
-  macdChart.timeScale().setVisibleLogicalRange(r); syncing = false;
-});
-macdChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
-  if (syncing || !r) return; syncing = true;
-  candleChart.timeScale().setVisibleLogicalRange(r); syncing = false;
-});
-
-// Sync crosshairs between panes
-candleChart.subscribeCrosshairMove(param => {
-  if (!param.time) { macdChart.clearCrosshairPosition(); return; }
-  macdChart.setCrosshairPosition(0, param.time, macdHistSeries);
-});
-macdChart.subscribeCrosshairMove(param => {
-  if (!param.time) { candleChart.clearCrosshairPosition(); return; }
-  candleChart.setCrosshairPosition(0, param.time, candleSeries);
-});
-
-// --- Series ---
-const candleSeries = candleChart.addCandlestickSeries({
-  upColor: C.candleUpBody, downColor: C.candleDownBody,
-  borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
-  wickUpColor: C.candleUpBorder, wickDownColor: C.candleDownBorder,
-  lastValueVisible: false, priceLineVisible: false,
-  priceScaleId: 'left',
-});
-
-// HMA: segment series per color run
-let hmaSegmentSeries = [];
-
-function clearHmaSeries() {
-  hmaSegmentSeries.forEach(s => candleChart.removeSeries(s.series));
-  hmaSegmentSeries = [];
+function lkcStyle(s) {
+  if (s === 'dotted' || s === 'dot') return 'dotted';
+  if (s === 'dashed' || s === 'dash') return 'dashed';
+  return 'solid';
 }
 
-function createHmaSegmentSeries(color) {
-  const series = candleChart.addLineSeries({
-    color, lineWidth: 1,
-    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-    priceScaleId: 'left',
+function createLevelOverlay(entry) {
+  return chart.createOverlay({
+    name: 'priceLine',
+    points: [{ value: entry.price }],
+    extendData: entry.label,
+    styles: {
+      line: { color: entry.color, style: lkcStyle(entry.lineStyle), size: 1 },
+      text: { color: entry.color, backgroundColor: 'transparent', borderColor: 'transparent', size: 10, family: 'monospace' },
+    },
   });
-  if (!hmaVisible) series.applyOptions({ visible: false });
-  const entry = { series, color };
-  hmaSegmentSeries.push(entry);
-  return entry;
 }
 
-function buildHmaSegments(hmaData, candleTimes) {
-  clearHmaSeries();
-  if (!hmaData || !hmaData.length) return;
-  const timeSet = candleTimes ? new Set(candleTimes) : null;
-  let cur = null, curColor = null;
-
-  for (let i = 0; i < hmaData.length; i++) {
-    if (timeSet && !timeSet.has(hmaData[i].time)) continue;
-    const color = hmaData[i].color;
-    const pt = { time: hmaData[i].time, value: hmaData[i].value };
-    if (color !== curColor) {
-      const entry = createHmaSegmentSeries(color);
-      if (cur) cur.series.update(pt); // overlap for continuity
-      entry.series.setData([pt]);
-      cur = entry; curColor = color;
-    } else {
-      cur.series.update(pt);
-    }
-  }
+function registerLevel(id, entries, parentKey, childKey) {
+  if (levels[id]) return;
+  levels[id] = { entries, overlayIds: [], parentKey, childKey };
+  applyLevelVisibility(id);
 }
 
-const macdHistSeries = macdChart.addHistogramSeries({
-  priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-  priceScaleId: 'left',
-});
-const macdValueSeries = macdChart.addLineSeries({
-  color: C.macdValue, lineWidth: 1,
-  priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-  priceScaleId: 'left',
-});
-const macdSignalSeries = macdChart.addLineSeries({
-  color: C.macdSignal, lineWidth: 1,
-  priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-  priceScaleId: 'left',
-});
-const macdZeroSeries = macdChart.addLineSeries({
-  color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
-  priceLineVisible: false, lastValueVisible: false,
-  priceScaleId: 'left',
-});
-
-// --- State ---
-let lastHmaColor = C.hmaUp;
-let hmaVisible = true;
-let lastCandles = [];
-let viewStartEpoch = 0;  // 9:00 AM — for default zoom
-let levelStartEpoch = 0; // 9:30 AM — for horizontal lines
-let levelEndEpoch = 0;   // last candle — for horizontal line endpoint
-let marketCloseEpoch = 0; // 4:30 PM — for view range end
-const levels = {};
-
-function lwcStyle(s) {
-  if (s === 'dot' || s === 'dotted') return LightweightCharts.LineStyle.Dotted;
-  if (s === 'dash' || s === 'dashed') return LightweightCharts.LineStyle.Dashed;
-  return LightweightCharts.LineStyle.Solid;
+function isLevelVisible(id) {
+  const lv = levels[id];
+  if (!lv) return false;
+  if (lv.parentKey == null) return true;  // live levels from Redis
+  return studyState[lv.parentKey] && studyState[lv.childKey];
 }
 
-// Market hours vs extended hours — user-toggled
-let hasMarketHours = true;
-
-function computeBounds(candles) {
-  viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
-
-  for (const c of candles) {
-    const d = new Date(c.time * 1000);
-    const h = d.getUTCHours(), m = d.getUTCMinutes();
-    if (h < 16 || (h === 16 && m <= 30)) levelEndEpoch = c.time;
+function applyLevelVisibility(id) {
+  const lv = levels[id];
+  if (!lv) return;
+  lv.overlayIds.forEach(oid => { try { chart.removeOverlay(oid); } catch (e) {} });
+  lv.overlayIds = [];
+  if (isLevelVisible(id)) {
+    lv.overlayIds = lv.entries.map(e => createLevelOverlay(e));
   }
-
-  // Compute fixed times from chart date (independent of candle data)
-  if (candles.length) {
-    const d = new Date(candles[0].time * 1000);
-    const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
-    viewStartEpoch = Date.UTC(y, mo, day, 8, 30) / 1000;   // 8:30 AM
-    levelStartEpoch = Date.UTC(y, mo, day, 9, 30) / 1000;   // 9:30 AM
-    marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;  // 4:30 PM
-  }
-
-  // Auto-detect: if no candles fall within the MKT viewing window, switch to EXT.
-  // This prevents the x-axis from anchoring to 8:30 AM–4:30 PM when all candles
-  // are in pre-market (e.g., midnight) or after-hours, making the chart unreadable.
-  if (candles.length && hasMarketHours) {
-    const anyInMarket = candles.some(c => c.time >= viewStartEpoch && c.time <= marketCloseEpoch);
-    if (!anyInMarket) {
-      hasMarketHours = false;
-    }
-  }
-
-  if (!hasMarketHours) {
-    viewStartEpoch = candles.length ? candles[0].time : 0;
-    levelStartEpoch = viewStartEpoch;
-    levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
-    marketCloseEpoch = levelEndEpoch;
-  } else {
-    if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
-  }
-}
-
-function toggleMarketHours() {
-  hasMarketHours = !hasMarketHours;
-  computeBounds(lastCandles);
-  setTradingHoursView();
-  renderControls();
-}
-
-// --- Toggles ---
-function toggleHma() {
-  hmaVisible = !hmaVisible;
-  hmaSegmentSeries.forEach(s => s.series.applyOptions({ visible: hmaVisible }));
-  renderControls();
 }
 
 function clearAllLevels() {
   Object.keys(levels).forEach(id => {
-    levels[id].seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
+    levels[id].overlayIds.forEach(oid => { try { chart.removeOverlay(oid); } catch (e) {} });
     delete levels[id];
   });
-  document.getElementById('legendBody').innerHTML = '';
 }
 
-function createLevelSeries(entry) {
-  const endTime = marketCloseEpoch || levelEndEpoch;
-  if (!levelStartEpoch || !endTime || levelStartEpoch >= endTime) return null;
-  const series = candleChart.addLineSeries({
-    color: entry.color, lineWidth: 1,
-    lineStyle: lwcStyle(entry.lineStyle),
-    priceLineVisible: false, lastValueVisible: false,
-    crosshairMarkerVisible: false,
-    priceScaleId: 'left',
-    autoscaleInfoProvider: () => null,
-  });
-  series.setData([
-    { time: levelStartEpoch, value: entry.price },
-    { time: endTime, value: entry.price },
-  ]);
-  return series;
+// ============================================================================
+// Studies panel rendering + toggle wiring
+// ============================================================================
+function isGroupIndeterminate(groupKey) {
+  const study = STUDIES[groupKey];
+  if (!study || !study.children) return false;
+  const states = Object.keys(study.children).map(k => studyState[k]);
+  const allOn = states.every(Boolean);
+  const allOff = states.every(s => !s);
+  return !allOn && !allOff;
 }
 
-function createLevel(id, entries, visible) {
-  if (levels[id]) return;
-  const seriesList = visible ? entries.map(e => createLevelSeries(e)).filter(Boolean) : [];
-  levels[id] = { seriesList, visible, entries };
+function swatchHtml(swatch) {
+  if (!swatch) return '<span class="study-swatch" style="border-color:transparent"></span>';
+  const cls = swatch.style === 'dotted' ? 'dotted' : swatch.style === 'dashed' ? 'dashed' : '';
+  return `<span class="study-swatch ${cls}" style="border-color:${swatch.color}"></span>`;
+}
+function rowClass(key, indet) {
+  if (indet) return 'indeterminate';
+  return studyState[key] ? 'checked' : '';
 }
 
-function toggleLevel(id) {
-  const lv = levels[id];
-  if (!lv) return;
-  if (lv.visible) {
-    lv.seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
-    lv.seriesList = []; lv.visible = false;
-  } else {
-    lv.seriesList = lv.entries.map(e => createLevelSeries(e)).filter(Boolean);
-    lv.visible = true;
-  }
-  renderControls();
-  renderLegend();
-}
+function renderStudiesPanel() {
+  const panel = document.getElementById('studiesPanel');
+  if (!panel) return;
+  const out = [];
 
-function renderLegend() {
-  const el = document.getElementById('legendBody');
-  const rows = [];
-
-  function row(id, label, color, style, priceText, onclick) {
-    const vis = id === 'hma' ? hmaVisible : (levels[id] && levels[id].visible);
-    const cls = vis ? '' : 'off';
-    const dash = style === 'dotted' ? 'dotted' : style === 'dashed' ? 'dashed' : '';
-    const handler = onclick || `toggleLevel('${id}');renderLegend()`;
-    return `<div class="legend-row ${cls}" onclick="${handler}">
-      <span class="legend-line ${dash}" style="border-color:${color}"></span>
-      <span>${label}</span>
-      <span style="color:var(--text-dim)">${priceText}</span>
-    </div>`;
+  function renderStudy(key) {
+    const s = STUDIES[key];
+    if (s.kind === 'simple') {
+      out.push(`
+        <div class="study-row ${rowClass(key)}" data-study="${key}">
+          <span class="study-checkbox"></span>${swatchHtml(s.swatch)}<span class="study-label">${s.label}</span>
+        </div>`);
+    } else if (s.kind === 'group') {
+      const indet = isGroupIndeterminate(key);
+      out.push(`
+        <div class="study-row group ${rowClass(key, indet)}" data-study="${key}">
+          <span class="study-checkbox"></span><span class="study-label">${s.label}</span>
+        </div>`);
+      Object.keys(s.children).forEach(ck => {
+        const c = s.children[ck];
+        out.push(`
+          <div class="study-row child ${rowClass(ck)}" data-study="${ck}">
+            <span class="study-checkbox"></span>${swatchHtml(c.swatch)}<span class="study-label">${c.label}</span>
+          </div>`);
+      });
+    }
   }
 
-  // HMA
-  rows.push(row('hma', 'HMA', C.hmaUp, 'solid', '', 'toggleHma();renderLegend()'));
+  out.push(`<div class="studies-section-header">Overlays</div>`);
+  Object.keys(STUDIES).filter(k => STUDIES[k].place === 'overlay').forEach(renderStudy);
+  out.push(`<div class="studies-section-header">Sub-pane studies</div>`);
+  Object.keys(STUDIES).filter(k => STUDIES[k].place === 'subPane').forEach(renderStudy);
 
-  // Prior day levels
-  ['priorClose','priorHigh','priorLow'].forEach(id => {
-    const lv = levels[id];
-    if (!lv) return;
-    const e = lv.entries[0];
-    rows.push(row(id, e.label, e.color, e.lineStyle, e.price.toFixed(0)));
-  });
-  // OR levels — group hi/lo pairs
-  ['or5','or15','or30'].forEach(id => {
-    const lv = levels[id];
-    if (!lv || !lv.entries.length) return;
-    const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
-    const hi = lv.entries.find(e => e.label.includes('Hi'));
-    const lo = lv.entries.find(e => e.label.includes('Lo'));
-    const prices = [hi,lo].filter(Boolean).map(e => e.price.toFixed(0)).join(' / ');
-    rows.push(row(id, label, lv.entries[0].color, lv.entries[0].lineStyle, prices));
-  });
-  el.innerHTML = rows.join('');
+  panel.innerHTML = out.join('');
 }
 
-// Draggable legend via grip bar
-(function() {
-  const legend = document.getElementById('chartLegend');
-  const grip = document.getElementById('legendGrip');
-  let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
+function applyStudyState() {
+  ['hma', 'macd'].forEach(k => {
+    const s = STUDIES[k];
+    if (!s) return;
+    if (studyState[k]) s.enable(); else s.disable();
+  });
+  Object.keys(levels).forEach(id => applyLevelVisibility(id));
+  renderStudiesPanel();
+}
 
-  grip.addEventListener('mousedown', (e) => {
-    dragging = true; startX = e.clientX; startY = e.clientY;
-    origLeft = legend.offsetLeft; origTop = legend.offsetTop;
-    legend.classList.add('dragging');
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    legend.style.left = (origLeft + e.clientX - startX) + 'px';
-    legend.style.top = (origTop + e.clientY - startY) + 'px';
-  });
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false; legend.classList.remove('dragging');
-  });
-})();
+// Toggle handler on the panel (not document) — same lesson as TT-147.
+document.getElementById('studiesPanel').addEventListener('click', (e) => {
+  const row = e.target.closest('.study-row');
+  if (!row) return;
+  const key = row.dataset.study;
+  if (!key || !(key in studyState)) return;
+  studyState[key] = !studyState[key];
+  applyStudyState();
+});
+
+// ============================================================================
+// MKT / EXT toggle
+// ============================================================================
+let hasMarketHours = true;
+let lastCandles = [];
+
+function computeBounds(candles) {
+  if (candles.length && hasMarketHours) {
+    const d = new Date(candles[0].timestamp);
+    const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
+    const open = Date.UTC(y, mo, day, 8, 30);
+    const close = Date.UTC(y, mo, day, 16, 30);
+    const anyInMarket = candles.some(c => c.timestamp >= open && c.timestamp <= close);
+    if (!anyInMarket) hasMarketHours = false;
+  }
+}
+
+function toggleMarketHours() { hasMarketHours = !hasMarketHours; computeBounds(lastCandles); renderControls(); chart.resize(); }
+window.toggleMarketHours = toggleMarketHours;
 
 function renderControls() {
   const seg = document.getElementById('mktExtCtrl');
@@ -547,36 +527,33 @@ function renderControls() {
     <button class="seg-btn ${hasMarketHours ? '' : 'active'}" onclick="toggleMarketHours()">EXT</button>`;
 }
 
-// --- Opening range ---
+// ============================================================================
+// Opening range
+// ============================================================================
 const OR_WINDOWS = [
-  { min:5, id:'or5', label:'5m', style:'solid', opacity:0.6 },
-  { min:15, id:'or15', label:'15m', style:'dashed', opacity:0.4 },
-  { min:30, id:'or30', label:'30m', style:'dotted', opacity:0.3 },
+  { min:5,  id:'or5',  label:'5m',  style:'solid'  },
+  { min:15, id:'or15', label:'15m', style:'dashed' },
+  { min:30, id:'or30', label:'30m', style:'dotted' },
 ];
 const orState = {};
-
-function initOR() {
-  OR_WINDOWS.forEach(w => { orState[w.min] = { high:null, low:null, locked:false }; });
-}
+function initOR() { OR_WINDOWS.forEach(w => { orState[w.min] = { high:null, low:null, locked:false }; }); }
 
 function processCandleOR(candle) {
-  const d = new Date(candle.time * 1000);
+  const d = new Date(candle.timestamp);
   const h = d.getUTCHours(), m = d.getUTCMinutes();
   const minSinceOpen = (h - MARKET_OPEN_H) * 60 + (m - MARKET_OPEN_M);
   if (minSinceOpen < 0) return;
-
   OR_WINDOWS.forEach(w => {
     const st = orState[w.min];
     if (!st || st.locked) return;
     if (minSinceOpen >= w.min) {
       st.locked = true;
       if (st.high !== null) {
-        createLevel(w.id, [
-          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
-          { price:st.low, label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
-        ], true);
-        renderControls();
-        renderLegend();
+        registerLevel(w.id, [
+          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style },
+          { price:st.low,  label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style },
+        ], 'openingRange', w.id);
+        renderStudiesPanel();
       }
       return;
     }
@@ -585,152 +562,14 @@ function processCandleOR(candle) {
   });
 }
 
-// --- View & scale ---
-// Invisible anchor series — extends the time axis beyond candle data
-const anchorSeries = candleChart.addLineSeries({
-  color: 'transparent', lineWidth: 0,
-  priceLineVisible: false, lastValueVisible: false,
-  crosshairMarkerVisible: false, priceScaleId: 'left',
-  autoscaleInfoProvider: () => null,
-});
-// MACD anchor on a hidden scale — extends time axis without affecting MACD y-axis
-const macdAnchorSeries = macdChart.addLineSeries({
-  color: 'transparent', lineWidth: 0,
-  priceLineVisible: false, lastValueVisible: false,
-  crosshairMarkerVisible: false, priceScaleId: 'anchor-hidden',
-  autoscaleInfoProvider: () => null,
-});
-macdChart.priceScale('anchor-hidden').applyOptions({ visible: false });
-
-// Snap epoch down to the nearest hour boundary
-function floorHour(epoch) { return epoch - (epoch % 3600); }
-// Snap epoch up to the nearest hour boundary
-function ceilHour(epoch) { return epoch % 3600 === 0 ? epoch : floorHour(epoch) + 3600; }
-
-function setTradingHoursView() {
-  // Clear stale anchors before repopulating — prevents previous mode's
-  // timestamps from polluting the time axis after a MKT/EXT toggle.
-  anchorSeries.setData([]);
-  macdAnchorSeries.setData([]);
-
-  if (!hasMarketHours) {
-    // EXT mode: fit to actual data, snapped to hour boundaries
-    if (!lastCandles.length) return;
-    const first = lastCandles[0].time;
-    const last = lastCandles[lastCandles.length - 1].time;
-    const from = floorHour(first - 1800);  // pad 30 min before, snap to hour
-    const to = ceilHour(last + 1800);      // pad 30 min after, snap to hour
-    // Anchor every 30 minutes for clean tick marks
-    const anchors = [];
-    for (let t = from; t <= to; t += 1800) anchors.push({ time: t, value: 0 });
-    anchorSeries.setData(anchors);
-    macdAnchorSeries.setData(anchors);
-    syncing = true;
-    candleChart.timeScale().setVisibleRange({ from, to });
-    macdChart.timeScale().setVisibleRange({ from, to });
-    syncing = false;
-    return;
-  }
-
-  // MKT mode: anchor to regular trading hours, snapped to hour boundaries
-  if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
-  const from = floorHour(viewStartEpoch);
-  const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
-  const to = ceilHour(Math.min(marketCloseEpoch, Math.max(lastCandle + 3600, levelStartEpoch + 3600)));
-  // Anchor every 30 minutes for clean tick marks
-  const anchors = [];
-  for (let t = from; t <= to; t += 1800) anchors.push({ time: t, value: 0 });
-  anchorSeries.setData(anchors);
-  macdAnchorSeries.setData(anchors);
-  syncing = true;
-  candleChart.timeScale().setVisibleRange({ from, to });
-  macdChart.timeScale().setVisibleRange({ from, to });
-  syncing = false;
-}
-
-// Extend candle series auto-scale to include prior day levels.
-// Level line series have autoscaleInfoProvider: () => null so they don't
-// contribute — only the candle series range matters, preventing double-stretch.
-let priorLevelPrices = [];
-
-function applyPriorLevelScale(candles) {
-  if (!priorLevelPrices.length || !candles.length) return;
-  // Compute the full range from candle data + prior levels
-  let lo = Infinity, hi = -Infinity;
-  candles.forEach(c => {
-    if (c.low < lo) lo = c.low;
-    if (c.high > hi) hi = c.high;
-  });
-  priorLevelPrices.forEach(p => {
-    if (p < lo) lo = p;
-    if (p > hi) hi = p;
-  });
-  const pad = (hi - lo) * 0.03;
-  candleSeries.applyOptions({
-    autoscaleInfoProvider: () => ({
-      priceRange: { minValue: lo - pad, maxValue: hi + pad },
-    }),
-  });
-}
-
-// --- Chart pane resize ---
-(function() {
-  const handle = document.getElementById('chartResizeHandle');
-  const container = document.getElementById('chartsContainer');
-  let dragging = false, startY = 0, startCandleH = 0, startMacdH = 0;
-
-  function onStart(clientY) {
-    dragging = true;
-    startY = clientY;
-    startCandleH = candleEl.offsetHeight;
-    startMacdH = macdEl.offsetHeight;
-    document.body.classList.add('chart-resizing');
-    handle.classList.add('dragging');
-  }
-
-  handle.addEventListener('mousedown', e => { e.preventDefault(); onStart(e.clientY); });
-  handle.addEventListener('touchstart', e => { e.preventDefault(); onStart(e.touches[0].clientY); }, { passive: false });
-
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    const dy = e.clientY - startY;
-    const newCandle = Math.max(100, startCandleH + dy);
-    const newMacd = Math.max(60, startMacdH - dy);
-    candleEl.style.flex = 'none'; candleEl.style.height = newCandle + 'px';
-    macdEl.style.flex = 'none'; macdEl.style.height = newMacd + 'px';
-    resize();
-  });
-
-  document.addEventListener('touchmove', e => {
-    if (!dragging) return;
-    e.preventDefault();
-    const dy = e.touches[0].clientY - startY;
-    const newCandle = Math.max(100, startCandleH + dy);
-    const newMacd = Math.max(60, startMacdH - dy);
-    candleEl.style.flex = 'none'; candleEl.style.height = newCandle + 'px';
-    macdEl.style.flex = 'none'; macdEl.style.height = newMacd + 'px';
-    resize();
-  }, { passive: false });
-
-  function endDrag() {
-    if (!dragging) return;
-    dragging = false;
-    document.body.classList.remove('chart-resizing');
-    handle.classList.remove('dragging');
-  }
-  document.addEventListener('mouseup', endDrag);
-  document.addEventListener('touchend', endDrag);
-})();
-
-// --- WebSocket ---
+// ============================================================================
+// WebSocket — converts server's epoch-seconds to KLineChart's milliseconds.
+// Ignores server-pre-computed HMA/MACD; KLineChart computes natively.
+// ============================================================================
 let ws = null;
 let intentionalClose = false;
+function setStatus(state) { document.getElementById('statusDot').className = 'status-dot ' + state; }
 
-function setStatus(state) {
-  document.getElementById('statusDot').className = 'status-dot ' + state;
-}
-
-// --- Dropdown controls ---
 const INTERVALS = [
   { value:'m', label:'1m' }, { value:'5m', label:'5m' },
   { value:'15m', label:'15m' }, { value:'30m', label:'30m' },
@@ -744,12 +583,11 @@ function getParams() {
   return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm' };
 }
 
-function initDropdown(btnId, listId, items, onSelect) {
+function initDropdown(btnId, listId, onSelect) {
   const btn = document.getElementById(btnId);
   const list = document.getElementById(listId);
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    // Close other dropdowns
     document.querySelectorAll('.dropdown-list.open').forEach(el => {
       if (el.id !== listId) el.classList.remove('open');
     });
@@ -778,15 +616,14 @@ async function populateSymbols() {
     list.innerHTML = (data.symbols || []).map(s =>
       `<div class="dropdown-item ${s === currentSymbol ? 'active' : ''}" data-value="${s}">${s}</div>`
     ).join('');
-  } catch(e) { /* symbols endpoint unavailable */ }
+  } catch (e) { /* unavailable */ }
 }
 
-// Close all dropdowns on outside click
 document.addEventListener('click', () => {
   document.querySelectorAll('.dropdown-list.open').forEach(el => el.classList.remove('open'));
 });
 
-initDropdown('symbolBtn', 'symbolList', [], (sym) => {
+initDropdown('symbolBtn', 'symbolList', (sym) => {
   currentSymbol = sym;
   const p = new URLSearchParams(window.location.search);
   p.set('symbol', sym); p.set('interval', currentInterval);
@@ -794,8 +631,7 @@ initDropdown('symbolBtn', 'symbolList', [], (sym) => {
   document.getElementById('symbolBtn').textContent = sym;
   connect();
 });
-
-initDropdown('intervalBtn', 'intervalList', [], (intv) => {
+initDropdown('intervalBtn', 'intervalList', (intv) => {
   currentInterval = intv;
   const label = INTERVALS.find(i => i.value === intv)?.label || intv;
   const p = new URLSearchParams(window.location.search);
@@ -805,35 +641,52 @@ initDropdown('intervalBtn', 'intervalList', [], (intv) => {
   connect();
 });
 
+// Studies dropdown — clicks inside the list don't bubble out (which would
+// close the dropdown), but the panel's own click listener catches row clicks.
+(function () {
+  const btn = document.getElementById('studiesBtn');
+  const list = document.getElementById('studiesList');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.dropdown-list.open').forEach(el => {
+      if (el.id !== 'studiesList') el.classList.remove('open');
+    });
+    list.classList.toggle('open');
+  });
+  list.addEventListener('click', (e) => e.stopPropagation());
+})();
+
 let connectTimer = null;
 function connect(dateOverride) {
-  // Debounce rapid calls (page reload + dropdown init can fire multiple times)
   if (connectTimer) clearTimeout(connectTimer);
   connectTimer = setTimeout(() => doConnect(dateOverride), 100);
+}
+
+function toKlineBar(c) {
+  return {
+    timestamp: c.time * 1000,
+    open: c.open, high: c.high, low: c.low, close: c.close,
+    volume: c.volume || 0,
+  };
 }
 
 function doConnect(dateOverride) {
   setStatus('connecting');
   intentionalClose = true;
-
   const { symbol, interval } = getParams();
   currentSymbol = symbol; currentInterval = interval;
   document.getElementById('symbolBtn').textContent = symbol;
   document.getElementById('intervalBtn').textContent = INTERVALS.find(i => i.value === interval)?.label || interval;
   populateIntervals();
 
-  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+  if (ws) { try { ws.close(); } catch (e) {} ws = null; }
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}`;
   if (dateOverride) url += `&date=${dateOverride}`;
-
   ws = new WebSocket(url);
 
-  ws.onopen = () => {
-    intentionalClose = false;
-    setStatus('connected');
-  };
+  ws.onopen = () => { intentionalClose = false; setStatus('connected'); };
 
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
@@ -843,112 +696,46 @@ function doConnect(dateOverride) {
     if (msg.type === 'init') {
       clearAllLevels();
       initOR();
-      hmaVisible = true;
-
       if (msg.date) document.getElementById('dateInput').value = msg.date;
 
-      lastCandles = msg.candles;
-      // Auto-fit price precision: no decimals for large prices, 2 for small
-      if (msg.candles.length) {
-        const mid = msg.candles[Math.floor(msg.candles.length / 2)].close;
-        const prec = mid >= 100 ? 0 : mid >= 1 ? 2 : 4;
-        const mv = mid >= 100 ? 1 : mid >= 1 ? 0.01 : 0.0001;
-        candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
-      }
-      candleSeries.setData(msg.candles);
-      computeBounds(msg.candles);
-      // Only compute opening range for instruments with market hours
-      if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
+      const bars = (msg.candles || []).map(toKlineBar);
+      lastCandles = bars;
+      chart.applyNewData(bars);
 
-      // HMA
-      if (msg.hma && msg.hma.length > 0) {
-        const candleTimes = msg.candles.map(c => c.time);
-        buildHmaSegments(msg.hma, candleTimes);
-        lastHmaColor = msg.hma[msg.hma.length - 1].color;
-      }
+      computeBounds(bars);
+      if (hasMarketHours) bars.forEach(b => processCandleOR(b));
 
-      // MACD
-      if (msg.macd && msg.macd.length > 0) {
-        macdHistSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.histogram, color:p.histogramColor })));
-        macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
-        macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
-        macdZeroSeries.setData([
-          { time:msg.macd[0].time, value:0 },
-          { time:msg.macd[msg.macd.length-1].time, value:0 },
-        ]);
-      }
-
-      // Prior day levels — bounded to 9:30 - 5:00
-      priorLevelPrices = [];
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
-        if (dc.close != null) {
-          createLevel('priorClose',[{price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.35}], true);
-          priorLevelPrices.push(dc.close);
-        }
-        if (dc.high != null) {
-          createLevel('priorHigh',[{price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.25}], true);
-          priorLevelPrices.push(dc.high);
-        }
-        if (dc.low != null) {
-          createLevel('priorLow',[{price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.25}], true);
-          priorLevelPrices.push(dc.low);
-        }
-        applyPriorLevelScale(msg.candles);
+        if (dc.close != null) registerLevel('priorClose', [{ price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted' }], 'priorOHLC', 'priorClose');
+        if (dc.high  != null) registerLevel('priorHigh',  [{ price:dc.high,  label:'Prior Hi',    color:C.priorHigh,  lineStyle:'dotted' }], 'priorOHLC', 'priorHigh');
+        if (dc.low   != null) registerLevel('priorLow',   [{ price:dc.low,   label:'Prior Lo',    color:C.priorLow,   lineStyle:'dotted' }], 'priorOHLC', 'priorLow');
       }
 
+      // applyStudyState registers HMA + MACD indicators and reconciles all level overlays
+      // with current studyState.
+      applyStudyState();
       renderControls();
-      renderLegend();
-      setTimeout(() => { setTradingHoursView(); }, 100);
       return;
     }
 
     if (msg.type === 'update') {
-      candleSeries.update(msg.candle);
-      processCandleOR(msg.candle);
-
-      // Extend level lines in EXT mode only (MKT uses fixed 4:30 PM endpoint)
-      if (!hasMarketHours) {
-        const newTime = msg.candle.time;
-        for (const id in levels) {
-          if (levels[id].visible) {
-            levels[id].seriesList.forEach((s, i) => {
-              s.update({ time: newTime, value: levels[id].entries[i].price });
-            });
-          }
-        }
+      const bar = toKlineBar(msg.candle);
+      chart.updateData(bar);
+      if (lastCandles.length && lastCandles[lastCandles.length - 1].timestamp === bar.timestamp) {
+        lastCandles[lastCandles.length - 1] = bar;
+      } else {
+        lastCandles.push(bar);
       }
-
-      if (msg.hma) {
-        const pt = { time: msg.hma.time, value: msg.hma.value };
-        const color = msg.hma.color;
-        if (color !== lastHmaColor && hmaSegmentSeries.length > 0) {
-          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
-          const entry = createHmaSegmentSeries(color);
-          entry.series.setData([pt]);
-        } else if (hmaSegmentSeries.length > 0) {
-          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
-        } else {
-          const entry = createHmaSegmentSeries(color);
-          entry.series.setData([pt]);
-        }
-        lastHmaColor = color;
-      }
-
-      if (msg.macd) {
-        macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
-        macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
-        macdSignalSeries.update({ time:msg.macd.time, value:msg.macd.signal });
-        macdZeroSeries.update({ time:msg.macd.time, value:0 });
-      }
+      processCandleOR(bar);
+      // Indicators recompute automatically — KLineChart re-runs registered calc()
+      // over the dataset on every updateData(). No manual indicator update needed.
       return;
     }
 
     if (msg.type === 'level') {
-      const id = (msg.label||'').replace(/\s+/g,'').toLowerCase();
-      createLevel(id,[{price:msg.price,label:msg.label,color:msg.color,lineStyle:msg.lineStyle,opacity:msg.opacity}],true);
-      renderControls();
-      renderLegend();
+      const id = (msg.label||'').replace(/\s+/g,'').toLowerCase() || `lv_${Date.now()}`;
+      registerLevel(id, [{ price:msg.price, label:msg.label, color:msg.color, lineStyle:msg.lineStyle }], null, null);
       return;
     }
   };
@@ -958,29 +745,17 @@ function doConnect(dateOverride) {
     setStatus('disconnected');
     setTimeout(() => connect(), 3000);
   };
-
   ws.onerror = () => setStatus('disconnected');
 }
 
-// Reconnect on user-initiated date changes only.
-// e.isTrusted is true for real user events, false for dispatchEvent() / programmatic.
 document.getElementById('dateInput').addEventListener('change', (e) => {
   if (e.isTrusted && e.target.value) connect(e.target.value);
 });
 
-// Resize
-function resize() {
-  if (candleEl.clientWidth && candleEl.clientHeight) {
-    candleChart.resize(candleEl.clientWidth, candleEl.clientHeight);
-  }
-  if (macdEl.clientWidth && macdEl.clientHeight) {
-    macdChart.resize(macdEl.clientWidth, macdEl.clientHeight);
-  }
-}
-window.addEventListener('resize', resize);
-new ResizeObserver(resize).observe(candleEl);
-new ResizeObserver(resize).observe(macdEl);
+window.addEventListener('resize', () => chart.resize());
 
+renderStudiesPanel();
+renderControls();
 populateSymbols();
 populateIntervals();
 connect();
