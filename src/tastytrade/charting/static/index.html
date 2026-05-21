@@ -182,14 +182,61 @@ function fmtTime(epochSec) {
 }
 
 // ============================================================================
-// Custom series: colored polyline with per-point color (HMA up/down segments)
+// Series Primitive: HMA as a colored polyline on the candle series.
+// Owns its own data + draw logic; contributes to autoscale.
 // ============================================================================
-class ColoredLineRenderer {
-  constructor() { this._data = null; }
-  update(data) { this._data = data; }
-  draw(target, priceConverter) {
-    const data = this._data;
-    if (!data || !data.bars.length) return;
+class HmaPrimitive {
+  constructor() {
+    this._data = [];
+    this._series = null;
+    this._chart = null;
+    this._visible = true;
+    this._paneView = {
+      renderer: () => ({
+        draw: (target) => this.drawPolyline(target),
+      }),
+    };
+  }
+  attached({ series, chart }) { this._series = series; this._chart = chart; }
+  detached() { this._series = null; this._chart = null; }
+  paneViews() { return [this._paneView]; }
+  updateAllViews() {}
+
+  requestRedraw() {
+    // Primitives don't trigger redraws automatically on data mutation — nudge the
+    // host series so the chart repaints. applyOptions({}) is a no-op options change.
+    if (this._series) this._series.applyOptions({});
+  }
+
+  setData(arr) {
+    this._data = (arr || []).slice().sort((a, b) => a.time - b.time);
+    this.requestRedraw();
+  }
+  update(point) {
+    if (!point || point.value == null) return;
+    const last = this._data[this._data.length - 1];
+    if (last && last.time === point.time) this._data[this._data.length - 1] = point;
+    else this._data.push(point);
+    this.requestRedraw();
+  }
+  clear() { this._data = []; this.requestRedraw(); }
+  setVisible(v) { this._visible = v; this.requestRedraw(); }
+
+  autoscaleInfo() {
+    if (!this._visible || !this._data.length) return null;
+    let lo = Infinity, hi = -Infinity;
+    for (const p of this._data) {
+      if (p.value == null) continue;
+      if (p.value < lo) lo = p.value;
+      if (p.value > hi) hi = p.value;
+    }
+    return lo === Infinity ? null : { priceRange: { minValue: lo, maxValue: hi } };
+  }
+
+  drawPolyline(target) {
+    if (!this._visible || !this._series || !this._chart || this._data.length < 2) return;
+    const series = this._series;
+    const ts = this._chart.timeScale();
     target.useBitmapCoordinateSpace(scope => {
       const ctx = scope.context;
       const xR = scope.horizontalPixelRatio;
@@ -197,34 +244,22 @@ class ColoredLineRenderer {
       ctx.lineWidth = Math.max(1, Math.round(yR));
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      const bars = data.bars;
-      const range = data.visibleRange;
-      if (!range) return;
-      // Pad by 1 so the segment that crosses the left edge is drawn
-      const from = Math.max(0, range.from - 1);
-      const to = Math.min(bars.length, range.to + 1);
-      for (let i = from; i < to - 1; i++) {
-        const b1 = bars[i], b2 = bars[i + 1];
-        const o1 = b1.originalData, o2 = b2.originalData;
-        if (!o1 || !o2 || o1.value == null || o2.value == null) continue;
-        ctx.strokeStyle = o1.color || '#888';
+      for (let i = 0; i < this._data.length - 1; i++) {
+        const p1 = this._data[i], p2 = this._data[i + 1];
+        if (p1.value == null || p2.value == null) continue;
+        const x1 = ts.timeToCoordinate(p1.time);
+        const x2 = ts.timeToCoordinate(p2.time);
+        const y1 = series.priceToCoordinate(p1.value);
+        const y2 = series.priceToCoordinate(p2.value);
+        if (x1 == null || x2 == null || y1 == null || y2 == null) continue;
+        ctx.strokeStyle = p1.color || '#888';
         ctx.beginPath();
-        ctx.moveTo(b1.x * xR, priceConverter(o1.value) * yR);
-        ctx.lineTo(b2.x * xR, priceConverter(o2.value) * yR);
+        ctx.moveTo(x1 * xR, y1 * yR);
+        ctx.lineTo(x2 * xR, y2 * yR);
         ctx.stroke();
       }
     });
   }
-}
-
-class ColoredLineView {
-  constructor() { this._renderer = new ColoredLineRenderer(); }
-  renderer() { return this._renderer; }
-  update(data) { this._renderer.update(data); }
-  priceValueBuilder(d) { return [d.value]; }
-  isWhitespace(d) { return d.value == null; }
-  defaultOptions() { return {}; }
-  destroy() {}
 }
 
 // ============================================================================
@@ -302,11 +337,10 @@ const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
   priceScaleId: 'left',
 }, 0);
 
-// One custom series, per-point color — replaces v4's N segment-series.
-const hmaSeries = chart.addCustomSeries(new ColoredLineView(), {
-  priceScaleId: 'left',
-  priceLineVisible: false, lastValueVisible: false,
-}, 0);
+// HMA: a Series Primitive on the candle series — one object, per-segment color,
+// contributes to candle-pane autoscale. Replaces v4's N segment-series allocation.
+const hmaPrimitive = new HmaPrimitive();
+candleSeries.attachPrimitive(hmaPrimitive);
 
 // --- Pane 1: MACD ---
 const macdHistSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
@@ -357,6 +391,8 @@ let hmaVisible = true;
 let lastCandles = [];
 let lastHmaByTime = new Map();  // time epoch -> { value, color }
 let lastMacdByTime = new Map(); // time epoch -> { value, signal, histogram }
+let latestHma = null;   // last known HMA — fallback when hovered candle has no HMA yet
+let latestMacd = null;  // same for MACD
 let viewStartEpoch = 0;
 let levelStartEpoch = 0;
 let levelEndEpoch = 0;
@@ -408,7 +444,7 @@ function toggleMarketHours() {
 
 function toggleHma() {
   hmaVisible = !hmaVisible;
-  hmaSeries.applyOptions({ visible: hmaVisible });
+  hmaPrimitive.setVisible(hmaVisible);
   renderLegend();
 }
 
@@ -474,16 +510,12 @@ function updateValuesAtTime(time) {
     hma = lastHmaByTime.get(time) || null;
     macd = lastMacdByTime.get(time) || null;
   }
-  // Fall back to most recent candle if hover isn't on a candle
+  // Fall back to most recent values. Indicators lag candles by one period
+  // (they only advance on candle close), so the hovered candle's time may
+  // not exist in lastHmaByTime / lastMacdByTime yet — use the latest known instead.
   if (!candle && lastCandles.length) candle = lastCandles[lastCandles.length - 1];
-  if (!hma && lastHmaByTime.size) {
-    const lastTime = lastCandles.length ? lastCandles[lastCandles.length - 1].time : null;
-    hma = lastTime != null ? lastHmaByTime.get(lastTime) : null;
-  }
-  if (!macd && lastMacdByTime.size) {
-    const lastTime = lastCandles.length ? lastCandles[lastCandles.length - 1].time : null;
-    macd = lastTime != null ? lastMacdByTime.get(lastTime) : null;
-  }
+  if (!hma) hma = latestHma;
+  if (!macd) macd = latestMacd;
 
   const sign = candle ? (candle.close >= candle.open ? C.candleUpBorder : C.candleDownBorder) : C.text;
   const macdSign = macd && macd.histogram >= 0 ? C.candleUpBorder : C.candleDownBorder;
@@ -748,9 +780,11 @@ function doConnect(dateOverride) {
       clearAllLevels();
       initOR();
       hmaVisible = true;
-      hmaSeries.applyOptions({ visible: true });
+      hmaPrimitive.setVisible(true);
       lastHmaByTime.clear();
       lastMacdByTime.clear();
+      latestHma = null;
+      latestMacd = null;
 
       if (msg.date) document.getElementById('dateInput').value = msg.date;
 
@@ -767,10 +801,12 @@ function doConnect(dateOverride) {
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 
       if (msg.hma && msg.hma.length > 0) {
-        hmaSeries.setData(msg.hma);
+        hmaPrimitive.setData(msg.hma);
         msg.hma.forEach(p => lastHmaByTime.set(p.time, { value: p.value, color: p.color }));
+        const last = msg.hma[msg.hma.length - 1];
+        latestHma = { value: last.value, color: last.color };
       } else {
-        hmaSeries.setData([]);
+        hmaPrimitive.clear();
       }
 
       if (msg.macd && msg.macd.length > 0) {
@@ -778,6 +814,8 @@ function doConnect(dateOverride) {
         macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
         macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
         msg.macd.forEach(p => lastMacdByTime.set(p.time, { value: p.value, signal: p.signal, histogram: p.histogram }));
+        const lastM = msg.macd[msg.macd.length - 1];
+        latestMacd = { value: lastM.value, signal: lastM.signal, histogram: lastM.histogram };
       }
 
       priorLevelPrices = [];
@@ -821,14 +859,16 @@ function doConnect(dateOverride) {
       processCandleOR(msg.candle);
 
       if (msg.hma) {
-        hmaSeries.update(msg.hma);
+        hmaPrimitive.update(msg.hma);
         lastHmaByTime.set(msg.hma.time, { value: msg.hma.value, color: msg.hma.color });
+        latestHma = { value: msg.hma.value, color: msg.hma.color };
       }
       if (msg.macd) {
         macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
         macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
         macdSignalSeries.update({ time:msg.macd.time, value:msg.macd.signal });
         lastMacdByTime.set(msg.macd.time, { value: msg.macd.value, signal: msg.macd.signal, histogram: msg.macd.histogram });
+        latestMacd = { value: msg.macd.value, signal: msg.macd.signal, histogram: msg.macd.histogram };
       }
       // Refresh the legend's current values (will use latest candle since no hover)
       updateValuesAtTime(null);
