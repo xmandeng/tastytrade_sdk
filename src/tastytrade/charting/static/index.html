@@ -699,24 +699,20 @@ function renderStudiesPanel() {
   panel.innerHTML = out.join('');
 }
 
-// Toggle handler: clicking anywhere on a row flips its checkbox.
-document.addEventListener('click', (e) => {
+// Toggle handler attached directly to the studies panel, NOT to document.
+// (A document-level handler is swallowed by the outer "click inside the
+// dropdown shouldn't close it" stopPropagation guard on #studiesList.
+// Attaching here means the toggle fires before bubbling reaches the guard.)
+// The panel element itself is stable across renderStudiesPanel() — only its
+// innerHTML changes — so this listener survives re-renders.
+document.getElementById('studiesPanel').addEventListener('click', (e) => {
   const row = e.target.closest('.study-row');
   if (!row) return;
-  const panel = row.closest('#studiesPanel');
-  if (!panel) return;
-  e.stopPropagation();
   const key = row.dataset.study;
   if (!key) return;
-  const study = STUDIES[key];
-  if (study && study.kind === 'group') {
-    // Toggling a group flips the parent flag. Children keep their own state —
-    // when the parent is back on, only the children that are individually on
-    // become visible. Predictable, no surprises.
-    studyState[key] = !studyState[key];
-  } else {
-    studyState[key] = !studyState[key];
-  }
+  // Toggling a group flips just the parent flag — children keep their own state,
+  // so re-enabling the group restores only the children that were individually on.
+  studyState[key] = !studyState[key];
   applyStudyState();
 });
 
