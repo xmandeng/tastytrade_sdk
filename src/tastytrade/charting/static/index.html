@@ -477,11 +477,16 @@ setTimeout(sizePanes, 50);
 // ============================================================================
 let lastCandles = [];
 
-// Time bounds for intraday levels (9:30 AM – 4:00 PM EDT). Set by computeBounds()
-// from the chart date. Prior-day OHLC and Opening Range levels are clipped to
-// this window — past 4:00 PM and before 9:30 AM the lines are not drawn.
+// Time bounds for level drawing, set by computeBounds() from the chart date.
+//   levelTimeStart/End — 9:30 AM – 4:00 PM EDT. Used by Opening Range lines,
+//     which are intraday-locked and only meaningful during the RTH session.
+//   priorTimeStart/End — midnight to midnight of the chart date. Used by
+//     prior-day OHLC reference lines, which apply across the full session
+//     (pre-market, RTH, after-hours) but stop at day boundaries.
 let levelTimeStart = 0;
 let levelTimeEnd = 0;
+let priorTimeStart = 0;
+let priorTimeEnd = 0;
 
 // ============================================================================
 // Studies registry + state.
@@ -561,16 +566,21 @@ let hasMarketHours = true;
 function computeBounds(candles) {
   viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
   levelTimeStart = 0; levelTimeEnd = 0;
+  priorTimeStart = 0; priorTimeEnd = 0;
   if (candles.length) {
     const d = new Date(candles[0].time * 1000);
     const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
     viewStartEpoch    = Date.UTC(y, mo, day, 8, 30) / 1000;  // 8:30 AM
     levelStartEpoch   = Date.UTC(y, mo, day, 9, 30) / 1000;  // 9:30 AM
     marketCloseEpoch  = Date.UTC(y, mo, day, 16, 30) / 1000; // 4:30 PM (view bound)
-    // Intraday level drawing is bounded 9:30 AM – 4:00 PM. Past 4:00 PM these
-    // lines aren't relevant to today's session — "past that we don't care".
+    // Intraday OR levels: 9:30 AM – 4:00 PM (RTH session only).
     levelTimeStart    = Date.UTC(y, mo, day, 9, 30) / 1000;
     levelTimeEnd      = Date.UTC(y, mo, day, 16, 0)  / 1000;
+    // Prior-day OHLC: midnight to midnight of the chart date. Spans pre-market
+    // and after-hours but stops at day boundaries (Date.UTC normalizes day+1
+    // across month/year boundaries automatically).
+    priorTimeStart    = Date.UTC(y, mo, day, 0, 0) / 1000;
+    priorTimeEnd      = Date.UTC(y, mo, day + 1, 0, 0) / 1000;
   }
   if (candles.length && hasMarketHours) {
     const anyInMarket = candles.some(c => c.time >= viewStartEpoch && c.time <= marketCloseEpoch);
@@ -993,16 +1003,15 @@ function doConnect(dateOverride) {
 
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
-        // Prior-day OHLC: extend from the left edge (price axis) up to 4:00 PM.
-        // These are reference levels relevant throughout pre-market and the
-        // regular session — only the post-close span is omitted.
-        const tEnd = levelTimeEnd;
+        // Prior-day OHLC: bounded to the chart date — midnight to midnight.
+        // If the user scrolls beyond either day boundary, the line stops.
+        const tStart = priorTimeStart, tEnd = priorTimeEnd;
         if (dc.close != null) {
           registerLevel('priorClose', [{
             price: dc.close, label: 'Prior Close',
             color: C.priorClose, lineStyle: 'dotted',
             badgeColor: C.priorCloseBadge, badgeTextColor: C.badgeText,
-            tStart: null, tEnd,
+            tStart, tEnd,
           }], /*axisLabel=*/true);
         }
         if (dc.high != null) {
@@ -1010,7 +1019,7 @@ function doConnect(dateOverride) {
             price: dc.high, label: 'Prior Hi',
             color: C.priorHigh, lineStyle: 'dotted',
             badgeColor: C.priorHighBadge, badgeTextColor: C.badgeText,
-            tStart: null, tEnd,
+            tStart, tEnd,
           }], /*axisLabel=*/true);
         }
         if (dc.low != null) {
@@ -1018,7 +1027,7 @@ function doConnect(dateOverride) {
             price: dc.low, label: 'Prior Lo',
             color: C.priorLow, lineStyle: 'dotted',
             badgeColor: C.priorLowBadge, badgeTextColor: C.badgeText,
-            tStart: null, tEnd,
+            tStart, tEnd,
           }], /*axisLabel=*/true);
         }
       }
