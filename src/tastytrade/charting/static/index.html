@@ -207,6 +207,75 @@ function calcHmaSeries(closes, length) {
   return hma;
 }
 
+// ============================================================================
+// Custom overlay: right-side histogram (proof-of-concept for GEX / Volume-at-Price).
+// Anchors to the right edge of the candle pane; bar length is proportional to
+// |value|, color signals polarity (green positive, red negative).
+// Semi-transparent so candle data underneath remains readable.
+// ============================================================================
+klinecharts.registerOverlay({
+  name: 'rightSideHistogram',
+  totalStep: 1,
+  needDefaultPointFigure: false,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ overlay, bounding, yAxis }) => {
+    const data = overlay.extendData;
+    if (!data || !data.buckets || !data.buckets.length) return [];
+    const figures = [];
+    const rightEdge = bounding.width;
+    const maxBarPx = Math.min(160, Math.floor(bounding.width * 0.18));
+    const bucketHeight = Math.max(2, Math.min(8, Math.floor(bounding.height / data.buckets.length)));
+    data.buckets.forEach(b => {
+      const y = yAxis.convertToPixel(b.price);
+      if (y < 0 || y > bounding.height) return;
+      const bw = (Math.abs(b.value) / data.maxValue) * maxBarPx;
+      if (bw < 0.5) return;
+      figures.push({
+        type: 'rect',
+        attrs: { x: rightEdge - bw, y: y - bucketHeight / 2, width: bw, height: bucketHeight },
+        styles: { color: b.color, style: 'fill' },
+      });
+    });
+    return figures;
+  },
+});
+
+// Synthesize GEX-like buckets from the visible candle range so we can demo the
+// right-side overlay without wiring TT-138's real GEX feed.
+function generateMockGexBuckets(candles) {
+  if (!candles || candles.length === 0) return null;
+  let lo = Infinity, hi = -Infinity;
+  candles.forEach(c => {
+    if (c.low < lo) lo = c.low;
+    if (c.high > hi) hi = c.high;
+  });
+  if (lo === Infinity) return null;
+  const range = hi - lo;
+  const pad = range * 0.1;
+  lo -= pad; hi += pad;
+  const N = 32;
+  const step = (hi - lo) / N;
+  const mid = (hi + lo) / 2;
+  const sigma = range / 3;
+  const buckets = [];
+  let maxValue = 0;
+  for (let i = 0; i < N; i++) {
+    const price = lo + (i + 0.5) * step;
+    const gauss = Math.exp(-((price - mid) ** 2) / (2 * sigma * sigma));
+    const directional = price >= mid ? 1 : -1;
+    const noise = 0.7 + Math.random() * 0.6;
+    const value = directional * gauss * noise * 100;
+    buckets.push({
+      price,
+      value,
+      color: value >= 0 ? 'rgba(38, 166, 154, 0.65)' : 'rgba(239, 83, 80, 0.65)',
+    });
+    if (Math.abs(value) > maxValue) maxValue = Math.abs(value);
+  }
+  return { buckets, maxValue };
+}
+
 klinecharts.registerIndicator({
   name: 'HMA',
   shortName: 'HMA',
@@ -312,6 +381,9 @@ const chart = klinecharts.init('chart', {
 // can remove the right pane.
 const indicatorPanes = {};
 
+// Holds the id of the right-side histogram overlay so the toggle can remove it.
+let gexOverlayId = null;
+
 // ============================================================================
 // Studies registry
 // kind:  'simple' or 'group'
@@ -344,6 +416,27 @@ const STUDIES = {
       delete indicatorPanes.macd;
     },
   },
+  gexMock: {
+    kind: 'simple', place: 'overlay', label: 'GEX (mock)',
+    swatch: { color: 'rgba(38, 166, 154, 0.9)', style: 'solid' },
+    enable: () => {
+      if (gexOverlayId) return;
+      const data = generateMockGexBuckets(lastCandles);
+      if (!data) return;
+      gexOverlayId = chart.createOverlay({
+        name: 'rightSideHistogram',
+        extendData: data,
+        // priceLine-style anchor — required so the overlay isn't treated as
+        // user-incomplete; the actual rendering uses extendData, not the point.
+        points: [{ value: data.buckets[0].price }],
+      });
+    },
+    disable: () => {
+      if (!gexOverlayId) return;
+      chart.removeOverlay({ id: gexOverlayId });
+      gexOverlayId = null;
+    },
+  },
   priorOHLC: {
     kind: 'group', place: 'overlay', label: 'Prior Day OHLC',
     children: {
@@ -366,6 +459,7 @@ const studyState = {
   hma: true, macd: true,
   priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
   openingRange: true, or5: true, or15: true, or30: true,
+  gexMock: false,  // opt-in: it's mock data, off by default
 };
 
 // ============================================================================
@@ -483,7 +577,8 @@ function renderStudiesPanel() {
 }
 
 function applyStudyState() {
-  ['hma', 'macd'].forEach(k => {
+  // Toggle simple studies — disable first so re-creates pick up fresh data
+  ['hma', 'macd', 'gexMock'].forEach(k => {
     const s = STUDIES[k];
     if (!s) return;
     if (studyState[k]) s.enable(); else s.disable();
