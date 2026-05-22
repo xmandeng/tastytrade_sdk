@@ -307,6 +307,13 @@ class BoundedLineSegment {
     const ts = this._chart.timeScale();
     const y = this._series.priceToCoordinate(this._price);
     if (y == null) return;
+
+    // Either bound can be a function evaluated per redraw — used to clamp the
+    // right edge to "end of data" (last candle's time), so historical sessions
+    // stop at 4:30 PM and the current session stops at the latest tick.
+    const tStartV = typeof this._tStart === 'function' ? this._tStart() : this._tStart;
+    const tEndV   = typeof this._tEnd   === 'function' ? this._tEnd()   : this._tEnd;
+
     target.useBitmapCoordinateSpace(scope => {
       const ctx = scope.context;
       const xR = scope.horizontalPixelRatio;
@@ -315,11 +322,10 @@ class BoundedLineSegment {
 
       // Resolve a bound time to a bitmap x coordinate.
       // timeToCoordinate returns null when the time is outside the renderable
-      // range (e.g. midnight bounds while the visible window is 8:30am–4:30pm).
-      // In that case we clamp to the appropriate pane edge based on which side
-      // the bound falls on relative to the visible range. As the user scrolls
-      // past a day boundary, timeToCoordinate will start returning a real x
-      // and the line will terminate at that exact point.
+      // range — clamp to the appropriate pane edge based on which side the
+      // bound falls on relative to the visible range. As the user scrolls past
+      // a boundary, timeToCoordinate starts returning a real x and the line
+      // terminates at that exact point.
       const resolveX = (time, sideFallback) => {
         if (time == null) return sideFallback;
         const x = ts.timeToCoordinate(time);
@@ -332,8 +338,8 @@ class BoundedLineSegment {
         return sideFallback;
       };
 
-      const x1Raw = resolveX(this._tStart, 0);
-      const x2Raw = resolveX(this._tEnd, width);
+      const x1Raw = resolveX(tStartV, 0);
+      const x2Raw = resolveX(tEndV, width);
       if (x1Raw == null || x2Raw == null) return;
       if (x2Raw <= 0 || x1Raw >= width) return;  // entirely off-pane
 
@@ -493,6 +499,9 @@ setTimeout(sizePanes, 50);
 // State
 // ============================================================================
 let lastCandles = [];
+// True iff the chart date == today in ET (the only case where the prior-day
+// OHLC line is allowed to extend past 4:00 PM, to follow live afterhours ticks).
+let chartIsLiveToday = false;
 
 // Time bounds for level drawing, set by computeBounds() from the chart date.
 //   levelTimeStart/End — 9:30 AM – 4:00 PM EDT. Used by Opening Range lines,
@@ -993,7 +1002,18 @@ function doConnect(dateOverride) {
       clearAllLevels();
       initOR();
 
-      if (msg.date) document.getElementById('dateInput').value = msg.date;
+      if (msg.date) {
+        document.getElementById('dateInput').value = msg.date;
+        try {
+          // Compute today's date in ET (timezone-safe across user locales).
+          const todayET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+          chartIsLiveToday = (msg.date === todayET);
+        } catch (e) {
+          chartIsLiveToday = false;
+        }
+      } else {
+        chartIsLiveToday = false;
+      }
 
       lastCandles = msg.candles;
       if (msg.candles.length) {
@@ -1020,9 +1040,23 @@ function doConnect(dateOverride) {
 
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
-        // Prior-day OHLC: bounded to the chart date — midnight to midnight.
-        // If the user scrolls beyond either day boundary, the line stops.
-        const tStart = priorTimeStart, tEnd = priorTimeEnd;
+        // Prior-day OHLC bounds:
+        //   left  — midnight of the chart date (always)
+        //   right — depends on whether the chart is showing today live:
+        //     • Historical date: next midnight. Covers the full session
+        //       including afterhours (single-listed stocks, futures).
+        //     • Today live, during RTH (latest tick < 4 PM): cap at 4 PM.
+        //     • Today live, during afterhours (latest tick > 4 PM): follow
+        //       the latest tick (capped at next midnight as a safety).
+        // tEnd is a function evaluated per redraw, so live ticks slide the
+        // line forward automatically.
+        const tStart = priorTimeStart;
+        const tEnd = () => {
+          if (!chartIsLiveToday) return priorTimeEnd;
+          const lastT = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelTimeEnd;
+          if (lastT > levelTimeEnd) return Math.min(priorTimeEnd, lastT);
+          return levelTimeEnd;
+        };
         if (dc.close != null) {
           registerLevel('priorClose', [{
             price: dc.close, label: 'Prior Close',
