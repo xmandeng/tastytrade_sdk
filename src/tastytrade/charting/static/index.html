@@ -164,7 +164,14 @@ const C = {
   candleDownBorder:'#EF5350', candleDownBody:'#EF5350',
   hmaUp:'#01FFFF', hmaDown:'#FF66FE',
   macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
-  priorClose:'#FF66FE', priorHigh:'#4CAF50', priorLow:'#F44336', orLevel:'#4CAF50',
+  // Prior-day reference levels — amber/green/red, slightly transparent so they
+  // recede behind candles. Amber for Prior Close matches the conventional
+  // "reference price" hue used by most charting platforms (replaces the prior
+  // magenta, which also clashed with HMA-down).
+  priorClose:'rgba(255, 183, 77, 0.65)',
+  priorHigh: 'rgba(76, 175, 80, 0.60)',
+  priorLow:  'rgba(244, 67, 54, 0.60)',
+  orLevel:   '#4CAF50',
   watermark:'rgba(255,255,255,0.06)',
 };
 
