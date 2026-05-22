@@ -166,11 +166,16 @@ const C = {
   macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
   // Prior-day reference levels — amber/green/red, slightly transparent so they
   // recede behind candles. Amber for Prior Close matches the conventional
-  // "reference price" hue used by most charting platforms (replaces the prior
-  // magenta, which also clashed with HMA-down).
+  // "reference price" hue used by most charting platforms.
   priorClose:'rgba(255, 183, 77, 0.65)',
   priorHigh: 'rgba(76, 175, 80, 0.60)',
   priorLow:  'rgba(244, 67, 54, 0.60)',
+  // Axis-badge fills — much lower alpha so the price tags sit quietly on the
+  // axis instead of dominating the chart with saturated rectangles.
+  priorCloseBadge: 'rgba(255, 183, 77, 0.22)',
+  priorHighBadge:  'rgba(76, 175, 80, 0.22)',
+  priorLowBadge:   'rgba(244, 67, 54, 0.22)',
+  badgeText:       '#d1d4dc',  // neutral light grey, readable on tinted dark
   orLevel:   '#4CAF50',
   watermark:'rgba(255,255,255,0.06)',
 };
@@ -298,10 +303,19 @@ class BoundedLineSegment {
   drawLine(target) {
     if (!this._series || !this._chart) return;
     const ts = this._chart.timeScale();
-    const x1 = ts.timeToCoordinate(this._tStart);
-    const x2 = ts.timeToCoordinate(this._tEnd);
+    // tStart == null means "extend left to the price axis" — start at x=0.
+    // tEnd == null means "extend right to the chart edge" — use bitmap width.
+    const x2 = this._tEnd != null ? ts.timeToCoordinate(this._tEnd) : null;
     const y = this._series.priceToCoordinate(this._price);
-    if (x1 == null || x2 == null || y == null) return;
+    if (y == null) return;
+    let x1;
+    if (this._tStart == null) {
+      x1 = 0;
+    } else {
+      x1 = ts.timeToCoordinate(this._tStart);
+      if (x1 == null) return;
+    }
+    if (this._tEnd != null && x2 == null) return;
     target.useBitmapCoordinateSpace(scope => {
       const ctx = scope.context;
       const xR = scope.horizontalPixelRatio;
@@ -311,9 +325,10 @@ class BoundedLineSegment {
       if (this._style === 'dotted') ctx.setLineDash([2 * xR, 3 * xR]);
       else if (this._style === 'dashed') ctx.setLineDash([6 * xR, 4 * xR]);
       else ctx.setLineDash([]);
+      const xEnd = x2 != null ? x2 * xR : scope.bitmapSize.width;
       ctx.beginPath();
       ctx.moveTo(x1 * xR, y * yR);
-      ctx.lineTo(x2 * xR, y * yR);
+      ctx.lineTo(xEnd, y * yR);
       ctx.stroke();
       ctx.setLineDash([]);
     });
@@ -589,7 +604,7 @@ function toggleMarketHours() {
 // applyLevelVisibility(id) reconciles the rendered objects with current state.
 // ============================================================================
 function createLevelLine(entry, axisLabel) {
-  const priceLine = candleSeries.createPriceLine({
+  const priceLineOpts = {
     price: entry.price,
     color: entry.color,
     lineWidth: 1,
@@ -597,13 +612,23 @@ function createLevelLine(entry, axisLabel) {
     axisLabelVisible: !!axisLabel,
     title: entry.label,
     lineVisible: false, // we draw the on-chart line via the primitive below
-  });
+  };
+  if (entry.badgeColor)     priceLineOpts.axisLabelColor     = entry.badgeColor;
+  if (entry.badgeTextColor) priceLineOpts.axisLabelTextColor = entry.badgeTextColor;
+  const priceLine = candleSeries.createPriceLine(priceLineOpts);
+
+  // Primitive is created if either bound is set. Either side can be null
+  // (null = extend to that edge of the pane).
+  const hasBounds = entry.tStart !== undefined || entry.tEnd !== undefined;
   let primitive = null;
-  if (entry.tStart != null && entry.tEnd != null) {
-    primitive = new BoundedLineSegment(entry.price, entry.color, entry.lineStyle, entry.tStart, entry.tEnd);
+  if (hasBounds) {
+    primitive = new BoundedLineSegment(
+      entry.price, entry.color, entry.lineStyle,
+      entry.tStart ?? null, entry.tEnd ?? null,
+    );
     candleSeries.attachPrimitive(primitive);
   } else {
-    // No time bounds: re-enable the createPriceLine's own line for full-chart span
+    // No bounds at all: fall back to createPriceLine's own line for full-chart span
     // (used by ad-hoc live levels from Redis where bounds aren't known).
     priceLine.applyOptions({ lineVisible: true });
   }
@@ -966,21 +991,33 @@ function doConnect(dateOverride) {
 
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
-        const tStart = levelTimeStart, tEnd = levelTimeEnd;
+        // Prior-day OHLC: extend from the left edge (price axis) up to 4:00 PM.
+        // These are reference levels relevant throughout pre-market and the
+        // regular session — only the post-close span is omitted.
+        const tEnd = levelTimeEnd;
         if (dc.close != null) {
-          registerLevel('priorClose',
-            [{ price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', tStart, tEnd }],
-            /*axisLabel=*/true);
+          registerLevel('priorClose', [{
+            price: dc.close, label: 'Prior Close',
+            color: C.priorClose, lineStyle: 'dotted',
+            badgeColor: C.priorCloseBadge, badgeTextColor: C.badgeText,
+            tStart: null, tEnd,
+          }], /*axisLabel=*/true);
         }
         if (dc.high != null) {
-          registerLevel('priorHigh',
-            [{ price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', tStart, tEnd }],
-            /*axisLabel=*/true);
+          registerLevel('priorHigh', [{
+            price: dc.high, label: 'Prior Hi',
+            color: C.priorHigh, lineStyle: 'dotted',
+            badgeColor: C.priorHighBadge, badgeTextColor: C.badgeText,
+            tStart: null, tEnd,
+          }], /*axisLabel=*/true);
         }
         if (dc.low != null) {
-          registerLevel('priorLow',
-            [{ price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', tStart, tEnd }],
-            /*axisLabel=*/true);
+          registerLevel('priorLow', [{
+            price: dc.low, label: 'Prior Lo',
+            color: C.priorLow, lineStyle: 'dotted',
+            badgeColor: C.priorLowBadge, badgeTextColor: C.badgeText,
+            tStart: null, tEnd,
+          }], /*axisLabel=*/true);
         }
       }
 
