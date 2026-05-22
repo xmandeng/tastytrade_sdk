@@ -268,6 +268,59 @@ class HmaPrimitive {
 }
 
 // ============================================================================
+// Series Primitive: horizontal level line clipped to a [tStart, tEnd] window.
+// Replaces createPriceLine's full-chart line for time-bounded levels (e.g.
+// prior-day OHLC drawn only during 9:30am–4:00pm RTH). Contributes its price
+// to candle-pane autoscale via autoscaleInfo().
+// ============================================================================
+class BoundedLineSegment {
+  constructor(price, color, lineStyle, tStart, tEnd) {
+    this._price = price;
+    this._color = color;
+    this._style = lineStyle; // 'solid' | 'dotted' | 'dashed'
+    this._tStart = tStart;
+    this._tEnd = tEnd;
+    this._series = null;
+    this._chart = null;
+    this._paneView = {
+      renderer: () => ({ draw: (target) => this.drawLine(target) }),
+    };
+  }
+  attached({ series, chart }) { this._series = series; this._chart = chart; }
+  detached() { this._series = null; this._chart = null; }
+  paneViews() { return [this._paneView]; }
+  updateAllViews() {}
+
+  autoscaleInfo() {
+    return { priceRange: { minValue: this._price, maxValue: this._price } };
+  }
+
+  drawLine(target) {
+    if (!this._series || !this._chart) return;
+    const ts = this._chart.timeScale();
+    const x1 = ts.timeToCoordinate(this._tStart);
+    const x2 = ts.timeToCoordinate(this._tEnd);
+    const y = this._series.priceToCoordinate(this._price);
+    if (x1 == null || x2 == null || y == null) return;
+    target.useBitmapCoordinateSpace(scope => {
+      const ctx = scope.context;
+      const xR = scope.horizontalPixelRatio;
+      const yR = scope.verticalPixelRatio;
+      ctx.lineWidth = Math.max(1, Math.round(yR));
+      ctx.strokeStyle = this._color;
+      if (this._style === 'dotted') ctx.setLineDash([2 * xR, 3 * xR]);
+      else if (this._style === 'dashed') ctx.setLineDash([6 * xR, 4 * xR]);
+      else ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x1 * xR, y * yR);
+      ctx.lineTo(x2 * xR, y * yR);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+}
+
+// ============================================================================
 // Pane primitive: text watermark (e.g. "MACD (12,26,9)" in the MACD pane).
 // Attach/detach to toggle visibility — pane primitives don't have a visible flag.
 // ============================================================================
@@ -407,6 +460,12 @@ setTimeout(sizePanes, 50);
 // ============================================================================
 let lastCandles = [];
 
+// Time bounds for intraday levels (9:30 AM – 4:00 PM EDT). Set by computeBounds()
+// from the chart date. Prior-day OHLC and Opening Range levels are clipped to
+// this window — past 4:00 PM and before 9:30 AM the lines are not drawn.
+let levelTimeStart = 0;
+let levelTimeEnd = 0;
+
 // ============================================================================
 // Studies registry + state.
 // Each study declares its section ('overlay' = drawn on candle pane,
@@ -484,17 +543,17 @@ let hasMarketHours = true;
 
 function computeBounds(candles) {
   viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
-  for (const c of candles) {
-    const d = new Date(c.time * 1000);
-    const h = d.getUTCHours(), m = d.getUTCMinutes();
-    if (h < 16 || (h === 16 && m <= 30)) levelEndEpoch = c.time;
-  }
+  levelTimeStart = 0; levelTimeEnd = 0;
   if (candles.length) {
     const d = new Date(candles[0].time * 1000);
     const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
-    viewStartEpoch = Date.UTC(y, mo, day, 8, 30) / 1000;
-    levelStartEpoch = Date.UTC(y, mo, day, 9, 30) / 1000;
-    marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;
+    viewStartEpoch    = Date.UTC(y, mo, day, 8, 30) / 1000;  // 8:30 AM
+    levelStartEpoch   = Date.UTC(y, mo, day, 9, 30) / 1000;  // 9:30 AM
+    marketCloseEpoch  = Date.UTC(y, mo, day, 16, 30) / 1000; // 4:30 PM (view bound)
+    // Intraday level drawing is bounded 9:30 AM – 4:00 PM. Past 4:00 PM these
+    // lines aren't relevant to today's session — "past that we don't care".
+    levelTimeStart    = Date.UTC(y, mo, day, 9, 30) / 1000;
+    levelTimeEnd      = Date.UTC(y, mo, day, 16, 0)  / 1000;
   }
   if (candles.length && hasMarketHours) {
     const anyInMarket = candles.some(c => c.time >= viewStartEpoch && c.time <= marketCloseEpoch);
@@ -505,7 +564,7 @@ function computeBounds(candles) {
     levelStartEpoch = viewStartEpoch;
     levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
     marketCloseEpoch = levelEndEpoch;
-  } else if (levelEndEpoch === 0 && candles.length) {
+  } else if (candles.length) {
     levelEndEpoch = candles[candles.length - 1].time;
   }
 }
@@ -518,19 +577,43 @@ function toggleMarketHours() {
 }
 
 // ============================================================================
-// Level lines (createPriceLine, with axis labels on prior-day levels).
+// Level lines.
+// Each level is rendered as TWO objects on the candle series:
+//   1. createPriceLine — provides the colored axis badge with title (the line
+//      itself is suppressed via lineVisible: false).
+//   2. BoundedLineSegment primitive — draws the actual horizontal line, clipped
+//      to [entry.tStart, entry.tEnd]. The primitive also contributes the level
+//      price to candle-pane autoscale.
+//
 // Visibility is owned by studyState — entries are always registered, and
-// applyLevelVisibility(id) reconciles the rendered lines with current state.
+// applyLevelVisibility(id) reconciles the rendered objects with current state.
 // ============================================================================
 function createLevelLine(entry, axisLabel) {
-  return candleSeries.createPriceLine({
+  const priceLine = candleSeries.createPriceLine({
     price: entry.price,
     color: entry.color,
     lineWidth: 1,
     lineStyle: lwcStyle(entry.lineStyle),
     axisLabelVisible: !!axisLabel,
     title: entry.label,
+    lineVisible: false, // we draw the on-chart line via the primitive below
   });
+  let primitive = null;
+  if (entry.tStart != null && entry.tEnd != null) {
+    primitive = new BoundedLineSegment(entry.price, entry.color, entry.lineStyle, entry.tStart, entry.tEnd);
+    candleSeries.attachPrimitive(primitive);
+  } else {
+    // No time bounds: re-enable the createPriceLine's own line for full-chart span
+    // (used by ad-hoc live levels from Redis where bounds aren't known).
+    priceLine.applyOptions({ lineVisible: true });
+  }
+  return { priceLine, primitive };
+}
+
+function removeLevelLine(obj) {
+  if (!obj) return;
+  if (obj.priceLine) { try { candleSeries.removePriceLine(obj.priceLine); } catch (e) {} }
+  if (obj.primitive) { try { candleSeries.detachPrimitive(obj.primitive); } catch (e) {} }
 }
 
 function registerLevel(id, entries, axisLabel) {
@@ -542,8 +625,7 @@ function registerLevel(id, entries, axisLabel) {
 function applyLevelVisibility(id) {
   const lv = levels[id];
   if (!lv) return;
-  // Tear down current lines
-  lv.lines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e) {} });
+  lv.lines.forEach(removeLevelLine);
   lv.lines = [];
   if (isLevelVisible(id)) {
     lv.lines = lv.entries.map(e => createLevelLine(e, lv.axisLabel));
@@ -552,7 +634,7 @@ function applyLevelVisibility(id) {
 
 function clearAllLevels() {
   Object.keys(levels).forEach(id => {
-    levels[id].lines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e) {} });
+    levels[id].lines.forEach(removeLevelLine);
     delete levels[id];
   });
 }
@@ -691,8 +773,10 @@ function processCandleOR(candle) {
       st.locked = true;
       if (st.high !== null) {
         registerLevel(w.id, [
-          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style },
-          { price:st.low,  label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style },
+          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style,
+            tStart: levelTimeStart, tEnd: levelTimeEnd },
+          { price:st.low,  label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style,
+            tStart: levelTimeStart, tEnd: levelTimeEnd },
         ], /*axisLabel=*/false);
         renderStudiesPanel();
       }
@@ -724,19 +808,9 @@ function setTradingHoursView() {
   chart.timeScale().setVisibleRange({ from, to });
 }
 
-// Prior-day levels: createPriceLine doesn't expand the price scale, so extend
-// candle y-range to include them.
-let priorLevelPrices = [];
-function applyPriorLevelScale(candles) {
-  if (!priorLevelPrices.length || !candles.length) return;
-  let lo = Infinity, hi = -Infinity;
-  candles.forEach(c => { if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high; });
-  priorLevelPrices.forEach(p => { if (p < lo) lo = p; if (p > hi) hi = p; });
-  const pad = (hi - lo) * 0.03;
-  candleSeries.applyOptions({
-    autoscaleInfoProvider: () => ({ priceRange: { minValue: lo - pad, maxValue: hi + pad } }),
-  });
-}
+// Level autoscale is contributed by each BoundedLineSegment primitive via its
+// autoscaleInfo() — v5 composes primitive contributions with the candle series's
+// own range, so no explicit override is needed here.
 
 // ============================================================================
 // WebSocket + UI wiring (toolbar, dropdowns, connect)
@@ -890,28 +964,24 @@ function doConnect(dateOverride) {
         macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
       }
 
-      priorLevelPrices = [];
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
+        const tStart = levelTimeStart, tEnd = levelTimeEnd;
         if (dc.close != null) {
           registerLevel('priorClose',
-            [{ price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted' }],
+            [{ price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', tStart, tEnd }],
             /*axisLabel=*/true);
-          priorLevelPrices.push(dc.close);
         }
         if (dc.high != null) {
           registerLevel('priorHigh',
-            [{ price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted' }],
+            [{ price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', tStart, tEnd }],
             /*axisLabel=*/true);
-          priorLevelPrices.push(dc.high);
         }
         if (dc.low != null) {
           registerLevel('priorLow',
-            [{ price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted' }],
+            [{ price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', tStart, tEnd }],
             /*axisLabel=*/true);
-          priorLevelPrices.push(dc.low);
         }
-        applyPriorLevelScale(msg.candles);
       }
 
       renderControls();
@@ -923,7 +993,7 @@ function doConnect(dateOverride) {
 
     if (msg.type === 'update') {
       candleSeries.update(msg.candle);
-      // Keep lastCandles in sync (used by computeBounds, applyPriorLevelScale, OR).
+      // Keep lastCandles in sync (used by computeBounds and OR processor).
       if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {
         lastCandles[lastCandles.length - 1] = msg.candle;
       } else {
