@@ -170,12 +170,14 @@ const C = {
   priorClose:'rgba(255, 183, 77, 0.65)',
   priorHigh: 'rgba(76, 175, 80, 0.60)',
   priorLow:  'rgba(244, 67, 54, 0.60)',
-  // Axis-badge fills — much lower alpha so the price tags sit quietly on the
-  // axis instead of dominating the chart with saturated rectangles.
-  priorCloseBadge: 'rgba(255, 183, 77, 0.22)',
-  priorHighBadge:  'rgba(76, 175, 80, 0.22)',
-  priorLowBadge:   'rgba(244, 67, 54, 0.22)',
-  badgeText:       '#d1d4dc',  // neutral light grey, readable on tinted dark
+  // Axis-badge fills — lightweight-charts renders price-axis label backgrounds
+  // as opaque (alpha in rgba gets stripped). To get a quiet, tinted badge we
+  // pre-blend the level color against the chart bg (#131313) at ~22% alpha
+  // and pass the result as a solid rgb. Bakes the math but lands the visual.
+  priorCloseBadge: 'rgb(71, 55, 32)',    // amber pre-blended @ 22% over #131313
+  priorHighBadge:  'rgb(32, 53, 32)',    // green pre-blended @ 22%
+  priorLowBadge:   'rgb(69, 30, 27)',    // red pre-blended @ 22%
+  badgeText:       '#d1d4dc',            // neutral light grey, reads on tinted dark
   orLevel:   '#4CAF50',
   watermark:'rgba(255,255,255,0.06)',
 };
