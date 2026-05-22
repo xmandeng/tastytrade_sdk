@@ -577,7 +577,6 @@ function isLevelVisible(id) {
 }
 let viewStartEpoch = 0;
 let levelStartEpoch = 0;
-let levelEndEpoch = 0;
 let marketCloseEpoch = 0;
 const levels = {};  // id -> { lines: IPriceLine[], visible, entries }
 
@@ -590,7 +589,7 @@ function lwcStyle(s) {
 let hasMarketHours = true;
 
 function computeBounds(candles) {
-  viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
+  viewStartEpoch = 0; levelStartEpoch = 0; marketCloseEpoch = 0;
   levelTimeStart = 0; levelTimeEnd = 0;
   priorTimeStart = 0; priorTimeEnd = 0;
   if (candles.length) {
@@ -615,10 +614,7 @@ function computeBounds(candles) {
   if (!hasMarketHours) {
     viewStartEpoch = candles.length ? candles[0].time : 0;
     levelStartEpoch = viewStartEpoch;
-    levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
-    marketCloseEpoch = levelEndEpoch;
-  } else if (candles.length) {
-    levelEndEpoch = candles[candles.length - 1].time;
+    marketCloseEpoch = candles.length ? candles[candles.length - 1].time : 0;
   }
 }
 
