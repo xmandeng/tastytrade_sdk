@@ -305,31 +305,48 @@ class BoundedLineSegment {
   drawLine(target) {
     if (!this._series || !this._chart) return;
     const ts = this._chart.timeScale();
-    // tStart == null means "extend left to the price axis" — start at x=0.
-    // tEnd == null means "extend right to the chart edge" — use bitmap width.
-    const x2 = this._tEnd != null ? ts.timeToCoordinate(this._tEnd) : null;
     const y = this._series.priceToCoordinate(this._price);
     if (y == null) return;
-    let x1;
-    if (this._tStart == null) {
-      x1 = 0;
-    } else {
-      x1 = ts.timeToCoordinate(this._tStart);
-      if (x1 == null) return;
-    }
-    if (this._tEnd != null && x2 == null) return;
     target.useBitmapCoordinateSpace(scope => {
       const ctx = scope.context;
       const xR = scope.horizontalPixelRatio;
       const yR = scope.verticalPixelRatio;
+      const width = scope.bitmapSize.width;
+
+      // Resolve a bound time to a bitmap x coordinate.
+      // timeToCoordinate returns null when the time is outside the renderable
+      // range (e.g. midnight bounds while the visible window is 8:30am–4:30pm).
+      // In that case we clamp to the appropriate pane edge based on which side
+      // the bound falls on relative to the visible range. As the user scrolls
+      // past a day boundary, timeToCoordinate will start returning a real x
+      // and the line will terminate at that exact point.
+      const resolveX = (time, sideFallback) => {
+        if (time == null) return sideFallback;
+        const x = ts.timeToCoordinate(time);
+        if (x != null) return x * xR;
+        const range = ts.getVisibleRange();
+        if (range) {
+          if (time <= range.from) return 0;
+          if (time >= range.to)   return width;
+        }
+        return sideFallback;
+      };
+
+      const x1Raw = resolveX(this._tStart, 0);
+      const x2Raw = resolveX(this._tEnd, width);
+      if (x1Raw == null || x2Raw == null) return;
+      if (x2Raw <= 0 || x1Raw >= width) return;  // entirely off-pane
+
+      const xStart = Math.max(0, x1Raw);
+      const xEnd   = Math.min(width, x2Raw);
+
       ctx.lineWidth = Math.max(1, Math.round(yR));
       ctx.strokeStyle = this._color;
       if (this._style === 'dotted') ctx.setLineDash([2 * xR, 3 * xR]);
       else if (this._style === 'dashed') ctx.setLineDash([6 * xR, 4 * xR]);
       else ctx.setLineDash([]);
-      const xEnd = x2 != null ? x2 * xR : scope.bitmapSize.width;
       ctx.beginPath();
-      ctx.moveTo(x1 * xR, y * yR);
+      ctx.moveTo(xStart, y * yR);
       ctx.lineTo(xEnd, y * yR);
       ctx.stroke();
       ctx.setLineDash([]);
