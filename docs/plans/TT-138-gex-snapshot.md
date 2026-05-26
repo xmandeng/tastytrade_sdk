@@ -4,6 +4,7 @@
 > **Branch:** `feature/TT-138-spx-0dte-gex-snapshot` *(retained; v1 validation target is SPX 0DTE)*
 > **Design spec:** [docs/requirements/TT-138-gex-snapshot-spec.md](../requirements/TT-138-gex-snapshot-spec.md) *(treated as immutable point-in-time design; this plan is authoritative for current direction — see §6.12)*
 > **Status:** Round 2 review complete. §6.13 futures-options probe completed; findings inlined. §6.2 RTH liveness probe **PASSED** 2026-05-19 — see [TT-138-liveness-probe-results.md](TT-138-liveness-probe-results.md). TT-139 unblocked.
+> **Design locked 2026-05-25:** data-collection flow + runtime model finalized via design-review ([.design-review/TT-139-gex-backend-data-collection-design-review.html](../../.design-review/TT-139-gex-backend-data-collection-design-review.html)). §6.1 strike filter and §6.3 runtime model are now **RESOLVED** (see below).
 
 ---
 
@@ -82,17 +83,18 @@ The `future-option=` parameter delivers the **same field set** for futures-optio
 
 ---
 
-## 4. Module Structure (proposed — see §6.4)
+## 4. Module Structure — RESOLVED (§6.4)
 
-Tentative new package `src/tastytrade/analytics/gex/`:
+New package `src/tastytrade/analytics/gex/` (TT-139 backend):
 
 | File | Responsibility |
 |---|---|
-| `client.py` | REST batch fetchers (chain, market-data, spot, multiplier); chunking; symbol-context resolution (spot-key + M + chain endpoint per product class) |
+| `client.py` | REST batch fetchers (chain, market-data, spot, multiplier); chunking; **±10%-of-spot strike pre-filter** (§6.1); `resolve_symbol_context` (spot-key + M + chain endpoint per product class) |
 | `compute.py` | per-option GEX formula + strike-level aggregation; **takes `M` as a parameter, never hard-codes 100** |
 | `levels.py` | call wall, put wall, max-gamma, net-gamma-wall |
-| `render.py` | chart + markdown emitters; **always labels in the snapshotted product's units** |
-| `cli.py` | entry point |
+| `snapshot.py` | `take_snapshot(symbol, expirations)` request-handler/orchestrator: cache-check → client → compute → levels → publish envelope to Redis with TTL (runtime model A, §6.3) |
+
+**Moved to TT-140 (frontend):** `render.py` (chart + markdown emitters, **always labelled in the snapshotted product's units**) and the CLI entry point (§6.5). They *consume* the snapshot envelope; they don't produce it, so they live with the frontend sub-task — not in `gex/`.
 
 The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module hierarchy. Futures-options support, when added, plugs into `client.py`'s symbol-context resolver — the formula in `compute.py` is unchanged.
 
@@ -102,7 +104,7 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 5.1 — Add `OptionMarketDataClient` for batched `/market-data/by-type?equity-option=...` (handles chunking per the cap decision in §6.1).
 
-5.2 — `fetch_chain_for_expirations(symbol, expirations) -> pl.DataFrame` returning strikes + OCC symbols filtered to one or more expirations (reuses existing `tastytrade.market.option_chains`).
+5.2 — `fetch_chain_for_expirations(symbol, expirations) -> pl.DataFrame` returning strikes + OCC symbols filtered to one or more expirations (reuses existing `tastytrade.market.option_chains`). Strikes are pre-filtered to **±10% of spot** — flat, no DTE-conditional logic (§6.1).
 
 5.3 — `fetch_option_market_data(occ_symbols) -> pl.DataFrame` chunked → DataFrame of `gamma`, `open_interest`, `mark`, `volatility` per option.
 
@@ -112,9 +114,9 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 5.6 — `identify_levels(strike_df, spot) -> Levels` per expiration: `call_wall`, `put_wall`, `max_abs_gamma`, `net_gamma_wall`, optional `nearest_above_spot`, `nearest_below_spot`.
 
-5.7 — `render_chart(strike_df, levels, spot) -> Path` (PNG or HTML — see §6.6) and `render_markdown(strike_df, levels, spot) -> Path`.
+5.7 — `take_snapshot(symbol, expirations) -> SnapshotEnvelope` orchestrator in `snapshot.py`: cache-check Redis `gex:snapshot:<sym>:<exp>`; on hit return the cached envelope (zero REST); on miss run client → compute → levels, write the envelope back with TTL ~60s, then return it. Runtime model A (§6.3).
 
-5.8 — Wire CLI entry point per §6.5; CLI must accept `--symbol` and `--expiry` (one or many).
+5.8 *(TT-140)* — `render_chart` / `render_markdown` emitters and the CLI entry point (§6.5) move to the frontend sub-task. They consume the envelope produced by `take_snapshot` (via the HTTP response), and do not live in `gex/`.
 
 5.9 — Unit tests: formula sign, zero OI → zero GEX, missing gamma exclusion, aggregation correctness, level identification.
 
@@ -130,7 +132,7 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 
 | § | Decision |
 |---|---|
-| 6.1 | Single-expiry per invocation |
+| 6.1 | Single-expiry per invocation; **strike fetch pre-filtered to ±10% of spot** (flat, no DTE-conditional logic — locked 2026-05-25) |
 | 6.6 | (b) Live web view (HTML/SVG over HTTP) |
 | 6.7 | Redis snapshot v1; InfluxDB persistence day-2 |
 | 6.8 | Mock all three viz candidates before picking — three mockups built; mockup (d) hybrid is the picked direction |
@@ -138,7 +140,7 @@ The package name `gex` is symbol-agnostic — no `spx_` or `0dte_` in the module
 | 6.12 | Spec left immutable (point-in-time artifact) |
 | 6.13 | Futures-options REST surface probed; field availability identical to equity-options. Implementation deferred to a post-v1 ticket; five differences vs equity-options recorded in §6.13. |
 | 6.2 | **PASS (2026-05-19 RTH probe).** Both SPX spot and 0DTE option `updated-at` advanced ~60s between two snapshots taken 60s apart; option mark tracked spot move. REST surface confirmed live during RTH. Evidence: [TT-138-liveness-probe-results.md](TT-138-liveness-probe-results.md). |
-| 6.3 | **Refresh cadence: any practical interval works.** §6.2 PASS means REST is continuously fresh during RTH, so periodic refresh is nearly free. Exact cadence is a TT-139 implementation detail (driven by snapshot use case, not data freshness). |
+| 6.3 | **Runtime model A (on-demand, frontend-paced) — locked 2026-05-25.** Chart issues one request per refresh; backend serves from Redis cache `gex:snapshot:<sym>:<exp>` (TTL ~60s) on hit, else computes and caches. Chart consumes the **HTTP response**, not Redis — Redis is an internal recompute-skipping side-cache. Frontend owns refresh cadence + symbol switching; no backend timer/loop. |
 | 6.4 | **Module placement split by sub-task.** TT-139 backend lives in (a) **new `src/tastytrade/analytics/gex/`** (analytics sibling, symbol-agnostic compute). TT-140 frontend extends `src/tastytrade/charting/` (the mockup (d) hybrid lollipop overlay layers onto the existing candle-rendering server). Both can coexist; the backend doesn't import the frontend. |
 
 #### Prerequisites — must complete before any code starts
@@ -149,9 +151,9 @@ _All prerequisites met._ §6.2 probe ran 2026-05-19 09:35 ET and PASSED. TT-139 
 
 _All cascade decisions resolved._ §6.4 settled 2026-05-20 (see Resolved table above).
 
-#### Deferred to TT-139 (backend sub-task) — owner decides during implementation
+#### Deferred to TT-139 (backend sub-task)
 
-- **§6.1 sub-decision** — pre-filter strikes vs fetch all (default: fetch all)
+_Resolved 2026-05-25 via design-review._ §6.1 strike fetch = **±10% of spot, flat** (was "fetch all"); §6.3 runtime = **model A** (see Resolved table). No open backend sub-decisions remain.
 
 #### Deferred to TT-140 (frontend sub-task) — owner decides during implementation
 
@@ -165,7 +167,7 @@ _All cascade decisions resolved._ §6.4 settled 2026-05-20 (see Resolved table a
 
 1. ~~Run the §6.2 liveness experiment (one short session during RTH).~~ **DONE — PASS** ([results](TT-138-liveness-probe-results.md)).
 2. Confirm §6.4 module placement (mockup d picks the direction → extend `charting/`).
-3. **TT-139 implements backend** (handles its own §6.1 sub-decision). ← _next_
+3. **TT-139 implements backend** (§6.1 strike filter + §6.3 runtime model now locked — see design-review). ← _next_
 4. TT-140 implements frontend (handles §6.5, §6.9, §6.10).
 5. Futures-options *implementation* is post-v1; field-surface compatibility already verified.
 
@@ -192,11 +194,20 @@ Evidence summary:
 
 **Outcome:** ✅ Values advance continuously → REST is sufficient; architecture in §2 stands. No DXLink streaming dependency for v1.
 
-### 6.3 — Refresh cadence — RESOLVED (any practical interval)
+### 6.3 — Runtime model — RESOLVED (model A: on-demand, frontend-paced)
 
-**Resolved by §6.2 PASS.** REST surface is continuously fresh during RTH, so periodic refresh is nearly free. Mode (b) long-running snapshot loop and mode (c) CLI-plus-orchestrator pair are both viable; mode (a) one-shot CLI remains the simplest path for v1.
+**Locked 2026-05-25 via design-review** ([.design-review/TT-139-gex-backend-data-collection-design-review.html](../../.design-review/TT-139-gex-backend-data-collection-design-review.html)). §6.2 PASS established REST is continuously fresh during RTH, so refresh is nearly free; the remaining question was *who drives the refresh clock and where snapshot state lives*. GEX is the first **pull** data source in the codebase (every other live source — account-stream, subscribe — is **push** via DXLink), so something must decide when to re-fetch.
 
-Exact cadence (e.g., 30 s, 60 s, 5 min) is a **TT-139 implementation detail** — driven by the snapshot use case (interactive sanity check vs. always-on intraday dashboard), not by data freshness constraints.
+**Model A — on-demand, frontend-paced:**
+
+- **Start chart:** chart issues one `request(symbol, expiry)`. `snapshot.py` checks Redis `gex:snapshot:<sym>:<exp>`; on a fresh hit it serves immediately (zero REST), on a miss it runs the pipeline, writes the envelope back with TTL ~60s, and returns it.
+- **Session:** process-level singleton — authenticated once (lazily on first request), reused across all requests and all symbols, refreshed on token expiry. Never per-symbol.
+- **Cache:** one Redis key per `(symbol, expiry)`, TTL ~60s (matches REST freshness). A fresh hit costs zero REST calls — two charts on the same symbol share the cached envelope. Symbol-context (spot-key, M, chain endpoint) is cached separately for the process lifetime: one lookup per new symbol.
+- **Refresh:** the **frontend** is the clock — it re-requests every ~60s while open. Within TTL → cache hit (free); expired → recompute + rewrite. No backend timer/loop (consistent with the event-driven concurrency rule; the one timer is the frontend's, justified because REST has no push).
+- **Change symbol:** chart requests the new symbol; the old `gex:snapshot:<sym>:*` key simply expires by TTL. No stop signal, no teardown.
+- **Stop:** chart stops requesting; cache entries lapse on their own.
+
+**Key boundary:** the chart consumes the **HTTP response** envelope, *not* Redis directly. Redis is the backend's internal recompute-skipping side-cache. (This is the distinction from the rejected model B, where Redis would have been the delivery channel and the chart would read from it — mirroring account-stream/subscribe. Model B was deferred as more infrastructure than v1 needs for a pull source.)
 
 ### 6.4 — Module placement — RESOLVED (split by sub-task)
 
@@ -204,7 +215,7 @@ Exact cadence (e.g., 30 s, 60 s, 5 min) is a **TT-139 implementation detail** �
 
 **Decision (TT-140 frontend):** extends `src/tastytrade/charting/`. Mockup (d) hybrid right-anchored lollipop overlay layers onto the existing `src/tastytrade/charting/server.py` candle-rendering pattern.
 
-The two are compatible: backend computes; frontend reads the backend's published Redis snapshot and renders. The backend has no import dependency on `charting/`.
+The two are compatible: backend computes and serves; under runtime model A (§6.3) the frontend consumes the **HTTP response** envelope (Redis is the backend's internal cache, not the frontend's read path). The backend has no import dependency on `charting/`.
 
 ### 6.5 — CLI entry point — DEFERRED to TT-140
 
@@ -232,7 +243,7 @@ Multi-expiration view (small-multiples vs overlay) deferred until TT-140 impleme
 
 Display-window semantics belong with the frontend sub-task. Decision moved to TT-140.
 
-Context for TT-140: window semantics differ across viz styles. For mockup (d) right-anchored lollipops, a spot-relative window (e.g., ±5% of spot) is the natural fit. This is also the same parameter as §6.1's "relevant strike window for the fetch" — they should converge on a single concept.
+Context for TT-140: window semantics differ across viz styles. For mockup (d) right-anchored lollipops, a spot-relative window is the natural fit. **The fetch window is now fixed at ±10% of spot (§6.1, locked 2026-05-25)** — so the display window is a sub-selection of what's already fetched and must be **≤ ±10%**. TT-140 picks the display default (e.g. ±5%) within that bound; it cannot show strikes the backend didn't fetch without widening §6.1.
 
 ### 6.10 — Default expirations for the CLI — DEFERRED to TT-140
 

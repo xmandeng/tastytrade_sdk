@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plan Review: TT-139: GEX Backend Data Collection</title>
+  <title>Plan Review: TT-139: Backend Data Collection</title>
   <style>
     * {
       margin: 0;
@@ -854,7 +854,7 @@
         </svg>
       </button>
     </div>
-    <h1>TT-139: GEX Backend Data Collection</h1>
+    <h1>TT-139: Backend Data Collection</h1>
     <div class="stats" id="stats"></div>
     <div class="topbar-toggles">
       <button class="collapse-toggle" id="termToggle" title="Toggle terminal">
@@ -921,416 +921,77 @@
     // Optional: revised (boolean) to highlight as updated.
     // ============================================================
     const docSections = [
-      {
-        id: "goal-scope",
-        title: "1. Goal & Scope",
-        revised: true,
-        content: `This sub-task builds the backend data layer for the GEX snapshot tool. Given a symbol and an expiration date, it produces a finalized strike-level GEX DataFrame and a \`Levels\` object — the data that the frontend sub-task renders.
-
-### What this sub-task delivers
-
-- A REST client for batched per-option market data (gamma, OI, delta, IV, mark)
-- An option-chain fetcher for one or more expirations
-- A symbol-context resolver (spot-key, multiplier \`M\`, chain endpoint) — one cached lookup per symbol
-- A spot fetcher dispatched by symbol class
-- A per-option GEX formula that takes \`multiplier\` as a parameter (never hard-coded)
-- A strike-level aggregator keyed on \`(expiration, strike)\`
-- A level identifier (call wall, put wall, max gamma, net wall)
-
-### Not in scope
-
-This sub-task does not produce charts, markdown reports, or a CLI entry point. Futures-options *implementation*, DXLink streaming, OPRA tape, dealer-position inference, intraday flow, and cross-product overlays are out of v1 entirely.
-
-### Tickets and references
-
-- [TT-139](https://mandeng.atlassian.net/browse/TT-139) — this sub-task (under Story [TT-138](https://mandeng.atlassian.net/browse/TT-138))
-- [TT-140](https://mandeng.atlassian.net/browse/TT-140) — sibling sub-task: frontend rendering and CLI
-- [TT-142](https://mandeng.atlassian.net/browse/TT-142) — post-v1 follow-up: futures-options documentation and implementation pathway
-- Branch: \`feature/TT-138-spx-0dte-gex-snapshot\`
-- Plan: \`docs/plans/TT-138-gex-snapshot.md\``
-      },
-      {
-        id: "architecture",
-        title: "2. Architecture (verified for equity-options and futures-options)",
-        revised: true,
-        content: `The data surface is **four REST calls per snapshot**. Equity-options and futures-options share an identical Greeks + OI field shape but use distinct query keys and chain endpoints.
-
-1. **Symbol context resolution** — \`GET /instruments/<family>/<symbol>\` reads \`instrument-type\` to pick the dispatch family. For futures, a second call to \`/instruments/futures/<sym>\` reads \`notional-multiplier\`. Cached per symbol.
-2. **Chain fetch** — \`GET /option-chains/<symbol>/nested\` for indexes/equities; \`GET /futures-option-chains/<root>/nested\` for futures. Returns strikes + OCC symbols + structural fields.
-3. **Spot fetch** — \`GET /market-data/by-type?<spot-key>=<symbol>\` with \`spot-key ∈ {index, equity, future}\`.
-4. **Batched option market-data** — \`GET /market-data/by-type?equity-option=<batch>\` or \`?future-option=<batch>\`. Both return: \`gamma\`, \`delta\`, \`theta\`, \`vega\`, \`rho\`, \`volatility\`, \`theo-price\`, \`dx-mark\`, \`open-interest\`, plus standard quote fields.
-
-\`\`\`
-Auth → Resolve symbol context (spot-key, multiplier M, chain endpoint)
-                              ↓
-            Chain fetch → Filter expirations → Spot fetch
-                              ↓
-            Batched market-data fetch (Greeks + OI per option)
-                              ↓
-            Compute per-option GEX (multiplier from context)
-                              ↓
-            Aggregate by (expiration, strike) → Identify levels
-\`\`\`
-
-### Probe evidence
-
-- **Equity-options:** SPX/SPXW verified 2026-05-09 (\`scripts/probe_rest_endpoints.py\`)
-- **Futures-options:** /MES and /ES verified 2026-05-16 (\`scripts/probe_futures_options.py\`, \`scripts/probe_futures_options_metadata.py\`)
-- **Liveness during RTH:** verified 2026-05-19 for SPX (\`docs/plans/TT-138-liveness-probe-results.md\`)
-
-Identical Greeks + OI field shape across product classes. Futures-options *implementation* in the GEX tool is post-v1 (tracked under TT-142); the symbol-context resolver and parameterized multiplier in this sub-task already accommodate the dispatch with minimal future code change.`
-      },
-      {
-        id: "module-structure",
-        title: "3. Module Structure (proposed — gated on §4 below)",
-        content: `Backend slice of the proposed \`src/tastytrade/analytics/gex/\` package:
-
-| File | Responsibility | This Story |
-|---|---|---|
-| \`client.py\` | REST batch fetchers (chain, market-data, spot); chunking; symbol-class dispatch | ✅ |
-| \`compute.py\` | per-option GEX formula + strike-level aggregation | ✅ |
-| \`levels.py\` | call wall, put wall, max-gamma, net-gamma-wall | ✅ |
-| \`render.py\` | chart + markdown emitters | ❌ TT-140 |
-| \`cli.py\` | entry point | ❌ TT-140 |
-
-Module placement is itself an open question — see §4 below.`
-      },
-      {
-        id: "step-5-1-client",
-        title: "Step 5.1 — OptionMarketDataClient",
-        revised: true,
-        content: `### File
-
-\`src/tastytrade/analytics/gex/client.py\` (assuming §4 = a).
-
-### Behavior
-
-Batched REST client for \`/market-data/by-type?equity-option=...\`. Accepts a list of OCC symbols (one expiration's worth — single-expiry per snapshot), submits them in chunks if needed, and returns a Polars DataFrame keyed on the symbol.
-
-### Chunking
-
-Single-expiry chains fit comfortably in one REST call. SPX 0DTE: ~282 strikes × 2 = 564 OCC symbols ≈ 16KB query string. Chunking only kicks in if a single chain exceeds the empirical URL cap.
-
-### Strike filtering
-
-After the fetch, drop strikes where \`|delta| < 0.03\` — deep-OTM negligibles whose gamma contribution is rounding error. The threshold is a constant at the top of \`client.py\`, retunable in code if a different product needs it.
-
-### Sketch
-
-\`\`\`python
-ABS_DELTA_THRESHOLD = 0.03
-
-class OptionMarketDataClient:
-    async def fetch(
-        self, occ_symbols: list[str], chunk_size: int = 500
-    ) -> pl.DataFrame:
-        """Fetch market data for a batch of equity-option OCC symbols.
-        Caller passes one expiry's worth of symbols. Chunks only if the
-        batch exceeds chunk_size.
-        """
-
-
-def filter_meaningful_delta(
-    df: pl.DataFrame, threshold: float = ABS_DELTA_THRESHOLD
-) -> pl.DataFrame:
-    """Drop rows where |delta| < threshold."""
-    return df.filter(pl.col("delta").abs() >= threshold)
-\`\`\`
-
-### Why post-filter, not pre-filter
-
-- The fetch is essentially free at single-expiry chain size.
-- Pre-filtering would require knowing delta before the fetch — which is what's being fetched.
-- One Polars filter operation; cleanest place for it.`
-      },
-      {
-        id: "step-5-2-chain",
-        title: "Step 5.2 — fetch_chain_for_expirations",
-        content: `**Function:** \`fetch_chain_for_expirations(symbol: str, expirations: list[date]) -> pl.DataFrame\`
-
-Reuses existing \`tastytrade.market.option_chains\` for the REST call. Adds expiration filtering and column selection.
-
-### Returned DataFrame columns
-
-| Column | Type | Notes |
-|---|---|---|
-| \`underlying\` | str | e.g. SPX |
-| \`root\` | str | e.g. SPXW |
-| \`expiration\` | date | filtered to requested expirations |
-| \`strike\` | float | |
-| \`option_type\` | str | C or P |
-| \`symbol\` | str | OCC format, used for market-data fetch |
-| \`streamer_symbol\` | str | reserved for future DXLink path; not used in v1 |
-
-### Single-expiry note
-
-Per §6.1 resolution, this Story expects callers to pass exactly one expiration. The signature accepts a list to keep the architecture multi-expiry-capable; the runtime path in v1 uses a one-element list.`
-      },
-      {
-        id: "step-5-3-market-data",
-        title: "Step 5.3 — fetch_option_market_data",
-        revised: true,
-        content: `### Function
-
-\`fetch_option_market_data(occ_symbols: list[str]) -> pl.DataFrame\`
-
-Wraps the \`OptionMarketDataClient\` (Step 5.1) and projects the response to the GEX-relevant columns.
-
-### Pydantic model
-
-REST market-data items deserialize into an \`OptionMarketData\` Pydantic model with \`extra="allow"\`, matching the inbound-brokerage convention used elsewhere in the SDK. The Polars DataFrame is built from validated models, not from raw JSON.
-
-### Returned DataFrame columns
-
-| Column | Source field | Notes |
-|---|---|---|
-| \`symbol\` | \`symbol\` | OCC, joins back to chain DataFrame |
-| \`gamma\` | \`gamma\` | per-option gamma (authoritative) |
-| \`delta\` | \`delta\` | required for the |delta| filter in Step 5.1 |
-| \`open_interest\` | \`open-interest\` | int |
-| \`mark\` | \`mark\` | for sanity / debug |
-| \`volatility\` | \`volatility\` | per-option IV (for sanity / debug) |
-| \`updated_at\` | \`updated-at\` | timestamp; freshness check |
-
-### Sketch
-
-\`\`\`python
-class OptionMarketData(BaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
-    symbol: str
-    gamma: Optional[float] = None
-    delta: Optional[float] = None
-    open_interest: Optional[int] = Field(default=None, alias="open-interest")
-    mark: Optional[float] = None
-    volatility: Optional[float] = None
-    updated_at: Optional[datetime] = Field(default=None, alias="updated-at")
-\`\`\``
-      },
-      {
-        id: "step-5-4-spot",
-        title: "Step 5.4 — resolve_symbol_context",
-        revised: true,
-        content: `### Function
-
-\`resolve_symbol_context(symbol: str) -> SymbolContext\`
-
-Returns a frozen dataclass carrying the per-symbol context the snapshot needs: spot-key, multiplier, and chain-endpoint template.
-
-\`\`\`python
-@dataclass(frozen=True)
-class SymbolContext:
-    symbol: str
-    spot_key: Literal["index", "equity", "future"]
-    multiplier: float           # 100 for equity-options; notional-multiplier for futures
-    chain_endpoint: str         # path template for chain fetch
-\`\`\`
-
-### Symbol-class dispatch
-
-Resolved by querying the instruments REST endpoint and reading \`instrument-type\`. The result is cached per symbol.
-
-| Symbol class | spot_key | multiplier | chain_endpoint |
-|---|---|---|---|
-| Index (SPX, NDX) | \`index\` | 100 | \`/option-chains/<sym>/nested\` |
-| ETF / Equity (SPY, AAPL) | \`equity\` | 100 | \`/option-chains/<sym>/nested\` |
-| Future (/ES, /MES) | \`future\` | from \`/instruments/futures/<sym>\`.\`notional-multiplier\` | \`/futures-option-chains/<root>/nested\` *(post-v1)* |
-
-### Why one resolver
-
-Both \`M\` and the spot endpoint vary by product class. Bundling them into one resolver avoids parallel dispatches and keeps the formula site product-agnostic. \`M\` is a parameter, never hard-coded — equity-options return 100, futures-options return the per-product \`notional-multiplier\`.
-
-### Sketch
-
-\`\`\`python
-@lru_cache(maxsize=128)
-async def resolve_symbol_context(session, symbol: str) -> SymbolContext:
-    instr = await fetch_instrument(session, symbol)
-    instrument_type = instr["instrument-type"]
-    if instrument_type == "Index":
-        return SymbolContext(symbol, "index", 100.0, "/option-chains/{}/nested")
-    if instrument_type in ("Equity", "Equity ETF"):
-        return SymbolContext(symbol, "equity", 100.0, "/option-chains/{}/nested")
-    if instrument_type == "Future":
-        m = await fetch_future_multiplier(session, symbol)
-        return SymbolContext(symbol, "future", m, "/futures-option-chains/{}/nested")
-    raise ValueError(f"Unsupported instrument-type: {instrument_type}")
-\`\`\`
-
-### Trade-off
-
-One extra REST call per new symbol on first lookup (or two for futures, including the underlying's instruments fetch). Cached thereafter. Less fragile than a hard-coded set; futures-options drops in cleanly when TT-142 implementation lands.`
-      },
-      {
-        id: "step-5-5-compute",
-        title: "Step 5.5 — compute_option_gex + aggregate_by_strike",
-        content: `### compute_option_gex(df, spot, multiplier)
-
-Per-option GEX formula. \`multiplier\` is a parameter — the formula site never branches on product class.
-
-\`\`\`python
-def compute_option_gex(
-    df: pl.DataFrame, spot: float, multiplier: float
-) -> pl.DataFrame:
-    """Per-option GEX. Multiplier is supplied by the caller (typically
-    SymbolContext.multiplier) — 100 for equity-options, per-product for
-    futures-options.
-    """
-    # gex = OI × γ × multiplier × spot² × 0.01 × sign
-    # sign = +1 for calls, -1 for puts
-    ...
-\`\`\`
-
-Returns DataFrame with original columns + \`gex\` column.
-
-### aggregate_by_strike(df)
-
-Groups by \`(expiration, strike)\` and produces:
-
-| Column | Computation |
-|---|---|
-| \`call_gex\` | sum of gex where option_type = C |
-| \`put_gex\` | sum of gex where option_type = P |
-| \`net_gex\` | call_gex + put_gex |
-| \`abs_gex\` | abs(call_gex) + abs(put_gex) |
-
-### Why aggregate by (expiration, strike) and not just strike
-
-Even though §6.1 says single-expiry per invocation, aggregating by the tuple keeps the data model multi-expiry-ready and makes the column types explicit. Cost is essentially zero.
-
-### Edge cases
-
-- **Missing gamma** → row excluded from gex computation
-- **Zero OI** → gex = 0 (not excluded; row remains for completeness)
-- **Multiplier-parameter passthrough** → parametrize unit tests with \`multiplier ∈ {100, 50, 5}\` and verify gex scales linearly`
-      },
-      {
-        id: "step-5-6-levels",
-        title: "Step 5.6 — identify_levels — RESOLVED (c) threshold ratio",
-        revised: true,
-        content: `**Function:** \`identify_levels(strike_df: pl.DataFrame, spot: float) -> Levels\`
-
-Returns a frozen dataclass per expiration:
-
-\`\`\`python
-@dataclass(frozen=True)
-class Levels:
-    expiration: date
-    spot: float
-    call_wall: float          # strike with max(call_gex)
-    put_wall: float           # strike with min(put_gex)
-    max_abs_gamma: float      # strike with max(abs_gex)
-    net_gamma_wall: float     # strike with max(abs(net_gex))
-    nearest_above_spot: Optional[float]  # nearest "large" positive net_gex above spot
-    nearest_below_spot: Optional[float]  # nearest "large" negative net_gex below spot
-    total_net_gex: float      # sum of net_gex (regime indicator)
-\`\`\`
-
-**"Large" = (c) threshold ratio.** \`abs(net_gex) > LARGE_LEVEL_RATIO × max(abs(net_gex))\` with \`LARGE_LEVEL_RATIO = 0.1\` as the v1 default — symbol-agnostic, sensitivity tunable, predictable across symbols/dates.`
-      },
-      {
-        id: "oq-module-placement",
-        title: "4. Module Placement — RESOLVED (a) new analytics/gex/ package",
-        revised: true,
-        content: `**Decision: (a)** — new package \`src/tastytrade/analytics/gex/\`, sibling to \`analytics/positions.py\`. Symbol-agnostic naming; co-located with other analytics.
-
-Plan §6.4 updated to RESOLVED. Module layout per §3 above can be created.`
-      },
-      {
-        id: "oq-large-level",
-        title: "5. Nearest-above/below-spot level definition — RESOLVED (c) threshold ratio",
-        revised: true,
-        content: `**Decision: (c)** — \`abs(net_gex) > LARGE_LEVEL_RATIO × max(abs(net_gex))\` with \`LARGE_LEVEL_RATIO = 0.1\` as the v1 default. Symbol-agnostic, sensitivity tunable. Captured in Step 5.6.`
-      },
-      {
-        id: "liveness-action",
-        title: "6. Liveness verification status",
-        revised: true,
-        content: `**REST values advance continuously during RTH.** Backend architecture in §2 is sound; no DXLink streaming dependency. RTH probe captured 2026-05-19 at 09:35 ET. Full results: \`docs/plans/TT-138-liveness-probe-results.md\`.
-
-### Evidence (snapshots 61 s apart)
-
-| Surface | \`updated-at\` Δ | Price Δ |
-|---|---|---|
-| SPX spot | +60.987 s — advanced | mark 7360.33 → 7366.24 (+5.91) |
-| SPXW 260519P07225000 (0DTE put) | +60.731 s — advanced | mark unchanged (deep-OTM, $0.50) |
-| SPXW 260519C07225000 (0DTE call, deep-ITM) | +60.187 s — advanced | mark 135.70 → 141.05 (+5.35, tracks spot) |
-
-Greeks (\`gamma\`, \`theta\`, \`vega\`, \`volatility\`) held byte-identical over the 60-s window — the IV surface repaints on a slower cadence than the trade-driven quote stream. The probe verifies the publication channel, not Greek drift.`
-      },
-      {
-        id: "validation",
-        title: "7. Validation Plan",
-        content: `### 7.1 Unit tests
-
-- Call sign positive
-- Put sign negative
-- Zero OI → zero GEX
-- Missing gamma excluded
-- Aggregation sums correctly per (expiration, strike)
-- Level identification on synthetic data (small fixture chain)
-- \`compute_option_gex\` multiplier-parameter passthrough — parametrize with \`multiplier ∈ {100, 50, 5}\` and verify gex scales linearly
-- \`resolve_symbol_context\` returns correct context per symbol class — SPX → multiplier 100, spot_key \`index\`; SPY/AAPL → 100, \`equity\`; /MES → 5, \`future\`; /ES → 50, \`future\` (mocked instruments-endpoint responses)
-
-### 7.2 Live REST sanity (per plan §7.2)
-
-Run during RTH against multiple equity-option targets to prove generality:
-
-- **SPX 0DTE** (primary v1 validation): spot inside visible strike range; OI nonzero near ATM; gamma peaks near ATM; largest GEX at high-OI strikes.
-- **SPY weekly** (ETF generalization): same checks at SPY scale.
-- **AAPL monthly** (equity generalization): same checks, smaller chain.
-
-### What this Story does NOT validate
-
-- Chart correctness (TT-140)
-- Markdown report content (TT-140)
-- CLI invocation paths (TT-140)
-- External GEX comparison (Epic-level validation, plan §7.3 — needs frontend rendering to compare)
-- Futures-options *implementation* (out of v1 scope; TT-142 / post-v1 follow-up)`
-      },
-      {
-        id: "definition-of-done",
-        title: "8. Definition of Done",
-        content: `This sub-task is done when:
-
-1. All six functions (5.1–5.6) implemented in the chosen module location (§4 decision)
-2. All unit tests pass (\`uv run pytest\` clean)
-3. Type checking clean (\`uv run pyright\` clean for new modules)
-4. Live REST sanity (§7.2) captured against SPX, SPY, AAPL with evidence in the PR
-5. PR opened against \`feature/TT-138-spx-0dte-gex-snapshot\` with functional evidence per project PR rules
-
-**Hand-off to TT-140:** the exposed functions (\`fetch_chain_for_expirations\`, \`fetch_option_market_data\`, \`resolve_symbol_context\`, \`identify_levels\`) plus the \`compute_option_gex\` / \`aggregate_by_strike\` pipeline must be importable and documented enough for the frontend sub-task to consume them.`
-      }
-    ];
+  {
+    "id": "status",
+    "title": "Status \u2014 LOCKED (2026-05-25)",
+    "content": "Design **locked** via design-review on 2026-05-25. The two previously-deferred backend questions are now RESOLVED:\n\n- **\u00a76.1 strike fetch** \u2014 flat **\u00b110% of spot** (was \"fetch all\").\n- **\u00a76.3 runtime** \u2014 **Model A** (on-demand, frontend-paced).\n\nThe plan doc `docs/plans/TT-138-gex-snapshot.md` has been updated to match (\u00a74, \u00a75, \u00a76.0, \u00a76.3, \u00a76.4, \u00a76.9). Design-review artifact: `.design-review/TT-139-gex-backend-data-collection-design-review.html`. \u00a76.2 RTH liveness probe PASSED 2026-05-19 \u2014 REST is the v1 data source, no DXLink dependency. **TT-139 is ready to implement.**"
+  },
+  {
+    "id": "summary",
+    "title": "Summary",
+    "content": "Build a point-in-time **Gamma Exposure (GEX) snapshot** for any underlying with a Tastytrade option chain. Identifies gamma concentration zones (call wall, put wall, max-gamma strike) and broad regime (positive vs negative net GEX) using only the Tastytrade REST API.\n\n- **v1 validation target:** SPX 0DTE (high liquidity, narrow chain, external references for sanity comparison).\n- **Symbol- and expiration-agnostic from day one** \u2014 any underlying, any expiration, one or many per snapshot.\n- **Single-product per snapshot** \u2014 metrics rendered in that product's units; no cross-product overlays in v1.\n- **Not in v1:** OPRA tape, dealer-position inference, DXLink streaming, order execution, backtesting, futures-options *implementation* (field surface already verified)."
+  },
+  {
+    "id": "architecture",
+    "title": "Data Surface \u2014 4 REST calls",
+    "content": "The entire backend data surface is four REST calls for any single-product snapshot:\n\n1. `GET /option-chains/<symbol>/nested` \u2014 strikes + OCC symbols.\n2. `GET /market-data/by-type?<spot-key>=<symbol>` \u2014 spot price.\n3. **Multiplier lookup** \u2014 `100` for equity-options (constant); `/instruments/futures/<sym>` for futures-options.\n4. `GET /market-data/by-type?equity-option=<batch>` \u2014 gamma + OI + IV + mark per option (batched).\n\n**No async websocket lifecycle. No subscription cap. No dependency on a running streamer.** \u00a76.2 RTH liveness probe (2026-05-19) confirmed REST values advance continuously during market hours \u2014 REST is sufficient for v1."
+  },
+  {
+    "id": "runtime",
+    "title": "Runtime model \u2014 Model A (on-demand, frontend-paced)",
+    "content": "**Locked decision.** GEX is the first *pull* data source in the codebase (account-stream/subscribe are *push* via DXLink), so something must decide when to re-fetch. Model A puts that clock in the frontend:\n\n- **Start chart:** chart issues one `request(symbol, expiry)`. `snapshot.py` checks Redis `gex:snapshot:<sym>:<exp>`; fresh hit serves immediately (zero REST), miss runs the pipeline, writes the envelope back with TTL ~60s, returns it.\n- **Session:** process-level singleton \u2014 authenticated once, reused across all requests and symbols, refreshed on token expiry. Never per-symbol.\n- **Cache:** one Redis key per (symbol, expiry), TTL ~60s. Fresh hit = zero REST; two charts on the same symbol share the envelope.\n- **Refresh:** the **frontend** is the clock (re-requests ~60s). No backend timer/loop.\n- **Change symbol:** request the new symbol; old key TTL-expires. No teardown.\n- **Stop:** chart stops requesting; cache lapses.\n\n**Key boundary:** the chart consumes the **HTTP response** envelope, NOT Redis directly. Redis is the backend's internal recompute-skipping side-cache. (Model B \u2014 Redis as the delivery channel, mirroring the streaming services \u2014 was considered and deferred as more infrastructure than v1 needs for a pull source.)"
+  },
+  {
+    "id": "strike-filter",
+    "title": "Strike fetch window \u2014 \u00b110% of spot",
+    "content": "**Flat \u00b110% of spot, no DTE-conditional logic.** (Reverses the earlier \"fetch all\" default.)\n\n**Rationale:**\n- Gamma walls cluster near spot.\n- v1 renders split call/put (not net-GEX per \u00a76.8), so full-chain totals are not a v1 output.\n- \u00b110% cuts round-trips by roughly 5x while keeping all plausible walls in range.\n\nThe display window (TT-140) is a sub-selection and must be **\u2264 \u00b110%** \u2014 you can show less than was fetched, never more."
+  },
+  {
+    "id": "modules",
+    "title": "Module structure \u2014 src/tastytrade/analytics/gex/",
+    "content": "New package, sibling to `analytics/positions.py` (symbol-agnostic compute):\n\n| File | Responsibility |\n|---|---|\n| `client.py` | REST fetchers (chain, market-data, spot, multiplier), chunking, \u00b110% strike pre-filter, `resolve_symbol_context` |\n| `compute.py` | per-option GEX formula + strike-level aggregation; takes M as a parameter, never hard-codes 100 |\n| `levels.py` | call wall, put wall, max-gamma, net-gamma-wall |\n| `snapshot.py` | `take_snapshot(symbol, expirations)` request-handler/orchestrator: cache-check, then client/compute/levels, then publish envelope to Redis with TTL |\n\n**`render.py` and the CLI entry point are TT-140 (frontend)**, not TT-139 \u2014 they consume the envelope, they don't produce it. Backend has no import dependency on `charting/`."
+  },
+  {
+    "id": "multiplier",
+    "title": "Multiplier \u2014 class-aware via resolve_symbol_context",
+    "content": "`M` is **class-aware**, resolved once per symbol and cached:\n\n- **equity-options:** `M=100` as a class constant inside the resolver (OCC convention).\n- **futures-options (post-v1):** `notional-multiplier` from `/instruments/futures/<sym>` (e.g. /MES=5, /ES=50).\n\n`M` is always a **parameter at the formula site** \u2014 `compute_option_gex(df, spot, multiplier)` never hard-codes 100. The only literal `100` lives inside the resolver's equity branch. This is what lets futures-options land as a small extension rather than a parallel pipeline.\n\nFormula: `gex = OI \u00d7 \u03b3 \u00d7 M \u00d7 spot\u00b2 \u00d7 0.01 \u00d7 sign`."
+  },
+  {
+    "id": "steps",
+    "title": "Implementation steps",
+    "content": "1. `OptionMarketDataClient` for batched `/market-data/by-type?equity-option=...` (chunking).\n2. `fetch_chain_for_expirations(symbol, expirations)` \u2192 DataFrame, **\u00b110%-of-spot pre-filter**.\n3. `fetch_option_market_data(occ_symbols)` chunked \u2192 gamma/OI/mark/IV per option.\n4. `resolve_symbol_context(symbol)` \u2192 frozen `{spot_key, multiplier, chain_endpoint}`, cached per symbol.\n5. `compute_option_gex(df, spot, multiplier)` + `aggregate_by_strike(df)` keyed by (expiration, strike).\n6. `identify_levels(strike_df, spot)` \u2192 call/put walls, max-gamma, net-gamma-wall.\n7. `take_snapshot(...)` orchestrator: cache-check \u2192 pipeline \u2192 publish to Redis (TTL ~60s) \u2192 return envelope.\n8. *(TT-140)* render + CLI.\n9. Unit tests: formula sign, zero OI, missing gamma, aggregation, level ID, multiplier-as-parameter.\n10. Live REST sanity: SPX 0DTE first, then SPY weekly + AAPL monthly."
+  },
+  {
+    "id": "validation",
+    "title": "Validation",
+    "content": "**Unit tests:** call/put sign, zero OI \u2192 zero GEX, missing gamma excluded, aggregation per (expiration, strike), level identification on synthetic data, `compute_option_gex` uses the passed `multiplier` (parametrized over {100, 50, 5}), `resolve_symbol_context` returns correct M per symbol class.\n\n**Live REST sanity (RTH):** SPX 0DTE (primary), SPY weekly (ETF generalization), AAPL monthly (equity generalization) \u2014 spot inside strike range, OI nonzero near ATM, gamma peaks near ATM, largest GEX at high-OI strikes.\n\n**Manual external comparison:** SPX output vs one external GEX chart over several days \u2014 major levels and regime broadly align (exact match not expected)."
+  },
+  {
+    "id": "scope",
+    "title": "Scope & deferrals",
+    "content": "**v1 (TT-139):** equity-options only; SPX 0DTE validation; the four backend modules + Redis publish.\n\n**Deferred to TT-140 (frontend):**\n- \u00a76.5 \u2014 CLI entry point shape (`tasty-gex` vs subcommand).\n- \u00a76.9 \u2014 display strike window (\u2264 \u00b110% fetch window).\n- \u00a76.10 \u2014 default expirations.\n\n**Post-v1 (separate ticket):** futures-options *implementation* \u2014 REST field surface already verified (\u00a76.13); the chain-endpoint + OCC-encoding plumbing is the remaining work. The `resolve_symbol_context` + parameterized-M architecture already absorbs the multiplier/spot-key concerns."
+  }
+];
 
     // ============================================================
     // OPTIONAL: Pre-approved sections from prior review rounds.
     // Map section id -> status ("approved", "revision", "question").
     // ============================================================
-    const priorApprovals = {
-      "goal-scope": "approved",
-      "architecture": "approved",
-      "module-structure": "approved",
-      "step-5-1-client": "approved",
-      "step-5-2-chain": "approved",
-      "step-5-3-market-data": "approved",
-      "step-5-4-spot": "approved",
-      "step-5-5-compute": "approved",
-      "step-5-6-levels": "approved",
-      "oq-module-placement": "approved",
-      "oq-large-level": "approved",
-      "liveness-action": "approved",
-      "validation": "approved",
-      "definition-of-done": "approved",
-    };
+    const priorApprovals = {};
 
     // ============================================================
     // PLAN NAME: Update this string for the copy-to-prompt output.
     // ============================================================
-    const PLAN_NAME = "TT-139: GEX Backend Data Collection";
+    const PLAN_NAME = "TT-139: Backend Data Collection";
     // Populated by the plan-review skill at HTML-generation time with the
     // authoring session's id. The terminal panel uses this to spawn
     // `claude --resume <sid>` via the devserver's /api/claude?session= endpoint.
-    const CLAUDE_SESSION = "48117d14-7fae-4873-a9c9-6563ab3c46b3";
+    const CLAUDE_SESSION = "1197c92d-5ed9-421b-97cd-9b832af9b0ad";
+    // QUE-226: ACTIVE_SESSION holds the SID of the fork spawned on first WS
+    // connect; subsequent connects re-attach to it. Devserver mutates this
+    // constant in-place after the first fork via atomic write. Blank it
+    // (set back to "") to reset and re-fork from CLAUDE_SESSION on next open.
+    const ACTIVE_SESSION = "";
 
     // Persistence — save/restore review state across sessions
     const STORAGE_KEY = 'review-state:' + PLAN_NAME;
@@ -1946,6 +1607,7 @@ Run during RTH against multiple equity-option targets to prove generality:
     let __claudeReady = false;
     let __claudeTerm = null;
     let __claudeFitAddon = null;
+    let __forkedSid = null;
 
     (function initClaudeTerminal() {
       const host = document.getElementById('termHost');
@@ -1998,7 +1660,12 @@ Run during RTH against multiple equity-option targets to prove generality:
           return;
         }
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${proto}//${location.host}/api/claude?session=${encodeURIComponent(CLAUDE_SESSION)}`;
+        // QUE-226: pass the playground HTML path so the devserver can read
+        // and update this HTML's ACTIVE_SESSION constant and keep us
+        // attached to the same fork across refreshes / "Send to Claude"
+        // clicks / reopens.
+        const playgroundPath = location.pathname.replace(/^\//, '');
+        const url = `${proto}//${location.host}/api/claude?session=${encodeURIComponent(CLAUDE_SESSION)}&playground=${encodeURIComponent(playgroundPath)}`;
         setStatus('connecting…');
         let ws;
         try {
@@ -2023,6 +1690,23 @@ Run during RTH against multiple equity-option targets to prove generality:
 
         ws.onmessage = (ev) => {
           if (typeof ev.data === 'string') {
+            try {
+              const msg = JSON.parse(ev.data);
+              // QUE-226: devserver sends 'active_session' for both attach
+              // and fork modes (msg.mode distinguishes). Pre-QUE-226
+              // 'forked_session' is still accepted for backward compat.
+              const isSessionMsg = msg && typeof msg.sid === 'string'
+                && (msg.type === 'active_session' || msg.type === 'forked_session');
+              if (isSessionMsg) {
+                __forkedSid = msg.sid;
+                const handoffSidEl = document.getElementById('handoffSid');
+                if (handoffSidEl) {
+                  handoffSidEl.textContent = __forkedSid;
+                  handoffSidEl.title = __forkedSid;
+                }
+                return;
+              }
+            } catch (e) { /* not JSON — fall through to terminal */ }
             // control message (e.g. error JSON); print to terminal for visibility
             term.writeln('\r\n[devserver] ' + ev.data);
             return;
@@ -2069,7 +1753,8 @@ Run during RTH against multiple equity-option targets to prove generality:
             handoffStatus.textContent = 'No session id embedded in this review doc.';
             return;
           }
-          const cmd = `claude --resume ${CLAUDE_SESSION}`;
+          const resumeSid = __forkedSid || CLAUDE_SESSION;
+          const cmd = `claude --resume ${resumeSid}`;
           let copied = false;
           try {
             await navigator.clipboard.writeText(cmd);
