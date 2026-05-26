@@ -76,3 +76,6 @@ docs/screenshots/
 
 .claude.bk/
 node_modules/
+
+# TT-138 liveness probe outputs (local-only)
+.probe-out/
