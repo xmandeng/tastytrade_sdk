@@ -124,10 +124,6 @@ class ChartServer:
                 headers={"Cache-Control": "no-cache"},
             )
 
-        @app.get("/api/config")
-        async def config() -> dict:
-            return {"symbol": self.symbol, "interval": self.interval}
-
         @app.get("/api/symbols")
         async def symbols() -> dict:
             """Return deduplicated base symbols from active subscriptions."""
@@ -337,7 +333,7 @@ class ChartServer:
         disconnect_task = asyncio.create_task(wait_for_disconnect())
 
         try:
-            done, pending = await asyncio.wait(
+            _, pending = await asyncio.wait(
                 [live_task, disconnect_task], return_when=asyncio.FIRST_COMPLETED
             )
             for task in pending:

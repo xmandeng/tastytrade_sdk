@@ -4,11 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>tasty-chart</title>
-  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@5/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    /* Hide TradingView branding — only <a> tags in chart containers are attribution links */
-    #chart-candle a, #chart-macd a { display: none !important; }
     :root {
       --bg: #131313; --surface: #1a1a1a; --surface-2: #222;
       --border: #2a2a2a; --text: #d1d4dc; --text-muted: #787b86;
@@ -27,16 +25,9 @@
       border-bottom: 1px solid var(--border); height: 40px; flex-shrink: 0;
       gap: 16px;
     }
-    .toolbar-section {
-      display: flex; align-items: center; gap: 8px;
-    }
-    .toolbar-section.controls {
-      flex: 1; justify-content: center; gap: 6px;
-    }
-    /* Dropdown controls */
-    .dropdown {
-      position: relative; display: inline-block;
-    }
+    .toolbar-section { display: flex; align-items: center; gap: 8px; }
+
+    .dropdown { position: relative; display: inline-block; }
     .dropdown-btn {
       background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
       color: var(--text); font-size: 12px; font-family: monospace; font-weight: 600;
@@ -57,7 +48,6 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     }
     .dropdown-list.open { display: block; }
-    .dropdown-list.right { left: auto; right: 0; }
     .dropdown-item {
       padding: 6px 12px; font-size: 12px; font-family: monospace;
       color: var(--text-muted); cursor: pointer; white-space: nowrap;
@@ -72,10 +62,7 @@
     .date-input:hover { border-color: var(--text-dim); }
     .date-input:focus { outline: none; border-color: var(--accent); }
 
-    /* Segmented control (MKT/EXT) */
-    .seg-ctrl {
-      display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
-    }
+    .seg-ctrl { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
     .seg-btn {
       padding: 3px 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
       color: var(--text-dim); background: transparent; border: none;
@@ -85,8 +72,6 @@
     .seg-btn.active { color: var(--text); background: rgba(255,255,255,0.06); }
     .seg-btn:hover:not(.active) { color: var(--text-muted); }
 
-
-    /* Status */
     .status { display: flex; align-items: center; gap: 5px; }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
     .status-dot.connected { background: #3fb950; }
@@ -94,58 +79,48 @@
     .status-dot.disconnected { background: #ef5350; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
-    /* Chart legend */
-    .chart-legend {
-      position: absolute; top: 60%; left: 90px; z-index: 10;
-      background: rgba(19,19,19,0.88); border: 1px solid var(--border);
-      border-radius: 5px; overflow: hidden;
-      font-family: monospace; font-size: 11px;
-      color: var(--text-muted); user-select: none;
+    /* --- Studies panel (hierarchical toggle list inside the dropdown) --- */
+    .studies-panel {
+      padding: 6px 4px; min-width: 220px;
     }
-    .chart-legend:empty { display: none; }
-    .chart-legend.dragging .legend-grip { cursor: grabbing; }
-    .legend-grip {
-      height: 14px; cursor: grab; display: flex; align-items: center;
-      justify-content: center; background: rgba(255,255,255,0.03);
-      border-bottom: 1px solid var(--border);
+    .studies-section-header {
+      padding: 8px 10px 4px;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
+      color: var(--text-dim);
+      text-transform: uppercase;
     }
-    .legend-grip-dots {
-      width: 24px; height: 2px;
-      border-top: 2px dotted rgba(255,255,255,0.15);
+    .studies-section-header:first-child { padding-top: 4px; }
+    .study-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px;
+      font-size: 12px; color: var(--text-muted);
+      cursor: pointer; user-select: none;
+      border-radius: 3px;
     }
-    .legend-body { padding: 6px 12px 8px; }
-    .legend-row {
-      display: flex; align-items: center; gap: 8px; white-space: nowrap;
-      padding: 3px 4px; border-radius: 3px; cursor: pointer;
-      transition: opacity 0.12s;
-    }
-    .legend-row:hover { background: rgba(255,255,255,0.04); }
-    .legend-row.off { opacity: 0.3; }
-    .legend-line {
-      width: 18px; height: 0; flex-shrink: 0;
+    .study-row:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+    .study-row.child { padding-left: 28px; font-size: 11px; }
+    .study-row.group { font-weight: 600; color: var(--text); }
+    .study-row .study-swatch {
+      width: 14px; height: 2px; flex-shrink: 0;
       border-top-width: 2px; border-top-style: solid;
     }
-    .legend-line.dotted { border-top-style: dotted; }
-    .legend-line.dashed { border-top-style: dashed; }
-
-    /* --- Charts --- */
-    .charts-container { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
-    #chart-candle { min-height: 100px; position: relative; }
-    #chart-macd { min-height: 60px; }
-
-    /* Resize handle between charts */
-    .chart-resize-handle {
-      height: 3px; cursor: row-resize;
-      background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.08) 15%, rgba(255,255,255,0.08) 85%, transparent 100%);
-      position: relative; z-index: 5; flex-shrink: 0;
-      transition: all 0.15s;
+    .study-row .study-swatch.dotted { border-top-style: dotted; }
+    .study-row .study-swatch.dashed { border-top-style: dashed; }
+    .study-row .study-checkbox {
+      width: 14px; height: 14px; flex-shrink: 0;
+      border: 1px solid var(--text-dim); border-radius: 2px;
+      background: transparent;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; line-height: 1; color: var(--accent);
     }
-    .chart-resize-handle:hover, .chart-resize-handle.dragging {
-      background: linear-gradient(to right, transparent 0%, var(--accent) 15%, var(--accent) 85%, transparent 100%);
-    }
-    body.chart-resizing { cursor: row-resize; user-select: none; }
+    .study-row.checked .study-checkbox { background: var(--accent); border-color: var(--accent); }
+    .study-row.checked .study-checkbox::before { content: '\2713'; color: #131313; font-size: 10px; font-weight: 700; }
+    .study-row.indeterminate .study-checkbox { background: var(--accent); border-color: var(--accent); }
+    .study-row.indeterminate .study-checkbox::before { content: '\2212'; color: #131313; font-size: 10px; font-weight: 700; }
+    .study-row .study-label { flex: 1; white-space: nowrap; }
 
-    /* Charts need explicit overflow visible for canvas rendering */
+    /* --- Single chart container (v5: native panes inside) --- */
+    #chart { flex: 1; position: relative; min-height: 0; }
   </style>
 </head>
 <body>
@@ -166,6 +141,12 @@
   <div class="toolbar-section" style="flex:1"></div>
 
   <div class="toolbar-section">
+    <div class="dropdown" id="studiesDropdown">
+      <div class="dropdown-btn" id="studiesBtn">Studies</div>
+      <div class="dropdown-list right" id="studiesList">
+        <div class="studies-panel" id="studiesPanel"></div>
+      </div>
+    </div>
     <div class="seg-ctrl" id="mktExtCtrl"></div>
     <div class="status">
       <div class="status-dot" id="statusDot"></div>
@@ -173,16 +154,7 @@
   </div>
 </div>
 
-<div class="charts-container" id="chartsContainer">
-  <div id="chart-candle" style="flex:3">
-    <div class="chart-legend" id="chartLegend">
-      <div class="legend-grip" id="legendGrip"><div class="legend-grip-dots"></div></div>
-      <div class="legend-body" id="legendBody"></div>
-    </div>
-  </div>
-  <div class="chart-resize-handle" id="chartResizeHandle"></div>
-  <div id="chart-macd" style="flex:1"></div>
-</div>
+<div id="chart"></div>
 
 <script>
 // --- Colors (plots.py) ---
@@ -192,15 +164,27 @@ const C = {
   candleDownBorder:'#EF5350', candleDownBody:'#EF5350',
   hmaUp:'#01FFFF', hmaDown:'#FF66FE',
   macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
-  priorClose:'#FF66FE', priorHigh:'#4CAF50', priorLow:'#F44336', orLevel:'#4CAF50',
+  // Prior-day reference levels — amber/green/red, slightly transparent so they
+  // recede behind candles. Amber for Prior Close matches the conventional
+  // "reference price" hue used by most charting platforms.
+  priorClose:'rgba(255, 183, 77, 0.65)',
+  priorHigh: 'rgba(76, 175, 80, 0.60)',
+  priorLow:  'rgba(244, 67, 54, 0.60)',
+  // Axis-badge fills — lightweight-charts renders price-axis label backgrounds
+  // as opaque (alpha in rgba gets stripped). To get a quiet, tinted badge we
+  // pre-blend the level color against the chart bg (#131313) at ~22% alpha
+  // and pass the result as a solid rgb. Bakes the math but lands the visual.
+  priorCloseBadge: 'rgb(71, 55, 32)',    // amber pre-blended @ 22% over #131313
+  priorHighBadge:  'rgb(32, 53, 32)',    // green pre-blended @ 22%
+  priorLowBadge:   'rgb(69, 30, 27)',    // red pre-blended @ 22%
+  badgeText:       '#a0a4ad',            // dimmed light grey — softer than --text, still readable
+  orLevel:   'rgba(76, 175, 80, 0.60)',   // same recede-behind-candles alpha as Prior Hi/Lo
+  watermark:'rgba(255,255,255,0.06)',
 };
 
 const MARKET_OPEN_H = 9, MARKET_OPEN_M = 30;
+const chartEl = document.getElementById('chart');
 
-const candleEl = document.getElementById('chart-candle');
-const macdEl = document.getElementById('chart-macd');
-
-// Format time as AM/PM — shared by tick labels and crosshair tooltip
 function fmtTime(epochSec) {
   const d = new Date(epochSec * 1000);
   const h = d.getUTCHours(), m = d.getUTCMinutes();
@@ -209,15 +193,225 @@ function fmtTime(epochSec) {
   return `${hh}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
-const chartOpts = () => ({
-  layout: { background: { type: 'solid', color: C.bg }, textColor: C.text, fontFamily: 'monospace' },
+// ============================================================================
+// Series Primitive: HMA as a colored polyline on the candle series.
+// Owns its own data + draw logic; contributes to autoscale.
+// ============================================================================
+class HmaPrimitive {
+  constructor() {
+    this._data = [];
+    this._series = null;
+    this._chart = null;
+    this._visible = true;
+    this._paneView = {
+      renderer: () => ({
+        draw: (target) => this.drawPolyline(target),
+      }),
+    };
+  }
+  attached({ series, chart }) { this._series = series; this._chart = chart; }
+  detached() { this._series = null; this._chart = null; }
+  paneViews() { return [this._paneView]; }
+  updateAllViews() {}
+
+  requestRedraw() {
+    // Primitives don't trigger redraws automatically on data mutation — nudge the
+    // host series so the chart repaints. applyOptions({}) is a no-op options change.
+    if (this._series) this._series.applyOptions({});
+  }
+
+  setData(arr) {
+    this._data = (arr || []).slice().sort((a, b) => a.time - b.time);
+    this.requestRedraw();
+  }
+  update(point) {
+    if (!point || point.value == null) return;
+    const last = this._data[this._data.length - 1];
+    if (last && last.time === point.time) this._data[this._data.length - 1] = point;
+    else this._data.push(point);
+    this.requestRedraw();
+  }
+  clear() { this._data = []; this.requestRedraw(); }
+  setVisible(v) { this._visible = v; this.requestRedraw(); }
+
+  autoscaleInfo() {
+    if (!this._visible || !this._data.length) return null;
+    let lo = Infinity, hi = -Infinity;
+    for (const p of this._data) {
+      if (p.value == null) continue;
+      if (p.value < lo) lo = p.value;
+      if (p.value > hi) hi = p.value;
+    }
+    return lo === Infinity ? null : { priceRange: { minValue: lo, maxValue: hi } };
+  }
+
+  drawPolyline(target) {
+    if (!this._visible || !this._series || !this._chart || this._data.length < 2) return;
+    const series = this._series;
+    const ts = this._chart.timeScale();
+    target.useBitmapCoordinateSpace(scope => {
+      const ctx = scope.context;
+      const xR = scope.horizontalPixelRatio;
+      const yR = scope.verticalPixelRatio;
+      ctx.lineWidth = Math.max(1, Math.round(yR));
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (let i = 0; i < this._data.length - 1; i++) {
+        const p1 = this._data[i], p2 = this._data[i + 1];
+        if (p1.value == null || p2.value == null) continue;
+        const x1 = ts.timeToCoordinate(p1.time);
+        const x2 = ts.timeToCoordinate(p2.time);
+        const y1 = series.priceToCoordinate(p1.value);
+        const y2 = series.priceToCoordinate(p2.value);
+        if (x1 == null || x2 == null || y1 == null || y2 == null) continue;
+        ctx.strokeStyle = p1.color || '#888';
+        ctx.beginPath();
+        ctx.moveTo(x1 * xR, y1 * yR);
+        ctx.lineTo(x2 * xR, y2 * yR);
+        ctx.stroke();
+      }
+    });
+  }
+}
+
+// ============================================================================
+// Series Primitive: horizontal level line clipped to a [tStart, tEnd] window.
+// Replaces createPriceLine's full-chart line for time-bounded levels (e.g.
+// prior-day OHLC drawn only during 9:30am–4:00pm RTH). Contributes its price
+// to candle-pane autoscale via autoscaleInfo().
+// ============================================================================
+class BoundedLineSegment {
+  constructor(price, color, lineStyle, tStart, tEnd) {
+    this._price = price;
+    this._color = color;
+    this._style = lineStyle; // 'solid' | 'dotted' | 'dashed'
+    this._tStart = tStart;
+    this._tEnd = tEnd;
+    this._series = null;
+    this._chart = null;
+    this._paneView = {
+      renderer: () => ({ draw: (target) => this.drawLine(target) }),
+    };
+  }
+  attached({ series, chart }) { this._series = series; this._chart = chart; }
+  detached() { this._series = null; this._chart = null; }
+  paneViews() { return [this._paneView]; }
+  updateAllViews() {}
+
+  autoscaleInfo() {
+    return { priceRange: { minValue: this._price, maxValue: this._price } };
+  }
+
+  drawLine(target) {
+    if (!this._series || !this._chart) return;
+    const ts = this._chart.timeScale();
+    const y = this._series.priceToCoordinate(this._price);
+    if (y == null) return;
+
+    // Either bound can be a function evaluated per redraw — used to clamp the
+    // right edge to "end of data" (last candle's time), so historical sessions
+    // stop at 4:30 PM and the current session stops at the latest tick.
+    const tStartV = typeof this._tStart === 'function' ? this._tStart() : this._tStart;
+    const tEndV   = typeof this._tEnd   === 'function' ? this._tEnd()   : this._tEnd;
+
+    target.useBitmapCoordinateSpace(scope => {
+      const ctx = scope.context;
+      const xR = scope.horizontalPixelRatio;
+      const yR = scope.verticalPixelRatio;
+      const width = scope.bitmapSize.width;
+
+      // Resolve a bound time to a bitmap x coordinate.
+      // timeToCoordinate returns null when the time is outside the renderable
+      // range — clamp to the appropriate pane edge based on which side the
+      // bound falls on relative to the visible range. As the user scrolls past
+      // a boundary, timeToCoordinate starts returning a real x and the line
+      // terminates at that exact point.
+      const resolveX = (time, sideFallback) => {
+        if (time == null) return sideFallback;
+        const x = ts.timeToCoordinate(time);
+        if (x != null) return x * xR;
+        const range = ts.getVisibleRange();
+        if (range) {
+          if (time <= range.from) return 0;
+          if (time >= range.to)   return width;
+        }
+        return sideFallback;
+      };
+
+      const x1Raw = resolveX(tStartV, 0);
+      const x2Raw = resolveX(tEndV, width);
+      if (x1Raw == null || x2Raw == null) return;
+      if (x2Raw <= 0 || x1Raw >= width) return;  // entirely off-pane
+
+      const xStart = Math.max(0, x1Raw);
+      const xEnd   = Math.min(width, x2Raw);
+
+      ctx.lineWidth = Math.max(1, Math.round(yR));
+      ctx.strokeStyle = this._color;
+      if (this._style === 'dotted') ctx.setLineDash([2 * xR, 3 * xR]);
+      else if (this._style === 'dashed') ctx.setLineDash([6 * xR, 4 * xR]);
+      else ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(xStart, y * yR);
+      ctx.lineTo(xEnd, y * yR);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+}
+
+// ============================================================================
+// Pane primitive: text watermark (e.g. "MACD (12,26,9)" in the MACD pane).
+// Attach/detach to toggle visibility — pane primitives don't have a visible flag.
+// ============================================================================
+class TextWatermark {
+  constructor(text, opt = {}) {
+    this._text = text;
+    this._opt = {
+      color: C.watermark, fontSize: 12, fontFamily: 'monospace',
+      padding: 8, ...opt,
+    };
+    this._paneView = {
+      renderer: () => ({
+        draw: (target) => {
+          target.useMediaCoordinateSpace(scope => {
+            const ctx = scope.context;
+            ctx.fillStyle = this._opt.color;
+            ctx.font = `${this._opt.fontSize}px ${this._opt.fontFamily}`;
+            ctx.textBaseline = 'top';
+            ctx.fillText(this._text, this._opt.padding, this._opt.padding);
+          });
+        },
+      }),
+    };
+  }
+  paneViews() { return [this._paneView]; }
+  updateAllViews() {}
+}
+
+// ============================================================================
+// Chart
+// ============================================================================
+const chart = LightweightCharts.createChart(chartEl, {
+  layout: {
+    background: { type: 'solid', color: C.bg },
+    textColor: C.text,
+    fontFamily: 'monospace',
+    panes: {
+      separatorColor: C.border,
+      separatorHoverColor: C.accent,
+      enableResize: true,
+    },
+    attributionLogo: false,
+  },
   grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
   rightPriceScale: { visible: false },
-  leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
-  localization: {
-    timeFormatter: (t) => fmtTime(t),
+  leftPriceScale: {
+    visible: true, borderColor: C.border,
+    scaleMargins: { top: 0.05, bottom: 0.05 },
   },
+  localization: { timeFormatter: (t) => fmtTime(t) },
   timeScale: {
     borderColor: C.border, timeVisible: true, secondsVisible: false,
     tickMarkFormatter: (time, tickMarkType) => {
@@ -233,143 +427,158 @@ const chartOpts = () => ({
   handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
 });
 
-// Create charts with explicit dimensions — flex containers may not have
-// concrete pixel sizes at creation time
-// Pad price labels to consistent width so both charts' left axes align.
-// LWC auto-sizes price scales from label width — matching char count = matching width.
-// Pad both formatters to same width so left axes align
-const fmtWidth = 7;
-const candleFmt = (p) => {
-  const abs = Math.abs(p);
-  const dec = abs >= 1000 ? 0 : abs >= 10 ? 2 : 4;
-  return p.toFixed(dec).padStart(fmtWidth);
-};
-const macdFmt = (p) => p.toFixed(2).padStart(fmtWidth);
-
-const candleChart = LightweightCharts.createChart(candleEl, {
-  ...chartOpts(),
-  localization: { ...chartOpts().localization, priceFormatter: candleFmt },
-  timeScale: { ...chartOpts().timeScale, visible: false },
-  width: candleEl.clientWidth || window.innerWidth,
-  height: candleEl.clientHeight || Math.floor(window.innerHeight * 0.65),
-});
-const macdChart = LightweightCharts.createChart(macdEl, {
-  ...chartOpts(),
-  localization: { ...chartOpts().localization, priceFormatter: macdFmt },
-  watermark: {
-    visible: true, text: 'MACD (12,26,9)',
-    color: 'rgba(255,255,255,0.06)', fontSize: 12,
-    horzAlign: 'left', vertAlign: 'top',
-  },
-  width: macdEl.clientWidth || window.innerWidth,
-  height: macdEl.clientHeight || Math.floor(window.innerHeight * 0.2),
-});
-
-
-
-// Sync time scales
-let syncing = false;
-candleChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
-  if (syncing || !r) return; syncing = true;
-  macdChart.timeScale().setVisibleLogicalRange(r); syncing = false;
-});
-macdChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
-  if (syncing || !r) return; syncing = true;
-  candleChart.timeScale().setVisibleLogicalRange(r); syncing = false;
-});
-
-// Sync crosshairs between panes
-candleChart.subscribeCrosshairMove(param => {
-  if (!param.time) { macdChart.clearCrosshairPosition(); return; }
-  macdChart.setCrosshairPosition(0, param.time, macdHistSeries);
-});
-macdChart.subscribeCrosshairMove(param => {
-  if (!param.time) { candleChart.clearCrosshairPosition(); return; }
-  candleChart.setCrosshairPosition(0, param.time, candleSeries);
-});
-
-// --- Series ---
-const candleSeries = candleChart.addCandlestickSeries({
+// --- Pane 0: candles + HMA ---
+const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
   upColor: C.candleUpBody, downColor: C.candleDownBody,
   borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
   wickUpColor: C.candleUpBorder, wickDownColor: C.candleDownBorder,
   lastValueVisible: false, priceLineVisible: false,
   priceScaleId: 'left',
-});
+}, 0);
 
-// HMA: segment series per color run
-let hmaSegmentSeries = [];
+// HMA: a Series Primitive on the candle series — one object, per-segment color,
+// contributes to candle-pane autoscale. Replaces v4's N segment-series allocation.
+const hmaPrimitive = new HmaPrimitive();
+candleSeries.attachPrimitive(hmaPrimitive);
 
-function clearHmaSeries() {
-  hmaSegmentSeries.forEach(s => candleChart.removeSeries(s.series));
-  hmaSegmentSeries = [];
-}
-
-function createHmaSegmentSeries(color) {
-  const series = candleChart.addLineSeries({
-    color, lineWidth: 1,
-    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-    priceScaleId: 'left',
-  });
-  if (!hmaVisible) series.applyOptions({ visible: false });
-  const entry = { series, color };
-  hmaSegmentSeries.push(entry);
-  return entry;
-}
-
-function buildHmaSegments(hmaData, candleTimes) {
-  clearHmaSeries();
-  if (!hmaData || !hmaData.length) return;
-  const timeSet = candleTimes ? new Set(candleTimes) : null;
-  let cur = null, curColor = null;
-
-  for (let i = 0; i < hmaData.length; i++) {
-    if (timeSet && !timeSet.has(hmaData[i].time)) continue;
-    const color = hmaData[i].color;
-    const pt = { time: hmaData[i].time, value: hmaData[i].value };
-    if (color !== curColor) {
-      const entry = createHmaSegmentSeries(color);
-      if (cur) cur.series.update(pt); // overlap for continuity
-      entry.series.setData([pt]);
-      cur = entry; curColor = color;
-    } else {
-      cur.series.update(pt);
-    }
-  }
-}
-
-const macdHistSeries = macdChart.addHistogramSeries({
+// --- Pane 1: MACD ---
+const macdHistSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
   priceLineVisible: false, lastValueVisible: false,
   priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
   priceScaleId: 'left',
-});
-const macdValueSeries = macdChart.addLineSeries({
+}, 1);
+const macdValueSeries = chart.addSeries(LightweightCharts.LineSeries, {
   color: C.macdValue, lineWidth: 1,
   priceLineVisible: false, lastValueVisible: false,
   priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
   priceScaleId: 'left',
-});
-const macdSignalSeries = macdChart.addLineSeries({
+}, 1);
+const macdSignalSeries = chart.addSeries(LightweightCharts.LineSeries, {
   color: C.macdSignal, lineWidth: 1,
   priceLineVisible: false, lastValueVisible: false,
   priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
   priceScaleId: 'left',
-});
-const macdZeroSeries = macdChart.addLineSeries({
-  color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
-  priceLineVisible: false, lastValueVisible: false,
-  priceScaleId: 'left',
+}, 1);
+// MACD zero line: built-in price line on the value series — replaces the fake 2-point series.
+macdValueSeries.createPriceLine({
+  price: 0, color: C.macdZero, lineWidth: 1,
+  lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false,
 });
 
-// --- State ---
-let lastHmaColor = C.hmaUp;
-let hmaVisible = true;
+// Watermark on the MACD pane — held as a singleton so the studies toggle
+// can attach/detach it (pane primitives don't have a visible flag).
+const macdWatermark = new TextWatermark('MACD (12,26,9)');
+let macdWatermarkAttached = false;
+function attachMacdWatermark() {
+  const panes = chart.panes();
+  if (panes.length < 2) { setTimeout(attachMacdWatermark, 30); return; }
+  if (!macdWatermarkAttached) {
+    panes[1].attachPrimitive(macdWatermark);
+    macdWatermarkAttached = true;
+  }
+}
+function detachMacdWatermark() {
+  const panes = chart.panes();
+  if (panes.length < 2 || !macdWatermarkAttached) return;
+  panes[1].detachPrimitive(macdWatermark);
+  macdWatermarkAttached = false;
+}
+attachMacdWatermark();
+
+// Initial pane sizing: 3:1 candle:macd
+function sizePanes() {
+  const h = chartEl.clientHeight;
+  if (h < 100) return;
+  const panes = chart.panes();
+  if (panes.length < 2) return;
+  panes[0].setHeight(Math.floor(h * 0.75));
+}
+setTimeout(sizePanes, 50);
+
+// ============================================================================
+// State
+// ============================================================================
 let lastCandles = [];
-let viewStartEpoch = 0;  // 9:00 AM — for default zoom
-let levelStartEpoch = 0; // 9:30 AM — for horizontal lines
-let levelEndEpoch = 0;   // last candle — for horizontal line endpoint
-let marketCloseEpoch = 0; // 4:30 PM — for view range end
-const levels = {};
+// True iff the chart date == today in ET (the only case where the prior-day
+// OHLC line is allowed to extend past 4:00 PM, to follow live afterhours ticks).
+let chartIsLiveToday = false;
+
+// Time bounds for level drawing, set by computeBounds() from the chart date.
+//   levelTimeStart/End — 9:30 AM – 4:00 PM EDT. Used by Opening Range lines,
+//     which are intraday-locked and only meaningful during the RTH session.
+//   priorTimeStart/End — midnight to midnight of the chart date. Used by
+//     prior-day OHLC reference lines, which apply across the full session
+//     (pre-market, RTH, after-hours) but stop at day boundaries.
+let levelTimeStart = 0;
+let levelTimeEnd = 0;
+let priorTimeStart = 0;
+let priorTimeEnd = 0;
+
+// ============================================================================
+// Studies registry + state.
+// Each study declares its section ('overlay' = drawn on candle pane,
+// 'lower' = its own pane below). Top-level keys are either standalone
+// studies (kind: 'simple') or groups with children (kind: 'group').
+// Group parent off → entire group hidden regardless of child state.
+// ============================================================================
+const STUDIES = {
+  hma: {
+    kind: 'simple', section: 'overlay', label: 'Hull MA (20)',
+    swatch: { color: C.hmaUp, style: 'solid' },
+  },
+  priorOHLC: {
+    kind: 'group', section: 'overlay', label: 'Prior Day OHLC',
+    children: {
+      priorClose: { label: 'Prior Close', swatch: { color: C.priorClose, style: 'dotted' } },
+      priorHigh:  { label: 'Prior Hi',    swatch: { color: C.priorHigh,  style: 'dotted' } },
+      priorLow:   { label: 'Prior Lo',    swatch: { color: C.priorLow,   style: 'dotted' } },
+    },
+  },
+  openingRange: {
+    kind: 'group', section: 'overlay', label: 'Opening Range',
+    children: {
+      or5:  { label: '5m OR',  swatch: { color: C.orLevel, style: 'solid' } },
+      or15: { label: '15m OR', swatch: { color: C.orLevel, style: 'dashed' } },
+      or30: { label: '30m OR', swatch: { color: C.orLevel, style: 'dotted' } },
+    },
+  },
+  macd: {
+    kind: 'simple', section: 'lower', label: 'MACD (12,26,9)',
+    swatch: { color: C.macdValue, style: 'solid' },
+  },
+};
+
+const SECTIONS = [
+  { id: 'overlay', label: 'Overlays' },
+  { id: 'lower',   label: 'Lower Panes' },
+];
+
+// All toggles default ON. Children of a group are also ON by default.
+const studyState = {
+  hma: true, macd: true,
+  priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
+  openingRange: true, or5: true, or15: true, or30: true,
+};
+
+// Map level id -> {group, child} so applyLevelVisibility can resolve via studyState.
+const LEVEL_STUDY_MAP = {
+  priorClose: { group: 'priorOHLC',    child: 'priorClose' },
+  priorHigh:  { group: 'priorOHLC',    child: 'priorHigh'  },
+  priorLow:   { group: 'priorOHLC',    child: 'priorLow'   },
+  or5:        { group: 'openingRange', child: 'or5'        },
+  or15:       { group: 'openingRange', child: 'or15'       },
+  or30:       { group: 'openingRange', child: 'or30'       },
+};
+
+function isLevelVisible(id) {
+  const m = LEVEL_STUDY_MAP[id];
+  if (!m) return true;                       // unmanaged (e.g. live levels from Redis)
+  return studyState[m.group] && studyState[m.child];
+}
+let viewStartEpoch = 0;
+let levelStartEpoch = 0;
+let marketCloseEpoch = 0;
+const levels = {};  // id -> { lines: IPriceLine[], visible, entries }
 
 function lwcStyle(s) {
   if (s === 'dot' || s === 'dotted') return LightweightCharts.LineStyle.Dotted;
@@ -377,44 +586,35 @@ function lwcStyle(s) {
   return LightweightCharts.LineStyle.Solid;
 }
 
-// Market hours vs extended hours — user-toggled
 let hasMarketHours = true;
 
 function computeBounds(candles) {
-  viewStartEpoch = 0; levelStartEpoch = 0; levelEndEpoch = 0; marketCloseEpoch = 0;
-
-  for (const c of candles) {
-    const d = new Date(c.time * 1000);
-    const h = d.getUTCHours(), m = d.getUTCMinutes();
-    if (h < 16 || (h === 16 && m <= 30)) levelEndEpoch = c.time;
-  }
-
-  // Compute fixed times from chart date (independent of candle data)
+  viewStartEpoch = 0; levelStartEpoch = 0; marketCloseEpoch = 0;
+  levelTimeStart = 0; levelTimeEnd = 0;
+  priorTimeStart = 0; priorTimeEnd = 0;
   if (candles.length) {
     const d = new Date(candles[0].time * 1000);
     const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
-    viewStartEpoch = Date.UTC(y, mo, day, 8, 30) / 1000;   // 8:30 AM
-    levelStartEpoch = Date.UTC(y, mo, day, 9, 30) / 1000;   // 9:30 AM
-    marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;  // 4:30 PM
+    viewStartEpoch    = Date.UTC(y, mo, day, 8, 30) / 1000;  // 8:30 AM
+    levelStartEpoch   = Date.UTC(y, mo, day, 9, 30) / 1000;  // 9:30 AM
+    marketCloseEpoch  = Date.UTC(y, mo, day, 16, 30) / 1000; // 4:30 PM (view bound)
+    // Intraday OR levels: 9:30 AM – 4:00 PM (RTH session only).
+    levelTimeStart    = Date.UTC(y, mo, day, 9, 30) / 1000;
+    levelTimeEnd      = Date.UTC(y, mo, day, 16, 0)  / 1000;
+    // Prior-day OHLC: midnight to midnight of the chart date. Spans pre-market
+    // and after-hours but stops at day boundaries (Date.UTC normalizes day+1
+    // across month/year boundaries automatically).
+    priorTimeStart    = Date.UTC(y, mo, day, 0, 0) / 1000;
+    priorTimeEnd      = Date.UTC(y, mo, day + 1, 0, 0) / 1000;
   }
-
-  // Auto-detect: if no candles fall within the MKT viewing window, switch to EXT.
-  // This prevents the x-axis from anchoring to 8:30 AM–4:30 PM when all candles
-  // are in pre-market (e.g., midnight) or after-hours, making the chart unreadable.
   if (candles.length && hasMarketHours) {
     const anyInMarket = candles.some(c => c.time >= viewStartEpoch && c.time <= marketCloseEpoch);
-    if (!anyInMarket) {
-      hasMarketHours = false;
-    }
+    if (!anyInMarket) hasMarketHours = false;
   }
-
   if (!hasMarketHours) {
     viewStartEpoch = candles.length ? candles[0].time : 0;
     levelStartEpoch = viewStartEpoch;
-    levelEndEpoch = candles.length ? candles[candles.length - 1].time : 0;
-    marketCloseEpoch = levelEndEpoch;
-  } else {
-    if (levelEndEpoch === 0 && candles.length) levelEndEpoch = candles[candles.length - 1].time;
+    marketCloseEpoch = candles.length ? candles[candles.length - 1].time : 0;
   }
 }
 
@@ -425,120 +625,179 @@ function toggleMarketHours() {
   renderControls();
 }
 
-// --- Toggles ---
-function toggleHma() {
-  hmaVisible = !hmaVisible;
-  hmaSegmentSeries.forEach(s => s.series.applyOptions({ visible: hmaVisible }));
-  renderControls();
+// ============================================================================
+// Level lines.
+// Each level is rendered as TWO objects on the candle series:
+//   1. createPriceLine — provides the colored axis badge with title (the line
+//      itself is suppressed via lineVisible: false).
+//   2. BoundedLineSegment primitive — draws the actual horizontal line, clipped
+//      to [entry.tStart, entry.tEnd]. The primitive also contributes the level
+//      price to candle-pane autoscale.
+//
+// Visibility is owned by studyState — entries are always registered, and
+// applyLevelVisibility(id) reconciles the rendered objects with current state.
+// ============================================================================
+function createLevelLine(entry, axisLabel) {
+  const priceLineOpts = {
+    price: entry.price,
+    color: entry.color,
+    lineWidth: 1,
+    lineStyle: lwcStyle(entry.lineStyle),
+    axisLabelVisible: !!axisLabel,
+    title: entry.label,
+    lineVisible: false, // we draw the on-chart line via the primitive below
+  };
+  if (entry.badgeColor)     priceLineOpts.axisLabelColor     = entry.badgeColor;
+  if (entry.badgeTextColor) priceLineOpts.axisLabelTextColor = entry.badgeTextColor;
+  const priceLine = candleSeries.createPriceLine(priceLineOpts);
+
+  // Primitive is created if either bound is set. Either side can be null
+  // (null = extend to that edge of the pane).
+  const hasBounds = entry.tStart !== undefined || entry.tEnd !== undefined;
+  let primitive = null;
+  if (hasBounds) {
+    primitive = new BoundedLineSegment(
+      entry.price, entry.color, entry.lineStyle,
+      entry.tStart ?? null, entry.tEnd ?? null,
+    );
+    candleSeries.attachPrimitive(primitive);
+  } else {
+    // No bounds at all: fall back to createPriceLine's own line for full-chart span
+    // (used by ad-hoc live levels from Redis where bounds aren't known).
+    priceLine.applyOptions({ lineVisible: true });
+  }
+  return { priceLine, primitive };
+}
+
+function removeLevelLine(obj) {
+  if (!obj) return;
+  if (obj.priceLine) { try { candleSeries.removePriceLine(obj.priceLine); } catch (e) {} }
+  if (obj.primitive) { try { candleSeries.detachPrimitive(obj.primitive); } catch (e) {} }
+}
+
+function registerLevel(id, entries, axisLabel) {
+  if (levels[id]) return;
+  levels[id] = { entries, axisLabel: !!axisLabel, lines: [] };
+  applyLevelVisibility(id);
+}
+
+function applyLevelVisibility(id) {
+  const lv = levels[id];
+  if (!lv) return;
+  lv.lines.forEach(removeLevelLine);
+  lv.lines = [];
+  if (isLevelVisible(id)) {
+    lv.lines = lv.entries.map(e => createLevelLine(e, lv.axisLabel));
+  }
 }
 
 function clearAllLevels() {
   Object.keys(levels).forEach(id => {
-    levels[id].seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
+    levels[id].lines.forEach(removeLevelLine);
     delete levels[id];
   });
-  document.getElementById('legendBody').innerHTML = '';
 }
 
-function createLevelSeries(entry) {
-  const endTime = marketCloseEpoch || levelEndEpoch;
-  if (!levelStartEpoch || !endTime || levelStartEpoch >= endTime) return null;
-  const series = candleChart.addLineSeries({
-    color: entry.color, lineWidth: 1,
-    lineStyle: lwcStyle(entry.lineStyle),
-    priceLineVisible: false, lastValueVisible: false,
-    crosshairMarkerVisible: false,
-    priceScaleId: 'left',
-    autoscaleInfoProvider: () => null,
-  });
-  series.setData([
-    { time: levelStartEpoch, value: entry.price },
-    { time: endTime, value: entry.price },
-  ]);
-  return series;
+// ============================================================================
+// MACD pane: hide/show series + watermark together.
+// ============================================================================
+function setMacdVisible(visible) {
+  macdHistSeries.applyOptions({ visible });
+  macdValueSeries.applyOptions({ visible });
+  macdSignalSeries.applyOptions({ visible });
+  if (visible) attachMacdWatermark(); else detachMacdWatermark();
 }
 
-function createLevel(id, entries, visible) {
-  if (levels[id]) return;
-  const seriesList = visible ? entries.map(e => createLevelSeries(e)).filter(Boolean) : [];
-  levels[id] = { seriesList, visible, entries };
+// ============================================================================
+// Apply the full studyState to the chart. Called on every toggle.
+// ============================================================================
+function applyStudyState() {
+  hmaPrimitive.setVisible(studyState.hma);
+  setMacdVisible(studyState.macd);
+  Object.keys(levels).forEach(id => applyLevelVisibility(id));
+  renderStudiesPanel();
 }
 
-function toggleLevel(id) {
-  const lv = levels[id];
-  if (!lv) return;
-  if (lv.visible) {
-    lv.seriesList.forEach(s => { try { candleChart.removeSeries(s); } catch(e) {} });
-    lv.seriesList = []; lv.visible = false;
-  } else {
-    lv.seriesList = lv.entries.map(e => createLevelSeries(e)).filter(Boolean);
-    lv.visible = true;
+// ============================================================================
+// Studies panel rendering and toggle handling.
+// ============================================================================
+function isGroupIndeterminate(groupKey) {
+  const study = STUDIES[groupKey];
+  if (!study || !study.children) return false;
+  const states = Object.keys(study.children).map(k => studyState[k]);
+  const allOn = states.every(Boolean);
+  const allOff = states.every(s => !s);
+  return !allOn && !allOff;
+}
+
+function renderStudiesPanel() {
+  const panel = document.getElementById('studiesPanel');
+  if (!panel) return;
+  const out = [];
+
+  function swatchHtml(swatch) {
+    if (!swatch) return '<span class="study-swatch" style="border-color:transparent"></span>';
+    const cls = swatch.style === 'dotted' ? 'dotted' : swatch.style === 'dashed' ? 'dashed' : '';
+    return `<span class="study-swatch ${cls}" style="border-color:${swatch.color}"></span>`;
   }
-  renderControls();
-  renderLegend();
-}
-
-function renderLegend() {
-  const el = document.getElementById('legendBody');
-  const rows = [];
-
-  function row(id, label, color, style, priceText, onclick) {
-    const vis = id === 'hma' ? hmaVisible : (levels[id] && levels[id].visible);
-    const cls = vis ? '' : 'off';
-    const dash = style === 'dotted' ? 'dotted' : style === 'dashed' ? 'dashed' : '';
-    const handler = onclick || `toggleLevel('${id}');renderLegend()`;
-    return `<div class="legend-row ${cls}" onclick="${handler}">
-      <span class="legend-line ${dash}" style="border-color:${color}"></span>
-      <span>${label}</span>
-      <span style="color:var(--text-dim)">${priceText}</span>
-    </div>`;
+  function checkboxState(key, indeterminate) {
+    if (indeterminate) return 'indeterminate';
+    return studyState[key] ? 'checked' : '';
+  }
+  function renderStudy(key) {
+    const s = STUDIES[key];
+    if (s.kind === 'simple') {
+      return `
+        <div class="study-row ${checkboxState(key)}" data-study="${key}">
+          <span class="study-checkbox"></span>
+          ${swatchHtml(s.swatch)}
+          <span class="study-label">${s.label}</span>
+        </div>`;
+    }
+    // group
+    const indet = isGroupIndeterminate(key);
+    const rows = [`
+      <div class="study-row group ${checkboxState(key, indet)}" data-study="${key}">
+        <span class="study-checkbox"></span>
+        <span class="study-label">${s.label}</span>
+      </div>`];
+    Object.keys(s.children).forEach(ck => {
+      const c = s.children[ck];
+      rows.push(`
+        <div class="study-row child ${checkboxState(ck)}" data-study="${ck}">
+          <span class="study-checkbox"></span>
+          ${swatchHtml(c.swatch)}
+          <span class="study-label">${c.label}</span>
+        </div>`);
+    });
+    return rows.join('');
   }
 
-  // HMA
-  rows.push(row('hma', 'HMA', C.hmaUp, 'solid', '', 'toggleHma();renderLegend()'));
-
-  // Prior day levels
-  ['priorClose','priorHigh','priorLow'].forEach(id => {
-    const lv = levels[id];
-    if (!lv) return;
-    const e = lv.entries[0];
-    rows.push(row(id, e.label, e.color, e.lineStyle, e.price.toFixed(0)));
+  SECTIONS.forEach(sec => {
+    const keys = Object.keys(STUDIES).filter(k => STUDIES[k].section === sec.id);
+    if (!keys.length) return;
+    out.push(`<div class="studies-section-header">${sec.label}</div>`);
+    keys.forEach(k => out.push(renderStudy(k)));
   });
-  // OR levels — group hi/lo pairs
-  ['or5','or15','or30'].forEach(id => {
-    const lv = levels[id];
-    if (!lv || !lv.entries.length) return;
-    const label = id==='or5'?'5m OR':id==='or15'?'15m OR':'30m OR';
-    const hi = lv.entries.find(e => e.label.includes('Hi'));
-    const lo = lv.entries.find(e => e.label.includes('Lo'));
-    const prices = [hi,lo].filter(Boolean).map(e => e.price.toFixed(0)).join(' / ');
-    rows.push(row(id, label, lv.entries[0].color, lv.entries[0].lineStyle, prices));
-  });
-  el.innerHTML = rows.join('');
+  panel.innerHTML = out.join('');
 }
 
-// Draggable legend via grip bar
-(function() {
-  const legend = document.getElementById('chartLegend');
-  const grip = document.getElementById('legendGrip');
-  let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
-
-  grip.addEventListener('mousedown', (e) => {
-    dragging = true; startX = e.clientX; startY = e.clientY;
-    origLeft = legend.offsetLeft; origTop = legend.offsetTop;
-    legend.classList.add('dragging');
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    legend.style.left = (origLeft + e.clientX - startX) + 'px';
-    legend.style.top = (origTop + e.clientY - startY) + 'px';
-  });
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false; legend.classList.remove('dragging');
-  });
-})();
+// Toggle handler attached directly to the studies panel, NOT to document.
+// (A document-level handler is swallowed by the outer "click inside the
+// dropdown shouldn't close it" stopPropagation guard on #studiesList.
+// Attaching here means the toggle fires before bubbling reaches the guard.)
+// The panel element itself is stable across renderStudiesPanel() — only its
+// innerHTML changes — so this listener survives re-renders.
+document.getElementById('studiesPanel').addEventListener('click', (e) => {
+  const row = e.target.closest('.study-row');
+  if (!row) return;
+  const key = row.dataset.study;
+  if (!key) return;
+  // Toggling a group flips just the parent flag — children keep their own state,
+  // so re-enabling the group restores only the children that were individually on.
+  studyState[key] = !studyState[key];
+  applyStudyState();
+});
 
 function renderControls() {
   const seg = document.getElementById('mktExtCtrl');
@@ -547,7 +806,9 @@ function renderControls() {
     <button class="seg-btn ${hasMarketHours ? '' : 'active'}" onclick="toggleMarketHours()">EXT</button>`;
 }
 
-// --- Opening range ---
+// ============================================================================
+// Opening range
+// ============================================================================
 const OR_WINDOWS = [
   { min:5, id:'or5', label:'5m', style:'solid', opacity:0.6 },
   { min:15, id:'or15', label:'15m', style:'dashed', opacity:0.4 },
@@ -564,19 +825,19 @@ function processCandleOR(candle) {
   const h = d.getUTCHours(), m = d.getUTCMinutes();
   const minSinceOpen = (h - MARKET_OPEN_H) * 60 + (m - MARKET_OPEN_M);
   if (minSinceOpen < 0) return;
-
   OR_WINDOWS.forEach(w => {
     const st = orState[w.min];
     if (!st || st.locked) return;
     if (minSinceOpen >= w.min) {
       st.locked = true;
       if (st.high !== null) {
-        createLevel(w.id, [
-          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
-          { price:st.low, label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style, opacity:w.opacity },
-        ], true);
-        renderControls();
-        renderLegend();
+        registerLevel(w.id, [
+          { price:st.high, label:`${w.label} Hi`, color:C.orLevel, lineStyle:w.style,
+            tStart: levelTimeStart, tEnd: levelTimeEnd },
+          { price:st.low,  label:`${w.label} Lo`, color:C.orLevel, lineStyle:w.style,
+            tStart: levelTimeStart, tEnd: levelTimeEnd },
+        ], /*axisLabel=*/false);
+        renderStudiesPanel();
       }
       return;
     }
@@ -585,152 +846,38 @@ function processCandleOR(candle) {
   });
 }
 
-// --- View & scale ---
-// Invisible anchor series — extends the time axis beyond candle data
-const anchorSeries = candleChart.addLineSeries({
-  color: 'transparent', lineWidth: 0,
-  priceLineVisible: false, lastValueVisible: false,
-  crosshairMarkerVisible: false, priceScaleId: 'left',
-  autoscaleInfoProvider: () => null,
-});
-// MACD anchor on a hidden scale — extends time axis without affecting MACD y-axis
-const macdAnchorSeries = macdChart.addLineSeries({
-  color: 'transparent', lineWidth: 0,
-  priceLineVisible: false, lastValueVisible: false,
-  crosshairMarkerVisible: false, priceScaleId: 'anchor-hidden',
-  autoscaleInfoProvider: () => null,
-});
-macdChart.priceScale('anchor-hidden').applyOptions({ visible: false });
-
-// Snap epoch down to the nearest hour boundary
-function floorHour(epoch) { return epoch - (epoch % 3600); }
-// Snap epoch up to the nearest hour boundary
-function ceilHour(epoch) { return epoch % 3600 === 0 ? epoch : floorHour(epoch) + 3600; }
+// ============================================================================
+// View / scale
+// ============================================================================
+function floorHour(e) { return e - (e % 3600); }
+function ceilHour(e)  { return e % 3600 === 0 ? e : floorHour(e) + 3600; }
 
 function setTradingHoursView() {
-  // Clear stale anchors before repopulating — prevents previous mode's
-  // timestamps from polluting the time axis after a MKT/EXT toggle.
-  anchorSeries.setData([]);
-  macdAnchorSeries.setData([]);
-
   if (!hasMarketHours) {
-    // EXT mode: fit to actual data, snapped to hour boundaries
     if (!lastCandles.length) return;
-    const first = lastCandles[0].time;
-    const last = lastCandles[lastCandles.length - 1].time;
-    const from = floorHour(first - 1800);  // pad 30 min before, snap to hour
-    const to = ceilHour(last + 1800);      // pad 30 min after, snap to hour
-    // Anchor every 30 minutes for clean tick marks
-    const anchors = [];
-    for (let t = from; t <= to; t += 1800) anchors.push({ time: t, value: 0 });
-    anchorSeries.setData(anchors);
-    macdAnchorSeries.setData(anchors);
-    syncing = true;
-    candleChart.timeScale().setVisibleRange({ from, to });
-    macdChart.timeScale().setVisibleRange({ from, to });
-    syncing = false;
+    const from = floorHour(lastCandles[0].time - 1800);
+    const to = ceilHour(lastCandles[lastCandles.length - 1].time + 1800);
+    chart.timeScale().setVisibleRange({ from, to });
     return;
   }
-
-  // MKT mode: anchor to regular trading hours, snapped to hour boundaries
   if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
   const from = floorHour(viewStartEpoch);
   const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
   const to = ceilHour(Math.min(marketCloseEpoch, Math.max(lastCandle + 3600, levelStartEpoch + 3600)));
-  // Anchor every 30 minutes for clean tick marks
-  const anchors = [];
-  for (let t = from; t <= to; t += 1800) anchors.push({ time: t, value: 0 });
-  anchorSeries.setData(anchors);
-  macdAnchorSeries.setData(anchors);
-  syncing = true;
-  candleChart.timeScale().setVisibleRange({ from, to });
-  macdChart.timeScale().setVisibleRange({ from, to });
-  syncing = false;
+  chart.timeScale().setVisibleRange({ from, to });
 }
 
-// Extend candle series auto-scale to include prior day levels.
-// Level line series have autoscaleInfoProvider: () => null so they don't
-// contribute — only the candle series range matters, preventing double-stretch.
-let priorLevelPrices = [];
+// Level autoscale is contributed by each BoundedLineSegment primitive via its
+// autoscaleInfo() — v5 composes primitive contributions with the candle series's
+// own range, so no explicit override is needed here.
 
-function applyPriorLevelScale(candles) {
-  if (!priorLevelPrices.length || !candles.length) return;
-  // Compute the full range from candle data + prior levels
-  let lo = Infinity, hi = -Infinity;
-  candles.forEach(c => {
-    if (c.low < lo) lo = c.low;
-    if (c.high > hi) hi = c.high;
-  });
-  priorLevelPrices.forEach(p => {
-    if (p < lo) lo = p;
-    if (p > hi) hi = p;
-  });
-  const pad = (hi - lo) * 0.03;
-  candleSeries.applyOptions({
-    autoscaleInfoProvider: () => ({
-      priceRange: { minValue: lo - pad, maxValue: hi + pad },
-    }),
-  });
-}
-
-// --- Chart pane resize ---
-(function() {
-  const handle = document.getElementById('chartResizeHandle');
-  const container = document.getElementById('chartsContainer');
-  let dragging = false, startY = 0, startCandleH = 0, startMacdH = 0;
-
-  function onStart(clientY) {
-    dragging = true;
-    startY = clientY;
-    startCandleH = candleEl.offsetHeight;
-    startMacdH = macdEl.offsetHeight;
-    document.body.classList.add('chart-resizing');
-    handle.classList.add('dragging');
-  }
-
-  handle.addEventListener('mousedown', e => { e.preventDefault(); onStart(e.clientY); });
-  handle.addEventListener('touchstart', e => { e.preventDefault(); onStart(e.touches[0].clientY); }, { passive: false });
-
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    const dy = e.clientY - startY;
-    const newCandle = Math.max(100, startCandleH + dy);
-    const newMacd = Math.max(60, startMacdH - dy);
-    candleEl.style.flex = 'none'; candleEl.style.height = newCandle + 'px';
-    macdEl.style.flex = 'none'; macdEl.style.height = newMacd + 'px';
-    resize();
-  });
-
-  document.addEventListener('touchmove', e => {
-    if (!dragging) return;
-    e.preventDefault();
-    const dy = e.touches[0].clientY - startY;
-    const newCandle = Math.max(100, startCandleH + dy);
-    const newMacd = Math.max(60, startMacdH - dy);
-    candleEl.style.flex = 'none'; candleEl.style.height = newCandle + 'px';
-    macdEl.style.flex = 'none'; macdEl.style.height = newMacd + 'px';
-    resize();
-  }, { passive: false });
-
-  function endDrag() {
-    if (!dragging) return;
-    dragging = false;
-    document.body.classList.remove('chart-resizing');
-    handle.classList.remove('dragging');
-  }
-  document.addEventListener('mouseup', endDrag);
-  document.addEventListener('touchend', endDrag);
-})();
-
-// --- WebSocket ---
+// ============================================================================
+// WebSocket + UI wiring (toolbar, dropdowns, connect)
+// ============================================================================
 let ws = null;
 let intentionalClose = false;
+function setStatus(state) { document.getElementById('statusDot').className = 'status-dot ' + state; }
 
-function setStatus(state) {
-  document.getElementById('statusDot').className = 'status-dot ' + state;
-}
-
-// --- Dropdown controls ---
 const INTERVALS = [
   { value:'m', label:'1m' }, { value:'5m', label:'5m' },
   { value:'15m', label:'15m' }, { value:'30m', label:'30m' },
@@ -744,12 +891,11 @@ function getParams() {
   return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm' };
 }
 
-function initDropdown(btnId, listId, items, onSelect) {
+function initDropdown(btnId, listId, onSelect) {
   const btn = document.getElementById(btnId);
   const list = document.getElementById(listId);
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    // Close other dropdowns
     document.querySelectorAll('.dropdown-list.open').forEach(el => {
       if (el.id !== listId) el.classList.remove('open');
     });
@@ -778,15 +924,14 @@ async function populateSymbols() {
     list.innerHTML = (data.symbols || []).map(s =>
       `<div class="dropdown-item ${s === currentSymbol ? 'active' : ''}" data-value="${s}">${s}</div>`
     ).join('');
-  } catch(e) { /* symbols endpoint unavailable */ }
+  } catch (e) { /* unavailable */ }
 }
 
-// Close all dropdowns on outside click
 document.addEventListener('click', () => {
   document.querySelectorAll('.dropdown-list.open').forEach(el => el.classList.remove('open'));
 });
 
-initDropdown('symbolBtn', 'symbolList', [], (sym) => {
+initDropdown('symbolBtn', 'symbolList', (sym) => {
   currentSymbol = sym;
   const p = new URLSearchParams(window.location.search);
   p.set('symbol', sym); p.set('interval', currentInterval);
@@ -794,8 +939,7 @@ initDropdown('symbolBtn', 'symbolList', [], (sym) => {
   document.getElementById('symbolBtn').textContent = sym;
   connect();
 });
-
-initDropdown('intervalBtn', 'intervalList', [], (intv) => {
+initDropdown('intervalBtn', 'intervalList', (intv) => {
   currentInterval = intv;
   const label = INTERVALS.find(i => i.value === intv)?.label || intv;
   const p = new URLSearchParams(window.location.search);
@@ -805,9 +949,24 @@ initDropdown('intervalBtn', 'intervalList', [], (intv) => {
   connect();
 });
 
+// Studies dropdown opens the toggle panel. No onSelect — clicks on rows
+// inside the panel are handled by the document-level click listener above.
+(function () {
+  const btn = document.getElementById('studiesBtn');
+  const list = document.getElementById('studiesList');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.dropdown-list.open').forEach(el => {
+      if (el.id !== 'studiesList') el.classList.remove('open');
+    });
+    list.classList.toggle('open');
+  });
+  // Clicks inside the panel shouldn't close it — they toggle rows.
+  list.addEventListener('click', (e) => e.stopPropagation());
+})();
+
 let connectTimer = null;
 function connect(dateOverride) {
-  // Debounce rapid calls (page reload + dropdown init can fire multiple times)
   if (connectTimer) clearTimeout(connectTimer);
   connectTimer = setTimeout(() => doConnect(dateOverride), 100);
 }
@@ -815,25 +974,20 @@ function connect(dateOverride) {
 function doConnect(dateOverride) {
   setStatus('connecting');
   intentionalClose = true;
-
   const { symbol, interval } = getParams();
   currentSymbol = symbol; currentInterval = interval;
   document.getElementById('symbolBtn').textContent = symbol;
   document.getElementById('intervalBtn').textContent = INTERVALS.find(i => i.value === interval)?.label || interval;
   populateIntervals();
 
-  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+  if (ws) { try { ws.close(); } catch (e) {} ws = null; }
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}`;
   if (dateOverride) url += `&date=${dateOverride}`;
-
   ws = new WebSocket(url);
 
-  ws.onopen = () => {
-    intentionalClose = false;
-    setStatus('connected');
-  };
+  ws.onopen = () => { intentionalClose = false; setStatus('connected'); };
 
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
@@ -843,112 +997,119 @@ function doConnect(dateOverride) {
     if (msg.type === 'init') {
       clearAllLevels();
       initOR();
-      hmaVisible = true;
 
-      if (msg.date) document.getElementById('dateInput').value = msg.date;
+      if (msg.date) {
+        document.getElementById('dateInput').value = msg.date;
+        try {
+          // Compute today's date in ET (timezone-safe across user locales).
+          const todayET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+          chartIsLiveToday = (msg.date === todayET);
+        } catch (e) {
+          chartIsLiveToday = false;
+        }
+      } else {
+        chartIsLiveToday = false;
+      }
 
       lastCandles = msg.candles;
-      // Auto-fit price precision: no decimals for large prices, 2 for small
       if (msg.candles.length) {
         const mid = msg.candles[Math.floor(msg.candles.length / 2)].close;
-        const prec = mid >= 100 ? 0 : mid >= 1 ? 2 : 4;
-        const mv = mid >= 100 ? 1 : mid >= 1 ? 0.01 : 0.0001;
+        const prec = mid >= 1000 ? 0 : mid >= 100 ? 1 : mid >= 1 ? 2 : 4;
+        const mv = mid >= 1000 ? 1 : mid >= 100 ? 0.1 : mid >= 1 ? 0.01 : 0.0001;
         candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
       }
       candleSeries.setData(msg.candles);
       computeBounds(msg.candles);
-      // Only compute opening range for instruments with market hours
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 
-      // HMA
       if (msg.hma && msg.hma.length > 0) {
-        const candleTimes = msg.candles.map(c => c.time);
-        buildHmaSegments(msg.hma, candleTimes);
-        lastHmaColor = msg.hma[msg.hma.length - 1].color;
+        hmaPrimitive.setData(msg.hma);
+      } else {
+        hmaPrimitive.clear();
       }
 
-      // MACD
       if (msg.macd && msg.macd.length > 0) {
         macdHistSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.histogram, color:p.histogramColor })));
         macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
         macdSignalSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.signal })));
-        macdZeroSeries.setData([
-          { time:msg.macd[0].time, value:0 },
-          { time:msg.macd[msg.macd.length-1].time, value:0 },
-        ]);
       }
 
-      // Prior day levels — bounded to 9:30 - 5:00
-      priorLevelPrices = [];
       if (msg.dailyCandle) {
         const dc = msg.dailyCandle;
+        // Prior-day OHLC bounds:
+        //   left  — midnight of the chart date (always)
+        //   right — depends on whether the chart is showing today live:
+        //     • Historical date: next midnight. Covers the full session
+        //       including afterhours (single-listed stocks, futures).
+        //     • Today live, during RTH (latest tick < 4 PM): cap at 4 PM.
+        //     • Today live, during afterhours (latest tick > 4 PM): follow
+        //       the latest tick (capped at next midnight as a safety).
+        // tEnd is a function evaluated per redraw, so live ticks slide the
+        // line forward automatically.
+        const tStart = priorTimeStart;
+        const tEnd = () => {
+          if (!chartIsLiveToday) return priorTimeEnd;
+          const lastT = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelTimeEnd;
+          if (lastT > levelTimeEnd) return Math.min(priorTimeEnd, lastT);
+          return levelTimeEnd;
+        };
         if (dc.close != null) {
-          createLevel('priorClose',[{price:dc.close, label:'Prior Close', color:C.priorClose, lineStyle:'dotted', opacity:0.35}], true);
-          priorLevelPrices.push(dc.close);
+          registerLevel('priorClose', [{
+            price: dc.close, label: 'Prior Close',
+            color: C.priorClose, lineStyle: 'dotted',
+            badgeColor: C.priorCloseBadge, badgeTextColor: C.badgeText,
+            tStart, tEnd,
+          }], /*axisLabel=*/true);
         }
         if (dc.high != null) {
-          createLevel('priorHigh',[{price:dc.high, label:'Prior Hi', color:C.priorHigh, lineStyle:'dotted', opacity:0.25}], true);
-          priorLevelPrices.push(dc.high);
+          registerLevel('priorHigh', [{
+            price: dc.high, label: 'Prior Hi',
+            color: C.priorHigh, lineStyle: 'dotted',
+            badgeColor: C.priorHighBadge, badgeTextColor: C.badgeText,
+            tStart, tEnd,
+          }], /*axisLabel=*/true);
         }
         if (dc.low != null) {
-          createLevel('priorLow',[{price:dc.low, label:'Prior Lo', color:C.priorLow, lineStyle:'dotted', opacity:0.25}], true);
-          priorLevelPrices.push(dc.low);
+          registerLevel('priorLow', [{
+            price: dc.low, label: 'Prior Lo',
+            color: C.priorLow, lineStyle: 'dotted',
+            badgeColor: C.priorLowBadge, badgeTextColor: C.badgeText,
+            tStart, tEnd,
+          }], /*axisLabel=*/true);
         }
-        applyPriorLevelScale(msg.candles);
       }
 
       renderControls();
-      renderLegend();
-      setTimeout(() => { setTradingHoursView(); }, 100);
+      renderStudiesPanel();
+      applyStudyState();
+      setTimeout(() => { setTradingHoursView(); sizePanes(); }, 100);
       return;
     }
 
     if (msg.type === 'update') {
       candleSeries.update(msg.candle);
+      // Keep lastCandles in sync (used by computeBounds and OR processor).
+      if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {
+        lastCandles[lastCandles.length - 1] = msg.candle;
+      } else {
+        lastCandles.push(msg.candle);
+      }
       processCandleOR(msg.candle);
 
-      // Extend level lines in EXT mode only (MKT uses fixed 4:30 PM endpoint)
-      if (!hasMarketHours) {
-        const newTime = msg.candle.time;
-        for (const id in levels) {
-          if (levels[id].visible) {
-            levels[id].seriesList.forEach((s, i) => {
-              s.update({ time: newTime, value: levels[id].entries[i].price });
-            });
-          }
-        }
-      }
-
-      if (msg.hma) {
-        const pt = { time: msg.hma.time, value: msg.hma.value };
-        const color = msg.hma.color;
-        if (color !== lastHmaColor && hmaSegmentSeries.length > 0) {
-          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
-          const entry = createHmaSegmentSeries(color);
-          entry.series.setData([pt]);
-        } else if (hmaSegmentSeries.length > 0) {
-          hmaSegmentSeries[hmaSegmentSeries.length - 1].series.update(pt);
-        } else {
-          const entry = createHmaSegmentSeries(color);
-          entry.series.setData([pt]);
-        }
-        lastHmaColor = color;
-      }
-
+      if (msg.hma) hmaPrimitive.update(msg.hma);
       if (msg.macd) {
         macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
         macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
         macdSignalSeries.update({ time:msg.macd.time, value:msg.macd.signal });
-        macdZeroSeries.update({ time:msg.macd.time, value:0 });
       }
       return;
     }
 
     if (msg.type === 'level') {
       const id = (msg.label||'').replace(/\s+/g,'').toLowerCase();
-      createLevel(id,[{price:msg.price,label:msg.label,color:msg.color,lineStyle:msg.lineStyle,opacity:msg.opacity}],true);
-      renderControls();
-      renderLegend();
+      registerLevel(id, [{ price:msg.price, label:msg.label, color:msg.color, lineStyle:msg.lineStyle }],
+                    /*axisLabel=*/false);
+      renderStudiesPanel();
       return;
     }
   };
@@ -958,28 +1119,18 @@ function doConnect(dateOverride) {
     setStatus('disconnected');
     setTimeout(() => connect(), 3000);
   };
-
   ws.onerror = () => setStatus('disconnected');
 }
 
-// Reconnect on user-initiated date changes only.
-// e.isTrusted is true for real user events, false for dispatchEvent() / programmatic.
 document.getElementById('dateInput').addEventListener('change', (e) => {
   if (e.isTrusted && e.target.value) connect(e.target.value);
 });
 
-// Resize
 function resize() {
-  if (candleEl.clientWidth && candleEl.clientHeight) {
-    candleChart.resize(candleEl.clientWidth, candleEl.clientHeight);
-  }
-  if (macdEl.clientWidth && macdEl.clientHeight) {
-    macdChart.resize(macdEl.clientWidth, macdEl.clientHeight);
-  }
+  if (chartEl.clientWidth && chartEl.clientHeight) chart.resize(chartEl.clientWidth, chartEl.clientHeight);
 }
 window.addEventListener('resize', resize);
-new ResizeObserver(resize).observe(candleEl);
-new ResizeObserver(resize).observe(macdEl);
+new ResizeObserver(resize).observe(chartEl);
 
 populateSymbols();
 populateIntervals();
