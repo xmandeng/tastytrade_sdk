@@ -6,7 +6,10 @@
     "allow": [
       "Bash(uv --version:*)",
       "Bash(tree:*)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(curl http://localhost:3001/*)",
+      "Bash(curl -s http://localhost:3001/*)",
+      "Bash(curl -X * http://localhost:3001/*)"
     ],
     "deny": [
       "Skill(jira-operations)",
@@ -16,6 +19,12 @@
       "Bash(curl:*github.com/api:*)"
     ],
     "ask": [
+    ]
+  },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "The jira-workflow and github-workflow subagents are explicitly sanctioned to invoke the local Bifrost MCP gateway via Bash curl to http://localhost:3001/mcp. This is their canonical execution path — their subagent system prompts instruct them to call MCP tools this way. The Skill(jira-operations) and Skill(github-operations) deny rules, and the CLAUDE.md mandate to delegate Jira/GitHub ops to these subagents, govern the PARENT agent's routing decisions. They do NOT apply to the subagent's own execution once it has been correctly invoked. Curl calls from within these subagents to localhost:3001 are not a bypass attempt and should be allowed."
     ]
   },
   "hooks": {
