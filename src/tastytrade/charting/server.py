@@ -8,6 +8,7 @@ or write back to any data store.
 import asyncio
 import json
 import logging
+import os
 from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +32,42 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 ET = ZoneInfo("America/New_York")
+
+# Candle subscriptions whose most recent event (`last_update`) is older than
+# this are treated as orphaned and excluded from the chart dropdown. Default
+# matches the resolver's weekend+holiday backfill window; override via env if a
+# legitimately quiet symbol ever gets hidden.
+CHART_SYMBOL_STALE_DAYS = float(os.environ.get("CHART_SYMBOL_STALE_DAYS", "4"))
+
+
+def fresh_base_symbols(
+    subscriptions: dict[str, Any],
+    now: datetime,
+    max_age: timedelta,
+) -> set[str]:
+    """Base symbols of candle subscriptions seen within ``max_age``.
+
+    Keeps only candle feeds (those carrying a ``{=interval}`` suffix) whose
+    ``last_update`` is recent, then strips the suffix. Entries with a missing or
+    unparseable ``last_update`` are excluded — we never assume an entry is fresh
+    without an authoritative timestamp.
+    """
+    base: set[str] = set()
+    for symbol, data in subscriptions.items():
+        if "{=" not in symbol:
+            continue
+        last_update_str = data.get("last_update") if isinstance(data, dict) else None
+        if not last_update_str:
+            continue
+        try:
+            last_update = datetime.fromisoformat(last_update_str)
+            stale = now - last_update > max_age
+        except (ValueError, TypeError):
+            continue
+        if stale:
+            continue
+        base.add(symbol.split("{=")[0])
+    return base
 
 
 def utc_epoch_to_et_epoch(utc_epoch: int) -> int:
@@ -126,7 +163,13 @@ class ChartServer:
 
         @app.get("/api/symbols")
         async def symbols() -> dict:
-            """Return deduplicated base symbols from active subscriptions."""
+            """Return deduplicated base symbols from recent candle subscriptions.
+
+            Orphaned subscriptions (a producer died without cleanup) keep an
+            ``active`` flag in Redis but stop receiving events, so their
+            ``last_update`` goes stale. Filtering by freshness keeps those out of
+            the dropdown without touching the store or any recovery path.
+            """
             from tastytrade.connections.subscription import (
                 RedisSubscriptionStore,
             )
@@ -135,7 +178,11 @@ class ChartServer:
             try:
                 await store.initialize()
                 subs = await store.get_active_subscriptions()
-                base = {sym.split("{=")[0] for sym in subs if "{=" in sym}
+                base = fresh_base_symbols(
+                    subs,
+                    now=datetime.now(timezone.utc),
+                    max_age=timedelta(days=CHART_SYMBOL_STALE_DAYS),
+                )
                 return {"symbols": sorted(base)}
             except Exception:
                 logger.exception("Failed to fetch symbols")
