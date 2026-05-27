@@ -79,3 +79,8 @@ node_modules/
 
 # TT-138 liveness probe outputs (local-only)
 .probe-out/
+
+# Review-suite devserver state (port/pid/log are local-only)
+.plan-review/.devserver*
+.design-review/.devserver*
+.architecture-map/.devserver*
