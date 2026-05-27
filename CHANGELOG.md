@@ -1,6 +1,200 @@
 # Changelog
 
-All notable changes to this project, grouped by Jira ticket and organized by sprint.
+All notable changes to this project, organized by sprint and grouped by ticket. Work predating the Jira migration (first Jira ticket landed Jan 20, 2026) is reconstructed from git history and grouped by theme at the end.
+
+---
+
+## Sprint 11 — GEX Snapshots & DXLink Handshake Hardening (May 17–24, 2026)
+
+### TT-147: Migrate charting frontend to Lightweight Charts v5
+
+- Migrate `charting/static/index.html` from Lightweight Charts v4.2 to v5 (frontend-only); collapse the two-chart resize hack into one chart with a native MACD pane, replace level-line workarounds with `createPriceLine`, drop the CSS branding hack via `layout.attributionLogo: false`
+- Replace the HMA segment-series with a custom `HmaPrimitive` Series Primitive (direct canvas drawing) after the Custom Series API regressed; add `BoundedLineSegment` for time-bounded level lines
+- Add a hierarchical Studies panel (Overlays vs Lower Panes) with group/child toggles; recolor prior-day OHLC
+- Selected as the adopted charting path over the KLineChart prototype (TT-148)
+
+### TT-141: Fix DXLink BAD_ACTION loop — handshake ordering and subscription caps
+
+- Add `setup_done`, `authorized`, and per-channel `channel_opened` `asyncio.Event`s to `ControlHandler`; start the listener/router before any send and await each ack in protocol order (SETUP → AUTH_STATE:AUTHORIZED → CHANNEL_OPENED)
+- `open_channels()` fans out CHANNEL_REQUESTs and gathers CHANNEL_OPENED events in parallel
+- Classify `BAD_ACTION` errors so subscription-cap errors log a warning without triggering reconnect, while connection-level errors still recover
+- Add a snapshot-gated candle subscription semaphore (default 18, `CANDLE_SUBSCRIPTION_CONCURRENCY`) with per-symbol completion via `CandleSnapshotTracker.wait_for_symbol`
+
+### TT-139: GEX snapshot — backend data collection and computation
+
+- Add `analytics/gex/` package: `client.py` (REST fetchers, ±10% strike pre-filter, batched option market-data), `compute.py` (`OI × γ × M × spot² × 0.01 × sign`, aggregate-by-strike), `levels.py` (call/put walls, max-gamma, net-gamma wall), `snapshot.py` (orchestrator with Redis cache)
+- Class-aware multiplier (equity options = 100 in the resolver, never at the formula site); futures options raise `NotImplementedError` (post-v1)
+- REST-only design — no DXLink streaming; ~3–4 REST calls plus Polars aggregation
+- Verified against live SPX: 195 strikes, ±9.9% window, call wall 7500 / put wall 7375, Redis cache HIT on second call
+
+### TT-138: GEX snapshot — REST-based market-structure design (parent story)
+
+- Lock a REST-only architecture after an RTH liveness probe confirmed `/market-data/by-type` returns per-option gamma, Greeks, open-interest, and mark
+- Adopt an on-demand, frontend-paced runtime with a Redis `gex:snapshot:<sym>:<exp>` side-cache (~60s TTL) and a flat ±10%-of-spot strike window
+- Shipping code lands under sub-task TT-139 (backend); this story coordinates the design
+
+### TT-137: Clean up pytest warnings from the pre-push hook
+
+- Replace raw strings passed to `model_construct()` with typed values (`OrderType.LIMIT`, `TimeInForce.DAY`, tz-aware `datetime`) to clear 7 `PydanticSerializationUnexpectedValue` warnings
+- Fix a never-awaited `RedisSubscription.listener` coroutine warning via a `create_task` mock side-effect that closes the orphaned coroutine
+- Test-only changes; no `filterwarnings` suppressions added
+
+---
+
+## Sprint 10 — Plan-Review Portal & Plugin (Apr 12–26, 2026)
+
+### TT-132: Remove unused keepalive_stop Event from DXLink keepalive
+
+- Decline the proposed event-driven refactor after plan review — the existing `while True` + `asyncio.sleep(30)` keepalive is already cancellation-driven via `close()`
+- Remove the unused `self.keepalive_stop = asyncio.Event()` field; leave `send_keepalives()`/`close()` behavior unchanged
+
+### TT-128: Open-source the /plan-review skill as a Claude Code plugin
+
+- Publish `/plan-review` as a standalone MIT-licensed plugin in the `xmandeng/claude-plugins` marketplace, following Anthropic's official plugin layout
+- Decouple all paths via `${CLAUDE_PLUGIN_ROOT}`; bundle its own template/devserver assets with zero dependency on the tastytrade-sdk layout
+- Default output to `.plan-review/` (overridable), add per-project port allocation and LAN-IP binding for cross-device review
+- Generalize invocation beyond Jira (any tracker ID; zero-arg infers from conversation); stdlib `pty.fork()` PTY bridge with no required pip deps
+
+### TT-127: Evolve plan-review into a living "Next Turn" planning portal
+
+- After review, drop the originally-proposed `tastydev` daemon / SPA / CLI in favor of enriching the existing `/plan-review` HTML playground
+- Add a `WS /api/claude` websocket endpoint to `_devserver.py` that spawns `claude --continue` in a PTY and bridges it to the browser
+- Add an xterm.js terminal panel plus a "Send to Claude" button that writes the feedback bundle into the live session (revisions applied via the session's native Edit tool)
+
+---
+
+## Sprint 9 — Redis Streams & Stability Fixes (Apr 5–12, 2026)
+
+### TT-124: Fix kaleido dependency for Apple Silicon
+
+- Bump `kaleido` 0.1.0 → 0.2.1 (first release with a `macosx_11_0_arm64` wheel), fixing `uv sync` on M-series Macs
+
+### TT-119: Fix broken dependencies, pre-commit hook, and duplicate LangSmith tracing
+
+- Restore `fastapi>=0.115.8` removed by TT-48 dead-code cleanup while `charting/server.py` still imported it
+- Resolve the pre-commit hook `INSTALL_PYTHON` path dynamically via `git rev-parse --show-toplevel` so it works across worktrees/devcontainers
+- Add a yield-to-project guard in the global stop hooks to eliminate duplicate LangSmith traces
+
+### TT-118: Update architecture docs for Redis Streams
+
+- Update the Architecture Playground Redis node to "Pub/Sub + Hash Store + Streams" and document the fill-stream schema; verify ARCHITECTURE.md §4 after the TT-108 merge
+
+### TT-115: Loosen Jade Lizard delta warning thresholds
+
+- Raise the net-delta warning threshold from ±0.35 to ±0.40 and add an escalated threshold at ±0.50
+
+### TT-109: Fix chart server crash on metadata-only InfluxDB rows
+
+- Add a required-column check (`close`/`open`/`high`/`low`) so metadata-only rows are treated as no-data, eliminating `ColumnNotFoundError` and letting the day-walkback loop continue
+
+### TT-108: Redis Streams for position lifecycle tracking
+
+- Introduce Redis Streams as a session-scoped compute layer for fill-driven lifecycle tracking (InfluxDB remains the system of record); stream key `tastytrade:fills:{account}:{underlying}`
+- Add `xadd_fill()`, `fill_stream_key()`, and `flush_fill_streams()` to `AccountStreamPublisher`; hydrate streams at startup from InfluxDB filled orders (DEL-then-hydrate for idempotency)
+- Verified live: 189 fills hydrated across 8 underlyings spanning Oct 2025 – Mar 2026, restart-identical streams, clean flush at shutdown
+
+---
+
+## Sprint 8 — Live Charting, Order Analytics & Agentic Infrastructure (Mar 15–29, 2026)
+
+### TT-107: Guard empty InfluxDB results in MarketDataProvider.download
+
+- Return an empty Polars DataFrame on an empty `query_data_frame()` result instead of accessing `d["_time"]`, eliminating a `KeyError` that killed chart sessions and restoring the day-walkback fallback
+
+### TT-106: Implement MCP subagent architecture via Bifrost gateway
+
+- Run MCP servers as persistent containerized services behind Bifrost gateways, with subagents communicating over HTTP curl — bypassing Claude Code's broken in-frontmatter subagent MCP wiring (see TT-105)
+- Add two docker-compose Bifrost clusters with healthchecks: a dev cluster (port 3001) hosting GitHub MCP + Jira/Atlassian MCP (`sooperset/mcp-atlassian`), and a design cluster (port 3002) hosting Playwright MCP
+- Add a generator script that builds subagent `.md` definitions from the live gateway `tools/list` manifest
+- Document the architecture in `docs/AGENTIC_CONFIGURATION.md`; add response-size management (default `per_page: 5`) to keep list responses under the read limit
+- Validated end-to-end via Bifrost curl: GitHub PR listing, Jira boards→sprints→issues chaining, and Playwright chart navigation/screenshot
+
+### TT-105: (Reverted) Attempt to migrate subagents to inline MCP servers
+
+- Tried to replace bash-script-wrapped subagents with inline `mcpServers` in agent frontmatter; verified both servers start (49 Jira tools, 39 GitHub tools)
+- Blocked by Claude Code bug #25200 — MCP tools declared in agent frontmatter are never injected into the subagent runtime — so the branch was reverted; superseded by the Bifrost-gateway approach in TT-106
+
+### TT-104: Fix irregular chart time labels in EXT mode
+
+- Snap post-last-candle padding to the next clean hour/half-hour boundary so auto-generated axis ticks land on round, evenly spaced intervals (follow-up to TT-103)
+
+### TT-103: Fix extended-hours chart squashing candles
+
+- Compute x-axis bounds from the actual candle timestamp range instead of hardcoded regular-trading-hours anchors, so pre-market/RTH/after-hours sessions all render readably
+
+### TT-101: Auto-subscribe candles for position-derived underlyings
+
+- Create Candle subscriptions (not just Quotes) for resolver-discovered underlyings using the configured intervals; surface them in the chart symbol dropdown; remove on position close
+
+### TT-100: Auto-subscribe to underlying symbols for option positions
+
+- Extend `PositionSymbolResolver.resolve()` to include each position's `underlying-symbol` in the DXLink subscription set, deduped across shared underlyings and removed on close — for both futures and equity options
+
+### TT-99: Interactive chart controls — symbol/interval/date pickers
+
+- Replace static toolbar inputs with custom dark-theme dropdowns; add a server API serving the active candle-symbol list; wire control changes to a clean WebSocket reconnect
+
+### TT-98: Add RedisInsight to the Docker Compose stack
+
+- Add a `redis/redisinsight` service auto-connecting to Redis via internal DNS, exposed on port 5540 for browser-based pub/sub inspection (no more SSH tunneling)
+
+### TT-97: Fix connection health status stuck after reconnect
+
+- Publish `state: connected` and clear the stale `error` field on `tastytrade:connection` after the subscription orchestrator successfully reconnects
+
+### TT-94: Live Charting Module — TOS-style interactive chart
+
+- Add the `charting/` module: candlesticks + Hull MA-20 + MACD (12/26/9) in a separate pane, rendered via TradingView lightweight-charts with incremental `series.update()`
+- Load history from InfluxDB on connect and stream live candle deltas from Redis pub/sub (historical → InfluxDB, live → Redis)
+- Ship a `tasty-chart` CLI; source horizontal levels from a separate `LevelAnnotationProcessor` rather than the charting server (thin pass-through)
+
+### TT-91: Add campaign P&L view to the chains CLI
+
+- Aggregate realized losses from prior rolls and net them against current open mark value to show true campaign P&L and "recovery needed"; add an `--underlying` filter and a `--detail` roll-history view
+
+### TT-90: Fix Iron Butterfly / Iron Broken Fly P&L dispatch
+
+- Add both strategy types to `compute_max_profit`/`compute_max_loss` so their max-profit/max-loss columns populate instead of falling through to `None`
+
+### TT-89: Options chain snapshot tool with DTE filtering
+
+- Add a unified equity/futures option-chain fetcher returning a consistent Polars schema, auto-detecting asset class by symbol prefix; closest-match DTE filtering; `tasty-subscription options` CLI
+
+### TT-88: Fix future-option multiplier source
+
+- Read the contract multiplier from the option instrument's own `multiplier` field instead of the underlying future's `notional-multiplier`, fixing future-option dollar metrics that were 100x too small when the underlying wasn't held
+
+### TT-87: Compute entry credits from order fill data
+
+- Compute entry credits directly from fill prices/quantities/actions in the FILLED order event, removing the REST transactions API, Redis position-quantity lookups, and the race with the position consumer
+- Add `resolve_multiplier` and `compute_leg_entry_credit`; add max-profit/loss formulas for broken-fly and butterfly strategies
+
+### TT-86: Enrich order events with execution Greeks
+
+- Add `extract_execution_greeks(chain)` walking each `lite_nodes` `market_state_snapshot`; write per-leg `ExecutionGreeks` and aggregate `ExecutionGreeksAggregate` points to InfluxDB at event time (no new consumers or Redis lookback)
+
+### TT-85: Share one TelegrafHTTPEventProcessor across subscription handlers
+
+- Replace 7 per-handler InfluxDB processor instances with one shared injected instance (cutting connection pools, retries, and buffers 7x→1x)
+- Add a remove-before-close shutdown pattern yielding exactly one flush/close on shutdown
+
+### TT-84: Backfill historical account events into InfluxDB
+
+- One-shot idempotent backfill of PlacedOrder/TradeChain/PlacedComplexOrder from the REST API and EntryCredit via LIFO replay, reusing TT-83 serialization; seed current position/balance snapshots from Redis
+
+---
+
+## Sprint 7 — Strategy Matchers & Account-Event Persistence (Mar 8–15, 2026)
+
+### TT-83: Wire account stream events into InfluxDB
+
+- Route 5 account event types (orders, complex orders, trade chains, positions, entry credits) through the shared `TelegrafHTTPEventProcessor` alongside the Redis path (balances excluded as high-volume)
+- Add an `InfluxMixin.for_influx()` that flattens models and JSON-serializes nested `INFLUX_JSON_FIELDS`; replace `while True` consumer loops with event-driven cancellation
+
+### TT-82: Add Broken Wing Butterfly strategy matchers
+
+- Add `CALL_BWB`, `PUT_BWB`, and `IRON_BWB` strategy types and matchers (1:2:1 ratio, unequal wing spacing) so BWBs classify as single strategies instead of decomposing
+- Tighten `match_iron_butterfly` to require equal wings; order BWB matchers after standard butterflies
 
 ---
 
@@ -305,3 +499,41 @@ All notable changes to this project, grouped by Jira ticket and organized by spr
 - TT-8: Add CandleSnapshotTracker, progress logging, timeout handling
 - TT-7: Extract notebook logic into importable orchestrator
 - TT-6: Add `tasty-subscription` CLI scaffold with Click
+
+---
+
+## Pre-Jira History — GitHub Issues Era (Nov 2024 – Jan 2026)
+
+_Before the project migrated to Jira (the first Jira ticket, TT-6, landed Jan 20, 2026), work was tracked through GitHub pull requests. Reconstructed from git history and grouped by theme rather than ticket; parenthetical numbers are PR numbers._
+
+### DXLink streaming foundation (Nov 2024)
+
+- Initial MVP: async WebSocket setup, DXLink connection, message handler, config dataclass, and feed processing (#2–#6)
+- Consolidate channel handlers and event handlers; add Pydantic models for sessions and consolidate session configurations (#12–#16)
+
+### Model & messaging refinement (Jan 2025)
+
+- Add event-time attributes; reorganize and refine market-data models; simplify messaging and configuration; add the DXLink manager (#18–#22)
+
+### Data pipeline & observability (Feb 2025)
+
+- CPU performance improvements and candlestick events (#23–#24)
+- Introduce InfluxDB, devcontainer configuration, and Grafana (#37–#39)
+- Add the data provider service and data access object; market provider enhancements (#43–#48)
+
+### Charting & plotting (Feb–Mar 2025)
+
+- Extend plot range; draw horizontal and vertical lines; add opening range (#49–#52)
+- Reduce x-axis labels to 30-min; calibrate devtools for DST; live plot updates (#66–#69)
+
+### Redis bus & service scaffolding (Mar 2025)
+
+- Add Redis cache and `SubscriptionStore`; add `ConfigurationManager`; Redis pub/sub `EventProcessor` and pub/sub market data (#53–#60)
+- Add driver scripts, FastAPI endpoints, and futures candle-regex parsing (#63–#65)
+
+### Tooling transition (Jul 2025 – Jan 2026)
+
+- Integrate Claude Code (#70); add devcontainer dotfiles, `uv`, and typing/stub cleanup
+- Sparse maintenance through late 2025, then a "long overdue update sync" and devcontainer build fixes in Jan 2026 immediately preceding the Jira migration
+
+> **GitHub → Jira transition:** The repository's first commit was Nov 9, 2024. Active PR-tracked development ran through mid-2025, tapered over the second half of 2025, and resumed under Jira on Jan 20, 2026 (TT-6). Entries above this point in the changelog are tracked by Jira ticket; entries below are reconstructed from PR history.
