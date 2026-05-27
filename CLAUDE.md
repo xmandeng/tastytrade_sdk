@@ -153,19 +153,6 @@ Worktrees do NOT inherit the main repo's `.venv` or `.env`. You must bootstrap e
 
 ---
 
-## Implementation Plans
-
-Plans are saved to `docs/plans/` and **must** be associated with a Jira ticket if one exists. If no ticket exists, ask whether to create one.
-
-**File naming:** `docs/plans/TT-XXX-<feature-name>.md`
-- Always include the Jira ticket number as a prefix
-- The plan title must reference the ticket: `# TT-XXX: Feature Name — Implementation Plan`
-- Include a Jira link in the header: `> **Jira:** [TT-XXX](https://mandeng.atlassian.net/browse/TT-XXX)`
-
-**Plan-ticket sync:** Persist the plan summary to the Jira ticket before starting implementation. The ticket should reference the plan file path and branch.
-
----
-
 ## Reference Documents
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture overview (start here)
