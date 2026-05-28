@@ -421,5 +421,3 @@ See [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) for full details.
 | [SIGNAL_ARCHITECTURE.md](SIGNAL_ARCHITECTURE.md) | Signal detection pipeline, EngineRunner, TradeSignalFeed |
 | [SERVICE_DISCOVERY.md](SERVICE_DISCOVERY.md) | Layered configuration resolution across environments |
 | [CHANGELOG.md](../CHANGELOG.md) | Sprint-by-sprint record of changes |
-| [docs/plans/](plans/) | Per-ticket implementation plans |
-| [docs/architecture-map/](architecture-map/) | Interactive visual architecture explorer |
