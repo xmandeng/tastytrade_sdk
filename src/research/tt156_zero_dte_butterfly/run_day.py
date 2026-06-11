@@ -10,7 +10,9 @@ Usage (from repo root):
 
 import argparse
 import asyncio
+import fcntl
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +42,17 @@ def main() -> None:
 
     config = build_config(args.test, args.cadence)
     config.data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Singleton guard: concurrent collectors interleave snapshots and
+    # triple-write health/events. Hold an exclusive lock for the process
+    # lifetime; a second instance exits immediately.
+    lock_handle = open(config.data_dir / ".collector.lock", "w")
+    try:
+        fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("Another collector already holds the lock for this data dir — exiting.")
+        sys.exit(0)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
