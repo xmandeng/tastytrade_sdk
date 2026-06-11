@@ -84,3 +84,6 @@ node_modules/
 .plan-review/.devserver*
 .design-review/.devserver*
 .architecture-map/.devserver*
+
+# TT-156 research data (collected market snapshots — not committed)
+research_data/
