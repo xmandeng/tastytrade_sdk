@@ -212,12 +212,17 @@ class DayCollector:
         while not self.session_finished(self.now_et()):
             cycle_start = self.now_et()
             try:
-                # OAuth access tokens live 900s — refresh before each cycle
-                await self.session.refresh_token_if_needed()
-                market = await fetch_market_data(
-                    self.session, list(self.occ_to_meta.keys())
+                # OAuth access tokens live 900s — refresh before each cycle.
+                # Both awaits are bounded: an unresponsive HTTP call must fail
+                # the cycle (logged, retried next cycle), not hang the loop.
+                await asyncio.wait_for(
+                    self.session.refresh_token_if_needed(), timeout=30
                 )
-                spot = await self.spot()
+                market = await asyncio.wait_for(
+                    fetch_market_data(self.session, list(self.occ_to_meta.keys())),
+                    timeout=45,
+                )
+                spot = await asyncio.wait_for(self.spot(), timeout=30)
                 quotes = self.build_quotes(market)
                 signals = self.signal_engine.capture.drain()
                 self.write_snapshot(cycle_start, spot, market)
