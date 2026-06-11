@@ -66,6 +66,10 @@ class OAuth2AuthStrategy:
         self.token_expires_at: float = 0.0
 
     async def authenticate(self, session: aiohttp.ClientSession, base_url: str) -> None:
+        # On re-auth (token refresh) the session still carries the previous
+        # access token; /oauth/token rejects requests presenting it with
+        # 403 "insufficient scopes". Authenticate bare, like the first call.
+        session.headers.pop("Authorization", None)
         async with session.post(
             url=f"{base_url}/oauth/token",
             json={
