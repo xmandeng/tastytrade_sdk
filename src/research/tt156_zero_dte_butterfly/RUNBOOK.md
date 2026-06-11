@@ -48,6 +48,11 @@ Data dir: `research_data/TT-156/<YYYY-MM-DD>/` (gitignored).
 - **Collector crash:** relaunch the same command. Snapshots and events append —
   but open paper positions are lost (simulator state is in-memory). Note the
   restart time; the EOD retro-sweep is unaffected (it replays the snapshot file).
+- **Recovery accounting rule (binding): no backdated fills.** Positions ride
+  unmanaged through any outage; orphaned structures may only be exited at or
+  after the first post-recovery snapshot, at that snapshot's quotes. A real
+  deployment should additionally park hard stops broker-side (GTC), since
+  resting orders are the only thing that can fill while your software is dead.
 - **Candle stream stale:** spot falls back to REST automatically; chain capture
   is unaffected. Hull/MACD signals stall though — note the gap. Check the tmux
   `tasty` session / reconnect behavior of the subscribe service.
