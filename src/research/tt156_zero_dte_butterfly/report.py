@@ -207,14 +207,19 @@ def reconstruct_structures(
             )
             s["outcome"] = "settled"
         elif s["outcome"] == "open":
-            # Orphaned by a collector restart — trace forward from snapshots.
+            # Orphaned by a collector restart — replay the live rules from
+            # snapshots: complete at threshold, exit on opposing engine flip
+            # (good-faith estimate of unbroken behavior), else 15:45 close.
             opened = datetime.fromisoformat(s["opened_at"]).astimezone(ET)
             idx = next((i for i, t in enumerate(times) if t >= opened), None)
             if idx is None:
                 continue
             margin = 2.0 if s["variant"].endswith("m2") else 0.0
+            s["orphaned"] = True
+            flip_idx = first_engine_flip(snapshots, idx, s)
+            trace_end = flip_idx if flip_idx is not None else len(snapshots)
             traced = trace_outcome(
-                snapshots,
+                snapshots[:trace_end] if flip_idx is not None else snapshots,
                 idx,
                 s["direction"],
                 s["short_strike"],
@@ -222,19 +227,46 @@ def reconstruct_structures(
                 s["entry_credit"],
                 margin,
             )
-            s["orphaned"] = True
             if traced["completed"]:
-                total = s["entry_credit"] + (
-                    s["width"] + margin - s["entry_credit"]
-                )  # threshold-credit approximation from trace
+                total = s["entry_credit"] + traced.get(
+                    "completion_credit", s["width"] + margin - s["entry_credit"]
+                )
+                s["completion_credit"] = total - s["entry_credit"]
+                s["completed_at"] = traced["completion_time"]
                 s["pnl_points"] = total - min(
                     abs(settle_spot - s["short_strike"]), s["width"]
                 )
                 s["outcome"] = "settled"
+            elif flip_idx is not None:
+                quotes = snapshot_quotes(snapshots[flip_idx])
+                cost = entry_credit(
+                    quotes, s["direction"], s["short_strike"], s["width"]
+                )
+                s["pnl_points"] = s["entry_credit"] - cost if cost is not None else None
+                s["closed_at"] = snapshots[flip_idx]["ts"]
+                s["close_reason"] = "orphan_engine_flip"
+                s["outcome"] = "closed"
             else:
                 s["pnl_points"] = traced.get("close_pnl")
                 s["outcome"] = "closed"
     return list(structures.values())
+
+
+def first_engine_flip(snapshots: list[dict], entry_idx: int, s: dict) -> int | None:
+    """Index of the first snapshot whose recorded engine state opposes the
+    structure's direction — when the live opposing-signal close would fire."""
+    interval = "5m" if "5m" in s["variant"] else "m"
+    key = f"SPX{{={interval}}}"
+    for i in range(entry_idx + 1, len(snapshots)):
+        eng = snapshots[i].get("engine", {}).get(key)
+        if not eng:
+            continue
+        hull, macd = eng.get("hull_direction"), eng.get("macd_position")
+        if s["direction"] == "BEARISH" and (hull == "Up" or macd == "bullish"):
+            return i
+        if s["direction"] == "BULLISH" and (hull == "Down" or macd == "bearish"):
+            return i
+    return None
 
 
 def risk_and_whipsaw_lines(data_dir: Path, reconstructed: list[dict]) -> list[str]:
