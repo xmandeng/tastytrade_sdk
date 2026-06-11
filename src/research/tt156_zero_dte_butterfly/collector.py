@@ -212,6 +212,8 @@ class DayCollector:
         while not self.session_finished(self.now_et()):
             cycle_start = self.now_et()
             try:
+                # OAuth access tokens live 900s — refresh before each cycle
+                await self.session.refresh_token_if_needed()
                 market = await fetch_market_data(
                     self.session, list(self.occ_to_meta.keys())
                 )
