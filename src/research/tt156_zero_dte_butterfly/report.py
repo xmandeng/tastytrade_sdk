@@ -207,8 +207,10 @@ def reconstruct_structures(
             )
             s["outcome"] = "settled"
         elif s["outcome"] == "open":
-            # Orphaned by a collector restart — replay the live rules from
-            # snapshots: complete at threshold, exit on opposing engine flip
+            # Orphaned by a collector restart. No backdated fills: flips are
+            # only detectable at snapshots, which only exist while a collector
+            # was alive — so the exit prices at recovery, never inside a gap.
+            # Replay the live rules from
             # (good-faith estimate of unbroken behavior), else 15:45 close.
             opened = datetime.fromisoformat(s["opened_at"]).astimezone(ET)
             idx = next((i for i, t in enumerate(times) if t >= opened), None)
