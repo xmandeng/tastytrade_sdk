@@ -132,6 +132,7 @@ def trace_outcome(
     strike: float,
     width: float,
     credit: float,
+    margin: float = 0.0,
 ) -> dict:
     """Walk forward: complete at threshold, else forced close at 15:45."""
     for snap in snapshots[entry_idx + 1 :]:
@@ -139,7 +140,7 @@ def trace_outcome(
         quotes = snapshot_quotes(snap)
         if ts.time() <= LAST_COMPLETION:
             counter = counter_credit(quotes, direction, strike, width)
-            if counter is not None and credit + counter >= width:
+            if counter is not None and credit + counter >= width + margin:
                 return {
                     "completed": True,
                     "completion_time": ts.isoformat(),
@@ -167,9 +168,179 @@ def fmt_pts(value: float | None) -> str:
     return f"{value:+.2f} pts (${value * CONTRACT_MULTIPLIER:+,.0f})"
 
 
+def reconstruct_structures(
+    data_dir: Path, snapshots: list[dict], settle_spot: float
+) -> list[dict]:
+    """Rebuild every structure of the day from events.jsonl.
+
+    The simulator's final_results.json only covers the last process; the
+    event log spans restarts. Structures keyed by (variant, direction,
+    opened_at). Completed-but-unsettled flies are settled here from their
+    recorded credits; entries orphaned by a restart are traced forward
+    through the snapshot file under the live rules (complete at threshold,
+    else forced close at 15:45).
+    """
+    structures: dict[tuple, dict] = {}
+    for line in (data_dir / "events.jsonl").read_text().splitlines():
+        e = json.loads(line)
+        key = (e["variant"], e["direction"], e["opened_at"])
+        if e["event"] == "ENTRY":
+            structures[key] = {**e, "outcome": "open"}
+        elif key in structures:
+            s = structures[key]
+            if e["event"] == "COMPLETION":
+                s.update(e)
+                s["outcome"] = "completed"
+            elif e["event"] == "CLOSE":
+                s.update(e)
+                s["outcome"] = "closed"
+            elif e["event"] == "SETTLEMENT":
+                s.update(e)
+                s["outcome"] = "settled"
+
+    times = [snapshot_et(s) for s in snapshots]
+    for s in structures.values():
+        if s["outcome"] == "completed":
+            total = s["entry_credit"] + s["completion_credit"]
+            s["pnl_points"] = total - min(
+                abs(settle_spot - s["short_strike"]), s["width"]
+            )
+            s["outcome"] = "settled"
+        elif s["outcome"] == "open":
+            # Orphaned by a collector restart — trace forward from snapshots.
+            opened = datetime.fromisoformat(s["opened_at"]).astimezone(ET)
+            idx = next((i for i, t in enumerate(times) if t >= opened), None)
+            if idx is None:
+                continue
+            margin = 2.0 if s["variant"].endswith("m2") else 0.0
+            traced = trace_outcome(
+                snapshots,
+                idx,
+                s["direction"],
+                s["short_strike"],
+                s["width"],
+                s["entry_credit"],
+                margin,
+            )
+            s["orphaned"] = True
+            if traced["completed"]:
+                total = s["entry_credit"] + (
+                    s["width"] + margin - s["entry_credit"]
+                )  # threshold-credit approximation from trace
+                s["pnl_points"] = total - min(
+                    abs(settle_spot - s["short_strike"]), s["width"]
+                )
+                s["outcome"] = "settled"
+            else:
+                s["pnl_points"] = traced.get("close_pnl")
+                s["outcome"] = "closed"
+    return list(structures.values())
+
+
+def risk_and_whipsaw_lines(data_dir: Path, reconstructed: list[dict]) -> list[str]:
+    """Peak outstanding risk and sub-2-minute whipsaw stats from the event log."""
+    whipsaws = [
+        s
+        for s in reconstructed
+        if s["outcome"] == "closed"
+        and s.get("closed_at")
+        and (
+            datetime.fromisoformat(s["closed_at"])
+            - datetime.fromisoformat(s["opened_at"])
+        ).total_seconds()
+        < 120
+    ]
+    peak_risk = 0.0
+    running: dict[tuple, float] = {}
+    events = sorted(
+        (
+            json.loads(line)
+            for line in (data_dir / "events.jsonl").read_text().splitlines()
+        ),
+        key=lambda e: e["ts"],
+    )
+    for e in events:
+        key = (e["variant"], e["direction"], e["opened_at"])
+        if e["event"] == "ENTRY":
+            running[key] = e["width"] - e["entry_credit"]
+        else:
+            running.pop(key, None)
+        peak_risk = max(peak_risk, sum(running.values()))
+    return [
+        f"Whipsaw round trips (< 2 min): {len(whipsaws)}, net "
+        f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whipsaws))}",
+        f"Peak outstanding risk (whole 12-variant grid): {peak_risk:.2f} pts "
+        f"(${peak_risk * CONTRACT_MULTIPLIER:,.0f})",
+    ]
+
+
+def exit_policy_section(reconstructed: list[dict], snapshots: list[dict]) -> list[str]:
+    """Hold-to-settle vs mid-day unwind values for every locked butterfly."""
+    lines = [
+        "## Exit-policy comparison for locked butterflies",
+        "",
+        "Hold-to-settle is the live rule; unwind columns show what buying back "
+        "both verticals at mid would have realized instead.",
+        "",
+        "| Fly | Hold to settle | Best unwind (mid) | Unwind +30min after lock |",
+        "|---|---|---|---|",
+    ]
+    for s in reconstructed:
+        if s.get("completion_credit") is None or not s.get("completed_at"):
+            continue
+        total = s["entry_credit"] + s["completion_credit"]
+        completed_at = datetime.fromisoformat(s["completed_at"]).astimezone(ET)
+        unwinds: list[float] = []
+        unwind_30 = None
+        for snap in snapshots:
+            t = snapshot_et(snap)
+            if t <= completed_at:
+                continue
+            quotes = snapshot_quotes(snap)
+            call_cost = vertical(
+                quotes, s["short_strike"], s["short_strike"] + s["width"], "C"
+            )
+            put_cost = vertical(
+                quotes, s["short_strike"], s["short_strike"] - s["width"], "P"
+            )
+            if call_cost is None or put_cost is None:
+                continue
+            value = total - (call_cost + put_cost)
+            unwinds.append(value)
+            if unwind_30 is None and (t - completed_at).total_seconds() >= 1800:
+                unwind_30 = value
+        lines.append(
+            f"| {s['variant']} K={s['short_strike']:g} | "
+            f"{fmt_pts(s.get('pnl_points'))} | "
+            f"{fmt_pts(max(unwinds) if unwinds else None)} | {fmt_pts(unwind_30)} |"
+        )
+    lines.append("")
+    return lines
+
+
+def variant_table(reconstructed: list[dict], variants: list[str]) -> list[str]:
+    lines = [
+        "| Variant | Entries | Completed | Closed early | P&L |",
+        "|---|---|---|---|---|",
+    ]
+    for name in variants:
+        rows = [s for s in reconstructed if s["variant"] == name]
+        completed = [s for s in rows if s.get("completion_credit") is not None]
+        closed = [s for s in rows if s["outcome"] == "closed"]
+        pnl = sum(s["pnl_points"] or 0.0 for s in rows)
+        lines.append(
+            f"| {name} | {len(rows)} | {len(completed)} | "
+            f"{len(closed)} | {fmt_pts(pnl)} |"
+        )
+    return lines
+
+
 def build_report(data_dir: Path) -> str:
     header = json.loads((data_dir / "header.json").read_text())
-    results = json.loads((data_dir / "final_results.json").read_text())
+    results_path = data_dir / "final_results.json"
+    # Absent until a collector instance finishes cleanly; reconstruction
+    # below does not depend on it.
+    results = json.loads(results_path.read_text()) if results_path.exists() else {}
     snapshots = load_snapshots(data_dir)
 
     spots = [s["spot"] for s in snapshots]
@@ -186,19 +357,37 @@ def build_report(data_dir: Path) -> str:
         "",
         "## Live paper-trading results (mid-price fills)",
         "",
-        "| Variant | Entries | Completed | Closed early | P&L |",
-        "|---|---|---|---|---|",
+        "Reconstructed from events.jsonl — spans all collector instances; "
+        "structures orphaned by a restart are settled/closed from the "
+        "snapshot record under the live rules.",
+        "",
     ]
-    for name, row in results["variants"].items():
-        lines.append(
-            f"| {name} | {row['entries']} | {row['completed']} | "
-            f"{row['closed_incomplete']} | {fmt_pts(row['pnl_points'])} |"
+    settle_value = results.get("settlement_spot")
+    if settle_value is None:
+        settle_value = next(
+            (
+                s["spot"]
+                for s in reversed(snapshots)
+                if snapshot_et(s).time() <= time(16, 0, 30)
+            ),
+            spots[-1],
         )
+    assert settle_value is not None  # spots is non-empty, so the fallback exists
+    settle_spot = float(settle_value)
+    reconstructed = reconstruct_structures(data_dir, snapshots, settle_spot)
+    variant_names = [v["name"] for v in header["variants"]]
+    lines += variant_table(reconstructed, variant_names)
+    orphans = [s for s in reconstructed if s.get("orphaned")]
+    total_pnl = sum(s["pnl_points"] or 0.0 for s in reconstructed)
     lines += [
         "",
-        f"Skipped entries (unusable quotes): {results.get('skipped_entries', 0)}",
-        f"**Total live paper P&L: {fmt_pts(results['total_pnl_points'])}** per 1-lot per variant",
+        f"Structures reconstructed: {len(reconstructed)} "
+        f"({len(orphans)} orphaned by restarts, resolved from snapshots)",
+        f"Skipped entries (unusable quotes, last instance): {results.get('skipped_entries', 0)}",
+        *risk_and_whipsaw_lines(data_dir, reconstructed),
+        f"**Total live paper P&L: {fmt_pts(total_pnl)}** per 1-lot per variant",
         "",
+        *exit_policy_section(reconstructed, snapshots),
         "## Retro-sweep — every 5-min entry, both directions, widths "
         f"{', '.join(str(int(w)) for w in SWEEP_WIDTHS)}",
         "",
