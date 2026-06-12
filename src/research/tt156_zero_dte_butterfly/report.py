@@ -561,7 +561,9 @@ def build_report(data_dir: Path) -> str:
         "",
         "## Caveats",
         "",
-        "- Single session; mid-price fills assumed on every leg; no fees/slippage.",
+        "- Single session. Slice tables are at mid fills; the rollup's all-in "
+        "line carries the canonical cost model (per-spread concession + fees "
+        "+ settlement).",
         "- Completion threshold uses mid credit — real fills at the threshold "
         "would need the market to trade through, so live completion rates "
         "would be lower.",
