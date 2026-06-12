@@ -352,16 +352,18 @@ def exit_policy_section(reconstructed: list[dict], snapshots: list[dict]) -> lis
     return lines
 
 
-# Canonical all-in cost model (user-calibrated):
-# - fill concession: SPX complex orders fill near mid plus a fixed per-leg
-#   concession (bounds for sensitivity)
-# - commissions + exchange/regulatory fees: fixed per traded leg
-# - settlement: $5 per leg finishing ITM (auto-exercise/assignment fee);
-#   OTM legs expire free
-FILL_COST_PER_LEG = 0.075
+# Canonical all-in cost model (user-calibrated), charged per SPREAD ORDER
+# (one 2-option vertical executed as a complex order):
+# - fill concession: the spread fills at mid plus a fixed concession
+#   (bounds for sensitivity)
+# - commissions + exchange/regulatory fees: ~$1/option x2 plus exchange
+#   fees, ~$5 total per spread order
+# - settlement: $5 per option finishing ITM (auto-exercise/assignment);
+#   OTM options expire free
+FILL_COST_PER_SPREAD = 0.075
 FILL_COST_BOUNDS = (0.05, 0.10)
-FEES_PER_LEG = 0.05  # $5/leg commission + exchange fees, in SPX points
-SETTLEMENT_FEE_PER_ITM_LEG = 0.05  # $5/leg exercise/assignment
+FEES_PER_SPREAD = 0.05  # $5/spread commission + exchange fees, in SPX points
+SETTLEMENT_FEE_PER_ITM_LEG = 0.05  # $5/option exercise/assignment
 
 
 def legs_filled(s: dict) -> int:
@@ -391,12 +393,13 @@ def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Headline P&L rollup — the one-glance answer, before any slicing."""
     pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
     total_legs = sum(legs_filled(s) for s in reconstructed)
+    spreads = total_legs // 2  # 2 options per spread order
     itm_legs = sum(itm_legs_at_settlement(s, settle_spot) for s in reconstructed)
     settle_fees = itm_legs * SETTLEMENT_FEE_PER_ITM_LEG
-    per_leg = FILL_COST_PER_LEG + FEES_PER_LEG
-    realistic = pnl_mid - total_legs * per_leg - settle_fees
-    lo = pnl_mid - total_legs * (FILL_COST_BOUNDS[1] + FEES_PER_LEG) - settle_fees
-    hi = pnl_mid - total_legs * (FILL_COST_BOUNDS[0] + FEES_PER_LEG) - settle_fees
+    per_spread = FILL_COST_PER_SPREAD + FEES_PER_SPREAD
+    realistic = pnl_mid - spreads * per_spread - settle_fees
+    lo = pnl_mid - spreads * (FILL_COST_BOUNDS[1] + FEES_PER_SPREAD) - settle_fees
+    hi = pnl_mid - spreads * (FILL_COST_BOUNDS[0] + FEES_PER_SPREAD) - settle_fees
 
     settled = [s for s in reconstructed if s["outcome"] == "settled"]
     closed = [s for s in reconstructed if s["outcome"] == "closed"]
@@ -420,14 +423,14 @@ def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
         "| | |",
         "|---|---|",
         f"| **Day P&L at mid fills** | **{fmt_pts(pnl_mid)}** |",
-        f"| **Day P&L all-in** (concession {FILL_COST_PER_LEG} + fees "
-        f"{FEES_PER_LEG}/leg + settlement) | "
+        f"| **Day P&L all-in** (concession {FILL_COST_PER_SPREAD} + fees "
+        f"{FEES_PER_SPREAD} per spread order + settlement) | "
         f"**{fmt_pts(realistic)}** (range {fmt_pts(lo)} to {fmt_pts(hi)} at "
         f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]} concession) |",
         f"| from closed verticals (realized) | {fmt_pts(realized)} ({len(closed)} trades) |",
         f"| from settled butterflies | {fmt_pts(fly_pnl)} ({len(settled)} flies) |",
-        f"| concession + fees ({total_legs} legs filled) | "
-        f"{fmt_pts(-total_legs * per_leg)} |",
+        f"| concession + fees ({spreads} spread orders) | "
+        f"{fmt_pts(-spreads * per_spread)} |",
         f"| settlement fees ({itm_legs} ITM legs x $5) | {fmt_pts(-settle_fees)} |",
         f"| whipsaw round trips (<2 min) | {len(whips)}, "
         f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whips))} at mid |",
