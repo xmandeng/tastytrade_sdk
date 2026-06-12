@@ -352,10 +352,16 @@ def exit_policy_section(reconstructed: list[dict], snapshots: list[dict]) -> lis
     return lines
 
 
-# Canonical realistic fill model: SPX complex orders fill near mid plus a
-# fixed per-leg concession (user-calibrated). Bounds for sensitivity.
+# Canonical all-in cost model (user-calibrated):
+# - fill concession: SPX complex orders fill near mid plus a fixed per-leg
+#   concession (bounds for sensitivity)
+# - commissions + exchange/regulatory fees: fixed per traded leg
+# - settlement: $5 per leg finishing ITM (auto-exercise/assignment fee);
+#   OTM legs expire free
 FILL_COST_PER_LEG = 0.075
 FILL_COST_BOUNDS = (0.05, 0.10)
+FEES_PER_LEG = 0.05  # $5/leg commission + exchange fees, in SPX points
+SETTLEMENT_FEE_PER_ITM_LEG = 0.05  # $5/leg exercise/assignment
 
 
 def legs_filled(s: dict) -> int:
@@ -366,13 +372,31 @@ def legs_filled(s: dict) -> int:
     return legs
 
 
-def rollup_block(reconstructed: list[dict]) -> list[str]:
+def itm_legs_at_settlement(s: dict, settle_spot: float) -> int:
+    """Count fly legs finishing ITM (assessed exercise/assignment fees)."""
+    if s["outcome"] != "settled" or s.get("completion_credit") is None:
+        return 0
+    K, w = s["short_strike"], s["width"]
+    count = 0
+    for strike in (K, K + w):  # call legs
+        if settle_spot > strike:
+            count += 1
+    for strike in (K, K - w):  # put legs
+        if settle_spot < strike:
+            count += 1
+    return count
+
+
+def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Headline P&L rollup — the one-glance answer, before any slicing."""
     pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
     total_legs = sum(legs_filled(s) for s in reconstructed)
-    realistic = pnl_mid - total_legs * FILL_COST_PER_LEG
-    lo = pnl_mid - total_legs * FILL_COST_BOUNDS[1]
-    hi = pnl_mid - total_legs * FILL_COST_BOUNDS[0]
+    itm_legs = sum(itm_legs_at_settlement(s, settle_spot) for s in reconstructed)
+    settle_fees = itm_legs * SETTLEMENT_FEE_PER_ITM_LEG
+    per_leg = FILL_COST_PER_LEG + FEES_PER_LEG
+    realistic = pnl_mid - total_legs * per_leg - settle_fees
+    lo = pnl_mid - total_legs * (FILL_COST_BOUNDS[1] + FEES_PER_LEG) - settle_fees
+    hi = pnl_mid - total_legs * (FILL_COST_BOUNDS[0] + FEES_PER_LEG) - settle_fees
 
     settled = [s for s in reconstructed if s["outcome"] == "settled"]
     closed = [s for s in reconstructed if s["outcome"] == "closed"]
@@ -396,13 +420,15 @@ def rollup_block(reconstructed: list[dict]) -> list[str]:
         "| | |",
         "|---|---|",
         f"| **Day P&L at mid fills** | **{fmt_pts(pnl_mid)}** |",
-        f"| **Day P&L at realistic fills** (mid+{FILL_COST_PER_LEG}/leg) | "
+        f"| **Day P&L all-in** (concession {FILL_COST_PER_LEG} + fees "
+        f"{FEES_PER_LEG}/leg + settlement) | "
         f"**{fmt_pts(realistic)}** (range {fmt_pts(lo)} to {fmt_pts(hi)} at "
-        f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]}) |",
+        f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]} concession) |",
         f"| from closed verticals (realized) | {fmt_pts(realized)} ({len(closed)} trades) |",
         f"| from settled butterflies | {fmt_pts(fly_pnl)} ({len(settled)} flies) |",
-        f"| friction paid ({total_legs} legs filled) | "
-        f"{fmt_pts(-total_legs * FILL_COST_PER_LEG)} |",
+        f"| concession + fees ({total_legs} legs filled) | "
+        f"{fmt_pts(-total_legs * per_leg)} |",
+        f"| settlement fees ({itm_legs} ITM legs x $5) | {fmt_pts(-settle_fees)} |",
         f"| whipsaw round trips (<2 min) | {len(whips)}, "
         f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whips))} at mid |",
         f"| best single structure | {best['variant']} {best['direction']} "
@@ -465,7 +491,7 @@ def build_report(data_dir: Path) -> str:
     settle_spot = float(settle_value)
     reconstructed = reconstruct_structures(data_dir, snapshots, settle_spot)
     variant_names = [v["name"] for v in header["variants"]]
-    lines += rollup_block(reconstructed)
+    lines += rollup_block(reconstructed, settle_spot)
     orphans = [s for s in reconstructed if s.get("orphaned")]
     lines += [
         "## Per-variant slice (mid fills)",
