@@ -352,6 +352,67 @@ def exit_policy_section(reconstructed: list[dict], snapshots: list[dict]) -> lis
     return lines
 
 
+# Canonical realistic fill model: SPX complex orders fill near mid plus a
+# fixed per-leg concession (user-calibrated). Bounds for sensitivity.
+FILL_COST_PER_LEG = 0.075
+FILL_COST_BOUNDS = (0.05, 0.10)
+
+
+def legs_filled(s: dict) -> int:
+    legs = len(s.get("entry_legs") or [])
+    legs += len(s.get("completion_legs") or [])
+    if s["outcome"] == "closed":
+        legs += len(s.get("entry_legs") or [])  # exit crosses the same legs
+    return legs
+
+
+def rollup_block(reconstructed: list[dict]) -> list[str]:
+    """Headline P&L rollup — the one-glance answer, before any slicing."""
+    pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
+    total_legs = sum(legs_filled(s) for s in reconstructed)
+    realistic = pnl_mid - total_legs * FILL_COST_PER_LEG
+    lo = pnl_mid - total_legs * FILL_COST_BOUNDS[1]
+    hi = pnl_mid - total_legs * FILL_COST_BOUNDS[0]
+
+    settled = [s for s in reconstructed if s["outcome"] == "settled"]
+    closed = [s for s in reconstructed if s["outcome"] == "closed"]
+    realized = sum(s["pnl_points"] or 0.0 for s in closed)
+    fly_pnl = sum(s["pnl_points"] or 0.0 for s in settled)
+    whips = [
+        s
+        for s in closed
+        if s.get("closed_at")
+        and (
+            datetime.fromisoformat(s["closed_at"])
+            - datetime.fromisoformat(s["opened_at"])
+        ).total_seconds()
+        < 120
+    ]
+    best = max(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
+    worst = min(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
+    return [
+        "## P&L rollup (the whole day in one block)",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| **Day P&L at mid fills** | **{fmt_pts(pnl_mid)}** |",
+        f"| **Day P&L at realistic fills** (mid+{FILL_COST_PER_LEG}/leg) | "
+        f"**{fmt_pts(realistic)}** (range {fmt_pts(lo)} to {fmt_pts(hi)} at "
+        f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]}) |",
+        f"| from closed verticals (realized) | {fmt_pts(realized)} ({len(closed)} trades) |",
+        f"| from settled butterflies | {fmt_pts(fly_pnl)} ({len(settled)} flies) |",
+        f"| friction paid ({total_legs} legs filled) | "
+        f"{fmt_pts(-total_legs * FILL_COST_PER_LEG)} |",
+        f"| whipsaw round trips (<2 min) | {len(whips)}, "
+        f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whips))} at mid |",
+        f"| best single structure | {best['variant']} {best['direction']} "
+        f"K={best['short_strike']:g}: {fmt_pts(best.get('pnl_points'))} |",
+        f"| worst single structure | {worst['variant']} {worst['direction']} "
+        f"K={worst['short_strike']:g}: {fmt_pts(worst.get('pnl_points'))} |",
+        "",
+    ]
+
+
 def variant_table(reconstructed: list[dict], variants: list[str]) -> list[str]:
     lines = [
         "| Variant | Entries | Completed | Closed early | P&L |",
@@ -381,21 +442,15 @@ def build_report(data_dir: Path) -> str:
     lines = [
         f"# TT-156 Research Day — {header['date']}",
         "",
-        "## Day overview",
-        "",
-        f"- Snapshots captured: {len(snapshots)} (cadence {header['cadence_seconds']}s)",
-        f"- SPX path: open≈{spots[0]:.2f}, high {max(spots):.2f}, "
-        f"low {min(spots):.2f}, last {spots[-1]:.2f}",
-        f"- Settlement spot used: {results.get('settlement_spot')}",
-        f"- Prior close: {header['index_summary'].get('prev_close')}",
-        "",
-        "## Live paper-trading results (mid-price fills)",
-        "",
-        "Reconstructed from events.jsonl — spans all collector instances; "
-        "structures orphaned by a restart are settled/closed from the "
-        "snapshot record under the live rules.",
+        f"SPX: open {spots[0]:.0f} → high {max(spots):.0f} / low {min(spots):.0f} "
+        f"→ settled {results.get('settlement_spot') or spots[-1]} "
+        f"(prior close {header['index_summary'].get('prev_close')}). "
+        f"{len(snapshots)} chain snapshots at {header['cadence_seconds']:.0f}s cadence.",
         "",
     ]
+    narrative = data_dir / "narrative.md"
+    if narrative.exists():
+        lines += ["## The day's story", "", narrative.read_text().strip(), ""]
     settle_value = results.get("settlement_spot")
     if settle_value is None:
         settle_value = next(
@@ -410,16 +465,21 @@ def build_report(data_dir: Path) -> str:
     settle_spot = float(settle_value)
     reconstructed = reconstruct_structures(data_dir, snapshots, settle_spot)
     variant_names = [v["name"] for v in header["variants"]]
-    lines += variant_table(reconstructed, variant_names)
+    lines += rollup_block(reconstructed)
     orphans = [s for s in reconstructed if s.get("orphaned")]
-    total_pnl = sum(s["pnl_points"] or 0.0 for s in reconstructed)
     lines += [
+        "## Per-variant slice (mid fills)",
+        "",
+        "Reconstructed from events.jsonl across all collector instances; "
+        "restart-orphaned structures exit at the first post-recovery snapshot "
+        "(no backdated fills).",
+        "",
+        *variant_table(reconstructed, variant_names),
         "",
         f"Structures reconstructed: {len(reconstructed)} "
-        f"({len(orphans)} orphaned by restarts, resolved from snapshots)",
+        f"({len(orphans)} orphaned by restarts)",
         f"Skipped entries (unusable quotes, last instance): {results.get('skipped_entries', 0)}",
         *risk_and_whipsaw_lines(data_dir, reconstructed),
-        f"**Total live paper P&L: {fmt_pts(total_pnl)}** per 1-lot per variant",
         "",
         *exit_policy_section(reconstructed, snapshots),
         "## Retro-sweep — every 5-min entry, both directions, widths "
