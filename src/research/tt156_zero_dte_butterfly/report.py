@@ -165,7 +165,9 @@ def trace_outcome(
 def fmt_pts(value: float | None) -> str:
     if value is None:
         return "n/a"
-    return f"{value:+.2f} pts (${value * CONTRACT_MULTIPLIER:+,.0f})"
+    dollars = value * CONTRACT_MULTIPLIER
+    usd = f"-${abs(dollars):,.0f}" if dollars < 0 else f"${dollars:,.0f}"
+    return f"{value:.2f} pts ({usd})"
 
 
 def reconstruct_structures(
