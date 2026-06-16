@@ -73,6 +73,13 @@ Data dir: `research_data/TT-156/<YYYY-MM-DD>/` (gitignored).
 
 ## Strategy mechanics being tested (for context)
 
+Bar-close confirmation (`RunConfig.confirm_on_close`, default on): the live
+feed's forming candle is buffered and handed to the Hull/MACD engine only once
+a newer bar opens, so signals fire on completed candles only — no intra-candle
+entries. Added after the TT-156 day 1-3 churn analysis (intra-candle whipsaws
+were ~74% of trades and pure friction). Set to `False` to restore the legacy
+intra-candle behavior.
+
 Entry: confluence OPEN signal → sell ATM vertical at mid
 (BEARISH → bear call K/K+w; BULLISH → bull put K/K-w), credit C1.
 Completion: when the counter vertical at the same short strike K fetches C2

@@ -45,7 +45,10 @@ class DayCollector:
     def __init__(self, run_config: RunConfig) -> None:
         self.cfg = run_config
         self.session: AsyncSessionHandler | None = None
-        self.signal_engine = LiveSignalEngine(warmup_days=run_config.warmup_days)
+        self.signal_engine = LiveSignalEngine(
+            warmup_days=run_config.warmup_days,
+            confirm_on_close=run_config.confirm_on_close,
+        )
         self.simulator = ButterflySimulator(
             run_config.variants,
             event_sink=JsonlEventSink(str(run_config.data_dir / "events.jsonl")),
