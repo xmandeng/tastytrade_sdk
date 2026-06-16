@@ -51,13 +51,18 @@ class SignalCapture:
 class LiveSignalEngine:
     """HullMacdEngine wrapper: InfluxDB warmup, live Redis feed, spot tracking."""
 
-    def __init__(self, warmup_days: int = 3) -> None:
+    def __init__(self, warmup_days: int = 3, confirm_on_close: bool = True) -> None:
         self.capture = SignalCapture()
         self.engine = HullMacdEngine(publisher=self.capture)
         self.warmup_days = warmup_days
+        self.confirm_on_close = confirm_on_close
         self.latest_spot: float | None = None
         self.latest_spot_time: datetime | None = None
         self.subscription: RedisSubscription | None = None
+        # Per-symbol buffer of the still-forming candle, held until a newer
+        # bar arrives (= the buffered bar has closed). Only sealed bars reach
+        # the engine when confirm_on_close is set.
+        self.forming: dict[str, CandleEvent] = {}
 
     def candle_symbols(self) -> list[str]:
         return [f"{SYMBOL}{{={interval}}}" for interval in INTERVALS]
@@ -115,10 +120,24 @@ class LiveSignalEngine:
     def on_candle(self, event: BaseEvent) -> None:
         if not isinstance(event, CandleEvent):
             return
+        # Spot tracking stays live (drives chain centering) regardless of the
+        # signal gate.
         if event.eventSymbol == f"{SYMBOL}{{=m}}" and event.close is not None:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
-        self.engine.on_candle_event(event)
+
+        if not self.confirm_on_close:
+            self.engine.on_candle_event(event)
+            return
+
+        # Bar-close gate: forward the previous bar to the engine only once a
+        # newer bar opens (it has sealed); buffer the forming bar otherwise.
+        # The engine never sees an intra-candle update, so a signal cannot fire
+        # until its candle is complete.
+        prev = self.forming.get(event.eventSymbol)
+        if prev is not None and event.time > prev.time:
+            self.engine.on_candle_event(prev)
+        self.forming[event.eventSymbol] = event
 
     def state_summary(self) -> dict[str, dict[str, str | bool | None]]:
         summary: dict[str, dict[str, str | bool | None]] = {}

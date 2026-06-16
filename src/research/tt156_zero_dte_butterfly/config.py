@@ -67,5 +67,10 @@ class RunConfig:
     )
     warmup_days: int = 3
     variants: list[VariantConfig] = field(default_factory=default_variants)
+    # Only act on closed Hull/MACD candles: buffer the forming bar from the
+    # live feed and forward it to the engine only once a newer bar arrives, so
+    # no trade is taken before a full candle establishes the signal. Eliminates
+    # the intra-candle whipsaws (TT-156 days 1-3 churn analysis).
+    confirm_on_close: bool = True
     max_cycles: int | None = None  # test mode: stop after N cycles
     ignore_session_times: bool = False  # test mode: run regardless of clock
