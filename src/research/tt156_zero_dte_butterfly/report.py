@@ -391,6 +391,92 @@ def itm_legs_at_settlement(s: dict, settle_spot: float) -> int:
     return count
 
 
+def usd(value: float) -> str:
+    """Dollars, no plus sign on positives: $1,234 / -$1,234."""
+    d = value * 100
+    return f"-${abs(d):,.0f}" if d < 0 else f"${d:,.0f}"
+
+
+def time_bucket(opened_at: str) -> int:
+    """0=morning (<11:30 ET), 1=midday (11:30-13:30), 2=afternoon (>13:30)."""
+    t = datetime.fromisoformat(opened_at)  # collector writes ET-local timestamps
+    m = t.hour * 60 + t.minute
+    return 0 if m < 11 * 60 + 30 else (1 if m < 13 * 60 + 30 else 2)
+
+
+def cell_all_in(rows: list[dict], settle_spot: float) -> float:
+    """All-in P&L (points) for a set of structures, canonical cost model."""
+    pnl_mid = sum(s["pnl_points"] or 0.0 for s in rows)
+    spreads = sum(legs_filled(s) for s in rows) // 2
+    itm = sum(itm_legs_at_settlement(s, settle_spot) for s in rows)
+    per_spread = FILL_COST_PER_SPREAD + FEES_PER_SPREAD
+    return pnl_mid - spreads * per_spread - itm * SETTLEMENT_FEE_PER_ITM_LEG
+
+
+def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
+    """Lead block: all-in P&L decomposed by config tranche AND time of day.
+
+    The lumped grid total is deliberately NOT the headline — it averages
+    red-herring configs together and is not actionable. Read the tranches.
+    """
+    groups: list[tuple[str, object]] = [
+        ("1m signal", lambda v: "_m_" in v),
+        ("5m signal", lambda v: "_5m_" in v),
+        ("w10", lambda v: v.startswith("w10")),
+        ("w25", lambda v: v.startswith("w25")),
+        ("w50", lambda v: v.startswith("w50")),
+    ]
+
+    def cell(pred: object, b: int) -> float:
+        rows = [
+            s
+            for s in reconstructed
+            if pred(s["variant"]) and time_bucket(s["opened_at"]) == b  # type: ignore[operator]
+        ]
+        return cell_all_in(rows, settle_spot)
+
+    lines = [
+        "## All-in P&L by tranche x time of day",
+        "",
+        "Read the tranches, not a lumped total — it averages red-herring "
+        "configs together. Each partition (by signal, by width) sums across "
+        "time to its row total and down each column to the column total.",
+        "",
+        "| Tranche | Morning | Midday | Afternoon | Total |",
+        "|---|---|---|---|---|",
+    ]
+    col = [0.0, 0.0, 0.0]
+    for label, pred in groups:
+        cells = [cell(pred, b) for b in range(3)]
+        if label == "w10":  # widths partition the grid too; separate visually
+            lines.append("| *— by width —* | | | | |")
+        if label in ("1m signal", "5m signal"):
+            for i in range(3):
+                col[i] += cells[i]
+        row = " | ".join(usd(c) for c in cells)
+        lines.append(f"| {label} | {row} | {usd(sum(cells))} |")
+    lines.append(
+        f"| **All time** | {usd(col[0])} | {usd(col[1])} | {usd(col[2])} | "
+        f"{usd(sum(col))} |"
+    )
+
+    best = max(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
+    worst = min(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
+    pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
+    spreads = sum(legs_filled(s) for s in reconstructed) // 2
+    lines += [
+        "",
+        f"Gross at mid {fmt_pts(pnl_mid)} across {spreads} spread orders "
+        f"(friction {fmt_pts(-spreads * (FILL_COST_PER_SPREAD + FEES_PER_SPREAD))}). "
+        f"Best structure {best['variant']} {best['direction']} "
+        f"K={best['short_strike']:g}: {fmt_pts(best.get('pnl_points'))}; "
+        f"worst {worst['variant']} {worst['direction']} "
+        f"K={worst['short_strike']:g}: {fmt_pts(worst.get('pnl_points'))}.",
+        "",
+    ]
+    return lines
+
+
 def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Headline P&L rollup — the one-glance answer, before any slicing."""
     pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
@@ -496,7 +582,7 @@ def build_report(data_dir: Path) -> str:
     settle_spot = float(settle_value)
     reconstructed = reconstruct_structures(data_dir, snapshots, settle_spot)
     variant_names = [v["name"] for v in header["variants"]]
-    lines += rollup_block(reconstructed, settle_spot)
+    lines += tranche_timeframe_block(reconstructed, settle_spot)
     orphans = [s for s in reconstructed if s.get("orphaned")]
     lines += [
         "## Per-variant slice (mid fills)",
