@@ -413,50 +413,56 @@ def cell_all_in(rows: list[dict], settle_spot: float) -> float:
     return pnl_mid - spreads * per_spread - itm * SETTLEMENT_FEE_PER_ITM_LEG
 
 
+def signal_of(variant: str) -> str:
+    return "5m" if "_5m_" in variant else "1m"
+
+
+def width_of(variant: str) -> str:
+    return variant.split("_", 1)[0]
+
+
 def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
-    """Lead block: all-in P&L decomposed by config tranche AND time of day.
+    """Lead block: all-in P&L by (signal x width) family x time of day.
 
-    The lumped grid total is deliberately NOT the headline — it averages
-    red-herring configs together and is not actionable. Read the tranches.
+    Rows are DISJOINT (signal x width) families — they partition the grid, so
+    the table sums cleanly both across time (row totals) and down each column
+    (column totals) without double-counting. The lumped grid total is the
+    bottom-right corner only, never the headline: read the families.
     """
-    groups: list[tuple[str, object]] = [
-        ("1m signal", lambda v: "_m_" in v),
-        ("5m signal", lambda v: "_5m_" in v),
-        ("w10", lambda v: v.startswith("w10")),
-        ("w25", lambda v: v.startswith("w25")),
-        ("w50", lambda v: v.startswith("w50")),
-    ]
+    families = sorted(
+        {(signal_of(s["variant"]), width_of(s["variant"])) for s in reconstructed},
+        key=lambda f: (f[0], int(f[1][1:])),
+    )
 
-    def cell(pred: object, b: int) -> float:
+    def cell(sig: str, wid: str, b: int) -> float:
         rows = [
             s
             for s in reconstructed
-            if pred(s["variant"]) and time_bucket(s["opened_at"]) == b  # type: ignore[operator]
+            if signal_of(s["variant"]) == sig
+            and width_of(s["variant"]) == wid
+            and time_bucket(s["opened_at"]) == b
         ]
         return cell_all_in(rows, settle_spot)
 
     lines = [
-        "## All-in P&L by tranche x time of day",
+        "## All-in P&L by signal x width family x time of day",
         "",
-        "Read the tranches, not a lumped total — it averages red-herring "
-        "configs together. Each partition (by signal, by width) sums across "
-        "time to its row total and down each column to the column total.",
+        "Rows are disjoint families (no overlap), so the table sums cleanly "
+        "both ways. There is deliberately no lumped headline total — it "
+        "averages unrelated configs and is not actionable. Read the families.",
         "",
-        "| Tranche | Morning | Midday | Afternoon | Total |",
+        "| Family | Morning | Midday | Afternoon | Total |",
         "|---|---|---|---|---|",
     ]
     col = [0.0, 0.0, 0.0]
-    for label, pred in groups:
-        cells = [cell(pred, b) for b in range(3)]
-        if label == "w10":  # widths partition the grid too; separate visually
-            lines.append("| *— by width —* | | | | |")
-        if label in ("1m signal", "5m signal"):
-            for i in range(3):
-                col[i] += cells[i]
+    for sig, wid in families:
+        cells = [cell(sig, wid, b) for b in range(3)]
+        for i in range(3):
+            col[i] += cells[i]
         row = " | ".join(usd(c) for c in cells)
-        lines.append(f"| {label} | {row} | {usd(sum(cells))} |")
+        lines.append(f"| {sig}·{wid} | {row} | {usd(sum(cells))} |")
     lines.append(
-        f"| **All time** | {usd(col[0])} | {usd(col[1])} | {usd(col[2])} | "
+        f"| **Total** | {usd(col[0])} | {usd(col[1])} | {usd(col[2])} | "
         f"{usd(sum(col))} |"
     )
 
