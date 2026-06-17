@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from research.tt156_zero_dte_butterfly.collector import DayCollector
-from research.tt156_zero_dte_butterfly.config import ET, RunConfig
+from research.tt156_zero_dte_butterfly.config import ET, RunConfig, is_trading_day
 
 DATA_ROOT = Path("research_data/TT-156")
 
@@ -41,6 +41,15 @@ def main() -> None:
     args = parser.parse_args()
 
     config = build_config(args.test, args.cadence)
+
+    # Holiday/weekend guard: the OS cron fires every weekday and can't see
+    # market holidays. Skip non-trading days so we never spin on a closed
+    # market or write a junk day-dir. --test bypasses (plumbing check).
+    today = datetime.now(ET).date()
+    if not args.test and not is_trading_day(today):
+        print(f"{today} is not a trading day (weekend or US market holiday) — exiting.")
+        sys.exit(0)
+
     config.data_dir.mkdir(parents=True, exist_ok=True)
 
     # Singleton guard: concurrent collectors interleave snapshots and

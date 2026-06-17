@@ -1,11 +1,30 @@
 """Run configuration for the TT-156 research day."""
 
 from dataclasses import dataclass, field
-from datetime import time
+from datetime import date, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
+
+# US equity market full-closure holidays (NYSE/Nasdaq). The weekday OS cron
+# fires Mon-Fri and can't see holidays, so the collector self-skips these.
+# Extend as the calendar rolls forward.
+MARKET_HOLIDAYS = frozenset(
+    {
+        date(2026, 6, 19),  # Juneteenth
+        date(2026, 7, 3),  # Independence Day observed (Jul 4 is a Saturday)
+        date(2026, 9, 7),  # Labor Day
+        date(2026, 11, 26),  # Thanksgiving
+        date(2026, 12, 25),  # Christmas
+    }
+)
+
+
+def is_trading_day(day: date) -> bool:
+    """True if the market is open: a weekday that is not a full-closure holiday."""
+    return day.weekday() < 5 and day not in MARKET_HOLIDAYS
+
 
 SYMBOL = "SPX"
 OPTION_ROOT = "SPXW"
