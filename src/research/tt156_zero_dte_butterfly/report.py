@@ -42,6 +42,19 @@ def load_snapshots(data_dir: Path) -> list[dict]:
     return snapshots
 
 
+def load_events(data_dir: Path) -> list[dict]:
+    """Read events.jsonl, tolerating its absence on a no-trade day.
+
+    The collector only writes events.jsonl once a structure exists, so a
+    session that never fires (out-of-scope regime — see the regime-selectivity
+    note) has no file. That is a valid outcome, not an error.
+    """
+    path = data_dir / "events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def snapshot_quotes(snapshot: dict) -> dict[tuple[float, str], dict]:
     return {(opt["strike"], opt["cp"]): opt for opt in snapshot["options"]}
 
@@ -183,8 +196,7 @@ def reconstruct_structures(
     else forced close at 15:45).
     """
     structures: dict[tuple, dict] = {}
-    for line in (data_dir / "events.jsonl").read_text().splitlines():
-        e = json.loads(line)
+    for e in load_events(data_dir):
         key = (e["variant"], e["direction"], e["opened_at"])
         if e["event"] == "ENTRY":
             structures[key] = {**e, "outcome": "open"}
@@ -288,13 +300,7 @@ def risk_and_whipsaw_lines(data_dir: Path, reconstructed: list[dict]) -> list[st
     ]
     peak_risk = 0.0
     running: dict[tuple, float] = {}
-    events = sorted(
-        (
-            json.loads(line)
-            for line in (data_dir / "events.jsonl").read_text().splitlines()
-        ),
-        key=lambda e: e["ts"],
-    )
+    events = sorted(load_events(data_dir), key=lambda e: e["ts"])
     for e in events:
         key = (e["variant"], e["direction"], e["opened_at"])
         if e["event"] == "ENTRY":
@@ -588,6 +594,19 @@ def build_report(data_dir: Path) -> str:
     settle_spot = float(settle_value)
     reconstructed = reconstruct_structures(data_dir, snapshots, settle_spot)
     variant_names = [v["name"] for v in header["variants"]]
+    if not reconstructed:
+        lines += [
+            "## No trades — out-of-scope regime",
+            "",
+            "The setup made zero entries today. Confluence is a transition "
+            "detector (Hull + MACD must cross together on a sealed candle), so a "
+            "gap-and-chop or instant-directional day produces no fresh dual-cross "
+            "and the strategy correctly stands aside. A no-trade session is a "
+            "valid regime observation of this setup's selectivity, not a missed "
+            "trade — there is no P&L table to report.",
+            "",
+        ]
+        return "\n".join(lines)
     lines += tranche_timeframe_block(reconstructed, settle_spot)
     orphans = [s for s in reconstructed if s.get("orphaned")]
     lines += [
