@@ -86,6 +86,20 @@ class LiveSignalEngine:
                 start=session_date - timedelta(days=self.warmup_days),
                 stop=session_date,
             )
+            if df.is_empty() or "time" not in df.columns:
+                # No history in the warmup window (e.g. a Monday whose window
+                # falls on the weekend, or an InfluxDB gap). Warmup is an
+                # optimization, not a prerequisite — the engine warms up live
+                # over the first candles. Never let an empty frame crash the
+                # whole collection run.
+                logger.warning(
+                    "Warmup found no candles for %s in [%s, %s] — "
+                    "starting engine cold",
+                    symbol,
+                    session_date - timedelta(days=self.warmup_days),
+                    session_date,
+                )
+                continue
             count = 0
             for row in df.sort("time").to_dicts():
                 try:
