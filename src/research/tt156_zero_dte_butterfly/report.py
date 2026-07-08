@@ -430,10 +430,12 @@ def width_of(variant: str) -> str:
 def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Lead block: all-in P&L by (signal x width) family x time of day.
 
-    Rows are DISJOINT (signal x width) families — they partition the grid, so
-    the table sums cleanly both across time (row totals) and down each column
-    (column totals) without double-counting. The lumped grid total is the
-    bottom-right corner only, never the headline: read the families.
+    Rows are DISJOINT (signal x width) families — they partition the grid. Each
+    row shows its own tranche total across time; there is deliberately NO lumped
+    total (no Total row, no grand total). The grid is a research instrument to
+    find WHICH tranche has edge, not a portfolio meant to be net-profitable
+    across all 12 variants, so a summed all-in number implies an objective the
+    experiment does not have. The block instead calls out the winning tranche.
     """
     families = sorted(
         {(signal_of(s["variant"]), width_of(s["variant"])) for s in reconstructed},
@@ -451,39 +453,39 @@ def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> li
         return cell_all_in(rows, settle_spot)
 
     lines = [
-        "## All-in P&L by signal x width family x time of day",
+        "## P&L by signal x width family x time of day (all-in cost model)",
         "",
-        "Rows are disjoint families (no overlap), so the table sums cleanly "
-        "both ways. There is deliberately no lumped headline total — it "
-        "averages unrelated configs and is not actionable. Read the families.",
+        "Disjoint families (no overlap). This grid is a research instrument to "
+        "find WHICH tranche has edge — not a portfolio meant to be net-profitable "
+        "across all 12 variants. There is deliberately NO lumped all-in total "
+        "(neither a Total row nor a grand total): summing intentionally-diverse "
+        "configs implies an objective the experiment does not have. Read the "
+        "families; the winning tranche is called out below.",
         "",
-        "| Family | Morning | Midday | Afternoon | Total |",
+        "| Family | Morning | Midday | Afternoon | Tranche total |",
         "|---|---|---|---|---|",
     ]
-    col = [0.0, 0.0, 0.0]
+    fam_totals: dict[str, float] = {}
     for sig, wid in families:
         cells = [cell(sig, wid, b) for b in range(3)]
-        for i in range(3):
-            col[i] += cells[i]
+        fam_totals[f"{sig}·{wid}"] = sum(cells)
         row = " | ".join(usd(c) for c in cells)
         lines.append(f"| {sig}·{wid} | {row} | {usd(sum(cells))} |")
-    lines.append(
-        f"| **Total** | {usd(col[0])} | {usd(col[1])} | {usd(col[2])} | "
-        f"{usd(sum(col))} |"
-    )
 
+    # Surface the winning tranche, never a lumped total.
+    best_fam = max(fam_totals, key=lambda k: fam_totals[k])
     best = max(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
     worst = min(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
-    pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
     spreads = sum(legs_filled(s) for s in reconstructed) // 2
     lines += [
         "",
-        f"Gross at mid {fmt_pts(pnl_mid)} across {spreads} spread orders "
-        f"(friction {fmt_pts(-spreads * (FILL_COST_PER_SPREAD + FEES_PER_SPREAD))}). "
-        f"Best structure {best['variant']} {best['direction']} "
+        f"**Most successful tranche: {best_fam} {usd(fam_totals[best_fam])}.** "
+        f"Best single structure {best['variant']} {best['direction']} "
         f"K={best['short_strike']:g}: {fmt_pts(best.get('pnl_points'))}; "
         f"worst {worst['variant']} {worst['direction']} "
-        f"K={worst['short_strike']:g}: {fmt_pts(worst.get('pnl_points'))}.",
+        f"K={worst['short_strike']:g}: {fmt_pts(worst.get('pnl_points'))}. "
+        f"{spreads} spread orders, friction "
+        f"{fmt_pts(-spreads * (FILL_COST_PER_SPREAD + FEES_PER_SPREAD))}.",
         "",
     ]
     return lines
