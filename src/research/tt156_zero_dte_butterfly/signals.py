@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 
 from tastytrade.analytics.engines.hull_macd import HullMacdEngine
 from tastytrade.analytics.engines.models import TradeSignal
+from tastytrade.analytics.indicators.momentum import macd
 from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 from tastytrade.providers.market import MarketDataProvider
@@ -19,6 +20,7 @@ from tastytrade.providers.subscriptions import RedisSubscription
 from tastytrade.utils.time_series import initialize_influx_client
 
 from research.tt156_zero_dte_butterfly.config import SYMBOL
+from research.tt156_zero_dte_butterfly.gate import flip_eta
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,32 @@ class LiveSignalEngine:
 
     def candle_symbols(self) -> list[str]:
         return [f"{SYMBOL}{{={interval}}}" for interval in INTERVALS]
+
+    def gate_context(self) -> dict[str, float | None]:
+        """Numeric MACD gate values from the engine's live sealed-bar windows.
+
+        Computed on the exact ``state.candles`` frames the engine trades on
+        (same ``macd()``, same prior-close seeding) so the recorded values
+        are what the entry decision actually saw. Nothing else in the stack
+        persists numeric MACD — this is the capture point.
+        """
+        ctx: dict[str, float | None] = {}
+        for interval in INTERVALS:
+            symbol = f"{SYMBOL}{{={interval}}}"
+            suffix = "1m" if interval == "m" else interval
+            hist: float | None = None
+            slope: float | None = None
+            state = self.engine._states.get(symbol)  # noqa: SLF001 — no public accessor
+            prior = self.engine._prior_closes.get(symbol)  # noqa: SLF001
+            if state is not None and state.candles.height >= 3:
+                mdf = macd(state.candles, prior_close=prior)
+                if mdf.height >= 2:
+                    hist = float(mdf["diff"][-1])
+                    slope = hist - float(mdf["diff"][-2])
+            ctx[f"hist_{suffix}"] = hist
+            ctx[f"slope_{suffix}"] = slope
+            ctx[f"flip_eta_{suffix}"] = flip_eta(hist, slope)
+        return ctx
 
     def warmup(self, session_date: date) -> None:
         """Replay recent history from InfluxDB through the engine."""

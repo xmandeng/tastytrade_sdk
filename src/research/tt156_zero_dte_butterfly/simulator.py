@@ -22,6 +22,8 @@ from typing import Callable
 
 from tastytrade.analytics.engines.models import TradeSignal
 
+from research.tt156_zero_dte_butterfly.gate import gate_bucket
+
 from research.tt156_zero_dte_butterfly.config import (
     ET,
     FORCED_CLOSE,
@@ -58,6 +60,15 @@ class Structure:
     entry_legs: list[LegFill]
     signal_trigger: str
     status: str = "OPEN"  # OPEN -> COMPLETED | CLOSED -> SETTLED
+    # Flip-ETA gate context captured at entry (see gate.py); recorded once,
+    # never mutated. None on structures from before gate tracking existed.
+    gate_bucket: str | None = None
+    gate_hist_5m: float | None = None
+    gate_slope_5m: float | None = None
+    gate_flip_eta_5m: float | None = None
+    gate_hist_1m: float | None = None
+    gate_slope_1m: float | None = None
+    gate_flip_eta_1m: float | None = None
     completed_at: str | None = None
     completion_spot: float | None = None
     completion_credit: float | None = None
@@ -170,13 +181,14 @@ class ButterflySimulator:
         spot: float,
         quotes: Quotes,
         signals: list[TradeSignal],
+        gate_ctx: dict[str, float | None] | None = None,
     ) -> None:
         ts_et = ts.astimezone(ET)
         for variant in self.variants:
             routed = [s for s in signals if s.eventSymbol == variant.signal_symbol]
             for signal in routed:
                 if signal.signal_type == "OPEN":
-                    self.try_enter(variant, ts, spot, quotes, signal)
+                    self.try_enter(variant, ts, spot, quotes, signal, gate_ctx)
                 elif signal.signal_type == "CLOSE":
                     self.close_incomplete(
                         variant,
@@ -224,6 +236,7 @@ class ButterflySimulator:
         spot: float,
         quotes: Quotes,
         signal: TradeSignal,
+        gate_ctx: dict[str, float | None] | None = None,
     ) -> None:
         if self.live_incomplete(variant.name, signal.direction):
             return
@@ -239,6 +252,7 @@ class ButterflySimulator:
             )
             return
         credit, legs = priced
+        ctx = gate_ctx or {}
         structure = Structure(
             variant=variant.name,
             direction=signal.direction,
@@ -249,6 +263,15 @@ class ButterflySimulator:
             entry_credit=credit,
             entry_legs=legs,
             signal_trigger=signal.trigger,
+            gate_bucket=gate_bucket(
+                ctx.get("hist_5m"), ctx.get("slope_5m"), signal.direction
+            ),
+            gate_hist_5m=ctx.get("hist_5m"),
+            gate_slope_5m=ctx.get("slope_5m"),
+            gate_flip_eta_5m=ctx.get("flip_eta_5m"),
+            gate_hist_1m=ctx.get("hist_1m"),
+            gate_slope_1m=ctx.get("slope_1m"),
+            gate_flip_eta_1m=ctx.get("flip_eta_1m"),
         )
         self.structures.append(structure)
         self.emit("ENTRY", ts, structure)

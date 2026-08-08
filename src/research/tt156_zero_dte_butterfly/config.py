@@ -39,6 +39,14 @@ LAST_COMPLETION = time(15, 55)
 MARKET_CLOSE = time(16, 0)
 SESSION_END = time(16, 15)
 
+# Flip-ETA gate thresholds (sealed 5m bars until the MACD histogram crosses
+# zero). Fixed by the 2026-08 research finding (TT-156 comment 15851): entries
+# fired while the 5m MACD opposes the direction but is within NEAR bars of
+# flipping were the only profitable subset, in-sample and in the 16-month
+# candle replay. Deliberately constants, not tunables.
+GATE_ETA_IMMINENT = 3.0
+GATE_ETA_NEAR = 10.0
+
 
 @dataclass(frozen=True)
 class VariantConfig:

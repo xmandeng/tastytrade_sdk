@@ -491,6 +491,134 @@ def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> li
     return lines
 
 
+GATED_BUCKETS = ("imminent", "near")
+
+
+def gate_cluster_key(s: dict) -> tuple:
+    return (s["opened_at"], s["direction"])
+
+
+def events_only_day(day_dir: Path) -> tuple[list[dict], int, float | None]:
+    """Lightweight per-day reconstruction for the cumulative gate scoreboard.
+
+    Events only — no snapshot replay, so restart-orphaned entries (outcome
+    still open in the log) are skipped and counted rather than traced. The
+    per-day report tables remain the authoritative accounting; this powers
+    the running gated-vs-ungated comparison across sessions.
+    """
+    structures: dict[tuple, dict] = {}
+    settle_spot: float | None = None
+    for e in load_events(day_dir):
+        key = (e["variant"], e["direction"], e["opened_at"])
+        structures.setdefault(key, {}).update(e)
+        if e.get("settlement_spot") is not None:
+            settle_spot = e["settlement_spot"]
+    rows, skipped = [], 0
+    for s in structures.values():
+        status = str(s.get("status") or "")
+        s["outcome"] = {"CLOSED": "closed", "SETTLED": "settled"}.get(status, "open")
+        if s["outcome"] == "open" and s.get("completion_credit") and settle_spot:
+            total = s["entry_credit"] + s["completion_credit"]
+            s["pnl_points"] = total - min(
+                abs(settle_spot - s["short_strike"]), s["width"]
+            )
+            s["outcome"] = "settled"
+        if s.get("pnl_points") is None:
+            skipped += 1
+            continue
+        rows.append(s)
+    return rows, skipped, settle_spot
+
+
+def gate_width_cells(rows: list[dict], settle_spot: float) -> str:
+    cells = []
+    for wid in ("w10", "w25", "w50"):
+        sub = [s for s in rows if width_of(s["variant"]) == wid]
+        cells.append(usd(cell_all_in(sub, settle_spot)) if sub else "—")
+    return " | ".join(cells)
+
+
+def flip_eta_gate_block(
+    reconstructed: list[dict], settle_spot: float, data_dir: Path
+) -> list[str]:
+    """Prospective flip-ETA gate scoreboard (TT-156 comment 15851).
+
+    The gate is recorded at capture, never enforced; this block splits the
+    day's clusters by their recorded bucket and accumulates gated vs ungated
+    all-in P&L across every tagged session. Per width family throughout — no
+    lumped grand total, same rule as the tranche block.
+    """
+    lines = ["## Flip-ETA gate (prospective)", ""]
+    tagged = [s for s in reconstructed if s.get("gate_bucket")]
+    if not tagged:
+        return lines + ["gate tracking not active for this session", ""]
+
+    lines += [
+        "| Cluster (ET) | Direction | Bucket | 5m flip ETA | w10 | w25 | w50 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    clusters: dict[tuple, list[dict]] = {}
+    for s in tagged:
+        clusters.setdefault(gate_cluster_key(s), []).append(s)
+    for key in sorted(clusters):
+        rows = clusters[key]
+        first = rows[0]
+        t_et = datetime.fromisoformat(first["opened_at"]).astimezone(ET)
+        eta = first.get("gate_flip_eta_5m")
+        lines.append(
+            f"| {t_et:%H:%M} | {first['direction']} | {first['gate_bucket']} "
+            f"| {'—' if eta is None else f'{eta:.1f}'} "
+            f"| {gate_width_cells(rows, settle_spot)} |"
+        )
+
+    gated = [s for s in tagged if s["gate_bucket"] in GATED_BUCKETS]
+    ungated = [s for s in tagged if s["gate_bucket"] not in GATED_BUCKETS]
+    lines += [
+        "",
+        "| Today (all-in) | w10 | w25 | w50 |",
+        "|---|---|---|---|",
+        f"| gated (imminent+near) | {gate_width_cells(gated, settle_spot)} |",
+        f"| ungated | {gate_width_cells(ungated, settle_spot)} |",
+    ]
+
+    cum_gated: list[dict] = []
+    cum_ungated: list[dict] = []
+    sessions, skipped_total = 0, 0
+    for day_dir in sorted(p for p in data_dir.parent.iterdir() if p.is_dir()):
+        rows, skipped, day_settle = events_only_day(day_dir)
+        day_tagged = [s for s in rows if s.get("gate_bucket")]
+        if not day_tagged:
+            continue
+        sessions += 1
+        skipped_total += skipped
+        for s in day_tagged:
+            s["_settle"] = day_settle or 0.0
+            (cum_gated if s["gate_bucket"] in GATED_BUCKETS else cum_ungated).append(s)
+
+    def cum_cells(rows: list[dict]) -> str:
+        cells = []
+        for wid in ("w10", "w25", "w50"):
+            sub = [s for s in rows if width_of(s["variant"]) == wid]
+            total = sum(cell_all_in([s], s["_settle"]) for s in sub)
+            cells.append(usd(total) if sub else "—")
+        return " | ".join(cells)
+
+    lines += [
+        "",
+        f"| Cumulative since inception ({sessions} tagged sessions) | w10 | w25 | w50 |",
+        "|---|---|---|---|",
+        f"| gated (imminent+near) | {cum_cells(cum_gated)} |",
+        f"| ungated | {cum_cells(cum_ungated)} |",
+    ]
+    if skipped_total:
+        lines.append(
+            f"\n{skipped_total} restart-orphaned structures excluded from the "
+            "cumulative rows (events-only reconstruction; day tables remain "
+            "authoritative)."
+        )
+    return lines + [""]
+
+
 def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Headline P&L rollup — the one-glance answer, before any slicing."""
     pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
@@ -610,6 +738,7 @@ def build_report(data_dir: Path) -> str:
         ]
         return "\n".join(lines)
     lines += tranche_timeframe_block(reconstructed, settle_spot)
+    lines += flip_eta_gate_block(reconstructed, settle_spot, data_dir)
     orphans = [s for s in reconstructed if s.get("orphaned")]
     lines += [
         "## Per-variant slice (mid fills)",
