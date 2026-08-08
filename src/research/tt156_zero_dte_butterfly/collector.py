@@ -229,7 +229,8 @@ class DayCollector:
                 quotes = self.build_quotes(market)
                 signals = self.signal_engine.capture.drain()
                 self.write_snapshot(cycle_start, spot, market)
-                self.simulator.on_snapshot(cycle_start, spot, quotes, signals)
+                gate_ctx = self.signal_engine.gate_context() if signals else None
+                self.simulator.on_snapshot(cycle_start, spot, quotes, signals, gate_ctx)
                 if cycle_start.time() <= MARKET_CLOSE:
                     self.settlement_spot = spot
                 self.cycles += 1
