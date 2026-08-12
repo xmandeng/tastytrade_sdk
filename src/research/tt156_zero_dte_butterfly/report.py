@@ -230,7 +230,7 @@ def reconstruct_structures(
             idx = next((i for i, t in enumerate(times) if t >= opened), None)
             if idx is None:
                 continue
-            margin = 2.0 if s["variant"].endswith("m2") else 0.0
+            margin = 2.0 if "_m2" in s["variant"] else 0.0
             s["orphaned"] = True
             flip_idx = first_engine_flip(snapshots, idx, s)
             trace_end = flip_idx if flip_idx is not None else len(snapshots)
@@ -298,7 +298,7 @@ def risk_and_whipsaw_lines(data_dir: Path, reconstructed: list[dict]) -> list[st
         ).total_seconds()
         < 120
     ]
-    peak_risk = 0.0
+    peak: dict[str, float] = {"atm": 0.0, "hw": 0.0}
     running: dict[tuple, float] = {}
     events = sorted(load_events(data_dir), key=lambda e: e["ts"])
     for e in events:
@@ -307,13 +307,27 @@ def risk_and_whipsaw_lines(data_dir: Path, reconstructed: list[dict]) -> list[st
             running[key] = e["width"] - e["entry_credit"]
         else:
             running.pop(key, None)
-        peak_risk = max(peak_risk, sum(running.values()))
-    return [
+        for arm in peak:
+            peak[arm] = max(
+                peak[arm],
+                sum(risk for k, risk in running.items() if arm_of(k[0]) == arm),
+            )
+    lines = [
         f"Whipsaw round trips (< 2 min): {len(whipsaws)}, net "
-        f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whipsaws))}",
-        f"Peak outstanding risk (whole 12-variant grid): {peak_risk:.2f} pts "
-        f"(${peak_risk * CONTRACT_MULTIPLIER:,.0f})",
+        f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whipsaws))}"
     ]
+    if peak["hw"] > 0:
+        for arm, label in (("atm", "ATM arm"), ("hw", "half-width arm")):
+            lines.append(
+                f"Peak outstanding risk ({label}): {peak[arm]:.2f} pts "
+                f"(${peak[arm] * CONTRACT_MULTIPLIER:,.0f})"
+            )
+    else:
+        lines.append(
+            f"Peak outstanding risk (whole 12-variant grid): {peak['atm']:.2f} pts "
+            f"(${peak['atm'] * CONTRACT_MULTIPLIER:,.0f})"
+        )
+    return lines
 
 
 def exit_policy_section(reconstructed: list[dict], snapshots: list[dict]) -> list[str]:
@@ -427,6 +441,14 @@ def width_of(variant: str) -> str:
     return variant.split("_", 1)[0]
 
 
+def arm_of(variant: str) -> str:
+    """Strike-rule arm: "hw" (half-width credit) or "atm"."""
+    return "hw" if variant.endswith("_hw") else "atm"
+
+
+ARM_LABELS = {"atm": "ATM arm", "hw": "Half-width arm (entry credit > w/2)"}
+
+
 def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Lead block: all-in P&L by (signal x width) family x time of day.
 
@@ -437,31 +459,50 @@ def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> li
     across all 12 variants, so a summed all-in number implies an objective the
     experiment does not have. The block instead calls out the winning tranche.
     """
-    families = sorted(
-        {(signal_of(s["variant"]), width_of(s["variant"])) for s in reconstructed},
-        key=lambda f: (f[0], int(f[1][1:])),
-    )
-
-    def cell(sig: str, wid: str, b: int) -> float:
-        rows = [
-            s
-            for s in reconstructed
-            if signal_of(s["variant"]) == sig
-            and width_of(s["variant"]) == wid
-            and time_bucket(s["opened_at"]) == b
-        ]
-        return cell_all_in(rows, settle_spot)
-
     lines = [
         "## P&L by signal x width family x time of day (all-in cost model)",
         "",
         "Disjoint families (no overlap). This grid is a research instrument to "
         "find WHICH tranche has edge — not a portfolio meant to be net-profitable "
-        "across all 12 variants. There is deliberately NO lumped all-in total "
+        "across all variants. There is deliberately NO lumped all-in total "
         "(neither a Total row nor a grand total): summing intentionally-diverse "
         "configs implies an objective the experiment does not have. Read the "
-        "families; the winning tranche is called out below.",
+        "families; the winning tranche is called out below. The ATM and "
+        "half-width strike arms are reported separately and never summed.",
         "",
+    ]
+    arms = [
+        (arm, [s for s in reconstructed if arm_of(s["variant"]) == arm])
+        for arm in ("atm", "hw")
+    ]
+    arms = [(arm, rows) for arm, rows in arms if rows]
+    for arm, arm_rows in arms:
+        if len(arms) > 1:
+            lines += [f"### {ARM_LABELS[arm]}", ""]
+        lines += family_table(arm_rows, settle_spot)
+        if arm == "hw":
+            lines += halfwidth_entry_diagnostics(arm_rows)
+    return lines
+
+
+def family_table(rows: list[dict], settle_spot: float) -> list[str]:
+    """Family × time-of-day table with winning-tranche callout for one arm."""
+    families = sorted(
+        {(signal_of(s["variant"]), width_of(s["variant"])) for s in rows},
+        key=lambda f: (f[0], int(f[1][1:])),
+    )
+
+    def cell(sig: str, wid: str, b: int) -> float:
+        sub = [
+            s
+            for s in rows
+            if signal_of(s["variant"]) == sig
+            and width_of(s["variant"]) == wid
+            and time_bucket(s["opened_at"]) == b
+        ]
+        return cell_all_in(sub, settle_spot)
+
+    lines = [
         "| Family | Morning | Midday | Afternoon | Tranche total |",
         "|---|---|---|---|---|",
     ]
@@ -474,9 +515,9 @@ def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> li
 
     # Surface the winning tranche, never a lumped total.
     best_fam = max(fam_totals, key=lambda k: fam_totals[k])
-    best = max(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
-    worst = min(reconstructed, key=lambda s: s.get("pnl_points") or 0.0)
-    spreads = sum(legs_filled(s) for s in reconstructed) // 2
+    best = max(rows, key=lambda s: s.get("pnl_points") or 0.0)
+    worst = min(rows, key=lambda s: s.get("pnl_points") or 0.0)
+    spreads = sum(legs_filled(s) for s in rows) // 2
     lines += [
         "",
         f"**Most successful tranche: {best_fam} {usd(fam_totals[best_fam])}.** "
@@ -489,6 +530,23 @@ def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> li
         "",
     ]
     return lines
+
+
+def halfwidth_entry_diagnostics(hw_rows: list[dict]) -> list[str]:
+    """Achieved credit fraction / ITM depth for half-width entries — verifies
+    the strike rule is behaving live."""
+    fracs = sorted(s["entry_credit"] / s["width"] for s in hw_rows)
+    depths = sorted(
+        abs(s["short_strike"] - round(s["entry_spot"] / STRIKE_STEP) * STRIKE_STEP)
+        for s in hw_rows
+    )
+    return [
+        f"Half-width entries: {len(hw_rows)}; credit fraction median "
+        f"{fracs[len(fracs) // 2]:.1%} (min {fracs[0]:.1%}, max {fracs[-1]:.1%}); "
+        f"ITM depth vs ATM median {depths[len(depths) // 2]:g} pts "
+        f"(max {depths[-1]:g}).",
+        "",
+    ]
 
 
 GATED_BUCKETS = ("imminent", "near")
@@ -530,10 +588,14 @@ def events_only_day(day_dir: Path) -> tuple[list[dict], int, float | None]:
     return rows, skipped, settle_spot
 
 
-def gate_width_cells(rows: list[dict], settle_spot: float) -> str:
+def gate_width_cells(rows: list[dict], settle_spot: float, arm: str = "atm") -> str:
     cells = []
     for wid in ("w10", "w25", "w50"):
-        sub = [s for s in rows if width_of(s["variant"]) == wid]
+        sub = [
+            s
+            for s in rows
+            if width_of(s["variant"]) == wid and arm_of(s["variant"]) == arm
+        ]
         cells.append(usd(cell_all_in(sub, settle_spot)) if sub else "—")
     return " | ".join(cells)
 
@@ -553,9 +615,11 @@ def flip_eta_gate_block(
     if not tagged:
         return lines + ["gate tracking not active for this session", ""]
 
+    has_hw = any(arm_of(s["variant"]) == "hw" for s in tagged)
+    hw_head = " hw·w10 | hw·w25 | hw·w50 |" if has_hw else ""
     lines += [
-        "| Cluster (ET) | Direction | Bucket | 5m flip ETA | w10 | w25 | w50 |",
-        "|---|---|---|---|---|---|---|",
+        f"| Cluster (ET) | Direction | Bucket | 5m flip ETA | w10 | w25 | w50 |{hw_head}",
+        "|---|---|---|---|---|---|---|" + ("---|---|---|" if has_hw else ""),
     ]
     clusters: dict[tuple, list[dict]] = {}
     for s in tagged:
@@ -565,10 +629,11 @@ def flip_eta_gate_block(
         first = rows[0]
         t_et = datetime.fromisoformat(first["opened_at"]).astimezone(ET)
         eta = first.get("gate_flip_eta_5m")
+        hw_cells = f" {gate_width_cells(rows, settle_spot, 'hw')} |" if has_hw else ""
         lines.append(
             f"| {t_et:%H:%M} | {first['direction']} | {first['gate_bucket']} "
             f"| {'—' if eta is None else f'{eta:.1f}'} "
-            f"| {gate_width_cells(rows, settle_spot)} |"
+            f"| {gate_width_cells(rows, settle_spot)} |{hw_cells}"
         )
 
     gated = [s for s in tagged if s["gate_bucket"] in GATED_BUCKETS]
@@ -580,6 +645,11 @@ def flip_eta_gate_block(
         f"| gated (imminent+near) | {gate_width_cells(gated, settle_spot)} |",
         f"| ungated | {gate_width_cells(ungated, settle_spot)} |",
     ]
+    if has_hw:
+        lines += [
+            f"| gated · half-width | {gate_width_cells(gated, settle_spot, 'hw')} |",
+            f"| ungated · half-width | {gate_width_cells(ungated, settle_spot, 'hw')} |",
+        ]
 
     cum_gated: list[dict] = []
     cum_ungated: list[dict] = []
@@ -595,10 +665,14 @@ def flip_eta_gate_block(
             s["_settle"] = day_settle or 0.0
             (cum_gated if s["gate_bucket"] in GATED_BUCKETS else cum_ungated).append(s)
 
-    def cum_cells(rows: list[dict]) -> str:
+    def cum_cells(rows: list[dict], arm: str = "atm") -> str:
         cells = []
         for wid in ("w10", "w25", "w50"):
-            sub = [s for s in rows if width_of(s["variant"]) == wid]
+            sub = [
+                s
+                for s in rows
+                if width_of(s["variant"]) == wid and arm_of(s["variant"]) == arm
+            ]
             total = sum(cell_all_in([s], s["_settle"]) for s in sub)
             cells.append(usd(total) if sub else "—")
         return " | ".join(cells)
@@ -610,6 +684,11 @@ def flip_eta_gate_block(
         f"| gated (imminent+near) | {cum_cells(cum_gated)} |",
         f"| ungated | {cum_cells(cum_ungated)} |",
     ]
+    if any(arm_of(s["variant"]) == "hw" for s in cum_gated + cum_ungated):
+        lines += [
+            f"| gated · half-width | {cum_cells(cum_gated, 'hw')} |",
+            f"| ungated · half-width | {cum_cells(cum_ungated, 'hw')} |",
+        ]
     if skipped_total:
         lines.append(
             f"\n{skipped_total} restart-orphaned structures excluded from the "
