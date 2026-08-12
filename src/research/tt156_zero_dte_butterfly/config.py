@@ -39,6 +39,13 @@ LAST_COMPLETION = time(15, 55)
 MARKET_CLOSE = time(16, 0)
 SESSION_END = time(16, 15)
 
+# Half-width credit strike rule: the entry vertical must collect MORE than
+# width/2 at mid, selling the shallowest ITM strike that clears it (the ATM
+# strike qualifies if it clears on its own). Search depth is capped well above
+# anything observed — the 36-session retro replay never needed more than 7
+# steps (35 pts) to find a qualifying strike.
+HALFWIDTH_MAX_STEPS = 30
+
 # Flip-ETA gate thresholds (sealed 5m bars until the MACD histogram crosses
 # zero). Fixed by the 2026-08 research finding (TT-156 comment 15851): entries
 # fired while the 5m MACD opposes the direction but is within NEAR bars of
@@ -60,6 +67,7 @@ class VariantConfig:
     width: float
     signal_interval: str  # dxlink interval suffix: "m" or "5m"
     completion_margin: float  # extra credit (points) required beyond width
+    strike_rule: str = "atm"  # "atm" | "halfwidth" (entry credit > width/2)
 
     @property
     def signal_symbol(self) -> str:
@@ -71,14 +79,17 @@ def default_variants() -> list[VariantConfig]:
     for width in (10.0, 25.0, 50.0):
         for interval in ("m", "5m"):
             for margin in (0.0, 2.0):
-                variants.append(
-                    VariantConfig(
-                        name=f"w{width:g}_{interval}_m{margin:g}",
-                        width=width,
-                        signal_interval=interval,
-                        completion_margin=margin,
+                for rule in ("atm", "halfwidth"):
+                    suffix = "_hw" if rule == "halfwidth" else ""
+                    variants.append(
+                        VariantConfig(
+                            name=f"w{width:g}_{interval}_m{margin:g}{suffix}",
+                            width=width,
+                            signal_interval=interval,
+                            completion_margin=margin,
+                            strike_rule=rule,
+                        )
                     )
-                )
     return variants
 
 

@@ -27,6 +27,7 @@ from research.tt156_zero_dte_butterfly.gate import gate_bucket
 from research.tt156_zero_dte_butterfly.config import (
     ET,
     FORCED_CLOSE,
+    HALFWIDTH_MAX_STEPS,
     LAST_COMPLETION,
     STRIKE_STEP,
     VariantConfig,
@@ -128,6 +129,30 @@ def vertical_credit(
 
 def atm_strike(spot: float) -> float:
     return round(spot / STRIKE_STEP) * STRIKE_STEP
+
+
+def halfwidth_entry(
+    direction: str, spot: float, width: float, quotes: Quotes
+) -> tuple[float, float, list[LegFill]] | None:
+    """Shallowest strike whose entry vertical collects more than width/2.
+
+    Starts at the ATM strike (which qualifies if it clears on its own) and
+    steps ITM — down through calls for BEARISH, up through puts for BULLISH.
+    Returns (strike, credit, legs), or None when no strike within
+    HALFWIDTH_MAX_STEPS clears the threshold: the variant then takes no
+    trade rather than falling back to a shallower strike.
+    """
+    strike = atm_strike(spot)
+    step = -STRIKE_STEP if direction == "BEARISH" else STRIKE_STEP
+    for _ in range(HALFWIDTH_MAX_STEPS):
+        if direction == "BEARISH":
+            priced = vertical_credit(quotes, strike, strike + width, "C")
+        else:
+            priced = vertical_credit(quotes, strike, strike - width, "P")
+        if priced is not None and priced[0] > width / 2:
+            return strike, priced[0], priced[1]
+        strike += step
+    return None
 
 
 class ButterflySimulator:
@@ -240,18 +265,32 @@ class ButterflySimulator:
     ) -> None:
         if self.live_incomplete(variant.name, signal.direction):
             return
-        strike = atm_strike(spot)
-        priced = self.entry_legs_for(signal.direction, strike, variant.width, quotes)
-        if priced is None or priced[0] <= 0:
-            self.skipped_entries += 1
-            logger.warning(
-                "Skipped entry %s %s K=%s — unusable quotes",
-                variant.name,
-                signal.direction,
-                strike,
+        if variant.strike_rule == "halfwidth":
+            picked = halfwidth_entry(signal.direction, spot, variant.width, quotes)
+            if picked is None:
+                self.skipped_entries += 1
+                logger.warning(
+                    "Skipped entry %s %s — no strike clears width/2",
+                    variant.name,
+                    signal.direction,
+                )
+                return
+            strike, credit, legs = picked
+        else:
+            strike = atm_strike(spot)
+            priced = self.entry_legs_for(
+                signal.direction, strike, variant.width, quotes
             )
-            return
-        credit, legs = priced
+            if priced is None or priced[0] <= 0:
+                self.skipped_entries += 1
+                logger.warning(
+                    "Skipped entry %s %s K=%s — unusable quotes",
+                    variant.name,
+                    signal.direction,
+                    strike,
+                )
+                return
+            credit, legs = priced
         ctx = gate_ctx or {}
         structure = Structure(
             variant=variant.name,
