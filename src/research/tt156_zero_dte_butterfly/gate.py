@@ -9,6 +9,8 @@ direction but is converging toward its own zero-cross within
 
 from research.tt156_zero_dte_butterfly.config import GATE_ETA_IMMINENT, GATE_ETA_NEAR
 
+GATED_BUCKETS = ("imminent", "near")
+
 
 def flip_eta(hist: float | None, slope: float | None) -> float | None:
     """Sealed bars until the histogram crosses zero, if converging.
