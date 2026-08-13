@@ -63,12 +63,15 @@ def hw_variant() -> VariantConfig:
 
 def test_grid_has_both_arms_and_atm_names_unchanged():
     variants = default_variants()
-    assert len(variants) == 24
+    assert len(variants) == 30  # 12 atm + 12 hw + 6 gate-enforced hw
     atm = [v for v in variants if v.strike_rule == "atm"]
-    hw = [v for v in variants if v.strike_rule == "halfwidth"]
+    hw = [v for v in variants if v.strike_rule == "halfwidth" and not v.gate_enforced]
+    ghw = [v for v in variants if v.gate_enforced]
     assert len(atm) == len(hw) == 12
+    assert len(ghw) == 6
     assert all(not v.name.endswith("_hw") for v in atm)
     assert all(v.name.endswith("_hw") for v in hw)
+    assert all(v.name.endswith("_ghw") for v in ghw)
     # historical ATM names preserved exactly
     assert {v.name for v in atm} == {
         f"w{w:g}_{i}_m{m:g}"

@@ -68,6 +68,7 @@ class VariantConfig:
     signal_interval: str  # dxlink interval suffix: "m" or "5m"
     completion_margin: float  # extra credit (points) required beyond width
     strike_rule: str = "atm"  # "atm" | "halfwidth" (entry credit > width/2)
+    gate_enforced: bool = False  # only enter imminent/near flip-ETA clusters
 
     @property
     def signal_symbol(self) -> str:
@@ -90,6 +91,21 @@ def default_variants() -> list[VariantConfig]:
                             strike_rule=rule,
                         )
                     )
+    # Gate-enforced arm (user directive 2026-08-13): the researched strategy
+    # cell traded as a strategy — 1m entries only on imminent/near flip-ETA
+    # clusters, half-width strike rule so entry credit leans past width/2.
+    for width in (10.0, 25.0, 50.0):
+        for margin in (0.0, 2.0):
+            variants.append(
+                VariantConfig(
+                    name=f"w{width:g}_m_m{margin:g}_ghw",
+                    width=width,
+                    signal_interval="m",
+                    completion_margin=margin,
+                    strike_rule="halfwidth",
+                    gate_enforced=True,
+                )
+            )
     return variants
 
 

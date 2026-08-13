@@ -21,6 +21,7 @@ from datetime import datetime, time
 from pathlib import Path
 
 from research.tt156_zero_dte_butterfly import regime
+from research.tt156_zero_dte_butterfly.gate import GATED_BUCKETS
 from research.tt156_zero_dte_butterfly.config import (
     CONTRACT_MULTIPLIER,
     ET,
@@ -444,11 +445,18 @@ def width_of(variant: str) -> str:
 
 
 def arm_of(variant: str) -> str:
-    """Strike-rule arm: "hw" (half-width credit) or "atm"."""
+    """Arm: "ghw" (gate-enforced half-width), "hw" (half-width), or "atm"."""
+    if variant.endswith("_ghw"):
+        return "ghw"
     return "hw" if variant.endswith("_hw") else "atm"
 
 
-ARM_LABELS = {"atm": "ATM arm", "hw": "Half-width arm (entry credit > w/2)"}
+ARM_LABELS = {
+    "atm": "ATM arm",
+    "hw": "Half-width arm (entry credit > w/2)",
+    "ghw": "Gate-enforced arm (imminent/near clusters only, entry credit > w/2)",
+}
+ARMS = ("atm", "hw", "ghw")
 
 
 def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
@@ -474,15 +482,14 @@ def tranche_timeframe_block(reconstructed: list[dict], settle_spot: float) -> li
         "",
     ]
     arms = [
-        (arm, [s for s in reconstructed if arm_of(s["variant"]) == arm])
-        for arm in ("atm", "hw")
+        (arm, [s for s in reconstructed if arm_of(s["variant"]) == arm]) for arm in ARMS
     ]
     arms = [(arm, rows) for arm, rows in arms if rows]
     for arm, arm_rows in arms:
         if len(arms) > 1:
             lines += [f"### {ARM_LABELS[arm]}", ""]
         lines += family_table(arm_rows, settle_spot)
-        if arm == "hw":
+        if arm in ("hw", "ghw"):
             lines += halfwidth_entry_diagnostics(arm_rows)
     return lines
 
@@ -549,9 +556,6 @@ def halfwidth_entry_diagnostics(hw_rows: list[dict]) -> list[str]:
         f"(max {depths[-1]:g}).",
         "",
     ]
-
-
-GATED_BUCKETS = ("imminent", "near")
 
 
 def day_rth_range(day_dir: Path) -> float | None:
@@ -735,11 +739,13 @@ def flip_eta_gate_block(
     if not tagged:
         return lines + ["gate tracking not active for this session", ""]
 
-    has_hw = any(arm_of(s["variant"]) == "hw" for s in tagged)
-    hw_head = " hw·w10 | hw·w25 | hw·w50 |" if has_hw else ""
+    extra_arms = [
+        arm for arm in ("hw", "ghw") if any(arm_of(s["variant"]) == arm for s in tagged)
+    ]
+    arm_head = "".join(f" {arm}·w10 | {arm}·w25 | {arm}·w50 |" for arm in extra_arms)
     lines += [
-        f"| Cluster (ET) | Direction | Bucket | 5m flip ETA | w10 | w25 | w50 |{hw_head}",
-        "|---|---|---|---|---|---|---|" + ("---|---|---|" if has_hw else ""),
+        f"| Cluster (ET) | Direction | Bucket | 5m flip ETA | w10 | w25 | w50 |{arm_head}",
+        "|---|---|---|---|---|---|---|" + "---|---|---|" * len(extra_arms),
     ]
     clusters: dict[tuple, list[dict]] = {}
     for s in tagged:
@@ -749,11 +755,13 @@ def flip_eta_gate_block(
         first = rows[0]
         t_et = datetime.fromisoformat(first["opened_at"]).astimezone(ET)
         eta = first.get("gate_flip_eta_5m")
-        hw_cells = f" {gate_width_cells(rows, settle_spot, 'hw')} |" if has_hw else ""
+        arm_cells = "".join(
+            f" {gate_width_cells(rows, settle_spot, arm)} |" for arm in extra_arms
+        )
         lines.append(
             f"| {t_et:%H:%M} | {first['direction']} | {first['gate_bucket']} "
             f"| {'—' if eta is None else f'{eta:.1f}'} "
-            f"| {gate_width_cells(rows, settle_spot)} |{hw_cells}"
+            f"| {gate_width_cells(rows, settle_spot)} |{arm_cells}"
         )
 
     gated = [s for s in tagged if s["gate_bucket"] in GATED_BUCKETS]
@@ -765,10 +773,16 @@ def flip_eta_gate_block(
         f"| gated (imminent+near) | {gate_width_cells(gated, settle_spot)} |",
         f"| ungated | {gate_width_cells(ungated, settle_spot)} |",
     ]
-    if has_hw:
+    if "hw" in extra_arms:
         lines += [
             f"| gated · half-width | {gate_width_cells(gated, settle_spot, 'hw')} |",
             f"| ungated · half-width | {gate_width_cells(ungated, settle_spot, 'hw')} |",
+        ]
+    if "ghw" in extra_arms:
+        # the enforced arm only ever holds gated clusters — one row, no
+        # ungated counterpart by construction
+        lines += [
+            f"| gate-enforced · half-width | {gate_width_cells(gated, settle_spot, 'ghw')} |",
         ]
 
     cum_gated: list[dict] = []
@@ -809,6 +823,8 @@ def flip_eta_gate_block(
             f"| gated · half-width | {cum_cells(cum_gated, 'hw')} |",
             f"| ungated · half-width | {cum_cells(cum_ungated, 'hw')} |",
         ]
+    if any(arm_of(s["variant"]) == "ghw" for s in cum_gated):
+        lines.append(f"| gate-enforced · half-width | {cum_cells(cum_gated, 'ghw')} |")
     if skipped_total:
         lines.append(
             f"\n{skipped_total} restart-orphaned structures excluded from the "
