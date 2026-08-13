@@ -22,7 +22,7 @@ from typing import Callable
 
 from tastytrade.analytics.engines.models import TradeSignal
 
-from research.tt156_zero_dte_butterfly.gate import gate_bucket
+from research.tt156_zero_dte_butterfly.gate import GATED_BUCKETS, gate_bucket
 
 from research.tt156_zero_dte_butterfly.config import (
     ET,
@@ -265,6 +265,10 @@ class ButterflySimulator:
     ) -> None:
         if self.live_incomplete(variant.name, signal.direction):
             return
+        ctx = gate_ctx or {}
+        bucket = gate_bucket(ctx.get("hist_5m"), ctx.get("slope_5m"), signal.direction)
+        if variant.gate_enforced and bucket not in GATED_BUCKETS:
+            return  # enforced arm trades only imminent/near clusters
         if variant.strike_rule == "halfwidth":
             picked = halfwidth_entry(signal.direction, spot, variant.width, quotes)
             if picked is None:
@@ -291,7 +295,6 @@ class ButterflySimulator:
                 )
                 return
             credit, legs = priced
-        ctx = gate_ctx or {}
         structure = Structure(
             variant=variant.name,
             direction=signal.direction,
@@ -302,9 +305,7 @@ class ButterflySimulator:
             entry_credit=credit,
             entry_legs=legs,
             signal_trigger=signal.trigger,
-            gate_bucket=gate_bucket(
-                ctx.get("hist_5m"), ctx.get("slope_5m"), signal.direction
-            ),
+            gate_bucket=bucket,
             gate_hist_5m=ctx.get("hist_5m"),
             gate_slope_5m=ctx.get("slope_5m"),
             gate_flip_eta_5m=ctx.get("flip_eta_5m"),
