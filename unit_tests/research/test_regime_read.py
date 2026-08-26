@@ -132,3 +132,24 @@ class TestRegimeBlock:
         snaps = report.load_snapshots(today)
         text = "\n".join(report.regime_read_block(snaps, today))
         assert "insufficient morning data" in text
+
+
+class TestRollingState:
+    def test_reads_full_path_not_just_morning(self) -> None:
+        # 9:30 -> 14:00: steady climb; rolling state sees all of it
+        path = [(570 + i, 7700 + i * 0.5) for i in range(270)]
+        state = regime.rolling_state(path, atr=60.0)
+        assert state is not None
+        assert state["drive_atr"] == pytest.approx(269 * 0.5 / 60.0)
+        retrace = state["retrace_frac"]
+        assert retrace is not None and retrace < 0.1
+
+    def test_young_session_returns_none(self) -> None:
+        assert regime.rolling_state([(570, 7700.0)] * 10, atr=60.0) is None
+
+    def test_no_atr_still_gives_retrace(self) -> None:
+        path = [(570 + i, 7700 + i * 0.5) for i in range(60)]
+        state = regime.rolling_state(path, atr=None)
+        assert state is not None
+        assert state["drive_atr"] is None
+        assert state["retrace_frac"] is not None

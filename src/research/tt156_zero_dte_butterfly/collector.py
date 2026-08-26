@@ -31,6 +31,7 @@ from research.tt156_zero_dte_butterfly.config import (
     SYMBOL,
     RunConfig,
 )
+from research.tt156_zero_dte_butterfly import regime
 from research.tt156_zero_dte_butterfly.signals import LiveSignalEngine
 from research.tt156_zero_dte_butterfly.simulator import (
     ButterflySimulator,
@@ -61,6 +62,8 @@ class DayCollector:
         self.cycles: int = 0
         self.settlement_spot: float | None = None
         self.last_snapshot_ts: datetime | None = None
+        self.day_atr: float | None = None
+        self.spot_path: list[tuple[int, float]] = []
 
     def now_et(self) -> datetime:
         return datetime.now(tz=ET)
@@ -211,6 +214,7 @@ class DayCollector:
         spot = await self.spot()
         await self.load_chain(spot)
         await self.write_header(spot)
+        self.day_atr = regime.trailing_atr(self.cfg.data_dir)
 
         while not self.session_finished(self.now_et()):
             cycle_start = self.now_et()
@@ -230,7 +234,13 @@ class DayCollector:
                 signals = self.signal_engine.capture.drain()
                 self.write_snapshot(cycle_start, spot, market)
                 gate_ctx = self.signal_engine.gate_context() if signals else None
-                self.simulator.on_snapshot(cycle_start, spot, quotes, signals, gate_ctx)
+                self.spot_path.append(
+                    (cycle_start.hour * 60 + cycle_start.minute, spot)
+                )
+                regime_state = regime.rolling_state(self.spot_path, self.day_atr)
+                self.simulator.on_snapshot(
+                    cycle_start, spot, quotes, signals, gate_ctx, regime_state
+                )
                 if cycle_start.time() <= MARKET_CLOSE:
                     self.settlement_spot = spot
                 self.cycles += 1
