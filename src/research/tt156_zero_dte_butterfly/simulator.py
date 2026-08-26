@@ -70,6 +70,12 @@ class Structure:
     gate_hist_1m: float | None = None
     gate_slope_1m: float | None = None
     gate_flip_eta_1m: float | None = None
+    # Rolling regime state at the two decision moments (see regime.rolling_state):
+    # drive/retrace measured from 9:30 up to that instant, not the 11:00 forecast.
+    regime_drive_entry: float | None = None
+    regime_retrace_entry: float | None = None
+    regime_drive_completion: float | None = None
+    regime_retrace_completion: float | None = None
     completed_at: str | None = None
     completion_spot: float | None = None
     completion_credit: float | None = None
@@ -207,13 +213,16 @@ class ButterflySimulator:
         quotes: Quotes,
         signals: list[TradeSignal],
         gate_ctx: dict[str, float | None] | None = None,
+        regime_state: dict[str, float | None] | None = None,
     ) -> None:
         ts_et = ts.astimezone(ET)
         for variant in self.variants:
             routed = [s for s in signals if s.eventSymbol == variant.signal_symbol]
             for signal in routed:
                 if signal.signal_type == "OPEN":
-                    self.try_enter(variant, ts, spot, quotes, signal, gate_ctx)
+                    self.try_enter(
+                        variant, ts, spot, quotes, signal, gate_ctx, regime_state
+                    )
                 elif signal.signal_type == "CLOSE":
                     self.close_incomplete(
                         variant,
@@ -224,7 +233,7 @@ class ButterflySimulator:
                     )
 
             if ts_et.time() <= LAST_COMPLETION:
-                self.try_complete(variant, ts, spot, quotes)
+                self.try_complete(variant, ts, spot, quotes, regime_state)
 
             if ts_et.time() >= FORCED_CLOSE:
                 for structure in self.live_incomplete(variant.name):
@@ -262,6 +271,7 @@ class ButterflySimulator:
         quotes: Quotes,
         signal: TradeSignal,
         gate_ctx: dict[str, float | None] | None = None,
+        regime_state: dict[str, float | None] | None = None,
     ) -> None:
         if self.live_incomplete(variant.name, signal.direction):
             return
@@ -312,12 +322,19 @@ class ButterflySimulator:
             gate_hist_1m=ctx.get("hist_1m"),
             gate_slope_1m=ctx.get("slope_1m"),
             gate_flip_eta_1m=ctx.get("flip_eta_1m"),
+            regime_drive_entry=(regime_state or {}).get("drive_atr"),
+            regime_retrace_entry=(regime_state or {}).get("retrace_frac"),
         )
         self.structures.append(structure)
         self.emit("ENTRY", ts, structure)
 
     def try_complete(
-        self, variant: VariantConfig, ts: datetime, spot: float, quotes: Quotes
+        self,
+        variant: VariantConfig,
+        ts: datetime,
+        spot: float,
+        quotes: Quotes,
+        regime_state: dict[str, float | None] | None = None,
     ) -> None:
         for structure in self.live_incomplete(variant.name):
             priced = self.counter_credit_for(structure, quotes)
@@ -331,6 +348,12 @@ class ButterflySimulator:
                 structure.completion_spot = spot
                 structure.completion_credit = counter
                 structure.completion_legs = legs
+                structure.regime_drive_completion = (regime_state or {}).get(
+                    "drive_atr"
+                )
+                structure.regime_retrace_completion = (regime_state or {}).get(
+                    "retrace_frac"
+                )
                 self.emit(
                     "COMPLETION",
                     ts,

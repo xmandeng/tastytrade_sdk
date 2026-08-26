@@ -16,7 +16,6 @@ Usage:
 import argparse
 import gzip
 import json
-import zlib
 from datetime import datetime, time
 from pathlib import Path
 
@@ -558,60 +557,6 @@ def halfwidth_entry_diagnostics(hw_rows: list[dict]) -> list[str]:
     ]
 
 
-def day_rth_range(day_dir: Path) -> float | None:
-    """RTH spot range of a prior session from its snapshot file.
-
-    Extracts ts/spot per line without parsing the options arrays (the file's
-    own json.dumps key order makes the split stable); a malformed line is
-    skipped rather than failing the read.
-    """
-    path = day_dir / "chain_snapshots.jsonl.gz"
-    if not path.exists():
-        return None
-    lo, hi = None, None
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as handle:
-            for line in handle:
-                try:
-                    ts = line.split('"ts": "', 1)[1].split('"', 1)[0]
-                    spot = float(line.split('"spot": ', 1)[1].split(",", 1)[0])
-                except (IndexError, ValueError):
-                    continue
-                t = datetime.fromisoformat(ts).astimezone(ET)
-                m = t.hour * 60 + t.minute
-                if not (regime.RTH_START_MINUTE <= m < 16 * 60):
-                    continue
-                if lo is None or spot < lo:
-                    lo = spot
-                if hi is None or spot > hi:
-                    hi = spot
-    except (EOFError, OSError, zlib.error):
-        # Truncated/corrupt archive (collector killed mid-write, 2026-07-30
-        # reboot): the range accumulated up to the bad block is still usable.
-        pass
-    if lo is None or hi is None or hi <= lo:
-        return None
-    return hi - lo
-
-
-def trailing_atr(data_dir: Path, lookback: int = 20, minimum: int = 5) -> float | None:
-    """Mean RTH range of up to `lookback` prior sessions; None below `minimum`."""
-    prior = sorted(
-        (p for p in data_dir.parent.iterdir() if p.is_dir() and p.name < data_dir.name),
-        reverse=True,
-    )
-    ranges = []
-    for day_dir in prior:
-        r = day_rth_range(day_dir)
-        if r is not None:
-            ranges.append(r)
-        if len(ranges) >= lookback:
-            break
-    if len(ranges) < minimum:
-        return None
-    return sum(ranges) / len(ranges)
-
-
 def regime_read_block(snapshots: list[dict], data_dir: Path) -> list[str]:
     """Prospective trend-day odds from data observable by 11:00 ET only.
 
@@ -632,7 +577,7 @@ def regime_read_block(snapshots: list[dict], data_dir: Path) -> list[str]:
         if pos:
             macd_positions.append(pos)
 
-    atr = trailing_atr(data_dir)
+    atr = regime.trailing_atr(data_dir)
     feats = regime.morning_features(spot_path, atr)
     if feats is None:
         return lines + ["insufficient morning data for a regime read", ""]

@@ -97,3 +97,18 @@ class TestEnforcement:
         sim.on_snapshot(TS, 7740.0, quotes_for(7740.0), signals, FIRM_CTX)
         assert len(sim.structures) > 0
         assert all(s.gate_bucket == "firm" for s in sim.structures)
+
+
+class TestRegimeStamping:
+    def test_entry_carries_rolling_regime_state(self) -> None:
+        sim = ButterflySimulator(ghw_variants())
+        signals = cast("list[TradeSignal]", [FakeSignal()])
+        state: dict[str, float | None] = {"drive_atr": 0.42, "retrace_frac": 1.7}
+        sim.on_snapshot(TS, 7740.0, quotes_for(7740.0), signals, GATED_CTX, state)
+        assert sim.structures
+        assert all(s.regime_drive_entry == 0.42 for s in sim.structures)
+        assert all(s.regime_retrace_entry == 1.7 for s in sim.structures)
+        # rich synthetic quotes complete the fly in the same cycle, so the
+        # completion stamp carries the same rolling state
+        completed = [s for s in sim.structures if s.status == "COMPLETED"]
+        assert all(s.regime_drive_completion == 0.42 for s in completed)
