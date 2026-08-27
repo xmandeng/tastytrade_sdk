@@ -24,6 +24,7 @@ from influxdb_client import InfluxDBClient
 
 from tastytrade.charting.feed import ChartFeed
 from tastytrade.charting.indicators import StreamingIndicators
+from tastytrade.charting.trade_markers import load_trade_markers
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
@@ -341,6 +342,11 @@ class ChartServer:
         for point in indicator_data["macd"]:
             point["time"] = utc_epoch_to_et_epoch(point["time"])
 
+        # --- TT-156 paper-trade markers (pass-through from the event log) ---
+        trades = load_trade_markers(symbol, target_date)
+        for m in trades:
+            m["time"] = utc_epoch_to_et_epoch(m["time"])
+
         initial_payload = {
             "type": "init",
             "symbol": symbol,
@@ -350,6 +356,7 @@ class ChartServer:
             "hma": indicator_data["hma"],
             "macd": indicator_data["macd"],
             "dailyCandle": daily_candle,
+            "trades": trades,
         }
 
         await ws.send_text(json.dumps(initial_payload))

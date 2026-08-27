@@ -441,6 +441,24 @@ const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 const hmaPrimitive = new HmaPrimitive();
 candleSeries.attachPrimitive(hmaPrimitive);
 
+// TT-156 paper-trade markers (entries, fly locks, closes, tent settles).
+const tradeMarkers = LightweightCharts.createSeriesMarkers(candleSeries, []);
+
+// Markers only render on times that exist as bars; event timestamps fall
+// inside bars, so snap each to the last bar at or before it (any interval).
+function snapMarkersToCandles(markers, candles) {
+  if (!markers || !markers.length || !candles.length) return [];
+  const snapped = [];
+  for (const m of markers) {
+    let t = null;
+    for (const c of candles) {
+      if (c.time <= m.time) t = c.time; else break;
+    }
+    if (t !== null) snapped.push({ ...m, time: t });
+  }
+  return snapped;
+}
+
 // --- Pane 1: MACD ---
 const macdHistSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
   priceLineVisible: false, lastValueVisible: false,
@@ -888,7 +906,11 @@ let currentInterval = 'm';
 
 function getParams() {
   const p = new URLSearchParams(window.location.search);
-  return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm' };
+  return {
+    symbol: p.get('symbol') || 'SPX',
+    interval: p.get('interval') || 'm',
+    date: p.get('date') || '',
+  };
 }
 
 function initDropdown(btnId, listId, onSelect) {
@@ -974,7 +996,7 @@ function connect(dateOverride) {
 function doConnect(dateOverride) {
   setStatus('connecting');
   intentionalClose = true;
-  const { symbol, interval } = getParams();
+  const { symbol, interval, date } = getParams();
   currentSymbol = symbol; currentInterval = interval;
   document.getElementById('symbolBtn').textContent = symbol;
   document.getElementById('intervalBtn').textContent = INTERVALS.find(i => i.value === interval)?.label || interval;
@@ -984,7 +1006,8 @@ function doConnect(dateOverride) {
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}`;
-  if (dateOverride) url += `&date=${dateOverride}`;
+  const chartDate = dateOverride || date;
+  if (chartDate) url += `&date=${chartDate}`;
   ws = new WebSocket(url);
 
   ws.onopen = () => { intentionalClose = false; setStatus('connected'); };
@@ -1019,6 +1042,7 @@ function doConnect(dateOverride) {
         candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
       }
       candleSeries.setData(msg.candles);
+      tradeMarkers.setMarkers(snapMarkersToCandles(msg.trades, msg.candles));
       computeBounds(msg.candles);
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 
@@ -1123,7 +1147,12 @@ function doConnect(dateOverride) {
 }
 
 document.getElementById('dateInput').addEventListener('change', (e) => {
-  if (e.isTrusted && e.target.value) connect(e.target.value);
+  if (!e.isTrusted || !e.target.value) return;
+  // Persist to the URL so interval/symbol switches keep the date under review.
+  const p = new URLSearchParams(window.location.search);
+  p.set('date', e.target.value);
+  history.replaceState(null, '', '?' + p.toString());
+  connect(e.target.value);
 });
 
 function resize() {
