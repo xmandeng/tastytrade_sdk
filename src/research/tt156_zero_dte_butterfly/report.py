@@ -16,7 +16,7 @@ Usage:
 import argparse
 import gzip
 import json
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from research.tt156_zero_dte_butterfly import regime
@@ -831,16 +831,97 @@ def regime_slim_lines(snapshots: list[dict], data_dir: Path) -> list[str]:
     ]
 
 
-def strategy_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
-    """The strategy: 5m confluence, w25+w50 ATM, first-entry-only overlay."""
+def macd_state_label(hist: float, slope: float, direction: str) -> str:
+    """Post-hoc 5m MACD state at entry: agree / converge / diverge.
+
+    Forward-evidence labeling only (user-approved 2026-08-27) — MACD is not
+    a live control; this classifies each trade's entry conditions from clean
+    candles so the agree-vs-rest split accrues without touching the rule.
+    """
+    if (hist > 0) == (direction == "BULLISH"):
+        return "agree"
+    converging = (slope > 0) == (direction == "BULLISH") and abs(slope) > 1e-9
+    if converging and abs(hist) / abs(slope) <= 10:
+        return "converge"
+    return "diverge"
+
+
+def macd_entry_labels(rows: list[dict]) -> dict[str, str]:
+    """opened_at -> MACD state label, from clean InfluxDB 5m candles.
+
+    Degrades to {} when Influx or history is unavailable — the report never
+    fails over a label.
+    """
+    if not rows:
+        return {}
+    try:
+        import polars as pl
+
+        from tastytrade.config import RedisConfigManager
+        from tastytrade.providers.market import MarketDataProvider
+        from tastytrade.providers.subscriptions import RedisSubscription
+        from tastytrade.utils.time_series import initialize_influx_client
+
+        day = datetime.fromisoformat(rows[0]["opened_at"]).astimezone(ET).date()
+        influx = initialize_influx_client()
+        provider = MarketDataProvider(
+            data_feed=RedisSubscription(RedisConfigManager()), influx=influx
+        )
+        df = provider.download(
+            symbol="SPX{=5m}",
+            start=day - timedelta(days=4),
+            stop=day + timedelta(days=1),
+        )
+        influx.close()
+        if df.is_empty() or "close" not in df.columns:
+            return {}
+        df = (
+            df.filter(pl.col("close").is_not_null())
+            .unique(subset=["time"], keep="last")
+            .sort("time")
+        )
+        close = df["close"].to_numpy()
+        ema12 = pl.Series(close).ewm_mean(alpha=2 / 13, adjust=False).to_numpy()
+        ema26 = pl.Series(close).ewm_mean(alpha=2 / 27, adjust=False).to_numpy()
+        value = ema12 - ema26
+        signal = pl.Series(value).ewm_mean(alpha=2 / 10, adjust=False).to_numpy()
+        hist = value - signal
+        series: dict[float, tuple[float, float]] = {}
+        times = df["time"].to_list()
+        for i, t in enumerate(times):
+            epoch = t.replace(tzinfo=timezone.utc).timestamp()
+            series[epoch] = (
+                float(hist[i]),
+                float(hist[i] - hist[i - 1]) if i else 0.0,
+            )
+        labels: dict[str, str] = {}
+        for s in rows:
+            opened = datetime.fromisoformat(s["opened_at"]).timestamp()
+            bar = (opened - 60) // 300 * 300  # the sealed entry bar
+            hs = series.get(bar) or series.get(bar - 300)
+            if hs:
+                labels[s["opened_at"]] = macd_state_label(hs[0], hs[1], s["direction"])
+        return labels
+    except Exception:
+        return {}
+
+
+def strategy_block(
+    reconstructed: list[dict],
+    settle_spot: float,
+    macd_labels: dict[str, str] | None = None,
+) -> list[str]:
+    """The strategy: hull-only 5m entries, w25+w50, first-entry overlay."""
     lines = ["## Strategy — 5m confluence, 25/50-wide, first-entry-only", ""]
     rows = strategy_structures(reconstructed)
     if not rows:
         return lines + ["No 5m signals today — stood aside.", ""]
     first = classify_first_entries(rows)
+    labels = macd_labels if macd_labels is not None else macd_entry_labels(rows)
     lines += [
-        "| Entry (ET) | Order | Width | Entry type | Credit | All-in | Outcome |",
-        "|---|---|---|---|---|---|---|",
+        "| Entry (ET) | Order | Width | Entry type | Credit | All-in "
+        "| Outcome | 5m MACD |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for s in sorted(rows, key=lambda s: (s["opened_at"], s["width"])):
         t_et = datetime.fromisoformat(s["opened_at"]).astimezone(ET)
@@ -852,10 +933,11 @@ def strategy_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
         )
         outcome = order_outcome(s)
         kind = "first" if first[s["opened_at"]] else "re-entry"
+        label = labels.get(s["opened_at"], "—")
         lines.append(
             f"| {t_et:%H:%M} | {order} | {w:g} | {kind} "
             f"| {s['entry_credit']:.2f} | {usd(cell_all_in([s], settle_spot))} "
-            f"| {outcome} |"
+            f"| {outcome} | {label} |"
         )
     return lines + [""]
 
