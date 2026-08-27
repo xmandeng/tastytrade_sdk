@@ -909,43 +909,59 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
     return lines + [""]
 
 
-def strategy_scoreboard(data_dir: Path) -> list[str]:
-    """Cumulative strategy accounting across every session — results only."""
-    per: dict[tuple[str, bool], list[float]] = {
-        (v, f): [0.0, 0] for v in STRATEGY_FAMS for f in (True, False)
-    }
+def build_scoreboard(root: Path) -> str:
+    """Standing running ledger (SCOREBOARD.md): every session restated under
+    the current metric — 5m confluence, 25/50-wide, base completion rule,
+    first entries vs re-entries. Rebuilt whole on each nightly report run."""
+    header = [
+        "# TT-156 Running Scoreboard",
+        "",
+        "All sessions restated under the current metric (5m confluence, "
+        "25/50-wide, base completion rule, first-entry-only). All-in dollars. "
+        "Rebuilt nightly.",
+        "",
+        "| Date | 25-wide first | 50-wide first | Re-entries (all) "
+        "| Run 25-wide | Run 50-wide |",
+        "|---|---|---|---|---|---|",
+    ]
+    body: list[str] = []
+    run25 = run50 = 0.0
     ghw_tot = 0.0
-    sessions = 0
-    for day_dir in sorted(p for p in data_dir.parent.iterdir() if p.is_dir()):
+    quiet = 0
+    for day_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         rows, _, day_settle = events_only_day(day_dir)
-        strat = strategy_structures(rows)
-        if strat:
-            sessions += 1
-            first = classify_first_entries(strat)
-            for s in strat:
-                cell = per[(s["variant"], first[s["opened_at"]])]
-                cell[0] += cell_all_in([s], day_settle or 0.0)
-                cell[1] += 1
         ghw_tot += sum(
             cell_all_in([s], day_settle or 0.0)
             for s in rows
             if arm_of(s["variant"]) == "ghw"
         )
-    lines = [
-        f"## Cumulative scoreboard ({sessions} sessions)",
-        "",
-        "| Variant | First entries | n | Re-entries | n |",
-        "|---|---|---|---|---|",
-    ]
-    for v in STRATEGY_FAMS:
-        f_pts, f_n = per[(v, True)]
-        r_pts, r_n = per[(v, False)]
-        lines.append(
-            f"| {WIDTH_LABEL[v]} | {usd(f_pts)} | {int(f_n)} "
-            f"| {usd(r_pts)} | {int(r_n)} |"
+        strat = strategy_structures(rows)
+        if not strat:
+            quiet += 1
+            continue
+        first = classify_first_entries(strat)
+        f25 = f50 = re_all = 0.0
+        for s in strat:
+            v = cell_all_in([s], day_settle or 0.0)
+            if not first[s["opened_at"]]:
+                re_all += v
+            elif s["variant"].startswith("w25"):
+                f25 += v
+            else:
+                f50 += v
+        run25 += f25
+        run50 += f50
+        body.append(
+            f"| {day_dir.name} | {usd(f25)} | {usd(f50)} | {usd(re_all)} "
+            f"| {usd(run25)} | {usd(run50)} |"
         )
-    lines += ["", f"Gate-enforced arm cumulative: {usd(ghw_tot)}."]
-    return lines + [""]
+    footer = [
+        "",
+        f"Sessions with no 5m signal: {quiet}. "
+        f"Gate-enforced arm cumulative: {usd(ghw_tot)}.",
+        "",
+    ]
+    return "\n".join(header + body + footer)
 
 
 def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
@@ -1068,7 +1084,6 @@ def build_report(data_dir: Path) -> str:
         return "\n".join(lines)
     lines += strategy_block(reconstructed, settle_spot)
     lines += off_strategy_lines(reconstructed, settle_spot)
-    lines += strategy_scoreboard(data_dir)
 
     # research artifact preserved on disk, out of the daily text
     sweep = retro_sweep(snapshots)
@@ -1095,7 +1110,9 @@ def main() -> None:
     report = build_report(args.data_dir)
     out = args.data_dir / "REPORT.md"
     out.write_text(report)
-    print(f"Report written to {out}")
+    board = args.data_dir.parent / "SCOREBOARD.md"
+    board.write_text(build_scoreboard(args.data_dir.parent))
+    print(f"Report written to {out}; scoreboard refreshed at {board}")
 
 
 if __name__ == "__main__":
