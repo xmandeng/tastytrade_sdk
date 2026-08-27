@@ -7,7 +7,7 @@ from typing import cast
 
 from tastytrade.analytics.engines.models import TradeSignal
 
-from research.tt156_zero_dte_butterfly.config import default_variants
+from research.tt156_zero_dte_butterfly.config import VariantConfig
 from research.tt156_zero_dte_butterfly.report import arm_of
 from research.tt156_zero_dte_butterfly.simulator import ButterflySimulator
 
@@ -53,7 +53,20 @@ FIRM_CTX = {
 
 
 def ghw_variants():
-    return [v for v in default_variants() if v.gate_enforced]
+    # The gate-enforced arm was retired from default_variants (clean slate,
+    # 2026-08-27); simulator capability remains tested with explicit configs.
+    return [
+        VariantConfig(
+            name=f"w{w:g}_m_m{m:g}_ghw",
+            width=w,
+            signal_interval="m",
+            completion_margin=m,
+            strike_rule="halfwidth",
+            gate_enforced=True,
+        )
+        for w in (10.0, 25.0, 50.0)
+        for m in (0.0, 2.0)
+    ]
 
 
 class TestVariantGrid:
@@ -91,7 +104,15 @@ class TestEnforcement:
         assert self.enter(None) == []
 
     def test_unenforced_variants_still_enter_firm(self) -> None:
-        atm = [v for v in default_variants() if not v.gate_enforced]
+        atm = [
+            VariantConfig(
+                name="w25_m_m0_hw",
+                width=25.0,
+                signal_interval="m",
+                completion_margin=0.0,
+                strike_rule="halfwidth",
+            )
+        ]
         sim = ButterflySimulator(atm)
         signals = cast("list[TradeSignal]", [FakeSignal()])
         sim.on_snapshot(TS, 7740.0, quotes_for(7740.0), signals, FIRM_CTX)

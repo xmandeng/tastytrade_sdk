@@ -61,24 +61,15 @@ def hw_variant() -> VariantConfig:
     )
 
 
-def test_grid_has_both_arms_and_atm_names_unchanged():
+def test_grid_is_hull_only_forward_test():
+    """Clean slate 2026-08-27: default grid is the hull-only forward test —
+    25/50-wide, historical family names preserved so report/scoreboard/chart
+    tooling reads old and new ledgers identically."""
     variants = default_variants()
-    assert len(variants) == 30  # 12 atm + 12 hw + 6 gate-enforced hw
-    atm = [v for v in variants if v.strike_rule == "atm"]
-    hw = [v for v in variants if v.strike_rule == "halfwidth" and not v.gate_enforced]
-    ghw = [v for v in variants if v.gate_enforced]
-    assert len(atm) == len(hw) == 12
-    assert len(ghw) == 6
-    assert all(not v.name.endswith("_hw") for v in atm)
-    assert all(v.name.endswith("_hw") for v in hw)
-    assert all(v.name.endswith("_ghw") for v in ghw)
-    # historical ATM names preserved exactly
-    assert {v.name for v in atm} == {
-        f"w{w:g}_{i}_m{m:g}"
-        for w in (10.0, 25.0, 50.0)
-        for i in ("m", "5m")
-        for m in (0.0, 2.0)
-    }
+    assert [v.name for v in variants] == ["w25_5m_m0", "w50_5m_m0"]
+    assert all(v.signal_interval == "5m" for v in variants)
+    assert all(v.strike_rule == "atm" for v in variants)
+    assert all(not v.gate_enforced for v in variants)
 
 
 def test_halfwidth_entry_steps_itm_until_credit_clears():
