@@ -54,6 +54,11 @@ HALFWIDTH_MAX_STEPS = 30
 GATE_ETA_IMMINENT = 3.0
 GATE_ETA_NEAR = 10.0
 
+# First-entry filter (calibrated 2026-08-27 on 200 5m-family trades): only the
+# first 5m-strategy cluster in any rolling window is "on-strategy"; re-entries
+# within the window lost at every width. Frozen calibration, not a tunable.
+FIRST_ENTRY_WINDOW_MIN = 90
+
 
 @dataclass(frozen=True)
 class VariantConfig:
