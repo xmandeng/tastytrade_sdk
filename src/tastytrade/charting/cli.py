@@ -5,10 +5,21 @@ Thin wrapper over ChartServer — parses args and starts the server.
 
 import asyncio
 import logging
+import socket
 
 import click
 
 from tastytrade.common.logging import setup_logging
+
+
+def lan_ip() -> str:
+    """Best-effort LAN IP for the printed URL (no traffic is sent)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return "localhost"
 
 
 @click.command()
@@ -28,7 +39,7 @@ def main(
 
     from tastytrade.charting.server import ChartServer
 
-    url = f"http://localhost:{port}/?symbol={symbol}&interval={interval}"
+    url = f"http://{lan_ip()}:{port}/?symbol={symbol}&interval={interval}"
     logger.info("Starting tasty-chart: %s %s on port %d", symbol, interval, port)
     click.echo(f"\n  tasty-chart → {url}\n")
 
