@@ -21,12 +21,6 @@ STRATEGY_VARIANTS = ("w25_5m_m0", "w50_5m_m0")
 DATA_DIR_ENV = "TT156_DATA_DIR"
 DEFAULT_DATA_DIR = "research_data/TT-156"
 
-COLOR_BULL = "#4CAF50"
-COLOR_BEAR = "#EF5350"
-COLOR_FLY = "#FFB74D"
-COLOR_CLOSE = "#9AA0A6"
-COLOR_TENT = "#CE93D8"
-
 
 def events_path(chart_date: date_type) -> Path:
     root = Path(os.environ.get(DATA_DIR_ENV, DEFAULT_DATA_DIR))
@@ -54,9 +48,11 @@ def in_tent(event: dict) -> bool:
 def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any]]:
     """Marker dicts (UTC-epoch times) for one chart day, oldest first.
 
-    Strategy-family trades only. Sibling widths sharing a timestamp collapse
-    into one marker so the chart stays readable. Returns [] for non-SPX
-    symbols or days without an event log.
+    Each marker is semantic — ``kind`` (entry/close/fly/tent), ``dir``
+    (bull/bear, entries and closes only), ``text`` — and the frontend owns
+    all styling. Strategy-family trades only. Sibling widths sharing a
+    timestamp collapse into one marker so the chart stays readable. Returns
+    [] for non-SPX symbols or days without an event log.
     """
     if symbol != MARKER_SYMBOL:
         return []
@@ -101,9 +97,8 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         markers.append(
             {
                 "time": to_epoch(opened_at),
-                "position": "belowBar" if bull else "aboveBar",
-                "shape": "arrowUp" if bull else "arrowDown",
-                "color": COLOR_BULL if bull else COLOR_BEAR,
+                "kind": "entry",
+                "dir": "bull" if bull else "bear",
                 "text": f"S {e['short_strike']:g}{cp} {widths_label(e['widths'])}",
             }
         )
@@ -111,20 +106,17 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         markers.append(
             {
                 "time": to_epoch(e["completed_at"]),
-                "position": "inBar",
-                "shape": "circle",
-                "color": COLOR_FLY,
-                "text": f"fly {e['width']:g}",
+                "kind": "fly",
+                "text": f"FLY {e['width']:g}",
             }
         )
     for (closed_at, reason), e in closes.items():
-        label = "EOD" if reason == "forced_eod" else "flip"
+        label = "EOD" if reason == "forced_eod" else "FLIP"
         markers.append(
             {
                 "time": to_epoch(closed_at),
-                "position": "aboveBar" if e["direction"] == "BULLISH" else "belowBar",
-                "shape": "square",
-                "color": COLOR_CLOSE,
+                "kind": "close",
+                "dir": "bull" if e["direction"] == "BULLISH" else "bear",
                 "text": f"{label} {widths_label(e['widths'])}",
             }
         )
@@ -132,10 +124,8 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         markers.append(
             {
                 "time": to_epoch(ts),
-                "position": "inBar",
-                "shape": "circle",
-                "color": COLOR_TENT,
-                "text": f"tent {widths_label(e['widths'])}",
+                "kind": "tent",
+                "text": f"TENT {widths_label(e['widths'])}",
             }
         )
     return sorted(markers, key=lambda m: m["time"])
