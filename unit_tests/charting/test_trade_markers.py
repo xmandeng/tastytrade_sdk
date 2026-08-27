@@ -51,8 +51,8 @@ class TestLoadTradeMarkers:
         assert len(markers) == 1
         m = markers[0]
         assert m["text"] == "S 7700P 25/50"
-        assert m["position"] == "belowBar"
-        assert m["shape"] == "arrowUp"
+        assert m["kind"] == "entry"
+        assert m["dir"] == "bull"
         expected = int(
             datetime.fromisoformat("2026-08-18T15:03:35-04:00")
             .astimezone(timezone.utc)
@@ -86,10 +86,10 @@ class TestLoadTradeMarkers:
             ],
         )
         markers = load_trade_markers("SPX", DAY)
-        assert [m["text"] for m in markers] == ["S 7700C 25", "fly 25", "tent 25"]
+        assert [m["text"] for m in markers] == ["S 7700C 25", "FLY 25", "TENT 25"]
+        assert [m["kind"] for m in markers] == ["entry", "fly", "tent"]
         assert markers == sorted(markers, key=lambda m: m["time"])
-        assert markers[0]["position"] == "aboveBar"
-        assert markers[0]["shape"] == "arrowDown"
+        assert markers[0]["dir"] == "bear"
 
     def test_settlement_outside_wings_gets_no_tent_marker(
         self, data_root: Path
@@ -127,7 +127,8 @@ class TestLoadTradeMarkers:
         )
         markers = load_trade_markers("SPX", DAY)
         assert markers[-1]["text"] == "EOD 25"
-        assert markers[-1]["position"] == "aboveBar"
+        assert markers[-1]["kind"] == "close"
+        assert markers[-1]["dir"] == "bull"
 
     def test_corrupt_log_returns_empty(self, data_root: Path) -> None:
         day_dir = data_root / DAY.isoformat()
