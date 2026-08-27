@@ -4,7 +4,7 @@ Two engines live here:
 
 - ``HullSignalEngine`` — the ACTIVE forward-test engine (Basics v2,
   2026-08-27): direction follows the 5m hull, full stop. OPEN on a
-  sealed-bar hull color flip inside the 10:00-14:00 ET window, CLOSE on
+  sealed-bar hull color flip inside the 10:00-13:00 ET window, CLOSE on
   the opposite flip. MACD is nowhere (removed by user directive after the
   TT-157 feed-lag contamination).
 - ``LiveSignalEngine`` — the retired Hull/MACD confluence wrapper, kept

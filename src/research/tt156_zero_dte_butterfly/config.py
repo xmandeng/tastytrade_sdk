@@ -36,9 +36,11 @@ MARKET_OPEN = time(9, 30)
 LAST_ENTRY = time(14, 30)
 # Hull-only forward-test entry window (Basics v2, 2026-08-27): the first
 # half hour is churn (user rule predating this harness, re-confirmed on the
-# 50-session clean replay) and late entries lack time to complete the fly.
+# 50-session clean replay) and afternoon entries lack time to complete the
+# fly — 13:00+ entries were net losers (-$2,282/75 trades in the clean
+# replay; user cut them 2026-08-27).
 HULL_ENTRY_START = time(10, 0)
-HULL_ENTRY_END = time(14, 0)
+HULL_ENTRY_END = time(13, 0)
 FORCED_CLOSE = time(15, 45)
 LAST_COMPLETION = time(15, 55)
 MARKET_CLOSE = time(16, 0)

@@ -911,8 +911,8 @@ def strategy_block(
     settle_spot: float,
     macd_labels: dict[str, str] | None = None,
 ) -> list[str]:
-    """The strategy: hull-only 5m entries, 10:00-14:00, flip exits."""
-    lines = ["## Strategy — hull 5m, 25/50-wide, entries 10:00-14:00", ""]
+    """The strategy: hull-only 5m entries, 10:00-13:00, flip exits."""
+    lines = ["## Strategy — hull 5m, 25/50-wide, entries 10:00-13:00", ""]
     rows = strategy_structures(reconstructed)
     if not rows:
         return lines + ["No hull entries today — stood aside.", ""]
@@ -1013,13 +1013,13 @@ def tent_cell(rows: list[dict], settle_spot: float | None) -> str:
 
 def build_scoreboard(root: Path) -> str:
     """Standing running ledger (SCOREBOARD.md): every session under the live
-    rule — hull-only 5m entries 10:00-14:00, flip exits, per-arm daily
+    rule — hull-only 5m entries 10:00-13:00, flip exits, per-arm daily
     all-in totals. Rebuilt whole on each nightly report run."""
     header = [
         "# TT-156 Running Scoreboard",
         "",
         "All sessions under the live rule (hull-only 5m entries, "
-        "10:00-14:00 ET, flip exits, complete into flies). Daily all-in "
+        "10:00-13:00 ET, flip exits, complete into flies). Daily all-in "
         "dollars per arm. Rebuilt nightly.",
         "",
         "| Date | 25-wide | 25-wide +1pt | 50-wide "
