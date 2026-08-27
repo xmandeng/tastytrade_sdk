@@ -350,19 +350,59 @@ class TradeMarkersPrimitive {
     target.useBitmapCoordinateSpace(scope => {
       const ctx = scope.context;
       const r = scope.horizontalPixelRatio;
-      const R = 8 * r;  // pin radius
+      const yr = scope.verticalPixelRatio;
+      const R = 7 * r;            // number-chip radius
+      const GAP = 14 * r;         // bar edge -> chip center
+      const LANE = 18 * r;        // extra offset per stacked chip
       ctx.font = `700 ${Math.round(9 * r)}px -apple-system, "Segoe UI", Roboto, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+
+      // Chips sit clear of the candles — bull entries below the bar, bear
+      // entries above, exits opposite their entry direction, fly/tent above
+      // — with a thin pointer to the exact (time, price) of the event.
+      const placed = { above: [], below: [] };
       this._data.forEach((m, i) => {
         const x = ts.timeToCoordinate(m.time);
         const price = m.price != null ? m.price : m.barClose;
         if (x == null || price == null) return;
-        const y = series.priceToCoordinate(price);
-        if (y == null) return;
-        const cx = x * r, cy = y * scope.verticalPixelRatio;
+        const yPoint = series.priceToCoordinate(price);
+        if (yPoint == null) return;
+        const side =
+          m.kind === 'entry' ? (m.dir === 'bull' ? 'below' : 'above')
+          : m.kind === 'close' ? (m.dir === 'bull' ? 'above' : 'below')
+          : 'above';
+        const yEdge = series.priceToCoordinate(side === 'above' ? m.barHigh : m.barLow);
+        if (yEdge == null) return;
+
+        const cx = x * r;
+        let lane = 0;
+        for (const p of placed[side]) {
+          if (Math.abs(cx - p.cx) < 2 * R + 3 * r && lane <= p.lane) lane = p.lane + 1;
+        }
+        placed[side].push({ cx, lane });
+
+        const cy = side === 'above'
+          ? yEdge * yr - GAP - lane * LANE
+          : yEdge * yr + GAP + lane * LANE;
+        const py = yPoint * yr;
         const hue = tradeHue(m);
-        // Dark halo so the pin separates from whatever candle it sits on.
+
+        // Pointer: chip edge to the exact event point, tipped with a dot.
+        ctx.strokeStyle = hue;
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = Math.max(1, Math.round(r));
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + (side === 'above' ? R : -R));
+        ctx.lineTo(cx, py);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.arc(cx, py, 2 * r, 0, 2 * Math.PI);
+        ctx.fillStyle = hue;
+        ctx.fill();
+
+        // Number chip, haloed against the grid.
         ctx.beginPath();
         ctx.arc(cx, cy, R + 1.5 * r, 0, 2 * Math.PI);
         ctx.fillStyle = C.bg;
@@ -586,7 +626,10 @@ function snapMarkersToCandles(markers, candles) {
     for (const c of candles) {
       if (c.time <= m.time) bar = c; else break;
     }
-    if (bar) snapped.push({ ...m, time: bar.time, eventTime: m.time, barClose: bar.close });
+    if (bar) snapped.push({
+      ...m, time: bar.time, eventTime: m.time,
+      barClose: bar.close, barHigh: bar.high, barLow: bar.low,
+    });
   }
   return snapped;
 }
