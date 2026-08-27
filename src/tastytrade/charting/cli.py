@@ -39,13 +39,15 @@ def main(
 
     from tastytrade.charting.server import ChartServer
 
-    url = f"http://{lan_ip()}:{port}/?symbol={symbol}&interval={interval}"
+    host = lan_ip()
+    url = f"http://{host}:{port}/?symbol={symbol}&interval={interval}"
     logger.info("Starting tasty-chart: %s %s on port %d", symbol, interval, port)
     click.echo(f"\n  tasty-chart → {url}\n")
 
     server = ChartServer(
         symbol=symbol,
         interval=interval,
+        host=host,
         port=port,
     )
     asyncio.run(server.start())
