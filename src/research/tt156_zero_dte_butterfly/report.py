@@ -950,6 +950,60 @@ def order_outcome(s: dict) -> str:
     return reason or s["outcome"]
 
 
+def structure_margin(s: dict, at: str) -> float:
+    """1-lot margin (points) for a structure at timestamp ``at``.
+
+    Open vertical: width − entry credit. Completed fly: width − total
+    credit floored at zero — lossless flies free their margin, deficit
+    (early-fly) conversions keep the shortfall at risk until settlement.
+    """
+    completed_at = s.get("completed_at")
+    if completed_at and completed_at <= at and s.get("completion_credit") is not None:
+        return max(0.0, s["width"] - (s["entry_credit"] + s["completion_credit"]))
+    return s["width"] - s["entry_credit"]
+
+
+def risk_block(reconstructed: list[dict]) -> list[str]:
+    """Peak concurrent margin requirement and open-structure count per arm."""
+    arms: dict[str, list[dict]] = {}
+    for s in reconstructed:
+        arms.setdefault(s["variant"], []).append(s)
+    if not arms:
+        return []
+    lines = [
+        "## Risk (peak intraday, per arm)",
+        "",
+        "| Arm | Max margin | Max open structures |",
+        "|---|---|---|",
+    ]
+    for arm in sorted(arms):
+        rows = arms[arm]
+        points: set[str] = set()
+        for s in rows:
+            points.add(s["opened_at"])
+            if s.get("completed_at"):
+                points.add(s["completed_at"])
+            if s.get("closed_at"):
+                points.add(s["closed_at"])
+        max_margin = 0.0
+        max_open = 0
+        for t in sorted(points):
+            margin = 0.0
+            n_open = 0
+            for s in rows:
+                if s["opened_at"] > t:
+                    continue
+                closed_at = s.get("closed_at")
+                if closed_at and closed_at <= t:
+                    continue
+                n_open += 1
+                margin += structure_margin(s, t)
+            max_margin = max(max_margin, margin)
+            max_open = max(max_open, n_open)
+        lines.append(f"| {arm} | {usd(max_margin)} | {max_open} |")
+    return lines + [""]
+
+
 def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Tracked-but-not-traded activity, compressed to a few lines."""
     lines = ["## Off-strategy grid (tracked)", ""]
@@ -1185,6 +1239,7 @@ def build_report(data_dir: Path) -> str:
         ]
         return "\n".join(lines)
     lines += strategy_block(reconstructed, settle_spot)
+    lines += risk_block(reconstructed)
     lines += off_strategy_lines(reconstructed, settle_spot)
 
     # research artifact preserved on disk, out of the daily text
