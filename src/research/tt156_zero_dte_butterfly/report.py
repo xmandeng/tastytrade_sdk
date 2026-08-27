@@ -1022,9 +1022,9 @@ def build_scoreboard(root: Path) -> str:
         "10:00-13:00 ET, flip exits, complete into flies). Daily all-in "
         "dollars per arm. Rebuilt nightly.",
         "",
-        "| Date | 25-wide | 25-wide +1pt | 50-wide "
+        "| Date | 25-wide | 25-wide +1pt | 25-wide early-fly | 50-wide "
         "| In tent | Run 25-wide | Run 50-wide |",
-        "|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
     run25 = run50 = 0.0
@@ -1045,12 +1045,14 @@ def build_scoreboard(root: Path) -> str:
             continue
         d25 = by_var.get("w25_5m_m0", 0.0)
         d25m1 = by_var.get("w25_5m_m1", 0.0)
+        d25ef = by_var.get("w25_5m_m0_ef5", 0.0)
         d50 = by_var.get("w50_5m_m0", 0.0)
         run25 += d25
         run50 += d50
         strat = [s for s in rows if s["variant"] in STRATEGY_FAMS]
         body.append(
-            f"| {day_dir.name} | {usd(d25)} | {usd(d25m1)} | {usd(d50)} "
+            f"| {day_dir.name} | {usd(d25)} | {usd(d25m1)} | {usd(d25ef)} "
+            f"| {usd(d50)} "
             f"| {tent_cell(strat, day_settle)} | {usd(run25)} | {usd(run50)} |"
         )
     footer = [
