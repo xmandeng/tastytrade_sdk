@@ -121,14 +121,14 @@
 
     /* --- Single chart container (v5: native panes inside) --- */
     #chart { flex: 1; position: relative; min-height: 0; }
-    /* TT-156 trade callouts: detail lives here, not on the price action. */
+    /* TT-156 trade callouts: a strip of its own between toolbar and chart —
+       detail never overlaps the price action or the pane gutters. */
     #tradeCallouts {
-      /* top-right: clear of the left price axis, prior-day labels, watermark */
-      position: absolute; top: 8px; right: 8px; z-index: 20;
-      display: none; flex-direction: column; gap: 3px;
-      background: rgba(19,19,19,0.88); border: 1px solid #2a2a2a;
-      border-radius: 4px; padding: 6px 9px; pointer-events: none;
-      font-size: 11px; line-height: 1.5;
+      display: none; flex-wrap: wrap; align-items: center;
+      column-gap: 18px; row-gap: 2px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 4px 16px; flex-shrink: 0;
+      font-size: 11px; line-height: 1.6;
     }
     #tradeCallouts.on { display: flex; }
     .tc-row { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
@@ -172,7 +172,8 @@
   </div>
 </div>
 
-<div id="chart"><div id="tradeCallouts"></div></div>
+<div id="tradeCallouts"></div>
+<div id="chart"></div>
 
 <script>
 // --- Colors (plots.py) ---
@@ -352,15 +353,16 @@ class TradeMarkersPrimitive {
       const r = scope.horizontalPixelRatio;
       const yr = scope.verticalPixelRatio;
       const R = 7 * r;            // number-chip radius
-      const GAP = 14 * r;         // bar edge -> chip center
-      const LANE = 18 * r;        // extra offset per stacked chip
+      const GUTTER = 14 * r;      // pane edge -> chip center
+      const LANE = 18 * r;        // inward offset per stacked chip
       ctx.font = `700 ${Math.round(9 * r)}px -apple-system, "Segoe UI", Roboto, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Chips sit clear of the candles — bull entries below the bar, bear
-      // entries above, exits opposite their entry direction, fly/tent above
-      // — with a thin pointer to the exact (time, price) of the event.
+      // Chips live in fixed gutters at the pane's top and bottom edges —
+      // fully clear of the price action — with a long thin pointer down to
+      // the exact (time, price) of the event. Bull entries in the bottom
+      // gutter, bear entries top, exits opposite their entry, fly/tent top.
       const placed = { above: [], below: [] };
       this._data.forEach((m, i) => {
         const x = ts.timeToCoordinate(m.time);
@@ -372,8 +374,6 @@ class TradeMarkersPrimitive {
           m.kind === 'entry' ? (m.dir === 'bull' ? 'below' : 'above')
           : m.kind === 'close' ? (m.dir === 'bull' ? 'above' : 'below')
           : 'above';
-        const yEdge = series.priceToCoordinate(side === 'above' ? m.barHigh : m.barLow);
-        if (yEdge == null) return;
 
         const cx = x * r;
         let lane = 0;
@@ -383,14 +383,15 @@ class TradeMarkersPrimitive {
         placed[side].push({ cx, lane });
 
         const cy = side === 'above'
-          ? yEdge * yr - GAP - lane * LANE
-          : yEdge * yr + GAP + lane * LANE;
+          ? GUTTER + lane * LANE
+          : scope.bitmapSize.height - GUTTER - lane * LANE;
         const py = yPoint * yr;
         const hue = tradeHue(m);
 
         // Pointer: chip edge to the exact event point, tipped with a dot.
+        // Long by design, so it recedes: 1px, low alpha.
         ctx.strokeStyle = hue;
-        ctx.globalAlpha = 0.6;
+        ctx.globalAlpha = 0.35;
         ctx.lineWidth = Math.max(1, Math.round(r));
         ctx.beginPath();
         ctx.moveTo(cx, cy + (side === 'above' ? R : -R));
