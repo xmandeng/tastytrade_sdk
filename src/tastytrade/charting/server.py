@@ -346,6 +346,8 @@ class ChartServer:
         trades = load_trade_markers(symbol, target_date)
         for m in trades:
             m["time"] = utc_epoch_to_et_epoch(m["time"])
+            if m.get("end") is not None:
+                m["end"] = utc_epoch_to_et_epoch(m["end"])
 
         initial_payload = {
             "type": "init",

@@ -121,6 +121,24 @@
 
     /* --- Single chart container (v5: native panes inside) --- */
     #chart { flex: 1; position: relative; min-height: 0; }
+    /* TT-156 trade callouts: detail lives here, not on the price action. */
+    #tradeCallouts {
+      /* top-right: clear of the left price axis, prior-day labels, watermark */
+      position: absolute; top: 8px; right: 8px; z-index: 20;
+      display: none; flex-direction: column; gap: 3px;
+      background: rgba(19,19,19,0.88); border: 1px solid #2a2a2a;
+      border-radius: 4px; padding: 6px 9px; pointer-events: none;
+      font-size: 11px; line-height: 1.5;
+    }
+    #tradeCallouts.on { display: flex; }
+    .tc-row { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+    .tc-num {
+      width: 14px; height: 14px; border-radius: 50%; flex: none;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; border: 1px solid currentColor;
+    }
+    .tc-time { color: #787b86; font-variant-numeric: tabular-nums; }
+    .tc-text { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -154,7 +172,7 @@
   </div>
 </div>
 
-<div id="chart"></div>
+<div id="chart"><div id="tradeCallouts"></div></div>
 
 <script>
 // --- Colors (plots.py) ---
@@ -275,18 +293,24 @@ class HmaPrimitive {
 }
 
 // ============================================================================
-// Series Primitive: TT-156 trade badges — flag-post pills lane-stacked above/
-// below their bar with a dashed stem. Same host contract as HmaPrimitive.
-// Styling derives from the chart palette: candle green/red for direction,
-// reference-amber for fly locks, purple reserved for tent settles.
+// Series Primitive: TT-156 trade pins — a small numbered circle at the exact
+// (time, price) of each trade event; the matching detail lives in the
+// #tradeCallouts panel, keeping the price action clean. Same host contract
+// as HmaPrimitive. Hues derive from the chart palette: candle green/red for
+// direction, reference-amber for fly locks, purple reserved for tent settles.
 // ============================================================================
 const TRADE_STYLE = {
-  entry_bull: { hue: C.candleUpBorder,  glyph: 'arrowUp',   side: 'below' },
-  entry_bear: { hue: C.candleDownBody,  glyph: 'arrowDown', side: 'above' },
-  close:      { hue: '#9AA0A6',         glyph: 'cross',     side: 'above' },
-  fly:        { hue: '#FFB74D',         glyph: 'diamond',   side: 'above' },
-  tent:       { hue: '#CE93D8',         glyph: 'tent',      side: 'above' },
+  entry_bull: { hue: C.candleUpBorder },
+  entry_bear: { hue: C.candleDownBody },
+  close:      { hue: '#9AA0A6' },
+  fly:        { hue: '#FFB74D' },
+  tent:       { hue: '#CE93D8' },
 };
+
+function tradeHue(m) {
+  const key = m.kind === 'entry' ? `entry_${m.dir}` : m.kind;
+  return (TRADE_STYLE[key] || TRADE_STYLE.close).hue;
+}
 
 // Opaque badge fill: hue pre-blended over the chart bg (#131313) at ~20%,
 // same trick as the axis badges — quiet ground, full contrast for text.
@@ -303,7 +327,7 @@ class TradeMarkersPrimitive {
     this._series = null;
     this._chart = null;
     this._paneView = {
-      renderer: () => ({ draw: (target) => this.drawBadges(target) }),
+      renderer: () => ({ draw: (target) => this.drawPins(target) }),
     };
   }
   attached({ series, chart }) { this._series = series; this._chart = chart; }
@@ -319,119 +343,62 @@ class TradeMarkersPrimitive {
   }
   clear() { this._data = []; this.requestRedraw(); }
 
-  styleOf(m) {
-    const key = m.kind === 'entry' || m.kind === 'close'
-      ? (m.kind === 'entry' ? `entry_${m.dir}` : 'close')
-      : m.kind;
-    return TRADE_STYLE[key] || TRADE_STYLE.close;
-  }
-
-  drawBadges(target) {
+  drawPins(target) {
     if (!this._series || !this._chart || !this._data.length) return;
     const series = this._series;
     const ts = this._chart.timeScale();
     target.useBitmapCoordinateSpace(scope => {
       const ctx = scope.context;
       const r = scope.horizontalPixelRatio;
-      const H = 16 * r;           // badge height
-      const PAD = 5 * r;          // inner padding
-      const GLY = 7 * r;          // glyph box
-      const GAP = 10 * r;         // bar edge -> first lane
-      const LANE = (16 + 4) * r;  // lane pitch
-      const RAD = 3 * r;
-      ctx.font = `600 ${Math.round(10 * r)}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+      const R = 8 * r;  // pin radius
+      ctx.font = `700 ${Math.round(9 * r)}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+      ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-
-      // Closes on the entry's side reads wrong — a close flags the *end* of
-      // that direction, so it sits opposite its entry (bull closes above).
-      const placed = { above: [], below: [] };
-      for (const m of this._data) {
-        const st = this.styleOf(m);
+      this._data.forEach((m, i) => {
         const x = ts.timeToCoordinate(m.time);
-        if (x == null) continue;
-        const side = m.kind === 'close' ? (m.dir === 'bull' ? 'above' : 'below') : st.side;
-        const anchorPrice = side === 'above' ? m.barHigh : m.barLow;
-        const yAnchor = series.priceToCoordinate(anchorPrice);
-        if (yAnchor == null) continue;
-
-        const textW = ctx.measureText(m.text).width;
-        const w = PAD + GLY + 4 * r + textW + PAD;
-        const cx = x * r;
-        let left = cx - w / 2;
-        left = Math.max(2 * r, Math.min(left, scope.bitmapSize.width - w - 2 * r));
-
-        // Greedy lane stack: bump outward until this badge clears every badge
-        // already placed on this side whose x-range overlaps.
-        let lane = 0;
-        for (const p of placed[side]) {
-          if (left < p.left + p.w + 4 * r && p.left < left + w + 4 * r && lane <= p.lane) {
-            lane = p.lane + 1;
-          }
-        }
-        placed[side].push({ left, w, lane });
-
-        const yA = yAnchor * scope.verticalPixelRatio;
-        const top = side === 'above'
-          ? yA - GAP - H - lane * LANE
-          : yA + GAP + lane * LANE;
-
-        // Stem: bar edge to badge edge, dashed, receding.
-        ctx.save();
-        ctx.strokeStyle = st.hue;
-        ctx.globalAlpha = 0.45;
-        ctx.lineWidth = Math.max(1, Math.round(r));
-        ctx.setLineDash([2 * r, 3 * r]);
+        const price = m.price != null ? m.price : m.barClose;
+        if (x == null || price == null) return;
+        const y = series.priceToCoordinate(price);
+        if (y == null) return;
+        const cx = x * r, cy = y * scope.verticalPixelRatio;
+        const hue = tradeHue(m);
+        // Dark halo so the pin separates from whatever candle it sits on.
         ctx.beginPath();
-        ctx.moveTo(cx, yA);
-        ctx.lineTo(cx, side === 'above' ? top + H : top);
-        ctx.stroke();
-        ctx.restore();
-
-        // Pill: opaque blended fill, 1px hue border.
-        ctx.beginPath();
-        ctx.roundRect(left, top, w, H, RAD);
-        ctx.fillStyle = blendOverBg(st.hue, 0.2);
+        ctx.arc(cx, cy, R + 1.5 * r, 0, 2 * Math.PI);
+        ctx.fillStyle = C.bg;
         ctx.fill();
-        ctx.lineWidth = Math.max(1, Math.round(r));
-        ctx.strokeStyle = st.hue;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, 2 * Math.PI);
+        ctx.fillStyle = blendOverBg(hue, 0.25);
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, Math.round(1.25 * r));
+        ctx.strokeStyle = hue;
         ctx.stroke();
-
-        // Glyph + label.
-        const gx = left + PAD, gy = top + H / 2;
-        this.drawGlyph(ctx, st.glyph, gx, gy, GLY, st.hue);
-        ctx.fillStyle = st.hue;
-        ctx.fillText(m.text, gx + GLY + 4 * r, gy + 0.5 * r);
-      }
+        ctx.fillStyle = hue;
+        ctx.fillText(String(i + 1), cx, cy + 0.5 * r);
+      });
     });
   }
+}
 
-  drawGlyph(ctx, glyph, x, cy, s, hue) {
-    ctx.save();
-    ctx.fillStyle = hue;
-    ctx.strokeStyle = hue;
-    ctx.lineWidth = Math.max(1, s / 5);
-    ctx.beginPath();
-    if (glyph === 'arrowUp') {
-      ctx.moveTo(x, cy + s / 2); ctx.lineTo(x + s, cy + s / 2); ctx.lineTo(x + s / 2, cy - s / 2);
-      ctx.closePath(); ctx.fill();
-    } else if (glyph === 'arrowDown') {
-      ctx.moveTo(x, cy - s / 2); ctx.lineTo(x + s, cy - s / 2); ctx.lineTo(x + s / 2, cy + s / 2);
-      ctx.closePath(); ctx.fill();
-    } else if (glyph === 'cross') {
-      ctx.moveTo(x + s * 0.15, cy - s * 0.35); ctx.lineTo(x + s * 0.85, cy + s * 0.35);
-      ctx.moveTo(x + s * 0.85, cy - s * 0.35); ctx.lineTo(x + s * 0.15, cy + s * 0.35);
-      ctx.stroke();
-    } else if (glyph === 'diamond') {
-      ctx.moveTo(x + s / 2, cy - s / 2); ctx.lineTo(x + s, cy); ctx.lineTo(x + s / 2, cy + s / 2);
-      ctx.lineTo(x, cy); ctx.closePath(); ctx.fill();
-    } else if (glyph === 'tent') {
-      // the payoff tent: peaked roof over a baseline
-      ctx.moveTo(x, cy + s / 2); ctx.lineTo(x + s / 2, cy - s / 2); ctx.lineTo(x + s, cy + s / 2);
-      ctx.moveTo(x, cy + s / 2); ctx.lineTo(x + s, cy + s / 2);
-      ctx.stroke();
-    }
-    ctx.restore();
+// The callout panel: one row per pin, same numbering and hue. Detail text
+// stays out of the pane so the candles remain readable.
+function renderTradeCallouts(markers) {
+  const el = document.getElementById('tradeCallouts');
+  if (!markers || !markers.length) {
+    el.classList.remove('on');
+    el.innerHTML = '';
+    return;
   }
+  el.innerHTML = markers.map((m, i) => {
+    const hue = tradeHue(m);
+    return `<div class="tc-row">` +
+      `<span class="tc-num" style="color:${hue};background:${blendOverBg(hue, 0.25)}">${i + 1}</span>` +
+      `<span class="tc-time">${fmtTime(m.eventTime != null ? m.eventTime : m.time)}</span>` +
+      `<span class="tc-text" style="color:${hue}">${m.text}</span>` +
+      `</div>`;
+  }).join('');
+  el.classList.add('on');
 }
 
 // ============================================================================
@@ -602,14 +569,15 @@ const hmaPrimitive = new HmaPrimitive();
 candleSeries.attachPrimitive(hmaPrimitive);
 
 // TT-156 paper-trade markers (entries, fly locks, closes, tent settles):
-// flag-post badges drawn by a series primitive — a pill label in a lane
-// above/below the bar, tied to it by a dashed stem. Built-in series markers
-// are too small to read at a glance; this owns the full treatment.
+// numbered pins at the exact (time, price) of each event, with detail in
+// the #tradeCallouts panel. Built-in series markers are too small to read
+// and pill overlays cluttered the price action; pins + callout own both.
 const tradeMarkers = new TradeMarkersPrimitive();
 candleSeries.attachPrimitive(tradeMarkers);
 
 // Event timestamps fall inside bars; snap each to the last bar at or before
-// it (works at any interval) and carry that bar's high/low as anchors.
+// it (works at any interval). barClose is the price fallback for events
+// that don't carry their own spot (closes).
 function snapMarkersToCandles(markers, candles) {
   if (!markers || !markers.length || !candles.length) return [];
   const snapped = [];
@@ -618,7 +586,7 @@ function snapMarkersToCandles(markers, candles) {
     for (const c of candles) {
       if (c.time <= m.time) bar = c; else break;
     }
-    if (bar) snapped.push({ ...m, time: bar.time, barHigh: bar.high, barLow: bar.low });
+    if (bar) snapped.push({ ...m, time: bar.time, eventTime: m.time, barClose: bar.close });
   }
   return snapped;
 }
@@ -1206,7 +1174,9 @@ function doConnect(dateOverride) {
         candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
       }
       candleSeries.setData(msg.candles);
-      tradeMarkers.setData(snapMarkersToCandles(msg.trades, msg.candles));
+      const snappedTrades = snapMarkersToCandles(msg.trades, msg.candles);
+      tradeMarkers.setData(snappedTrades);
+      renderTradeCallouts(snappedTrades);
       computeBounds(msg.candles);
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 
