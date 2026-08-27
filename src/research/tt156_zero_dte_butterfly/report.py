@@ -911,17 +911,15 @@ def strategy_block(
     settle_spot: float,
     macd_labels: dict[str, str] | None = None,
 ) -> list[str]:
-    """The strategy: hull-only 5m entries, w25+w50, first-entry overlay."""
-    lines = ["## Strategy — 5m confluence, 25/50-wide, first-entry-only", ""]
+    """The strategy: hull-only 5m entries, 10:00-14:00, flip exits."""
+    lines = ["## Strategy — hull 5m, 25/50-wide, entries 10:00-14:00", ""]
     rows = strategy_structures(reconstructed)
     if not rows:
-        return lines + ["No 5m signals today — stood aside.", ""]
-    first = classify_first_entries(rows)
+        return lines + ["No hull entries today — stood aside.", ""]
     labels = macd_labels if macd_labels is not None else macd_entry_labels(rows)
     lines += [
-        "| Entry (ET) | Order | Width | Entry type | Credit | All-in "
-        "| Outcome | 5m MACD |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Entry (ET) | Order | Width | Credit | All-in | Outcome | 5m MACD |",
+        "|---|---|---|---|---|---|---|",
     ]
     for s in sorted(rows, key=lambda s: (s["opened_at"], s["width"])):
         t_et = datetime.fromisoformat(s["opened_at"]).astimezone(ET)
@@ -932,10 +930,9 @@ def strategy_block(
             else f"SOLD {K:g}/{K - w:g} put spread"
         )
         outcome = order_outcome(s)
-        kind = "first" if first[s["opened_at"]] else "re-entry"
         label = labels.get(s["opened_at"], "—")
         lines.append(
-            f"| {t_et:%H:%M} | {order} | {w:g} | {kind} "
+            f"| {t_et:%H:%M} | {order} | {w:g} "
             f"| {s['entry_credit']:.2f} | {usd(cell_all_in([s], settle_spot))} "
             f"| {outcome} | {label} |"
         )
@@ -1015,23 +1012,22 @@ def tent_cell(rows: list[dict], settle_spot: float | None) -> str:
 
 
 def build_scoreboard(root: Path) -> str:
-    """Standing running ledger (SCOREBOARD.md): every session restated under
-    the current metric — 5m confluence, 25/50-wide, base completion rule,
-    first entries vs re-entries. Rebuilt whole on each nightly report run."""
+    """Standing running ledger (SCOREBOARD.md): every session under the live
+    rule — hull-only 5m entries 10:00-14:00, flip exits, per-arm daily
+    all-in totals. Rebuilt whole on each nightly report run."""
     header = [
         "# TT-156 Running Scoreboard",
         "",
-        "All sessions restated under the current metric (5m confluence, "
-        "25/50-wide, base completion rule, first-entry-only). All-in dollars. "
-        "Rebuilt nightly.",
+        "All sessions under the live rule (hull-only 5m entries, "
+        "10:00-14:00 ET, flip exits, complete into flies). Daily all-in "
+        "dollars per arm. Rebuilt nightly.",
         "",
-        "| Date | 25-wide first | 50-wide first | Re-entries (all) "
+        "| Date | 25-wide | 25-wide +1pt | 50-wide "
         "| In tent | Run 25-wide | Run 50-wide |",
         "|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
     run25 = run50 = 0.0
-    ghw_tot = 0.0
     quiet = 0
     for day_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         try:
@@ -1039,38 +1035,30 @@ def build_scoreboard(root: Path) -> str:
         except ValueError:
             continue  # archives and tooling dirs (clean_resim, live_pre_fix, …)
         rows, _, day_settle = events_only_day(day_dir)
-        ghw_tot += sum(
-            cell_all_in([s], day_settle or 0.0)
-            for s in rows
-            if arm_of(s["variant"]) == "ghw"
-        )
-        strat = strategy_structures(rows)
-        if not strat:
+        by_var: dict[str, float] = {}
+        for s in rows:
+            by_var[s["variant"]] = by_var.get(s["variant"], 0.0) + cell_all_in(
+                [s], day_settle or 0.0
+            )
+        if not by_var:
             quiet += 1
             continue
-        first = classify_first_entries(strat)
-        f25 = f50 = re_all = 0.0
-        for s in strat:
-            v = cell_all_in([s], day_settle or 0.0)
-            if not first[s["opened_at"]]:
-                re_all += v
-            elif s["variant"].startswith("w25"):
-                f25 += v
-            else:
-                f50 += v
-        run25 += f25
-        run50 += f50
+        d25 = by_var.get("w25_5m_m0", 0.0)
+        d25m1 = by_var.get("w25_5m_m1", 0.0)
+        d50 = by_var.get("w50_5m_m0", 0.0)
+        run25 += d25
+        run50 += d50
+        strat = [s for s in rows if s["variant"] in STRATEGY_FAMS]
         body.append(
-            f"| {day_dir.name} | {usd(f25)} | {usd(f50)} | {usd(re_all)} "
+            f"| {day_dir.name} | {usd(d25)} | {usd(d25m1)} | {usd(d50)} "
             f"| {tent_cell(strat, day_settle)} | {usd(run25)} | {usd(run50)} |"
         )
     footer = [
         "",
-        f"Sessions with no 5m signal: {quiet}. "
-        f"Gate-enforced arm cumulative: {usd(ghw_tot)}.",
+        f"Sessions with no entry: {quiet}.",
         "",
         "In tent = locked fly whose settlement landed between the wings "
-        "(counts by width; first entries and re-entries alike).",
+        "(counts by width, primary arms).",
         "",
     ]
     return "\n".join(header + body + footer)
