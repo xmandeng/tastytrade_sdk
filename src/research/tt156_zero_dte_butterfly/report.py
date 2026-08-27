@@ -16,7 +16,7 @@ Usage:
 import argparse
 import gzip
 import json
-from datetime import datetime, time
+from datetime import date, datetime, time
 from pathlib import Path
 
 from research.tt156_zero_dte_butterfly import regime
@@ -952,6 +952,10 @@ def build_scoreboard(root: Path) -> str:
     ghw_tot = 0.0
     quiet = 0
     for day_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        try:
+            date.fromisoformat(day_dir.name)
+        except ValueError:
+            continue  # archives and tooling dirs (clean_resim, live_pre_fix, …)
         rows, _, day_settle = events_only_day(day_dir)
         ghw_tot += sum(
             cell_all_in([s], day_settle or 0.0)
