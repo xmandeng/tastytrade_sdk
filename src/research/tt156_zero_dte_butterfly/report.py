@@ -826,8 +826,7 @@ def regime_slim_lines(snapshots: list[dict], data_dir: Path) -> list[str]:
     label = "no call" if call is None else f"{call[0]} (P≈{call[1]:.0%})"
     drive = "n/a" if feats.drive_atr is None else f"{feats.drive_atr:.2f}x ATR20"
     return [
-        f"Regime @11:00: {label} · drive {drive} · retrace "
-        f"{feats.retrace_frac:.2f}",
+        f"Regime @11:00: {label} · drive {drive} · retrace {feats.retrace_frac:.2f}",
         "",
     ]
 
@@ -909,6 +908,30 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
     return lines + [""]
 
 
+def settled_in_tent(s: dict, settle_spot: float | None) -> bool:
+    """True when a locked fly settled strictly between its wings — the tent."""
+    return (
+        s["outcome"] == "settled"
+        and s.get("completion_credit") is not None
+        and settle_spot is not None
+        and abs(settle_spot - s["short_strike"]) < s["width"]
+    )
+
+
+def tent_cell(rows: list[dict], settle_spot: float | None) -> str:
+    """Counts of in-tent settlements by width, e.g. "1x25w 2x50w"."""
+    parts = []
+    for wid, label in (("w25", "25w"), ("w50", "50w")):
+        n = sum(
+            1
+            for s in rows
+            if width_of(s["variant"]) == wid and settled_in_tent(s, settle_spot)
+        )
+        if n:
+            parts.append(f"{n}x{label}")
+    return " ".join(parts) or "—"
+
+
 def build_scoreboard(root: Path) -> str:
     """Standing running ledger (SCOREBOARD.md): every session restated under
     the current metric — 5m confluence, 25/50-wide, base completion rule,
@@ -921,8 +944,8 @@ def build_scoreboard(root: Path) -> str:
         "Rebuilt nightly.",
         "",
         "| Date | 25-wide first | 50-wide first | Re-entries (all) "
-        "| Run 25-wide | Run 50-wide |",
-        "|---|---|---|---|---|---|",
+        "| In tent | Run 25-wide | Run 50-wide |",
+        "|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
     run25 = run50 = 0.0
@@ -953,12 +976,15 @@ def build_scoreboard(root: Path) -> str:
         run50 += f50
         body.append(
             f"| {day_dir.name} | {usd(f25)} | {usd(f50)} | {usd(re_all)} "
-            f"| {usd(run25)} | {usd(run50)} |"
+            f"| {tent_cell(strat, day_settle)} | {usd(run25)} | {usd(run50)} |"
         )
     footer = [
         "",
         f"Sessions with no 5m signal: {quiet}. "
         f"Gate-enforced arm cumulative: {usd(ghw_tot)}.",
+        "",
+        "In tent = locked fly whose settlement landed between the wings "
+        "(counts by width; first entries and re-entries alike).",
         "",
     ]
     return "\n".join(header + body + footer)
