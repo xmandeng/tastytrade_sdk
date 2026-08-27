@@ -66,7 +66,7 @@ def test_grid_is_hull_only_forward_test():
     25/50-wide, historical family names preserved so report/scoreboard/chart
     tooling reads old and new ledgers identically."""
     variants = default_variants()
-    assert [v.name for v in variants] == ["w25_5m_m0", "w50_5m_m0"]
+    assert [v.name for v in variants] == ["w25_5m_m0", "w25_5m_m1", "w50_5m_m0"]
     assert all(v.signal_interval == "5m" for v in variants)
     assert all(v.strike_rule == "atm" for v in variants)
     assert all(not v.gate_enforced for v in variants)
