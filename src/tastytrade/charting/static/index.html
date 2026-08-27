@@ -121,24 +121,24 @@
 
     /* --- Single chart container (v5: native panes inside) --- */
     #chart { flex: 1; position: relative; min-height: 0; }
-    /* TT-156 trade callouts: a strip of its own between toolbar and chart —
-       detail never overlaps the price action or the pane gutters. */
-    #tradeCallouts {
-      display: none; flex-wrap: wrap; align-items: center;
-      column-gap: 18px; row-gap: 2px;
-      background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 4px 16px; flex-shrink: 0;
-      font-size: 11px; line-height: 1.6;
+    /* TT-156 trade tooltip: hover a gutter chip for the ledger-level trade
+       detail (mirrors the daily report's per-order rows). */
+    #tradeTip {
+      position: absolute; z-index: 25; display: none;
+      max-width: 480px; pointer-events: none;
+      background: rgba(19,19,19,0.94); border: 1px solid var(--border);
+      border-radius: 4px; padding: 7px 10px;
+      font-size: 11px; line-height: 1.55;
     }
-    #tradeCallouts.on { display: flex; }
-    .tc-row { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
-    .tc-num {
+    #tradeTip.on { display: block; }
+    .tt-title { display: flex; align-items: center; gap: 7px; font-weight: 600; white-space: nowrap; }
+    .tt-num {
       width: 14px; height: 14px; border-radius: 50%; flex: none;
       display: flex; align-items: center; justify-content: center;
       font-size: 9px; font-weight: 700; border: 1px solid currentColor;
     }
-    .tc-time { color: #787b86; font-variant-numeric: tabular-nums; }
-    .tc-text { font-weight: 600; }
+    .tt-time { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+    .tt-line { color: var(--text); margin-top: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -172,8 +172,7 @@
   </div>
 </div>
 
-<div id="tradeCallouts"></div>
-<div id="chart"></div>
+<div id="chart"><div id="tradeTip"></div></div>
 
 <script>
 // --- Colors (plots.py) ---
@@ -325,6 +324,7 @@ function blendOverBg(hex, alpha) {
 class TradeMarkersPrimitive {
   constructor() {
     this._data = [];
+    this._hits = [];   // chip centers in pane media coords, for hover hit-tests
     this._series = null;
     this._chart = null;
     this._paneView = {
@@ -345,6 +345,7 @@ class TradeMarkersPrimitive {
   clear() { this._data = []; this.requestRedraw(); }
 
   drawPins(target) {
+    this._hits = [];
     if (!this._series || !this._chart || !this._data.length) return;
     const series = this._series;
     const ts = this._chart.timeScale();
@@ -387,6 +388,7 @@ class TradeMarkersPrimitive {
           : scope.bitmapSize.height - GUTTER - lane * LANE;
         const py = yPoint * yr;
         const hue = tradeHue(m);
+        this._hits.push({ x: cx / r, y: cy / yr, m, n: i + 1 });
 
         // Pointer: chip edge to the exact event point, tipped with a dot.
         // Long by design, so it recedes: 1px, low alpha.
@@ -422,24 +424,30 @@ class TradeMarkersPrimitive {
   }
 }
 
-// The callout panel: one row per pin, same numbering and hue. Detail text
-// stays out of the pane so the candles remain readable.
-function renderTradeCallouts(markers) {
-  const el = document.getElementById('tradeCallouts');
-  if (!markers || !markers.length) {
-    el.classList.remove('on');
-    el.innerHTML = '';
-    return;
-  }
-  el.innerHTML = markers.map((m, i) => {
-    const hue = tradeHue(m);
-    return `<div class="tc-row">` +
-      `<span class="tc-num" style="color:${hue};background:${blendOverBg(hue, 0.25)}">${i + 1}</span>` +
-      `<span class="tc-time">${fmtTime(m.eventTime != null ? m.eventTime : m.time)}</span>` +
-      `<span class="tc-text" style="color:${hue}">${m.text}</span>` +
-      `</div>`;
-  }).join('');
+// Hover tooltip: the ledger-level detail for one chip (same accounting as
+// the daily report — order, credit, all-in, outcome).
+function showTradeTip(hit, axisLeft) {
+  const el = document.getElementById('tradeTip');
+  const m = hit.m;
+  const hue = tradeHue(m);
+  const t = fmtTime(m.eventTime != null ? m.eventTime : m.time);
+  const lines = (m.details || []).map(d => `<div class="tt-line">${d}</div>`).join('');
+  el.innerHTML =
+    `<div class="tt-title" style="color:${hue}">` +
+    `<span class="tt-num" style="background:${blendOverBg(hue, 0.25)}">${hit.n}</span>` +
+    `<span class="tt-time">${t}</span><span>${m.text}</span></div>` + lines;
   el.classList.add('on');
+  const host = document.getElementById('chart');
+  const left = Math.max(0, Math.min(axisLeft + hit.x + 14, host.clientWidth - el.offsetWidth - 4));
+  const top = hit.y > host.clientHeight / 2
+    ? hit.y - el.offsetHeight - 12
+    : hit.y + 12;
+  el.style.left = `${left}px`;
+  el.style.top = `${Math.max(4, top)}px`;
+}
+
+function hideTradeTip() {
+  document.getElementById('tradeTip').classList.remove('on');
 }
 
 // ============================================================================
@@ -615,6 +623,25 @@ candleSeries.attachPrimitive(hmaPrimitive);
 // and pill overlays cluttered the price action; pins + callout own both.
 const tradeMarkers = new TradeMarkersPrimitive();
 candleSeries.attachPrimitive(tradeMarkers);
+
+// Hover a chip -> ledger tooltip. Crosshair coords share the pane space the
+// chips are drawn in; the left price axis offsets the DOM position only.
+chart.subscribeCrosshairMove(param => {
+  const p = param.point;
+  if (!p || (param.paneIndex !== undefined && param.paneIndex !== 0)) { hideTradeTip(); return; }
+  let best = null, bestD = Infinity;
+  for (const h of tradeMarkers._hits) {
+    const d = Math.hypot(p.x - h.x, p.y - h.y);
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  if (best && bestD <= 12) {
+    let axisLeft = 0;
+    try { axisLeft = chart.priceScale('left').width(); } catch (e) {}
+    showTradeTip(best, axisLeft);
+  } else {
+    hideTradeTip();
+  }
+});
 
 // Event timestamps fall inside bars; snap each to the last bar at or before
 // it (works at any interval). barClose is the price fallback for events
@@ -1218,9 +1245,8 @@ function doConnect(dateOverride) {
         candleSeries.applyOptions({ priceFormat: { type:'price', precision:prec, minMove:mv } });
       }
       candleSeries.setData(msg.candles);
-      const snappedTrades = snapMarkersToCandles(msg.trades, msg.candles);
-      tradeMarkers.setData(snappedTrades);
-      renderTradeCallouts(snappedTrades);
+      tradeMarkers.setData(snapMarkersToCandles(msg.trades, msg.candles));
+      hideTradeTip();
       computeBounds(msg.candles);
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
 

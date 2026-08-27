@@ -27,6 +27,7 @@ def entry(variant: str, width: float, **kw) -> dict:
         "short_strike": 7700.0,
         "width": width,
         "opened_at": "2026-08-18T15:03:35-04:00",
+        "entry_credit": 22.0,
         **kw,
     }
 
