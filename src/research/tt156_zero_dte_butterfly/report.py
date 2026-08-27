@@ -779,7 +779,9 @@ def flip_eta_gate_block(
     return lines + [""]
 
 
-STRATEGY_FAMS = ("w25_5m_m0", "w25_5m_m2", "w50_5m_m0", "w50_5m_m2")
+STRATEGY_FAMS = ("w25_5m_m0", "w50_5m_m0")  # base completion rule only
+MARGIN_OVERLAY_FAMS = ("w25_5m_m2", "w50_5m_m2")  # tracked research variant
+WIDTH_LABEL = {"w25_5m_m0": "25-wide", "w50_5m_m0": "50-wide"}
 
 
 def strategy_structures(rows: list[dict]) -> list[dict]:
@@ -832,33 +834,42 @@ def regime_slim_lines(snapshots: list[dict], data_dir: Path) -> list[str]:
 
 def strategy_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """The strategy: 5m confluence, w25+w50 ATM, first-entry-only overlay."""
-    lines = ["## Strategy — 5m confluence, w25/w50, first-entry-only", ""]
+    lines = ["## Strategy — 5m confluence, 25/50-wide, first-entry-only", ""]
     rows = strategy_structures(reconstructed)
     if not rows:
         return lines + ["No 5m signals today — stood aside.", ""]
     first = classify_first_entries(rows)
     lines += [
-        "| Entry (ET) | Direction | Entry type | w25 all-in | w50 all-in | Outcome |",
-        "|---|---|---|---|---|---|",
+        "| Entry (ET) | Order | Width | Entry type | Credit | All-in | Outcome |",
+        "|---|---|---|---|---|---|---|",
     ]
-    for t in sorted({s["opened_at"] for s in rows}):
-        cluster = [s for s in rows if s["opened_at"] == t]
-        t_et = datetime.fromisoformat(t).astimezone(ET)
-        outcome = (
-            "fly locked"
-            if any(s.get("completion_credit") for s in cluster)
-            else (cluster[0].get("close_reason") or cluster[0]["outcome"])
+    for s in sorted(rows, key=lambda s: (s["opened_at"], s["width"])):
+        t_et = datetime.fromisoformat(s["opened_at"]).astimezone(ET)
+        K, w = s["short_strike"], s["width"]
+        order = (
+            f"SOLD {K:g}/{K + w:g} call spread"
+            if s["direction"] == "BEARISH"
+            else f"SOLD {K:g}/{K - w:g} put spread"
         )
-        cells = []
-        for wid in ("w25", "w50"):
-            sub = [s for s in cluster if s["variant"].startswith(wid)]
-            cells.append(usd(cell_all_in(sub, settle_spot)) if sub else "—")
-        kind = "first" if first[t] else "re-entry (off-strategy)"
+        outcome = order_outcome(s)
+        kind = "first" if first[s["opened_at"]] else "re-entry"
         lines.append(
-            f"| {t_et:%H:%M} | {cluster[0]['direction']} | {kind} "
-            f"| {cells[0]} | {cells[1]} | {outcome} |"
+            f"| {t_et:%H:%M} | {order} | {w:g} | {kind} "
+            f"| {s['entry_credit']:.2f} | {usd(cell_all_in([s], settle_spot))} "
+            f"| {outcome} |"
         )
     return lines + [""]
+
+
+def order_outcome(s: dict) -> str:
+    if s.get("completion_credit"):
+        return "fly locked"
+    reason = s.get("close_reason")
+    if reason == "forced_eod":
+        return "closed 15:45 (EOD)"
+    if reason in ("signal_hull", "signal_macd"):
+        return "closed on signal"
+    return reason or s["outcome"]
 
 
 def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[str]:
@@ -884,6 +895,12 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
         lines.append(f"- 1m ATM grid: {usd(cell_all_in(m_atm, settle_spot))}")
     if hw:
         lines.append(f"- Half-width arm: {usd(cell_all_in(hw, settle_spot))}")
+    overlay = [s for s in reconstructed if s["variant"] in MARGIN_OVERLAY_FAMS]
+    if overlay:
+        lines.append(
+            f"- Completion-margin overlay (+2 pts, tracked): "
+            f"{usd(cell_all_in(overlay, settle_spot))}"
+        )
     lines.append(
         f"- Gate-enforced arm: {usd(cell_all_in(ghw, settle_spot))}"
         if ghw
@@ -894,11 +911,8 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
 
 def strategy_scoreboard(data_dir: Path) -> list[str]:
     """Cumulative strategy accounting across every session — results only."""
-    per = {
-        ("w25", True): 0.0,
-        ("w25", False): 0.0,
-        ("w50", True): 0.0,
-        ("w50", False): 0.0,
+    per: dict[tuple[str, bool], list[float]] = {
+        (v, f): [0.0, 0] for v in STRATEGY_FAMS for f in (True, False)
     }
     ghw_tot = 0.0
     sessions = 0
@@ -909,8 +923,9 @@ def strategy_scoreboard(data_dir: Path) -> list[str]:
             sessions += 1
             first = classify_first_entries(strat)
             for s in strat:
-                wid = s["variant"][:3]
-                per[(wid, first[s["opened_at"]])] += cell_all_in([s], day_settle or 0.0)
+                cell = per[(s["variant"], first[s["opened_at"]])]
+                cell[0] += cell_all_in([s], day_settle or 0.0)
+                cell[1] += 1
         ghw_tot += sum(
             cell_all_in([s], day_settle or 0.0)
             for s in rows
@@ -919,13 +934,17 @@ def strategy_scoreboard(data_dir: Path) -> list[str]:
     lines = [
         f"## Cumulative scoreboard ({sessions} sessions)",
         "",
-        "| | w25 | w50 |",
-        "|---|---|---|",
-        f"| **Strategy (first entries)** | {usd(per[('w25', True)])} | {usd(per[('w50', True)])} |",
-        f"| Re-entries (excluded) | {usd(per[('w25', False)])} | {usd(per[('w50', False)])} |",
-        "",
-        f"Gate-enforced arm cumulative: {usd(ghw_tot)}.",
+        "| Variant | First entries | n | Re-entries | n |",
+        "|---|---|---|---|---|",
     ]
+    for v in STRATEGY_FAMS:
+        f_pts, f_n = per[(v, True)]
+        r_pts, r_n = per[(v, False)]
+        lines.append(
+            f"| {WIDTH_LABEL[v]} | {usd(f_pts)} | {int(f_n)} "
+            f"| {usd(r_pts)} | {int(r_n)} |"
+        )
+    lines += ["", f"Gate-enforced arm cumulative: {usd(ghw_tot)}."]
     return lines + [""]
 
 
