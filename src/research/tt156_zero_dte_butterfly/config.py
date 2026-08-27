@@ -34,6 +34,11 @@ CONTRACT_MULTIPLIER = 100
 SESSION_START = time(9, 28)
 MARKET_OPEN = time(9, 30)
 LAST_ENTRY = time(14, 30)
+# Hull-only forward-test entry window (Basics v2, 2026-08-27): the first
+# half hour is churn (user rule predating this harness, re-confirmed on the
+# 50-session clean replay) and late entries lack time to complete the fly.
+HULL_ENTRY_START = time(10, 0)
+HULL_ENTRY_END = time(14, 0)
 FORCED_CLOSE = time(15, 45)
 LAST_COMPLETION = time(15, 55)
 MARKET_CLOSE = time(16, 0)
@@ -81,37 +86,24 @@ class VariantConfig:
 
 
 def default_variants() -> list[VariantConfig]:
-    variants: list[VariantConfig] = []
-    for width in (10.0, 25.0, 50.0):
-        for interval in ("m", "5m"):
-            for margin in (0.0, 2.0):
-                for rule in ("atm", "halfwidth"):
-                    suffix = "_hw" if rule == "halfwidth" else ""
-                    variants.append(
-                        VariantConfig(
-                            name=f"w{width:g}_{interval}_m{margin:g}{suffix}",
-                            width=width,
-                            signal_interval=interval,
-                            completion_margin=margin,
-                            strike_rule=rule,
-                        )
-                    )
-    # Gate-enforced arm (user directive 2026-08-13): the researched strategy
-    # cell traded as a strategy — 1m entries only on imminent/near flip-ETA
-    # clusters, half-width strike rule so entry credit leans past width/2.
-    for width in (10.0, 25.0, 50.0):
-        for margin in (0.0, 2.0):
-            variants.append(
-                VariantConfig(
-                    name=f"w{width:g}_m_m{margin:g}_ghw",
-                    width=width,
-                    signal_interval="m",
-                    completion_margin=margin,
-                    strike_rule="halfwidth",
-                    gate_enforced=True,
-                )
-            )
-    return variants
+    """The forward-test grid (Basics v2, 2026-08-27): hull-only 5m signals,
+    25-wide primary + 50-wide tracked. The old 30-variant MACD/gate/half-width
+    grid was retired with the clean-slate directive — those arms were
+    calibrated against the lagged feed (TT-157) and are void."""
+    return [
+        VariantConfig(
+            name="w25_5m_m0",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+        ),
+        VariantConfig(
+            name="w50_5m_m0",
+            width=50.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+        ),
+    ]
 
 
 @dataclass
