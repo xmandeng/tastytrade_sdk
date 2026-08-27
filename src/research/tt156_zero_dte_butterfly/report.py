@@ -886,10 +886,11 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
         b: len({s["opened_at"] for s in tagged if s["gate_bucket"] == b})
         for b in ("imminent", "near", "firm", "confirms")
     }
-    lines.append(
-        f"- Clusters by 5m-gate bucket (imm/near/firm/conf): "
-        f"{counts['imminent']}/{counts['near']}/{counts['firm']}/{counts['confirms']}"
-    )
+    if tagged:
+        lines.append(
+            f"- Clusters by 5m-gate bucket (imm/near/firm/conf): "
+            f"{counts['imminent']}/{counts['near']}/{counts['firm']}/{counts['confirms']}"
+        )
     if m_atm:
         lines.append(f"- 1m ATM grid: {usd(cell_all_in(m_atm, settle_spot))}")
     if hw:
@@ -900,11 +901,10 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
             f"- Completion-margin overlay (+2 pts, tracked): "
             f"{usd(cell_all_in(overlay, settle_spot))}"
         )
-    lines.append(
-        f"- Gate-enforced arm: {usd(cell_all_in(ghw, settle_spot))}"
-        if ghw
-        else "- Gate-enforced arm: stood aside"
-    )
+    if ghw:
+        lines.append(f"- Gate-enforced arm: {usd(cell_all_in(ghw, settle_spot))}")
+    if len(lines) == 2:  # header + blank only — nothing tracked off-strategy
+        return []
     return lines + [""]
 
 

@@ -1,30 +1,47 @@
-"""Live Hull/MACD signal generation for the research day.
+"""Live signal generation for the research day.
 
-Runs the production HullMacdEngine in-process: warmed up from InfluxDB
-history (MACD(26) on 5m bars needs hours of context a 9:30 cold start
-would lack), then fed live from the Redis candle channels published by
-the already-running subscribe service.
+Two engines live here:
+
+- ``HullSignalEngine`` — the ACTIVE forward-test engine (Basics v2,
+  2026-08-27): direction follows the 5m hull, full stop. OPEN on a
+  sealed-bar hull color flip inside the 10:00-14:00 ET window, CLOSE on
+  the opposite flip. MACD is nowhere (removed by user directive after the
+  TT-157 feed-lag contamination).
+- ``LiveSignalEngine`` — the retired Hull/MACD confluence wrapper, kept
+  for replay tooling and history.
+
+Both warm up from InfluxDB and consume the live Redis candle channels
+published by the already-running subscribe service.
 """
 
 import logging
 import threading
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
+
+import polars as pl
 
 from tastytrade.analytics.engines.hull_macd import HullMacdEngine
 from tastytrade.analytics.engines.models import TradeSignal
-from tastytrade.analytics.indicators.momentum import macd
+from tastytrade.analytics.indicators.momentum import hull, macd
 from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
 from tastytrade.utils.time_series import initialize_influx_client
 
-from research.tt156_zero_dte_butterfly.config import SYMBOL
+from research.tt156_zero_dte_butterfly.config import (
+    ET as ET_TZ,
+    HULL_ENTRY_END,
+    HULL_ENTRY_START,
+    SYMBOL,
+)
 from research.tt156_zero_dte_butterfly.gate import flip_eta
 
 logger = logging.getLogger(__name__)
 
 INTERVALS = ("m", "5m")
+HULL_CANDLE_CAP = 500
 
 
 class SignalCapture:
@@ -121,8 +138,7 @@ class LiveSignalEngine:
                 # over the first candles. Never let an empty frame crash the
                 # whole collection run.
                 logger.warning(
-                    "Warmup found no candles for %s in [%s, %s] — "
-                    "starting engine cold",
+                    "Warmup found no candles for %s in [%s, %s] — starting engine cold",
                     symbol,
                     session_date - timedelta(days=self.warmup_days),
                     session_date,
@@ -193,6 +209,176 @@ class LiveSignalEngine:
                 "bearish_open": state.bearish_open,
             }
         return summary
+
+    async def close(self) -> None:
+        if self.subscription is not None:
+            await self.subscription.close()
+
+
+class HullSignalEngine:
+    """Hull-only 5m signal engine — the forward-test rule (Basics v2).
+
+    Direction follows the hull, full stop: a sealed 5m bar that flips the
+    hull color emits CLOSE for the old direction (exits always fire) and,
+    inside the entry window, OPEN for the new one. Interface-compatible
+    with the collector's LiveSignalEngine usage. No MACD anywhere.
+    """
+
+    def __init__(self, warmup_days: int = 3, confirm_on_close: bool = True) -> None:
+        self.capture = SignalCapture()
+        self.warmup_days = warmup_days
+        self.confirm_on_close = confirm_on_close
+        self.latest_spot: float | None = None
+        self.latest_spot_time: datetime | None = None
+        self.forming: dict[str, CandleEvent] = {}
+        self.candles: pl.DataFrame = pl.DataFrame()
+        self.prior_close: float | None = None
+        self.hull_color: str | None = None
+        self.subscription: RedisSubscription | None = None
+        # collector reads len(signal_engine.engine.signals) for health counts
+        self.engine = SimpleNamespace(signals=[])
+
+    def candle_symbols(self) -> list[str]:
+        return [f"{SYMBOL}{{={iv}}}" for iv in INTERVALS]
+
+    def gate_context(self) -> dict[str, float | None] | None:
+        """MACD gate retired — no context (simulator stamps None)."""
+        return None
+
+    def warmup(self, session_date: date) -> None:
+        """Replay recent 5m history from InfluxDB; discard warmup signals."""
+        influx = initialize_influx_client()
+        provider = MarketDataProvider(
+            data_feed=RedisSubscription(RedisConfigManager()), influx=influx
+        )
+        prior = provider.get_daily_candle(SYMBOL, session_date - timedelta(days=1))
+        self.prior_close = float(prior.close) if prior.close is not None else None
+        logger.info("Prior session close: %s", self.prior_close)
+        df = provider.download(
+            symbol=f"{SYMBOL}{{=5m}}",
+            start=session_date - timedelta(days=self.warmup_days),
+            stop=session_date,
+        )
+        count = 0
+        if not df.is_empty() and "time" in df.columns and "close" in df.columns:
+            for row in df.sort("time").to_dicts():
+                try:
+                    self.ingest_sealed(CandleEvent(**row), emit=False)
+                    count += 1
+                except Exception:
+                    continue
+        else:
+            logger.warning("Warmup found no 5m candles — starting hull engine cold")
+        logger.info("Warmup replayed %d candles for %s{=5m}", count, SYMBOL)
+        influx.close()
+
+    async def start_live(self) -> None:
+        self.subscription = RedisSubscription(RedisConfigManager())
+        await self.subscription.connect()
+        for symbol in self.candle_symbols():
+            await self.subscription.subscribe(
+                f"market:CandleEvent:{symbol}",
+                event_type=CandleEvent,
+                on_update=self.on_candle,
+            )
+
+    def on_candle(self, event: BaseEvent) -> None:
+        if not isinstance(event, CandleEvent):
+            return
+        if event.eventSymbol == f"{SYMBOL}{{=m}}" and event.close is not None:
+            self.latest_spot = float(event.close)
+            self.latest_spot_time = event.time
+        if event.eventSymbol != f"{SYMBOL}{{=5m}}":
+            return
+        if not self.confirm_on_close:
+            self.ingest_sealed(event, emit=True)
+            return
+        prev = self.forming.get(event.eventSymbol)
+        if prev is not None and event.time > prev.time:
+            self.ingest_sealed(prev, emit=True)
+        self.forming[event.eventSymbol] = event
+
+    def ingest_sealed(self, event: CandleEvent, emit: bool) -> None:
+        if event.close is None:
+            return
+        row = pl.DataFrame([event])
+        if self.candles.height == 0:
+            self.candles = row
+        else:
+            self.candles = (
+                self.candles.vstack(row)
+                .unique(subset=["eventSymbol", "time"], keep="last")
+                .sort("time", descending=False)
+            )
+        if self.candles.height > HULL_CANDLE_CAP:
+            self.candles = self.candles.tail(HULL_CANDLE_CAP)
+        if self.candles.height < 2:
+            return
+        hull_df = hull(self.candles, pad_value=self.prior_close)
+        if hull_df.height == 0:
+            return
+        color = str(hull_df["HMA_color"][-1])
+        prev_color = self.hull_color
+        self.hull_color = color
+        if not emit or prev_color is None or color == prev_color:
+            return
+        candle_et = event.time.astimezone(ET_TZ).time()
+        new_dir = "BULLISH" if color == "Up" else "BEARISH"
+        old_dir = "BEARISH" if new_dir == "BULLISH" else "BULLISH"
+        hull_value = float(hull_df["HMA"][-1])
+        self.emit_signal(event, "CLOSE", old_dir, "hull", hull_value)
+        if HULL_ENTRY_START <= candle_et <= HULL_ENTRY_END:
+            self.emit_signal(event, "OPEN", new_dir, "hull_flip", hull_value)
+
+    def emit_signal(
+        self,
+        event: CandleEvent,
+        signal_type: str,
+        direction: str,
+        trigger: str,
+        hull_value: float,
+    ) -> None:
+        signal = TradeSignal(
+            eventSymbol=event.eventSymbol,
+            start_time=event.time,
+            label=f"{signal_type} {direction}",
+            color="#55A868" if direction == "BULLISH" else "#8C8C8C",
+            line_width=0.5,
+            line_dash="dot",
+            opacity=0.4,
+            signal_type=signal_type,
+            direction=direction,
+            engine="hull_only",
+            hull_direction=self.hull_color or "Unknown",
+            hull_value=hull_value,
+            macd_value=0.0,
+            macd_signal=0.0,
+            macd_histogram=0.0,
+            close_price=float(event.close or 0.0),
+            trigger=trigger,
+        )
+        logger.info(
+            "TradeSignal: %s %s %s at %s (trigger=%s)",
+            signal_type,
+            direction,
+            event.eventSymbol,
+            event.time,
+            trigger,
+        )
+        self.engine.signals.append(signal)
+        self.capture.publish(signal)
+
+    def state_summary(self) -> dict[str, dict[str, str | bool | None]]:
+        return {
+            f"{SYMBOL}{{=5m}}": {
+                "hull_direction": self.hull_color,
+                "macd_position": None,
+                "hull_armed": None,
+                "macd_armed": None,
+                "bullish_open": False,
+                "bearish_open": False,
+            }
+        }
 
     async def close(self) -> None:
         if self.subscription is not None:
