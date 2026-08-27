@@ -81,6 +81,12 @@ class VariantConfig:
     completion_margin: float  # extra credit (points) required beyond width
     strike_rule: str = "atm"  # "atm" | "halfwidth" (entry credit > width/2)
     gate_enforced: bool = False  # only enter imminent/near flip-ETA clusters
+    # Early-fly conversion (user idea, validated 2026-08-27): when the entry
+    # vertical's adverse excursion reaches this many points, buy the counter
+    # side NOW — locking a bounded deficit (total credit − width) but keeping
+    # the tent. The alternative to a stop that historically added instead of
+    # subtracting (+$736/50 sessions vs every stop level losing).
+    early_fly_adverse_pts: float | None = None
 
     @property
     def signal_symbol(self) -> str:
@@ -113,6 +119,15 @@ def default_variants() -> list[VariantConfig]:
             width=50.0,
             signal_interval="5m",
             completion_margin=0.0,
+        ),
+        # Tracked arm (user-approved 2026-08-27): early-fly conversion at
+        # 5 pts adverse — "flies leave hope on the table".
+        VariantConfig(
+            name="w25_5m_m0_ef5",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            early_fly_adverse_pts=5.0,
         ),
     ]
 

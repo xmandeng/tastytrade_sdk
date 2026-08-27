@@ -342,7 +342,26 @@ class ButterflySimulator:
                 continue
             counter, legs = priced
             total = structure.entry_credit + counter
-            if total >= structure.width + variant.completion_margin:
+            complete = total >= structure.width + variant.completion_margin
+            early = False
+            if not complete and variant.early_fly_adverse_pts is not None:
+                # Early-fly conversion: at the adverse trigger, take the
+                # counter side now — a bounded deficit with the tent kept,
+                # instead of a realized stop.
+                buyback = self.entry_legs_for(
+                    structure.direction,
+                    structure.short_strike,
+                    structure.width,
+                    quotes,
+                )
+                if (
+                    buyback is not None
+                    and buyback[0] - structure.entry_credit
+                    >= variant.early_fly_adverse_pts
+                ):
+                    complete = True
+                    early = True
+            if complete:
                 structure.status = "COMPLETED"
                 structure.completed_at = ts.isoformat()
                 structure.completion_spot = spot
@@ -360,6 +379,7 @@ class ButterflySimulator:
                     structure,
                     total_credit=total,
                     locked_min_pnl=total - structure.width,
+                    early_fly=early,
                 )
 
     def close_incomplete(
