@@ -780,7 +780,7 @@ def flip_eta_gate_block(
 
 
 STRATEGY_FAMS = ("w25_5m_m0", "w50_5m_m0")  # base completion rule only
-MARGIN_OVERLAY_FAMS = ("w25_5m_m2", "w50_5m_m2")  # tracked research variant
+MARGIN_OVERLAY_FAMS = ("w25_5m_m1",)  # tracked +1pt completion-credit arm
 WIDTH_LABEL = {"w25_5m_m0": "25-wide", "w50_5m_m0": "50-wide"}
 
 
@@ -898,7 +898,7 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
     overlay = [s for s in reconstructed if s["variant"] in MARGIN_OVERLAY_FAMS]
     if overlay:
         lines.append(
-            f"- Completion-margin overlay (+2 pts, tracked): "
+            f"- Completion-margin overlay (+1 pt, tracked): "
             f"{usd(cell_all_in(overlay, settle_spot))}"
         )
     if ghw:

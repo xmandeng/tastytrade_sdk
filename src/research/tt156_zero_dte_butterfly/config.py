@@ -97,6 +97,15 @@ def default_variants() -> list[VariantConfig]:
             signal_interval="5m",
             completion_margin=0.0,
         ),
+        # Tracked arm (user-approved 2026-08-27): +1 pt minimum extra credit
+        # before locking the fly — the E1 refinement hump; earns forward
+        # evidence alongside m0 before it can touch the primary rule.
+        VariantConfig(
+            name="w25_5m_m1",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=1.0,
+        ),
         VariantConfig(
             name="w50_5m_m0",
             width=50.0,
