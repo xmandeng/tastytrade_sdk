@@ -779,6 +779,156 @@ def flip_eta_gate_block(
     return lines + [""]
 
 
+STRATEGY_FAMS = ("w25_5m_m0", "w25_5m_m2", "w50_5m_m0", "w50_5m_m2")
+
+
+def strategy_structures(rows: list[dict]) -> list[dict]:
+    return [s for s in rows if s["variant"] in STRATEGY_FAMS]
+
+
+def classify_first_entries(rows: list[dict]) -> dict[str, bool]:
+    """opened_at -> is-first-entry for one day's strategy clusters.
+
+    A cluster is on-strategy when no prior strategy cluster opened within
+    FIRST_ENTRY_WINDOW_MIN minutes (re-entries lost at every width in the
+    2026-08-27 calibration).
+    """
+    from research.tt156_zero_dte_butterfly.config import FIRST_ENTRY_WINDOW_MIN
+
+    stamps = sorted({s["opened_at"] for s in rows})
+    out: dict[str, bool] = {}
+    for t in stamps:
+        dt = datetime.fromisoformat(t)
+        out[t] = all(
+            (dt - datetime.fromisoformat(p)).total_seconds()
+            > FIRST_ENTRY_WINDOW_MIN * 60
+            for p in stamps
+            if p < t
+        )
+    return out
+
+
+def regime_slim_lines(snapshots: list[dict], data_dir: Path) -> list[str]:
+    """One-line regime stamp (the full block's calibration underperformed
+    live; the rolling per-decision stamps in events are the useful record)."""
+    spot_path = []
+    for s in snapshots:
+        t = snapshot_et(s)
+        m = t.hour * 60 + t.minute
+        if m < regime.MORNING_END_MINUTE:
+            spot_path.append((m, s["spot"]))
+    feats = regime.morning_features(spot_path, regime.trailing_atr(data_dir))
+    if feats is None:
+        return []
+    call = regime.trend_call(feats)
+    label = "no call" if call is None else f"{call[0]} (P≈{call[1]:.0%})"
+    drive = "n/a" if feats.drive_atr is None else f"{feats.drive_atr:.2f}x ATR20"
+    return [
+        f"Regime @11:00: {label} · drive {drive} · retrace "
+        f"{feats.retrace_frac:.2f}",
+        "",
+    ]
+
+
+def strategy_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
+    """The strategy: 5m confluence, w25+w50 ATM, first-entry-only overlay."""
+    lines = ["## Strategy — 5m confluence, w25/w50, first-entry-only", ""]
+    rows = strategy_structures(reconstructed)
+    if not rows:
+        return lines + ["No 5m signals today — stood aside.", ""]
+    first = classify_first_entries(rows)
+    lines += [
+        "| Entry (ET) | Direction | Entry type | w25 all-in | w50 all-in | Outcome |",
+        "|---|---|---|---|---|---|",
+    ]
+    for t in sorted({s["opened_at"] for s in rows}):
+        cluster = [s for s in rows if s["opened_at"] == t]
+        t_et = datetime.fromisoformat(t).astimezone(ET)
+        outcome = (
+            "fly locked"
+            if any(s.get("completion_credit") for s in cluster)
+            else (cluster[0].get("close_reason") or cluster[0]["outcome"])
+        )
+        cells = []
+        for wid in ("w25", "w50"):
+            sub = [s for s in cluster if s["variant"].startswith(wid)]
+            cells.append(usd(cell_all_in(sub, settle_spot)) if sub else "—")
+        kind = "first" if first[t] else "re-entry (off-strategy)"
+        lines.append(
+            f"| {t_et:%H:%M} | {cluster[0]['direction']} | {kind} "
+            f"| {cells[0]} | {cells[1]} | {outcome} |"
+        )
+    return lines + [""]
+
+
+def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[str]:
+    """Tracked-but-not-traded activity, compressed to a few lines."""
+    lines = ["## Off-strategy grid (tracked)", ""]
+    m_atm = [
+        s
+        for s in reconstructed
+        if arm_of(s["variant"]) == "atm" and signal_of(s["variant"]) == "1m"
+    ]
+    hw = [s for s in reconstructed if arm_of(s["variant"]) == "hw"]
+    ghw = [s for s in reconstructed if arm_of(s["variant"]) == "ghw"]
+    tagged = [s for s in reconstructed if s.get("gate_bucket")]
+    counts = {
+        b: len({s["opened_at"] for s in tagged if s["gate_bucket"] == b})
+        for b in ("imminent", "near", "firm", "confirms")
+    }
+    lines.append(
+        f"- Clusters by 5m-gate bucket (imm/near/firm/conf): "
+        f"{counts['imminent']}/{counts['near']}/{counts['firm']}/{counts['confirms']}"
+    )
+    if m_atm:
+        lines.append(f"- 1m ATM grid: {usd(cell_all_in(m_atm, settle_spot))}")
+    if hw:
+        lines.append(f"- Half-width arm: {usd(cell_all_in(hw, settle_spot))}")
+    lines.append(
+        f"- Gate-enforced arm: {usd(cell_all_in(ghw, settle_spot))}"
+        if ghw
+        else "- Gate-enforced arm: stood aside"
+    )
+    return lines + [""]
+
+
+def strategy_scoreboard(data_dir: Path) -> list[str]:
+    """Cumulative strategy accounting across every session — results only."""
+    per = {
+        ("w25", True): 0.0,
+        ("w25", False): 0.0,
+        ("w50", True): 0.0,
+        ("w50", False): 0.0,
+    }
+    ghw_tot = 0.0
+    sessions = 0
+    for day_dir in sorted(p for p in data_dir.parent.iterdir() if p.is_dir()):
+        rows, _, day_settle = events_only_day(day_dir)
+        strat = strategy_structures(rows)
+        if strat:
+            sessions += 1
+            first = classify_first_entries(strat)
+            for s in strat:
+                wid = s["variant"][:3]
+                per[(wid, first[s["opened_at"]])] += cell_all_in([s], day_settle or 0.0)
+        ghw_tot += sum(
+            cell_all_in([s], day_settle or 0.0)
+            for s in rows
+            if arm_of(s["variant"]) == "ghw"
+        )
+    lines = [
+        f"## Cumulative scoreboard ({sessions} sessions)",
+        "",
+        "| | w25 | w50 |",
+        "|---|---|---|",
+        f"| **Strategy (first entries)** | {usd(per[('w25', True)])} | {usd(per[('w50', True)])} |",
+        f"| Re-entries (excluded) | {usd(per[('w25', False)])} | {usd(per[('w50', False)])} |",
+        "",
+        f"Gate-enforced arm cumulative: {usd(ghw_tot)}.",
+    ]
+    return lines + [""]
+
+
 def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     """Headline P&L rollup — the one-glance answer, before any slicing."""
     pnl_mid = sum(s["pnl_points"] or 0.0 for s in reconstructed)
@@ -870,7 +1020,7 @@ def build_report(data_dir: Path) -> str:
     narrative = data_dir / "narrative.md"
     if narrative.exists():
         lines += ["## The day's story", "", narrative.read_text().strip(), ""]
-    lines += regime_read_block(snapshots, data_dir)
+    lines += regime_slim_lines(snapshots, data_dir)
     settle_value = results.get("settlement_spot")
     if settle_value is None:
         settle_value = next(
@@ -884,7 +1034,6 @@ def build_report(data_dir: Path) -> str:
     assert settle_value is not None  # spots is non-empty, so the fallback exists
     settle_spot = float(settle_value)
     reconstructed = reconstruct_structures(data_dir, snapshots, settle_spot)
-    variant_names = [v["name"] for v in header["variants"]]
     if not reconstructed:
         lines += [
             "## No trades — out-of-scope regime",
@@ -898,80 +1047,24 @@ def build_report(data_dir: Path) -> str:
             "",
         ]
         return "\n".join(lines)
-    lines += tranche_timeframe_block(reconstructed, settle_spot)
-    lines += flip_eta_gate_block(reconstructed, settle_spot, data_dir)
-    orphans = [s for s in reconstructed if s.get("orphaned")]
-    lines += [
-        "## Per-variant slice (mid fills)",
-        "",
-        "Reconstructed from events.jsonl across all collector instances; "
-        "restart-orphaned structures exit at the first post-recovery snapshot "
-        "(no backdated fills).",
-        "",
-        *variant_table(reconstructed, variant_names),
-        "",
-        f"Structures reconstructed: {len(reconstructed)} "
-        f"({len(orphans)} orphaned by restarts)",
-        f"Skipped entries (unusable quotes, last instance): {results.get('skipped_entries', 0)}",
-        *risk_and_whipsaw_lines(data_dir, reconstructed),
-        "",
-        *exit_policy_section(reconstructed, snapshots),
-        "## Retro-sweep — every 5-min entry, both directions, widths "
-        f"{', '.join(str(int(w)) for w in SWEEP_WIDTHS)}",
-        "",
-    ]
+    lines += strategy_block(reconstructed, settle_spot)
+    lines += off_strategy_lines(reconstructed, settle_spot)
+    lines += strategy_scoreboard(data_dir)
 
+    # research artifact preserved on disk, out of the daily text
     sweep = retro_sweep(snapshots)
     if sweep:
-        lines += [
-            "| Width | Trials | Completed | Completion % | Avg min-to-complete | Avg locked P&L | Avg loss when failed |",
-            "|---|---|---|---|---|---|---|",
-        ]
-        for width in SWEEP_WIDTHS:
-            rows = [r for r in sweep if r["width"] == width]
-            done = [r for r in rows if r["completed"]]
-            failed = [
-                r for r in rows if not r["completed"] and r.get("close_pnl") is not None
-            ]
-            if not rows:
-                continue
-            avg_minutes = (
-                sum(r["minutes_to_complete"] for r in done) / len(done)
-                if done
-                else None
-            )
-            avg_locked = (
-                sum(r["locked_min_pnl"] for r in done) / len(done) if done else None
-            )
-            avg_loss = (
-                sum(r["close_pnl"] for r in failed) / len(failed) if failed else None
-            )
-            lines.append(
-                f"| {width:g} | {len(rows)} | {len(done)} | "
-                f"{100 * len(done) / len(rows):.1f}% | "
-                + (f"{avg_minutes:.0f}" if avg_minutes is not None else "n/a")
-                + " | "
-                + (fmt_pts(avg_locked) if avg_locked is not None else "n/a")
-                + " | "
-                + (fmt_pts(avg_loss) if avg_loss is not None else "n/a")
-                + " |"
-            )
-        sweep_path = data_dir / "retro_sweep.json"
-        sweep_path.write_text(json.dumps(sweep, indent=2, default=str))
-        lines += ["", f"Full sweep data: {sweep_path.name} ({len(sweep)} trials)"]
-    else:
-        lines.append("No sweep trials produced (insufficient snapshots).")
+        (data_dir / "retro_sweep.json").write_text(
+            json.dumps(sweep, indent=2, default=str)
+        )
 
     lines += [
-        "",
         "## Caveats",
         "",
-        "- Single session. Slice tables are at mid fills; the rollup's all-in "
-        "line carries the canonical cost model (per-spread concession + fees "
-        "+ settlement).",
-        "- Completion threshold uses mid credit — real fills at the threshold "
-        "would need the market to trade through, so live completion rates "
-        "would be lower.",
+        "- Mid fills; all-in = mid − per-spread concession+fees − settlement "
+        "fees. Completion thresholds at mid overstate live completion rates.",
+        "- First-entry/stop calibrations are in-sample (2026-08-27); this "
+        "report is the forward test.",
     ]
     return "\n".join(lines)
 
