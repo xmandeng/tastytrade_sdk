@@ -49,8 +49,12 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
     """Marker dicts (UTC-epoch times) for one chart day, oldest first.
 
     Each marker is semantic — ``kind`` (entry/close/fly/tent), ``dir``
-    (bull/bear, entries and closes only), ``text`` — and the frontend owns
-    all styling. Strategy-family trades only. Sibling widths sharing a
+    (bull/bear, entries and closes only), ``text``, ``price`` (the spot at
+    the event, so the frontend can pin it where the trade occurred; None
+    for closes, which anchor to their bar) — and the frontend owns all
+    styling. Entries also carry ``strike`` and ``end`` (epoch when the
+    structure closed or settled) so the sold level can be drawn across the
+    trade's life. Strategy-family trades only. Sibling widths sharing a
     timestamp collapse into one marker so the chart stays readable. Returns
     [] for non-SPX symbols or days without an event log.
     """
@@ -64,6 +68,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
     completions: list[dict] = []
     closes: dict[tuple[str, str], dict] = {}
     tents: dict[str, dict] = {}
+    ends: dict[str, int] = {}
     try:
         with path.open() as fh:
             for line in fh:
@@ -82,10 +87,17 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                     closes.setdefault(key, {**e, "widths": []})["widths"].append(
                         e["width"]
                     )
-                elif kind == "SETTLEMENT" and in_tent(e):
-                    tents.setdefault(e["ts"], {**e, "widths": []})["widths"].append(
-                        e["width"]
+                    ends[e["opened_at"]] = max(
+                        ends.get(e["opened_at"], 0), to_epoch(e["closed_at"])
                     )
+                elif kind == "SETTLEMENT":
+                    ends[e["opened_at"]] = max(
+                        ends.get(e["opened_at"], 0), to_epoch(e["ts"])
+                    )
+                    if in_tent(e):
+                        tents.setdefault(e["ts"], {**e, "widths": []})["widths"].append(
+                            e["width"]
+                        )
     except (OSError, json.JSONDecodeError, KeyError, ValueError):
         logger.exception("Unreadable trade event log: %s", path)
         return []
@@ -100,6 +112,9 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                 "kind": "entry",
                 "dir": "bull" if bull else "bear",
                 "text": f"S {e['short_strike']:g}{cp} {widths_label(e['widths'])}",
+                "price": e.get("entry_spot"),
+                "strike": e["short_strike"],
+                "end": ends.get(opened_at),
             }
         )
     for e in completions:
@@ -108,6 +123,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                 "time": to_epoch(e["completed_at"]),
                 "kind": "fly",
                 "text": f"FLY {e['width']:g}",
+                "price": e.get("completion_spot"),
             }
         )
     for (closed_at, reason), e in closes.items():
@@ -118,6 +134,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                 "kind": "close",
                 "dir": "bull" if e["direction"] == "BULLISH" else "bear",
                 "text": f"{label} {widths_label(e['widths'])}",
+                "price": None,
             }
         )
     for ts, e in tents.items():
@@ -126,6 +143,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                 "time": to_epoch(ts),
                 "kind": "tent",
                 "text": f"TENT {widths_label(e['widths'])}",
+                "price": e.get("settlement_spot"),
             }
         )
     return sorted(markers, key=lambda m: m["time"])
