@@ -18,6 +18,10 @@ def make_processor(batch_size: int = 500, flush_interval: float = 30.0):
     p.flush_interval_seconds = flush_interval
     p.pending = []
     p.pending_lock = threading.Lock()
+    p.forming = {}
+    p.forming_lock = threading.Lock()
+    p.points_written = 0
+    p.points_by_type = {}
     p.wake = threading.Event()
     p.closing = False
     p.flusher = threading.Thread(target=p.flush_loop, daemon=True)
