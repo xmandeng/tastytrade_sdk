@@ -62,6 +62,11 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
         self.flush_interval_seconds = flush_interval_seconds
         self.pending: list[Point] = []
         self.pending_lock = threading.Lock()
+        # TT-159: forming candle held per symbol until its bar rolls.
+        self.forming: dict[str, tuple[datetime, BaseEvent]] = {}
+        self.forming_lock = threading.Lock()
+        self.points_written = 0
+        self.points_by_type: dict[str, int] = {}
         self.wake = threading.Event()
         self.closing = False
         self.flusher = threading.Thread(
@@ -69,7 +74,7 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
         )
         self.flusher.start()
 
-    def process_event(self, event: BaseEvent) -> None:
+    def build_point(self, event: BaseEvent) -> Point:
         point = Point(event.__class__.__name__)
         point.tag("eventSymbol", event.eventSymbol)
 
@@ -83,9 +88,45 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
                 "time",
             ]:
                 point.field(attr, value)
+        return point
 
+    def process_event(self, event: BaseEvent) -> None:
+        # TT-159: sealed-bar candle writes. A forming candle re-publishes on
+        # every underlying tick (~240 events/s across 36 feeds, 89% of
+        # pipeline write traffic) but Influx history only needs each bar's
+        # final state. Hold the forming bar per (symbol); write it once,
+        # when the next bar begins. Storage content is unchanged — Influx
+        # already collapsed the re-writes into one row per bar — this
+        # removes the write traffic itself. Non-candle events pass through
+        # unchanged. A hard-killed process may lose its last held bar per
+        # feed (accepted in the TT-159 design review); graceful close()
+        # flushes them.
+        if event.__class__.__name__ == "CandleEvent":
+            event_time = getattr(event, "time", None)
+            if event_time is None:
+                return
+            with self.forming_lock:
+                held = self.forming.get(event.eventSymbol)
+                if held is None or held[0] == event_time:
+                    self.forming[event.eventSymbol] = (event_time, event)
+                    return
+                if event_time < held[0]:
+                    # Out-of-order (backfill replay of an already-final bar):
+                    # write it straight through, keep holding the newer bar.
+                    sealed = event
+                else:
+                    sealed = held[1]
+                    self.forming[event.eventSymbol] = (event_time, event)
+            self.enqueue(self.build_point(sealed))
+            return
+        self.enqueue(self.build_point(event))
+
+    def enqueue(self, point: Point) -> None:
         with self.pending_lock:
             self.pending.append(point)
+            self.points_written += 1
+            name = point._name  # noqa: SLF001 — measurement name, log only
+            self.points_by_type[name] = self.points_by_type.get(name, 0) + 1
             full = len(self.pending) >= self.batch_size
         if full:
             self.wake.set()
@@ -113,8 +154,19 @@ class TelegrafHTTPEventProcessor(BaseEventProcessor):
             )
 
     def close(self) -> None:
-        """Flush pending writes and close the InfluxDB client."""
+        """Flush held bars and pending writes, then close the client."""
         logger.info("Flushing InfluxDB write API...")
+        with self.forming_lock:
+            held = [event for _, event in self.forming.values()]
+            self.forming.clear()
+        for event in held:
+            self.enqueue(self.build_point(event))
+        logger.info(
+            "InfluxDB writer: %d points written this run (%d held bars flushed): %s",
+            self.points_written,
+            len(held),
+            dict(sorted(self.points_by_type.items())),
+        )
         self.closing = True
         self.wake.set()
         self.flusher.join(timeout=10)
