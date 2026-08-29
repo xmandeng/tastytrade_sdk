@@ -693,6 +693,19 @@ macdValueSeries.createPriceLine({
   lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false,
 });
 
+// --- Pane 2: Kalman velocity (the TT-156 decision variable) ---
+// Histogram of the filter's velocity state per sealed bar; sign flips at the
+// zero line ARE the entry/exit triggers. Same 4-shade scheme as MACD.
+const kalVelSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+  priceLineVisible: false, lastValueVisible: false,
+  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  priceScaleId: 'left',
+}, 2);
+kalVelSeries.createPriceLine({
+  price: 0, color: C.macdZero, lineWidth: 1,
+  lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false,
+});
+
 // Watermark on the MACD pane — held as a singleton so the studies toggle
 // can attach/detach it (pane primitives don't have a visible flag).
 const macdWatermark = new TextWatermark('MACD (12,26,9)');
@@ -713,13 +726,26 @@ function detachMacdWatermark() {
 }
 attachMacdWatermark();
 
-// Initial pane sizing: 3:1 candle:macd
+const kalVelWatermark = new TextWatermark('Kalman velocity (q/r 0.025)');
+let kalVelWatermarkAttached = false;
+function attachKalVelWatermark() {
+  const panes = chart.panes();
+  if (panes.length < 3) { setTimeout(attachKalVelWatermark, 30); return; }
+  if (!kalVelWatermarkAttached) {
+    panes[2].attachPrimitive(kalVelWatermark);
+    kalVelWatermarkAttached = true;
+  }
+}
+attachKalVelWatermark();
+
+// Initial pane sizing: candle pane dominant, two indicator strips below
 function sizePanes() {
   const h = chartEl.clientHeight;
   if (h < 100) return;
   const panes = chart.panes();
   if (panes.length < 2) return;
-  panes[0].setHeight(Math.floor(h * 0.75));
+  panes[0].setHeight(Math.floor(h * 0.68));
+  if (panes.length >= 3) panes[1].setHeight(Math.floor(h * 0.16));
 }
 setTimeout(sizePanes, 50);
 
@@ -778,6 +804,10 @@ const STUDIES = {
     kind: 'simple', section: 'lower', label: 'MACD (12,26,9)',
     swatch: { color: C.macdValue, style: 'solid' },
   },
+  kalVel: {
+    kind: 'simple', section: 'lower', label: 'Kalman velocity',
+    swatch: { color: '#04FE00', style: 'solid' },
+  },
 };
 
 const SECTIONS = [
@@ -787,7 +817,7 @@ const SECTIONS = [
 
 // All toggles default ON. Children of a group are also ON by default.
 const studyState = {
-  hma: true, kalman: true, macd: true,
+  hma: true, kalman: true, macd: true, kalVel: true,
   priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
   openingRange: true, or5: true, or15: true, or30: true,
 };
@@ -940,6 +970,10 @@ function setMacdVisible(visible) {
   if (visible) attachMacdWatermark(); else detachMacdWatermark();
 }
 
+function setKalVelVisible(visible) {
+  kalVelSeries.applyOptions({ visible });
+}
+
 // ============================================================================
 // Apply the full studyState to the chart. Called on every toggle.
 // ============================================================================
@@ -947,6 +981,7 @@ function applyStudyState() {
   hmaPrimitive.setVisible(studyState.hma);
   kalmanPrimitive.setVisible(studyState.kalman);
   setMacdVisible(studyState.macd);
+  setKalVelVisible(studyState.kalVel);
   Object.keys(levels).forEach(id => applyLevelVisibility(id));
   renderStudiesPanel();
 }
@@ -1270,8 +1305,10 @@ function doConnect(dateOverride) {
 
       if (msg.kalman && msg.kalman.length > 0) {
         kalmanPrimitive.setData(msg.kalman);
+        kalVelSeries.setData(msg.kalman.map(p => ({ time:p.time, value:p.velocity, color:p.velColor })));
       } else {
         kalmanPrimitive.clear();
+        kalVelSeries.setData([]);
       }
 
       if (msg.macd && msg.macd.length > 0) {
@@ -1343,7 +1380,12 @@ function doConnect(dateOverride) {
       processCandleOR(msg.candle);
 
       if (msg.hma) hmaPrimitive.update(msg.hma);
-      if (msg.kalman) kalmanPrimitive.update(msg.kalman);
+      if (msg.kalman) {
+        kalmanPrimitive.update(msg.kalman);
+        if (msg.kalman.velocity != null) {
+          kalVelSeries.update({ time:msg.kalman.time, value:msg.kalman.velocity, color:msg.kalman.velColor });
+        }
+      }
       if (msg.macd) {
         macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
         macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
