@@ -18,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MARKER_SYMBOL = "SPX"
-STRATEGY_VARIANTS = ("w25_5m_m0_kal", "w50_5m_m0_kal")
+STRATEGY_VARIANTS = ("w25_5m_m0_kal", "w25_5m_m0_kal_ef5", "w50_5m_m0_kal")
 DATA_DIR_ENV = "TT156_DATA_DIR"
 DEFAULT_DATA_DIR = "research_data/TT-156"
 
@@ -34,6 +34,11 @@ def to_epoch(stamp: str) -> int:
 
 def widths_label(widths: list[float]) -> str:
     return "/".join(f"{w:g}" for w in sorted(set(widths)))
+
+
+def arm_label(row: dict) -> str:
+    suffix = " (early-fly)" if str(row.get("variant", "")).endswith("_ef5") else ""
+    return f"{row['width']:g}-wide{suffix}"
 
 
 def in_tent(event: dict) -> bool:
@@ -53,7 +58,6 @@ def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
     empty context if the research package is unavailable."""
     try:
         from research.tt156_zero_dte_butterfly.report import (
-            STRATEGY_FAMS,
             cell_all_in,
             classify_first_entries,
             events_only_day,
@@ -67,7 +71,7 @@ def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
     except (OSError, KeyError, ValueError, TypeError):
         logger.exception("Ledger context unavailable for %s", day_dir)
         return {}, {}, None, None, None
-    strat = [r for r in rows if r["variant"] in STRATEGY_FAMS]
+    strat = [r for r in rows if r["variant"] in STRATEGY_VARIANTS]
     first = classify_first_entries(strat) if strat else {}
     by_open: dict[str, list[dict]] = {}
     for r in strat:
@@ -112,7 +116,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         return []
 
     entries: dict[str, dict] = {}
-    completions: list[dict] = []
+    completions: dict[tuple[str, float, bool], dict] = {}
     closes: dict[tuple[str, str], dict] = {}
     tents: dict[str, dict] = {}
     ends: dict[str, int] = {}
@@ -128,10 +132,13 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                         "widths"
                     ].append(e["width"])
                 elif kind == "COMPLETION":
-                    completions.append(e)
+                    # sibling arms completing on the same snapshot at the same
+                    # width collapse; early-fly conversions stay distinct
+                    comp_key = (e["completed_at"], e["width"], bool(e.get("early_fly")))
+                    completions.setdefault(comp_key, e)
                 elif kind == "CLOSE":
-                    key = (e["closed_at"], str(e.get("close_reason")))
-                    closes.setdefault(key, {**e, "widths": []})["widths"].append(
+                    close_key = (e["closed_at"], str(e.get("close_reason")))
+                    closes.setdefault(close_key, {**e, "widths": []})["widths"].append(
                         e["width"]
                     )
                     ends[e["opened_at"]] = max(
@@ -151,14 +158,39 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
 
     by_open, first, settle, all_in, outcome_of = ledger_context(path.parent)
 
+    def cycle_story(r: dict) -> str:
+        """Plain-language cycle commentary for the visual history."""
+        if r.get("completion_credit") is not None:
+            formed = (
+                "converted early into a deficit fly"
+                if r.get("early_fly")
+                else "formed a butterfly"
+            )
+            if r.get("outcome") == "settled" and settle is not None:
+                where = (
+                    "settled in the tent"
+                    if abs(settle - r["short_strike"]) < r["width"]
+                    else "settled outside the tent"
+                )
+                return f"{formed} · {where}"
+            return formed
+        reason = r.get("close_reason")
+        if reason == "forced_eod":
+            return "forced close at 15:45"
+        if reason == "signal_hull":
+            return "closed early on hull flip (backstop)"
+        if reason == "signal_kalman":
+            return "closed early on kalman flip"
+        return str(outcome_of(r)) if outcome_of is not None else "open"
+
     def entry_details(opened_at: str) -> list[str]:
         if all_in is None:
             return []
         kind = "first entry" if first.get(opened_at, True) else "re-entry"
         return [
-            f"{r['width']:g}-wide: {order_text(r)} · {kind} · "
-            f"credit {r['entry_credit']:.2f} · all-in {all_in(r)} · "
-            f"{outcome_of(r)}"
+            f"{arm_label(r)}: {order_text(r)} · {kind} · "
+            f"credit {r['entry_credit']:.2f} · {cycle_story(r)} · "
+            f"net {all_in(r)}"
             for r in by_open.get(opened_at, [])
         ]
 
@@ -166,10 +198,15 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         if all_in is None:
             return []
         for r in by_open.get(e["opened_at"], []):
-            if r["width"] == e["width"] and r.get("completion_credit") is not None:
+            if r["variant"] == e["variant"] and r.get("completion_credit") is not None:
                 total = r["entry_credit"] + r["completion_credit"]
+                prefix = (
+                    "early conversion (bounded deficit) · "
+                    if e.get("early_fly")
+                    else ""
+                )
                 return [
-                    f"completion credit {r['completion_credit']:.2f} · "
+                    f"{prefix}completion credit {r['completion_credit']:.2f} · "
                     f"total {total:.2f} vs {r['width']:g} wide · "
                     f"all-in {all_in(r)}"
                 ]
@@ -179,8 +216,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         if all_in is None:
             return []
         return [
-            f"{r['width']:g}-wide: bought back @ {r['close_cost']:.2f} · "
-            f"all-in {all_in(r)}"
+            f"{arm_label(r)}: bought back @ {r['close_cost']:.2f} · all-in {all_in(r)}"
             for r in by_open.get(e["opened_at"], [])
             if r.get("close_cost") is not None
         ]
@@ -194,7 +230,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
             if abs(settle - K) < w:
                 line = f"settled {settle:g} in {K - w:g}/{K + w:g} tent"
                 if all_in is not None:
-                    line += f" · {w:g}-wide all-in {all_in(r)}"
+                    line += f" · {arm_label(r)} all-in {all_in(r)}"
                 lines.append(line)
         return lines
 
@@ -214,12 +250,12 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                 "details": entry_details(opened_at),
             }
         )
-    for e in completions:
+    for (_, width, early), e in completions.items():
         markers.append(
             {
                 "time": to_epoch(e["completed_at"]),
                 "kind": "fly",
-                "text": f"FLY {e['width']:g}",
+                "text": f"{'EF ' if early else ''}FLY {width:g}",
                 "price": e.get("completion_spot"),
                 "details": fly_details(e),
             }
