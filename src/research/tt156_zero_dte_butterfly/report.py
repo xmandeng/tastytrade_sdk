@@ -781,6 +781,10 @@ def flip_eta_gate_block(
 
 STRATEGY_FAMS = ("w25_5m_m0", "w50_5m_m0")  # base completion rule only
 MARGIN_OVERLAY_FAMS = ("w25_5m_m1",)  # tracked +1pt completion-credit arm
+KALMAN_FAMS = ("w25_5m_m0_kal", "w25_5m_m0_kal_ef5")  # tracked Kalman tangent
+# First session the Kalman arms ran live — earlier scoreboard rows show "—"
+# (arm did not exist), not $0 (arm ran and stood aside).
+KALMAN_ARM_START = "2026-08-31"
 WIDTH_LABEL = {"w25_5m_m0": "25-wide", "w50_5m_m0": "50-wide"}
 
 
@@ -945,7 +949,7 @@ def order_outcome(s: dict) -> str:
     reason = s.get("close_reason")
     if reason == "forced_eod":
         return "closed 15:45 (EOD)"
-    if reason in ("signal_hull", "signal_macd"):
+    if reason in ("signal_hull", "signal_macd", "signal_kalman"):
         return "closed on signal"
     return reason or s["outcome"]
 
@@ -1034,6 +1038,17 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
             f"- Completion-margin overlay (+1 pt, tracked): "
             f"{usd(cell_all_in(overlay, settle_spot))}"
         )
+    kal = [s for s in reconstructed if s["variant"] == "w25_5m_m0_kal"]
+    kal_ef = [s for s in reconstructed if s["variant"] == "w25_5m_m0_kal_ef5"]
+    if kal:
+        lines.append(
+            f"- Kalman tangent arm (q/r 0.025, tracked): "
+            f"{usd(cell_all_in(kal, settle_spot))}"
+        )
+    if kal_ef:
+        lines.append(
+            f"- Kalman early-fly arm (tracked): {usd(cell_all_in(kal_ef, settle_spot))}"
+        )
     if ghw:
         lines.append(f"- Gate-enforced arm: {usd(cell_all_in(ghw, settle_spot))}")
     if len(lines) == 2:  # header + blank only — nothing tracked off-strategy
@@ -1077,8 +1092,8 @@ def build_scoreboard(root: Path) -> str:
         "dollars per arm. Rebuilt nightly.",
         "",
         "| Date | 25-wide | 25-wide +1pt | 25-wide early-fly | 50-wide "
-        "| In tent | Run 25-wide | Run 50-wide |",
-        "|---|---|---|---|---|---|---|---|",
+        "| 25-wide kal | kal early-fly | In tent | Run 25-wide | Run 50-wide |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
     run25 = run50 = 0.0
@@ -1103,10 +1118,15 @@ def build_scoreboard(root: Path) -> str:
         d50 = by_var.get("w50_5m_m0", 0.0)
         run25 += d25
         run50 += d50
+        if day_dir.name >= KALMAN_ARM_START:
+            dkal = usd(by_var.get("w25_5m_m0_kal", 0.0))
+            dkal_ef = usd(by_var.get("w25_5m_m0_kal_ef5", 0.0))
+        else:
+            dkal = dkal_ef = "—"
         strat = [s for s in rows if s["variant"] in STRATEGY_FAMS]
         body.append(
             f"| {day_dir.name} | {usd(d25)} | {usd(d25m1)} | {usd(d25ef)} "
-            f"| {usd(d50)} "
+            f"| {usd(d50)} | {dkal} | {dkal_ef} "
             f"| {tent_cell(strat, day_settle)} | {usd(run25)} | {usd(run50)} |"
         )
     footer = [
@@ -1115,6 +1135,10 @@ def build_scoreboard(root: Path) -> str:
         "",
         "In tent = locked fly whose settlement landed between the wings "
         "(counts by width, primary arms).",
+        "",
+        "kal columns: Kalman tangent tracked arms (velocity sign flips, "
+        f"q/r 0.025), live from {KALMAN_ARM_START}; — before that (arm did "
+        "not exist).",
         "",
     ]
     return "\n".join(header + body + footer)

@@ -34,6 +34,7 @@ from research.tt156_zero_dte_butterfly.config import (
     ET as ET_TZ,
     HULL_ENTRY_END,
     HULL_ENTRY_START,
+    KALMAN_Q_OVER_R,
     SYMBOL,
 )
 from research.tt156_zero_dte_butterfly.gate import flip_eta
@@ -216,12 +217,17 @@ class LiveSignalEngine:
 
 
 class HullSignalEngine:
-    """Hull-only 5m signal engine — the forward-test rule (Basics v2).
+    """Sealed-bar 5m signal engine — hull rule plus the Kalman tracked arm.
 
     Direction follows the hull, full stop: a sealed 5m bar that flips the
     hull color emits CLOSE for the old direction (exits always fire) and,
     inside the entry window, OPEN for the new one. Interface-compatible
     with the collector's LiveSignalEngine usage. No MACD anywhere.
+
+    The same sealed bars also drive a constant-velocity Kalman filter
+    (q/r=KALMAN_Q_OVER_R, 2026-08-28 calibration); velocity sign flips emit
+    a parallel signal family tagged ``engine="kalman"`` that the simulator
+    routes only to ``signal_source="kalman"`` variants.
     """
 
     def __init__(self, warmup_days: int = 3, confirm_on_close: bool = True) -> None:
@@ -235,6 +241,11 @@ class HullSignalEngine:
         self.prior_close: float | None = None
         self.hull_color: str | None = None
         self.subscription: RedisSubscription | None = None
+        # Kalman state: [price, velocity per bar] and its 2x2 covariance,
+        # recursive across warmup + live (exponential memory, no window).
+        self.kalman_x: list[float] | None = None
+        self.kalman_p: list[list[float]] = [[1.0, 0.0], [0.0, 1.0]]
+        self.kalman_sign: str | None = None
         # collector reads len(signal_engine.engine.signals) for health counts
         self.engine = SimpleNamespace(signals=[])
 
@@ -301,6 +312,7 @@ class HullSignalEngine:
     def ingest_sealed(self, event: CandleEvent, emit: bool) -> None:
         if event.close is None:
             return
+        self.kalman_step(event, emit)
         row = pl.DataFrame([event])
         if self.candles.height == 0:
             self.candles = row
@@ -330,6 +342,45 @@ class HullSignalEngine:
         if HULL_ENTRY_START <= candle_et <= HULL_ENTRY_END:
             self.emit_signal(event, "OPEN", new_dir, "hull_flip", hull_value)
 
+    def kalman_step(self, event: CandleEvent, emit: bool) -> None:
+        """Constant-velocity Kalman update on one sealed close; emit the
+        ``engine="kalman"`` signal family on a velocity sign flip."""
+        z = float(event.close or 0.0)
+        if self.kalman_x is None:
+            self.kalman_x = [z, 0.0]
+        r = 1.0
+        q = KALMAN_Q_OVER_R * r
+        x, p = self.kalman_x, self.kalman_p
+        # predict
+        x = [x[0] + x[1], x[1]]
+        p00 = p[0][0] + p[0][1] + p[1][0] + p[1][1] + q / 4
+        p01 = p[0][1] + p[1][1] + q / 2
+        p10 = p[1][0] + p[1][1] + q / 2
+        p11 = p[1][1] + q
+        # update
+        s = p00 + r
+        k0, k1 = p00 / s, p10 / s
+        y = z - x[0]
+        self.kalman_x = [x[0] + k0 * y, x[1] + k1 * y]
+        self.kalman_p = [
+            [(1 - k0) * p00, (1 - k0) * p01],
+            [p10 - k1 * p00, p11 - k1 * p01],
+        ]
+        sign = "Up" if self.kalman_x[1] > 0 else "Down"
+        prev_sign = self.kalman_sign
+        self.kalman_sign = sign
+        if not emit or prev_sign is None or sign == prev_sign:
+            return
+        candle_et = event.time.astimezone(ET_TZ).time()
+        new_dir = "BULLISH" if sign == "Up" else "BEARISH"
+        old_dir = "BEARISH" if new_dir == "BULLISH" else "BULLISH"
+        velocity = self.kalman_x[1]
+        self.emit_signal(event, "CLOSE", old_dir, "kalman", velocity, engine="kalman")
+        if HULL_ENTRY_START <= candle_et <= HULL_ENTRY_END:
+            self.emit_signal(
+                event, "OPEN", new_dir, "kalman_flip", velocity, engine="kalman"
+            )
+
     def emit_signal(
         self,
         event: CandleEvent,
@@ -337,6 +388,7 @@ class HullSignalEngine:
         direction: str,
         trigger: str,
         hull_value: float,
+        engine: str = "hull_only",
     ) -> None:
         signal = TradeSignal(
             eventSymbol=event.eventSymbol,
@@ -348,7 +400,7 @@ class HullSignalEngine:
             opacity=0.4,
             signal_type=signal_type,
             direction=direction,
-            engine="hull_only",
+            engine=engine,
             hull_direction=self.hull_color or "Unknown",
             hull_value=hull_value,
             macd_value=0.0,
@@ -372,6 +424,7 @@ class HullSignalEngine:
         return {
             f"{SYMBOL}{{=5m}}": {
                 "hull_direction": self.hull_color,
+                "kalman_direction": self.kalman_sign,
                 "macd_position": None,
                 "hull_armed": None,
                 "macd_armed": None,

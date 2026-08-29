@@ -47,7 +47,7 @@ class TestHullSignalEngine:
     def test_flip_in_window_emits_close_and_open(self) -> None:
         start = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)  # 11:00 ET
         eng = seeded_engine(start, rally())
-        sigs = eng.capture.drain()
+        sigs = [s for s in eng.capture.drain() if s.engine == "hull_only"]
         opens = [s for s in sigs if s.signal_type == "OPEN"]
         closes = [s for s in sigs if s.signal_type == "CLOSE"]
         assert len(opens) == 1
