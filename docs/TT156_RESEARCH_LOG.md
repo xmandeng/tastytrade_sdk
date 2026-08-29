@@ -62,6 +62,17 @@ settlements). Lock the fly the moment total credit ≥ width; hold every tent
 to settlement.** Any rule that caps, delays, or substitutes for the tent
 underperforms.
 
+**Fourth falsification (credit-trailing with a floor guard):** even a
+maximally protective deferral — trail the 15s counter-credit high-water
+mark, lock on a G-point giveback OR the instant total decays back to the
+width (never surrender the freebie) — loses ~$5.5–5.9k across G ∈
+{0.5, 1, 2} on the 25-wide (31 vs 38 flies). Root cause: ~25 of the armed
+freebies existed for a single 15-second snapshot, and the first touch of
+width typically occurs on a momentum spike when the counter credit is at a
+local peak — waiting from there has downhill expected drift. The credit
+stall and the freebie are the same event; lock-ASAP is the trailing rule
+with zero giveback, and zero is optimal.
+
 ### 2026-08-28 — Kalman tangent adopted as primary; either-exit backstop; width economics
 
 **Kalman beats hull on a plateau, not a point.** 53-session resim on recorded
