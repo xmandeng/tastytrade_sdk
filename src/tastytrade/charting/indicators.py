@@ -91,12 +91,13 @@ class KalmanState:
         return self.x_price
 
     def velocity_color(self) -> str:
-        """4-shade histogram color, same semantics as the MACD histogram:
-        bright = building, dark = fading, green/red = sign."""
+        """4-shade histogram color, MACD semantics (bright = building,
+        dark = fading) in a blue/orange palette so the pane never reads
+        as the MACD's green/red."""
         v, pv = self.x_vel, self.prev_vel
         if v > 0:
-            return "#04FE00" if v > pv else "#006401"
-        return "#FE0000" if v < pv else "#7E0100"
+            return "#2196F3" if v > pv else "#0D47A1"
+        return "#FF9800" if v < pv else "#7A4A00"
 
 
 @dataclass
