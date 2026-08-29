@@ -192,6 +192,9 @@ class ButterflySimulator:
         self.structures: list[Structure] = []
         self.event_sink = event_sink
         self.skipped_entries: int = 0
+        # Consecutive snapshots each open structure has met its completion
+        # threshold — the fill-persistence overlay's resting-limit model.
+        self.completion_streak: dict[int, int] = {}
 
     def live_incomplete(
         self, variant: str, direction: str | None = None
@@ -362,6 +365,14 @@ class ButterflySimulator:
             counter, legs = priced
             total = structure.entry_credit + counter
             complete = total >= structure.width + variant.completion_margin
+            if variant.fill_persistence > 1:
+                key = id(structure)
+                if complete:
+                    streak = self.completion_streak.get(key, 0) + 1
+                    self.completion_streak[key] = streak
+                    complete = streak >= variant.fill_persistence
+                else:
+                    self.completion_streak[key] = 0
             early = False
             if not complete and variant.early_fly_adverse_pts is not None:
                 # Early-fly conversion: at the adverse trigger, take the
