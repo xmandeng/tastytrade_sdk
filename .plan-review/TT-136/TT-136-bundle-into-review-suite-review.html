@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plan Review: TT-139: Backend Data Collection</title>
+  <title>Plan Review: TT-136: Bundle into review-suite</title>
   <style>
     * {
       margin: 0;
@@ -854,7 +854,7 @@
         </svg>
       </button>
     </div>
-    <h1>TT-139: Backend Data Collection</h1>
+    <h1>TT-136: Bundle into review-suite</h1>
     <div class="stats" id="stats"></div>
     <div class="topbar-toggles">
       <button class="collapse-toggle" id="termToggle" title="Toggle terminal">
@@ -921,77 +921,527 @@
     // Optional: revised (boolean) to highlight as updated.
     // ============================================================
     const docSections = [
-  {
-    "id": "status",
-    "title": "Status \u2014 LOCKED (2026-05-25)",
-    "content": "Design **locked** via design-review on 2026-05-25. The two previously-deferred backend questions are now RESOLVED:\n\n- **\u00a76.1 strike fetch** \u2014 flat **\u00b110% of spot** (was \"fetch all\").\n- **\u00a76.3 runtime** \u2014 **Model A** (on-demand, frontend-paced).\n\nThe plan doc `docs/plans/TT-138-gex-snapshot.md` has been updated to match (\u00a74, \u00a75, \u00a76.0, \u00a76.3, \u00a76.4, \u00a76.9). Design-review artifact: `.design-review/TT-139-gex-backend-data-collection-design-review.html`. \u00a76.2 RTH liveness probe PASSED 2026-05-19 \u2014 REST is the v1 data source, no DXLink dependency. **TT-139 is ready to implement.**"
-  },
-  {
-    "id": "summary",
-    "title": "Summary",
-    "content": "Build a point-in-time **Gamma Exposure (GEX) snapshot** for any underlying with a Tastytrade option chain. Identifies gamma concentration zones (call wall, put wall, max-gamma strike) and broad regime (positive vs negative net GEX) using only the Tastytrade REST API.\n\n- **v1 validation target:** SPX 0DTE (high liquidity, narrow chain, external references for sanity comparison).\n- **Symbol- and expiration-agnostic from day one** \u2014 any underlying, any expiration, one or many per snapshot.\n- **Single-product per snapshot** \u2014 metrics rendered in that product's units; no cross-product overlays in v1.\n- **Not in v1:** OPRA tape, dealer-position inference, DXLink streaming, order execution, backtesting, futures-options *implementation* (field surface already verified)."
-  },
-  {
-    "id": "architecture",
-    "title": "Data Surface \u2014 4 REST calls",
-    "content": "The entire backend data surface is four REST calls for any single-product snapshot:\n\n1. `GET /option-chains/<symbol>/nested` \u2014 strikes + OCC symbols.\n2. `GET /market-data/by-type?<spot-key>=<symbol>` \u2014 spot price.\n3. **Multiplier lookup** \u2014 `100` for equity-options (constant); `/instruments/futures/<sym>` for futures-options.\n4. `GET /market-data/by-type?equity-option=<batch>` \u2014 gamma + OI + IV + mark per option (batched).\n\n**No async websocket lifecycle. No subscription cap. No dependency on a running streamer.** \u00a76.2 RTH liveness probe (2026-05-19) confirmed REST values advance continuously during market hours \u2014 REST is sufficient for v1."
-  },
-  {
-    "id": "runtime",
-    "title": "Runtime model \u2014 Model A (on-demand, frontend-paced)",
-    "content": "**Locked decision.** GEX is the first *pull* data source in the codebase (account-stream/subscribe are *push* via DXLink), so something must decide when to re-fetch. The runtime model puts that clock in the frontend:\n\n- **Start chart:** chart issues one `request(symbol, expiry)`. `snapshot.py` checks Redis `gex:snapshot:<sym>:<exp>`; fresh hit serves immediately (zero REST), miss runs the pipeline, writes the envelope back with TTL ~60s, returns it.\n- **Session:** process-level singleton \u2014 authenticated once, reused across all requests and symbols, refreshed on token expiry. Never per-symbol.\n- **Cache:** one Redis key per (symbol, expiry), TTL ~60s. Fresh hit = zero REST; two charts on the same symbol share the envelope.\n- **Refresh:** the **frontend** is the clock (re-requests ~60s). No backend timer/loop.\n- **Change symbol:** request the new symbol; old key TTL-expires. No teardown.\n- **Stop:** chart stops requesting; cache lapses.\n\n**Key boundary:** the chart consumes the **HTTP response** envelope, NOT Redis directly. Redis is the backend's internal recompute-skipping side-cache. (Model B \u2014 Redis as the delivery channel, mirroring the streaming services \u2014 was considered and deferred as more infrastructure than v1 needs for a pull source.)"
-  },
-  {
-    "id": "strike-filter",
-    "title": "Strike fetch window \u2014 \u00b110% of spot",
-    "content": "**Flat \u00b110% of spot, no DTE-conditional logic.** (Reverses the earlier \"fetch all\" default.)\n\n**Rationale:**\n- Gamma walls cluster near spot.\n- v1 renders split call/put (not net-GEX per \u00a76.8), so full-chain totals are not a v1 output.\n- \u00b110% cuts round-trips by roughly 5x while keeping all plausible walls in range.\n\nThe display window (TT-140) is a sub-selection and must be **\u2264 \u00b110%** \u2014 you can show less than was fetched, never more."
-  },
-  {
-    "id": "modules",
-    "title": "Module structure \u2014 src/tastytrade/analytics/gex/",
-    "content": "New package, sibling to `analytics/positions.py` (symbol-agnostic compute):\n\n| File | Responsibility |\n|---|---|\n| `client.py` | REST fetchers (chain, market-data, spot, multiplier), chunking, \u00b110% strike pre-filter, `resolve_symbol_context` |\n| `compute.py` | per-option GEX formula + strike-level aggregation; takes M as a parameter, never hard-codes 100 |\n| `levels.py` | call wall, put wall, max-gamma, net-gamma-wall |\n| `snapshot.py` | `take_snapshot(symbol, expirations)` request-handler/orchestrator: cache-check, then client/compute/levels, then publish envelope to Redis with TTL |\n\n**`render.py` and the CLI entry point are TT-140 (frontend)**, not TT-139 \u2014 they consume the envelope, they don't produce it. Backend has no import dependency on `charting/`."
-  },
-  {
-    "id": "multiplier",
-    "title": "Multiplier \u2014 class-aware via resolve_symbol_context",
-    "content": "`M` is **class-aware**, resolved once per symbol and cached:\n\n- **equity-options:** `M=100` as a class constant inside the resolver (OCC convention).\n- **futures-options (post-v1):** `notional-multiplier` from `/instruments/futures/<sym>` (e.g. /MES=5, /ES=50).\n\n`M` is always a **parameter at the formula site** \u2014 `compute_option_gex(df, spot, multiplier)` never hard-codes 100. The only literal `100` lives inside the resolver's equity branch. This is what lets futures-options land as a small extension rather than a parallel pipeline.\n\nFormula: `gex = OI \u00d7 \u03b3 \u00d7 M \u00d7 spot\u00b2 \u00d7 0.01 \u00d7 sign`."
-  },
-  {
-    "id": "steps",
-    "title": "Implementation steps",
-    "content": "1. `OptionMarketDataClient` for batched `/market-data/by-type?equity-option=...` (chunking).\n2. `fetch_chain_for_expirations(symbol, expirations)` \u2192 DataFrame, **\u00b110%-of-spot pre-filter**.\n3. `fetch_option_market_data(occ_symbols)` chunked \u2192 gamma/OI/mark/IV per option.\n4. `resolve_symbol_context(symbol)` \u2192 frozen `{spot_key, multiplier, chain_endpoint}`, cached per symbol.\n5. `compute_option_gex(df, spot, multiplier)` + `aggregate_by_strike(df)` keyed by (expiration, strike).\n6. `identify_levels(strike_df, spot)` \u2192 call/put walls, max-gamma, net-gamma-wall.\n7. `take_snapshot(...)` orchestrator: cache-check \u2192 pipeline \u2192 publish to Redis (TTL ~60s) \u2192 return envelope.\n8. *(TT-140)* render + CLI.\n9. Unit tests: formula sign, zero OI, missing gamma, aggregation, level ID, multiplier-as-parameter.\n10. Live REST sanity: SPX 0DTE first, then SPY weekly + AAPL monthly."
-  },
-  {
-    "id": "validation",
-    "title": "Validation",
-    "content": "**Unit tests:** call/put sign, zero OI \u2192 zero GEX, missing gamma excluded, aggregation per (expiration, strike), level identification on synthetic data, `compute_option_gex` uses the passed `multiplier` (parametrized over {100, 50, 5}), `resolve_symbol_context` returns correct M per symbol class.\n\n**Live REST sanity (RTH):** SPX 0DTE (primary), SPY weekly (ETF generalization), AAPL monthly (equity generalization) \u2014 spot inside strike range, OI nonzero near ATM, gamma peaks near ATM, largest GEX at high-OI strikes.\n\n**Manual external comparison:** SPX output vs one external GEX chart over several days \u2014 major levels and regime broadly align (exact match not expected)."
-  },
-  {
-    "id": "scope",
-    "title": "Scope & deferrals",
-    "content": "**v1 (TT-139):** equity-options only; SPX 0DTE validation; the four backend modules + Redis publish.\n\n**Deferred to TT-140 (frontend):**\n- \u00a76.5 \u2014 CLI entry point shape (`tasty-gex` vs subcommand).\n- \u00a76.9 \u2014 display strike window (\u2264 \u00b110% fetch window).\n- \u00a76.10 \u2014 default expirations.\n\n**Post-v1 (separate ticket):** futures-options *implementation* \u2014 REST field surface already verified (\u00a76.13); the chain-endpoint + OCC-encoding plumbing is the remaining work. The `resolve_symbol_context` + parameterized-M architecture already absorbs the multiplier/spot-key concerns."
-  }
-];
+      {
+        id: "context",
+        title: "Context & Problem Statement",
+        revised: true,
+        content: `**Repo:** \`xmandeng/claude-plugins\` (local: \`/home/mande/repo/claude-plugins\`)
+
+The \`xmandeng-plugins\` marketplace currently ships four related plugins as separate installable units:
+
+| Plugin | Version | Notes |
+|---|---|---|
+| \`plan-review\` | 0.2.3 | Most mature; only one with REVIEW_TEMPLATE.md |
+| \`architecture-review\` | 0.1.1 | Adds PUT-for-\`*-layouts.json\` to devserver |
+| \`architecture-map\` | 0.1.0 | Same devserver feature set as architecture-review |
+| \`code-diagram\` | 0.1.0 | Untracked, in-progress; no devserver/hooks/tests |
+
+### Drift findings
+
+- **\`bin/devserver.py\`:** plan-review is **416 LOC**; arch-review and arch-map are **498 LOC** (added a PUT handler for \`*-layouts.json\`). Plan-review is missing that handler. Arch-review vs arch-map diff is purely cosmetic (banner string, default port 8775 vs 8785, env-var prefix \`ARCHITECTURE_REVIEW_\` vs \`ARCHITECTURE_MAP_\`).
+- **\`bin/inject-session-id.sh\`:** all three differ only in the emitted label (\`plan-review-session-id\`, \`architecture-review-session-id\`, \`architecture-map-session-id\`). Each SKILL.md greps for its own label.
+- **\`hooks/hooks.json\`:** byte-identical across all three.
+- **\`tests/\`:** \`conftest.py\` identical between arch-review and arch-map; plan-review's differs. \`test_devserver.py\` differs across all three.
+
+### Why this matters
+
+1. **Drift risk** — plan-review is behind on protocol changes; future devserver fixes have to be applied three times.
+2. **Install friction** — installing \`architecture-map\` alone gets you the map skill but not \`/devserver\`, \`/plan-review\`, or \`/architecture-review\`.
+3. **No standalone \`/devserver\`** — today you can only start the dev server by invoking a review skill (which itself requires a ticket/plan), or by running a per-project skill in \`tastytrade_sdk/.claude/\` that won't follow you to other projects.
+
+### User-decided constraints (this conversation)
+
+- **Bundle name:** \`review-suite\`
+- **Code-diagram:** include in the bundle (not "leave separate for now")
+- **Migration:** deprecate gracefully — keep old four entries in marketplace.json with \`[DEPRECATED — migrate to review-suite]\` prefix in description for one release; remove next release.
+- **Default port:** 8765 (plan-review's historical port; arch-review's 8775 and arch-map's 8785 retired)
+- **README:** complete rewrite, single coherent bundle doc — not stitched together from the four legacy READMEs
+- **Visualization:** generate a code-diagram example embedded in the README (self-referential: component diagram of review-suite itself, demonstrating the tool while documenting the structure)
+
+### Code-diagram dependency note
+
+**code-diagram requires Graphviz (\`dot\`) installed locally.** The skill pre-flights \`command -v dot\` at invocation; if missing, surfaces a friendly install hint and stops gracefully without rendering. This is a **runtime dependency only**:
+
+- Installing the bundle: no check, no error.
+- Invoking \`/plan-review\`, \`/architecture-review\`, \`/architecture-map\`, or \`/devserver\`: no Graphviz check.
+- Invoking \`/code-diagram\` without Graphviz: friendly error with \`brew install graphviz\` / \`sudo apt install graphviz\` install hint, refuses to proceed.
+- Invoking \`/code-diagram\` with Graphviz: works.
+
+The bundle is fully usable without Graphviz; one of five commands is gated behind it.`
+      },
+      {
+        id: "solution-overview",
+        title: "Solution Overview",
+        revised: true,
+        content: `Consolidate the four plugins into a single \`review-suite\` plugin in the same \`xmandeng-plugins\` marketplace.
+
+### What you'd install
+
+\`\`\`
+/plugin install review-suite@xmandeng-plugins
+\`\`\`
+
+Single install gives all five slash commands:
+
+- \`/plan-review\` — interactive HTML review playground for implementation plans
+- \`/architecture-review\` — before/after architecture diagrams
+- \`/architecture-map\` — concept-map playground
+- \`/code-diagram\` — Graphviz diagram generator
+- \`/devserver\` — **NEW** — standalone dev server launcher (no ticket/plan required)
+
+All share **one** \`bin/devserver.py\` and **one** \`bin/inject-session-id.sh\`. No more drift.
+
+### What's preserved
+
+- The four legacy plugin directories stay in place for one release (deprecation window).
+- Existing \`.plan-review/*.html\` files keep working — \`PLAN_NAME\` and the embedded \`CLAUDE_SESSION\` are baked into the HTML at authoring time, so the browser-side localStorage keys and PTY bridge spawn behavior are unchanged.
+
+### What changes
+
+- Three review SKILL.md files now read **one** unified hook label (\`review-suite-session-id\`) instead of three plugin-specific labels.
+- Devserver env-var prefix unifies to \`REVIEW_SUITE_HOST/PORT\` (default port 8765 across the bundle; arch-review's 8775 and arch-map's 8785 retired).
+- Each skill's port-scan logic in step 9 starts at 8765 (was 8765/8775/8785). All skills share the same \`.devserver-port\` reuse mechanism.
+- Per-skill output directory env vars (\`PLAN_REVIEW_DIR\`, \`ARCHITECTURE_REVIEW_DIR\`, \`ARCHITECTURE_MAP_DIR\`) are **kept** — they map to distinct output directories (\`.plan-review/\`, \`.architecture-review/\`, \`.architecture-map/\`) so generated files don't collide.
+
+### New scope (added during plan review)
+
+- **README rewrite from scratch** — single coherent bundle doc, not stitched together from the four legacy READMEs. One hero section, install command, per-command sections with screenshots/examples, prerequisites (with explicit Graphviz callout for code-diagram only), env vars, PTY-bridge explainer, migration guide.
+- **Code-diagram visualization** — self-referential component diagram of review-suite itself, generated via the bundled \`/code-diagram\`, embedded in the README. Doubles as documentation and as a demo of the tool.
+- **Code-diagram soft-fail message tightening** — clearer structured message (header, platform-specific install commands, retry hint) when Graphviz is missing.
+
+### How the unified hook label is safe across concurrent sessions
+
+A reasonable concern: if I have one Claude session for plan-review work and another for architecture-map work, doesn't a single shared label collide?
+
+**Answer: no — process isolation does the real work; the label is cosmetic.**
+
+Each Claude process has **its own** hook executions firing in **its own** context. Hook scripts run inside the Claude process — no shared file, no IPC, no cross-session leak. The session id flows through three layers, all bound to whichever process is running:
+
+\`\`\`
+Today (3 plugins, 3 hooks):
+  Session A (sid AAA) context:        Session B (sid BBB) context:
+    plan-review-session-id: AAA         plan-review-session-id: BBB
+    arch-review-session-id: AAA         arch-review-session-id: BBB
+    arch-map-session-id: AAA            arch-map-session-id: BBB
+
+After bundling (1 hook):
+  Session A context:                  Session B context:
+    review-suite-session-id: AAA        review-suite-session-id: BBB
+\`\`\`
+
+A's context never sees B's labels (or sids). When A's plan-review SKILL greps for the label in its own context, it finds AAA. When B's arch-map SKILL greps in its own context, it finds BBB. Each baked into its own HTML at authoring time.
+
+**The shared devserver routes correctly** because the session id is in the HTML (\`const CLAUDE_SESSION = "AAA"\`) and flows to the WebSocket as \`?session=AAA\`. The devserver spawns \`claude --resume AAA\` (or BBB) per HTML, not per devserver. So one devserver can serve plan-review→A and arch-map→B concurrently without crossing wires.
+
+**The only genuinely shared thing** across sessions is \`<output-dir>/.devserver-port\` — both sessions detect the live port and reuse the same devserver process. That's existing behavior, unaffected by the label change.`
+      },
+      {
+        id: "bundle-layout",
+        title: "Bundle Layout",
+        content: `\`\`\`
+plugins/review-suite/
+  .claude-plugin/plugin.json          # v0.1.0
+  README.md
+  bin/
+    devserver.py                       # canonical (498 LOC, with PUT handler)
+    inject-session-id.sh               # unified label: review-suite-session-id
+  hooks/hooks.json                    # registers UserPromptSubmit -> bin/inject-session-id.sh
+  skills/
+    plan-review/SKILL.md
+    architecture-review/SKILL.md
+    architecture-map/SKILL.md
+    code-diagram/SKILL.md
+    devserver/SKILL.md                 # NEW: thin wrapper
+  assets/
+    REVIEW_TEMPLATE.md                 # moved from plan-review
+    review-template.html               # moved from plan-review
+    architecture-template.html         # moved from architecture-review
+    map-template.html                  # moved from architecture-map
+    screenshots/
+  tests/
+    conftest.py
+    test_devserver.py
+\`\`\`
+
+### Asset note
+
+The plan-review skill currently reads \`assets/review-template.html\` from \`\${CLAUDE_PLUGIN_ROOT}/assets/\`. Architecture-review and architecture-map skills do the same with their own template files. After bundling, all three live under one \`\${CLAUDE_PLUGIN_ROOT}/assets/\` — paths in SKILL.md need updating accordingly.
+
+### Decision point
+
+Currently I've copied only \`review-template.html\` from plan-review. **I need to verify the template files for architecture-review and architecture-map are also moved.** The earlier file-copy step missed them because the \`find\` listing only showed plan-review's assets directly. Need to grep for what each SKILL.md actually reads from \`\${CLAUDE_PLUGIN_ROOT}/assets/\` and copy those over too.`
+      },
+      {
+        id: "devserver-consolidation",
+        title: "Devserver Consolidation",
+        content: `**Source of truth:** \`plugins/architecture-review/bin/devserver.py\` (498 LOC, has the PUT-for-\`*-layouts.json\` handler).
+
+### Edits needed
+
+| Field | Before (arch-review) | After (review-suite) |
+|---|---|---|
+| Module docstring | "Devserver for the architecture-review plugin" | "Devserver for the review-suite plugin" |
+| Default port | \`8775\` | \`8765\` (historical, matches plan-review) |
+| Env vars | \`ARCHITECTURE_REVIEW_HOST/PORT\` | \`REVIEW_SUITE_HOST/PORT\` |
+| Banner | \`print(f"architecture-review devserver: ...")\` | \`print(f"review-suite devserver: ...")\` |
+
+### Functional behavior preserved
+
+- WebSocket PTY bridge at \`/api/claude?session=<sid>\` — spawns \`claude --resume <sid>\`.
+- PUT to \`/*-layouts.json\` — atomic write, scoped to spawn cwd, 256 KB body cap, path-traversal-safe.
+- \`SimpleHTTPRequestHandler\` for static GETs.
+- Launched from project root (no \`cd\` first), so URLs include the directory prefix (\`/.plan-review/foo.html\`, \`/docs/architecture-map/foo.html\`, etc.).
+
+### Why default port 8765 (not 8775)
+
+Plan-review's port is 8765 and it's the most-installed of the four. Keeping 8765 as the bundle default minimizes surprise for plan-review users. Arch-review/arch-map users will need to update any saved bookmarks (8775/8785 → 8765) or set \`REVIEW_SUITE_PORT=8775\` in their shell.`
+      },
+      {
+        id: "hook-unification",
+        title: "Hook Unification",
+        content: `### One hook, one label
+
+\`\`\`bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+sid=$(jq -r '.session_id')
+printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"review-suite-session-id: %s"}}\\n' "$sid"
+\`\`\`
+
+\`hooks/hooks.json\` is byte-identical to today's three copies — registers UserPromptSubmit → \`\${CLAUDE_PLUGIN_ROOT}/bin/inject-session-id.sh\`. No change needed.
+
+### SKILL.md updates
+
+Each of \`plan-review\`, \`architecture-review\`, \`architecture-map\` SKILL.md greps for its own label today:
+
+\`\`\`
+plan-review/SKILL.md:81: ... \`plan-review-session-id: <sid>\` line ...
+plan-review/SKILL.md:130: ... \`plan-review-session-id: <sid>\` line ...
+architecture-review/SKILL.md:103: ... \`architecture-review-session-id: <sid>\` line ...
+architecture-map/SKILL.md:113: ... \`architecture-map-session-id: <sid>\` line ...
+\`\`\`
+
+All four references switch to \`review-suite-session-id\`. \`code-diagram/SKILL.md\` doesn't reference the hook (no PTY bridge in that skill).
+
+### Why this is safe for existing HTML files
+
+Old generated HTML files have the session id baked in at authoring time. The label is only consulted at *authoring* time when the agent generates new HTML. Old files don't re-grep for the label. Safe to change.
+
+### Why one label is better than three
+
+Three hooks today emit three different labels but the same session id. The labels added no information; they just distinguished which plugin's hook fired (which doesn't matter once they're all the same plugin). One hook is simpler and lower-noise in the conversation context.`
+      },
+      {
+        id: "skill-edits",
+        title: "SKILL.md Edits & New /devserver Skill",
+        revised: true,
+        content: `### Three review SKILL.md files: more than relabel
+
+Discovered during implementation that the three review skills have more drift than just the hook label. Edits required:
+
+**1. Hook label (\`sed\`-style):**
+
+\`\`\`
+plan-review-session-id          -> review-suite-session-id
+architecture-review-session-id  -> review-suite-session-id
+architecture-map-session-id     -> review-suite-session-id
+\`\`\`
+
+**2. Port-scan start position** (step 9 in each SKILL.md):
+
+\`\`\`
+plan-review:           PORT=8765   (no change)
+architecture-review:   PORT=8775 -> PORT=8765
+architecture-map:      PORT=8785 -> PORT=8765
+\`\`\`
+
+Step text "Start the bundled devserver on port 87XX" updated accordingly. URL examples updated.
+
+**3. \`HOST/PORT\` env-var consolidation:**
+
+\`\`\`
+PLAN_REVIEW_HOST/PORT          -> REVIEW_SUITE_HOST/PORT
+ARCHITECTURE_REVIEW_HOST/PORT  -> REVIEW_SUITE_HOST/PORT
+ARCHITECTURE_MAP_HOST/PORT     -> REVIEW_SUITE_HOST/PORT
+\`\`\`
+
+Updates the env-var reference tables at the bottom of each SKILL.md.
+
+**4. \`*_DIR\` env vars: KEEP per-skill.**
+
+\`\`\`
+PLAN_REVIEW_DIR         -> .plan-review/         (kept)
+ARCHITECTURE_REVIEW_DIR -> .architecture-review/ (kept)
+ARCHITECTURE_MAP_DIR    -> .architecture-map/    (kept)
+\`\`\`
+
+These map to distinct output directories so files don't collide between skills. Per-skill is the right grain.
+
+### Code-diagram SKILL.md: tighten soft-fail message + copy
+
+Currently the SKILL.md instruction is:
+
+> 1. **Pre-flight: \`dot\` must exist.** Check \`command -v dot\`. If missing, surface the install hint and stop:
+>    - macOS: \`brew install graphviz\`
+>    - Debian/Ubuntu: \`sudo apt install graphviz\`
+>    - Other: see https://graphviz.org/download/
+
+This leaves the user-facing message up to the agent. Tighten with a structured template the agent must echo verbatim:
+
+\`\`\`
+**Graphviz not installed.** This skill renders diagrams via the \`dot\` utility, which isn't on your PATH.
+
+Install with:
+  - macOS:        brew install graphviz
+  - Debian/Ubuntu: sudo apt install graphviz
+  - Other:        https://graphviz.org/download/
+
+Once installed, retry \`/code-diagram\` (no other setup needed).
+\`\`\`
+
+Otherwise the file copies cleanly — no hook dependency, no devserver, no env-var consolidation needed.
+
+### NEW: \`skills/devserver/SKILL.md\`
+
+**Decision: ports-only signature.** A directory mount arg would break sharing (devserver started rooted in \`.plan-review/\` couldn't serve subsequent \`/architecture-review\` requests with their \`/.architecture-review/\` URL paths). All review skills already launch from project root; \`/devserver\` matches that protocol.
+
+Thin wrapper. Pseudocode:
+
+\`\`\`bash
+# Optional port override (default 8765). No directory arg — always serves project root.
+PORT="\${1:-8765}"
+
+# Reuse existing server on the recorded port if running
+PORT_FILE=".devserver-port"
+if [ -f "$PORT_FILE" ] && lsof -i ":$(cat "$PORT_FILE")" >/dev/null 2>&1; then
+  PORT=$(cat "$PORT_FILE")
+  echo "Reusing devserver on port $PORT"
+else
+  # Scan 8765-8799 for a free port
+  while lsof -i ":$PORT" >/dev/null 2>&1 && [ "$PORT" -lt 8800 ]; do
+    PORT=$((PORT + 1))
+  done
+  python3 "\${CLAUDE_PLUGIN_ROOT}/bin/devserver.py" "$PORT" &
+  echo "$PORT" > "$PORT_FILE"
+fi
+
+LAN_IP=$(hostname -I | awk '{print $1}')
+echo "Devserver: http://\${LAN_IP}:\${PORT}/"
+echo "  Plan-review HTMLs: http://\${LAN_IP}:\${PORT}/.plan-review/"
+echo "  Architecture review: http://\${LAN_IP}:\${PORT}/.architecture-review/"
+echo "  Architecture map: http://\${LAN_IP}:\${PORT}/.architecture-map/"
+\`\`\`
+
+This is what gives you a way to **browse old plan-review HTMLs without having to invoke a full review skill** — your original motivation. The output prints the common URL prefixes so you can paste straight into the browser.`
+      },
+      {
+        id: "documentation-and-visualization",
+        title: "Documentation: README & Code-Diagram Visualization",
+        revised: true,
+        content: `**New scope item, added during plan review.**
+
+### README rewrite
+
+Single coherent README.md at \`plugins/review-suite/README.md\` — written from scratch, not concatenated from the four legacy READMEs. Proposed structure:
+
+1. **Hero / overview** — what the bundle is, the five commands at a glance.
+2. **Install** — one-liner: \`/plugin install review-suite@xmandeng-plugins\`.
+3. **Commands** — one block per skill:
+   - \`/plan-review\` — interactive HTML review for implementation plans (with screenshot from \`assets/screenshots/\`)
+   - \`/architecture-review\` — before/after architecture diagrams (with screenshot)
+   - \`/architecture-map\` — concept-map playground (with screenshot)
+   - \`/code-diagram\` — Graphviz diagrams (with **embedded visualization** — see below)
+   - \`/devserver\` — standalone dev server launcher
+4. **Prerequisites** — Python 3.10+, \`claude\` CLI, **Graphviz \`dot\` (only for \`/code-diagram\`)**.
+5. **Environment variables** — table covering \`REVIEW_SUITE_HOST/PORT\`, the three \`*_DIR\` overrides, and \`PLAN_REVIEW_PORT\` removed in favor of the bundle var.
+6. **How the PTY bridge works** — one-paragraph explainer of how \`Send to Claude\` → WebSocket → \`pty.fork()\` → \`claude --resume <sid>\` reaches this session.
+7. **Migration from legacy plugins** — three uninstall commands + one install.
+8. **Contributing** — pointer to repo issue tracker.
+
+### Code-diagram visualization
+
+**Self-referential demo:** generate a component diagram of \`review-suite\` itself (the five skills, shared \`bin/devserver.py\` + \`bin/inject-session-id.sh\`, hooks, assets) using the bundled \`/code-diagram\`. Render to:
+
+- \`assets/screenshots/code-diagram-example.svg\` (browser-friendly, used in README)
+- \`assets/screenshots/code-diagram-example.png\` (fallback for renderers that don't display SVG)
+
+Embed in the README's \`/code-diagram\` section as the example output. Doubles as documentation of the bundle architecture *and* a demo of what code-diagram produces.
+
+**Pre-flight:** check \`command -v dot\` first. If Graphviz is missing locally, skip visualization generation and leave a TODO in the README for whoever does have Graphviz to render and commit.
+
+### Why this matters
+
+A README that *shows* what each skill does — instead of describing it abstractly — drops the activation barrier for new users. The code-diagram visualization in particular is the hardest of the five to picture from prose alone. Self-referential is a happy accident: documents the bundle while demonstrating the tool.`
+      },
+      {
+        id: "marketplace-changes",
+        title: "marketplace.json Changes",
+        content: `### Add new entry
+
+\`\`\`json
+{
+  "name": "review-suite",
+  "description": "Interactive HTML review playgrounds (plan-review, architecture-review, architecture-map), Graphviz diagram generator (code-diagram), and a standalone /devserver launcher. Single bundle replacing the four prior plugins.",
+  "category": "productivity",
+  "source": "./plugins/review-suite",
+  "homepage": "https://github.com/xmandeng/claude-plugins/tree/main/plugins/review-suite"
+}
+\`\`\`
+
+### Mark legacy entries deprecated
+
+Prefix each existing description:
+
+\`\`\`
+"description": "[DEPRECATED — migrate to review-suite] Interactive HTML review playgrounds for ..."
+\`\`\`
+
+This applies to: \`plan-review\`, \`architecture-review\`, \`architecture-map\`. \`code-diagram\` is **not currently in marketplace.json** (it's untracked). I'll skip adding it to marketplace.json entirely — its functionality lives in review-suite from day one.
+
+### Schema check
+
+I have not verified that the marketplace schema (\`https://anthropic.com/claude-code/marketplace.schema.json\`) supports a \`deprecated\` boolean field. Using description-prefix is schema-agnostic and visible to users in install UIs.
+
+### One-release window
+
+Next \`review-suite\` release (e.g., v0.2.0) **removes** the four legacy entries entirely and deletes the four \`plugins/{plan-review,architecture-review,architecture-map,code-diagram}/\` directories. Deprecation is a soft handoff, not permanent dual-maintenance.`
+      },
+      {
+        id: "migration",
+        title: "Migration & Deprecation",
+        content: `### For the user (you)
+
+After PR merges:
+
+\`\`\`
+/plugin uninstall plan-review
+/plugin uninstall architecture-review
+/plugin uninstall architecture-map
+# (code-diagram was never installed — untracked)
+/plugin install review-suite@xmandeng-plugins
+\`\`\`
+
+Old generated HTMLs in \`.plan-review/\` keep working. New review playgrounds get generated by the new bundle.
+
+### For other users (open-source consumers)
+
+Marketplace listing shows the four old plugins with \`[DEPRECATED]\` prefix. Anyone re-installing or browsing will see the marker and switch. One-release window means a few weeks before the legacy directories are deleted.
+
+### Risks
+
+- **Saved bookmarks at 8775/8785** (architecture-review, architecture-map default ports) won't resolve after migration — bundle defaults to 8765. **Mitigation:** if a user wants the old port, they set \`REVIEW_SUITE_PORT=8775\` in their shell. Documented in README.
+- **Installed plugin caches** (\`~/.claude/plugins/cache/xmandeng-plugins/{plan-review,...}\`) may linger. \`/plugin uninstall\` handles this. No special action.
+
+### What I am NOT doing
+
+- Not writing migration tooling.
+- Not auto-uninstalling the old plugins for users.
+- Not renaming the marketplace itself (\`xmandeng-plugins\` stays — it's a marketplace name, not a plugin name).`
+      },
+      {
+        id: "acceptance-criteria",
+        title: "Acceptance Criteria",
+        revised: true,
+        content: `1. **AC1.** \`plugins/review-suite/\` directory exists in \`xmandeng/claude-plugins\` with the layout above.
+2. **AC2.** One canonical \`bin/devserver.py\` with PUT-for-\`*-layouts.json\` support; env vars \`REVIEW_SUITE_HOST/PORT\`; default port 8765.
+3. **AC3.** One unified \`bin/inject-session-id.sh\` emitting \`review-suite-session-id\` label.
+4. **AC4.** Three review SKILL.md files (plan-review, architecture-review, architecture-map) read the unified label, not their old plugin-specific labels.
+5. **AC5.** New \`/devserver\` skill that starts the bundled devserver from project root with \`.devserver-port\` reuse.
+6. **AC6.** \`marketplace.json\`: new \`review-suite\` entry; existing four entries (plan-review, architecture-review, architecture-map; code-diagram is not currently in marketplace.json) marked deprecated in description.
+7. **AC7.** Old plugin directories (\`plugins/plan-review/\`, \`plugins/architecture-review/\`, \`plugins/architecture-map/\`, \`plugins/code-diagram/\`) preserved untouched.
+8. **AC8.** \`tests/test_devserver.py\` (carried over from plan-review) passes against consolidated \`bin/devserver.py\`.
+9. **AC9.** Port-scan start in all three review SKILL.md files is unified to \`PORT=8765\` (was 8765/8775/8785). URL examples in each SKILL.md use 8765.
+10. **AC10.** Per-skill \`*_HOST/PORT\` env vars (\`PLAN_REVIEW_*\`, \`ARCHITECTURE_REVIEW_*\`, \`ARCHITECTURE_MAP_*\`) consolidated to \`REVIEW_SUITE_HOST/PORT\` in all three SKILL.md env-var tables. The three \`*_DIR\` env vars retained per-skill for output-directory separation.
+11. **AC11.** \`README.md\` is a complete rewrite (not stitched together), structured with Hero / Install / Commands / Prerequisites / Env vars / PTY-bridge explainer / Migration / Contributing sections. Graphviz prerequisite called out **only** in the \`/code-diagram\` Commands section and Prerequisites.
+12. **AC12.** \`/code-diagram\` example visualization rendered (SVG + PNG) and embedded in README. If Graphviz is unavailable locally during PR authoring, README has a TODO comment with the exact \`dot\` command to render before merge.
+13. **AC13.** Code-diagram SKILL.md soft-fail message replaced with the structured template (header, platform-specific install commands, retry hint).
+
+### Functional evidence (PR-level)
+
+- Server starts on port 8765
+- Serves an HTML file
+- Accepts a PUT to a \`*-layouts.json\` path → file written to disk
+- Hook fires emitting \`review-suite-session-id\` on UserPromptSubmit
+- All three review skills (plan-review, architecture-review, architecture-map) successfully read the new label
+- \`/devserver\` skill starts the server cleanly when no review skill has been invoked first
+- README renders correctly on GitHub (SVG visualization displays; falls back to PNG if needed)
+- Code-diagram soft-fail surfaces the structured message verbatim when \`dot\` is missing`
+      },
+      {
+        id: "risks-and-out-of-scope",
+        title: "Risks, Open Questions, and Out of Scope",
+        revised: true,
+        content: `### Resolved during plan review
+
+- ~~Port default 8765 vs 8775 vs 8785~~ — **decided: 8765**. arch-review/arch-map users with bookmarks at 8775/8785 will need to update or set \`REVIEW_SUITE_PORT=8775\` in their shell. Documented in README migration section.
+- ~~Architecture template files audit~~ — **resolved**. \`architecture-template.html\` (from architecture-review) and \`map-template.html\` (from architecture-map) copied into \`plugins/review-suite/assets/\` alongside \`review-template.html\`.
+- ~~code-diagram Graphviz dependency surfacing~~ — **resolved**. Documented in Context section, called out in README Prerequisites, runtime-only failure with friendly install hint.
+- ~~\`/devserver\` arg shape~~ — **decided: ports-only**. Directory mount arg would break sharing (devserver rooted in a subdirectory couldn't serve sibling skills' URLs). All review skills launch from project root; \`/devserver\` matches.
+- ~~Tests~~ — **decided: write new unit tests** for the consolidated \`bin/devserver.py\` rather than merging the three drifted test files. Coverage: GET static, PUT \`*-layouts.json\` (success path + path traversal rejection + body size cap), WebSocket handshake, hook script outputs valid \`hookSpecificOutput\` JSON.
+- ~~Visualization rendering~~ — **resolved: Graphviz installed locally** (\`which dot\` → \`/usr/bin/dot\`). Render \`assets/screenshots/code-diagram-example.{svg,png}\` during this PR; no TODO placeholder.
+
+### Still open
+
+(none)
+
+### Risks
+
+- **PR scope is large** — single commit covering ~30 files (including README + visualization assets). Reviewers may push back. **Mitigation:** logical commit boundaries (skeleton → devserver → SKILLs → docs → marketplace.json → tests).
+- **Hidden plugin-name strings** — relying on grep across SKILL.md files. If any plugin name leaks into a path I haven't found, migration breaks at runtime. **Mitigation:** comprehensive grep audit before commit; functional smoke test of all five commands before PR.
+- **README rewrite scope creep** — "complete rewrite" has soft edges. **Mitigation:** stick to the structure outlined in Documentation section; don't expand into tutorials/cookbook.
+- **In-progress code-diagram work** — bundling its current state freezes whatever the user is iterating on. **Mitigation:** treat the copy as a snapshot; user keeps iterating in the original \`plugins/code-diagram/\` until ready, then re-copies.
+
+### Out of scope
+
+- Removing the four legacy plugin directories (deferred to next release).
+- Migration tooling for end-users.
+- Versioning bumps to the four legacy plugins (frozen in deprecation).
+- Renaming the marketplace itself.
+- Tutorial/cookbook material in README — minimal "what it does + how to install" only.
+
+### What needs your sign-off before I resume implementation
+
+- ~~Bundle name \`review-suite\`~~ ✓
+- ~~Code-diagram included~~ ✓
+- ~~Deprecate-gracefully migration~~ ✓
+- ~~Default port 8765~~ ✓
+- ~~Asset copying~~ ✓
+- ~~README complete rewrite + code-diagram visualization~~ ✓ (added during plan review)
+- ~~\`/devserver\` arg shape~~ ✓ (ports-only)
+- ~~Tests~~ ✓ (write new unit tests for consolidated devserver)
+- ~~Visualization rendering~~ ✓ (Graphviz available locally; render now)
+
+**All decisions locked. Implementation can resume.**`
+      }
+    ];
 
     // ============================================================
     // OPTIONAL: Pre-approved sections from prior review rounds.
     // Map section id -> status ("approved", "revision", "question").
     // ============================================================
-    const priorApprovals = {};
+    const priorApprovals = {
+      "context": "approved",
+      "solution-overview": "approved",
+      "bundle-layout": "approved",
+      "devserver-consolidation": "approved",
+      "hook-unification": "approved",
+      "skill-edits": "approved",
+      "documentation-and-visualization": "approved",
+      "marketplace-changes": "approved",
+      "migration": "approved",
+      "acceptance-criteria": "approved",
+      "risks-and-out-of-scope": "approved",
+    };
 
     // ============================================================
     // PLAN NAME: Update this string for the copy-to-prompt output.
     // ============================================================
-    const PLAN_NAME = "TT-139: Backend Data Collection";
+    const PLAN_NAME = "TT-136: Bundle into review-suite";
     // Populated by the plan-review skill at HTML-generation time with the
     // authoring session's id. The terminal panel uses this to spawn
     // `claude --resume <sid>` via the devserver's /api/claude?session= endpoint.
-    const CLAUDE_SESSION = "1197c92d-5ed9-421b-97cd-9b832af9b0ad";
-    // QUE-226: ACTIVE_SESSION holds the SID of the fork spawned on first WS
-    // connect; subsequent connects re-attach to it. Devserver mutates this
-    // constant in-place after the first fork via atomic write. Blank it
-    // (set back to "") to reset and re-fork from CLAUDE_SESSION on next open.
-    const ACTIVE_SESSION = "";
+    const CLAUDE_SESSION = "91201481-5694-428a-96b3-45bb0a804c39";
 
     // Persistence — save/restore review state across sessions
     const STORAGE_KEY = 'review-state:' + PLAN_NAME;
@@ -1607,7 +2057,6 @@
     let __claudeReady = false;
     let __claudeTerm = null;
     let __claudeFitAddon = null;
-    let __forkedSid = null;
 
     (function initClaudeTerminal() {
       const host = document.getElementById('termHost');
@@ -1660,12 +2109,7 @@
           return;
         }
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // QUE-226: pass the playground HTML path so the devserver can read
-        // and update this HTML's ACTIVE_SESSION constant and keep us
-        // attached to the same fork across refreshes / "Send to Claude"
-        // clicks / reopens.
-        const playgroundPath = location.pathname.replace(/^\//, '');
-        const url = `${proto}//${location.host}/api/claude?session=${encodeURIComponent(CLAUDE_SESSION)}&playground=${encodeURIComponent(playgroundPath)}`;
+        const url = `${proto}//${location.host}/api/claude?session=${encodeURIComponent(CLAUDE_SESSION)}`;
         setStatus('connecting…');
         let ws;
         try {
@@ -1690,23 +2134,6 @@
 
         ws.onmessage = (ev) => {
           if (typeof ev.data === 'string') {
-            try {
-              const msg = JSON.parse(ev.data);
-              // QUE-226: devserver sends 'active_session' for both attach
-              // and fork modes (msg.mode distinguishes). Pre-QUE-226
-              // 'forked_session' is still accepted for backward compat.
-              const isSessionMsg = msg && typeof msg.sid === 'string'
-                && (msg.type === 'active_session' || msg.type === 'forked_session');
-              if (isSessionMsg) {
-                __forkedSid = msg.sid;
-                const handoffSidEl = document.getElementById('handoffSid');
-                if (handoffSidEl) {
-                  handoffSidEl.textContent = __forkedSid;
-                  handoffSidEl.title = __forkedSid;
-                }
-                return;
-              }
-            } catch (e) { /* not JSON — fall through to terminal */ }
             // control message (e.g. error JSON); print to terminal for visibility
             term.writeln('\r\n[devserver] ' + ev.data);
             return;
@@ -1753,8 +2180,7 @@
             handoffStatus.textContent = 'No session id embedded in this review doc.';
             return;
           }
-          const resumeSid = __forkedSid || CLAUDE_SESSION;
-          const cmd = `claude --resume ${resumeSid}`;
+          const cmd = `claude --resume ${CLAUDE_SESSION}`;
           let copied = false;
           try {
             await navigator.clipboard.writeText(cmd);
