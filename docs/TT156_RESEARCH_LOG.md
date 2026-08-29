@@ -36,6 +36,27 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
 
 ## Findings log
 
+### 2026-08-29 — Execution sensitivity: how much edge survives if ephemeral freebies don't fill
+
+User concern (raised after the trailing tests kept failing on short-lived
+spikes): is the edge itself built on untradable one-tick touches? Measured
+directly. Dwell of the 38 baseline 25-wide freebies from first touch: 16
+lasted a single 15s snapshot, 8 lasted 30–60s, 14 persisted over a minute.
+Persistence haircut (completion only counts if the freebie survives N
+snapshots): N=2 (30s) → $17,128 / 32 flies; N=4 (60s) → $16,230 / 28 flies,
+vs $21,298 / 38 at baseline. The 50-wide is untouched (~$16.1k at every N —
+its completions are all slow moves).
+
+**Reading:** ~42% of completions are ephemeral touches and assuming them
+unfillable costs ~24% of the edge — real, but not fatal: the worst case
+still runs 2.3x the hull baseline, because missed one-tick completions
+become later completions or flip exits (not losses) and the monster tents
+come from sustained moves whose freebies persisted for minutes. Live
+completion is a resting limit order, so truth sits between N=1 and N=4.
+**Planning number: the $16–17k band, not $21k.** Final resolution requires
+real fills — a one-lot live test, which no mid-price resim can substitute
+for.
+
 ### 2026-08-28 (late) — The tent IS the edge: never trade the lottery ticket for a certain profit
 
 Tested the appealing idea of not locking the fly the instant it's free —
