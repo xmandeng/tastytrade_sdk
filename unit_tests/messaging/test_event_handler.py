@@ -47,11 +47,24 @@ async def test_valid_quote_processes_without_error(
 
 
 @pytest.mark.asyncio
-async def test_none_ask_price_raises_message_processing_error(
+async def test_none_ask_price_is_accepted(
     quote_handler: EventHandler,
 ) -> None:
-    """A None askPrice should raise MessageProcessingError, not crash the handler."""
+    """A one-sided quote (None askPrice) is valid brokerage data, not an error."""
     msg = make_quote_message(bid_price=185.0, ask_price=None)
+    result = await quote_handler.handle_message(msg)
+    assert result is not None
+    event = result[0]
+    assert event.bidPrice == 185.0  # type: ignore[union-attr]
+    assert event.askPrice is None  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_non_numeric_ask_price_raises_message_processing_error(
+    quote_handler: EventHandler,
+) -> None:
+    """A non-numeric askPrice should raise MessageProcessingError, not crash the handler."""
+    msg = make_quote_message(bid_price=185.0, ask_price="not-a-price")
     with pytest.raises(MessageProcessingError, match="Skipped invalid event"):
         await quote_handler.handle_message(msg)
 
@@ -61,7 +74,7 @@ async def test_validation_error_logs_warning_not_error(
     quote_handler: EventHandler, caplog: pytest.LogCaptureFixture
 ) -> None:
     """TT-16: Validation errors must log at WARNING, not ERROR."""
-    msg = make_quote_message(bid_price=185.0, ask_price=None)
+    msg = make_quote_message(bid_price=185.0, ask_price="not-a-price")
 
     with caplog.at_level(logging.DEBUG, logger="tastytrade.messaging.handlers"):
         with pytest.raises(MessageProcessingError):
@@ -96,7 +109,7 @@ async def test_queue_listener_continues_after_validation_error(
     bad_raw = {
         "type": "FEED_DATA",
         "channel": Channels.Quote.value,
-        "data": [["AAPL", 185.0, None, 100.0, 200.0]],
+        "data": [["AAPL", 185.0, "not-a-price", 100.0, 200.0]],
     }
     good_raw = {
         "type": "FEED_DATA",
