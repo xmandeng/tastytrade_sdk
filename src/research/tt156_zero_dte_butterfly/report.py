@@ -1143,6 +1143,16 @@ def margin_high_water(rows: list[dict]) -> float:
     return peak
 
 
+def hw_summary(hws: list[float]) -> str:
+    """Median / p90 / max of the per-day margin high-waters, in dollars."""
+    if not hws:
+        return "no data"
+    ordered = sorted(hws)
+    median = ordered[len(ordered) // 2]
+    p90 = ordered[min(len(ordered) - 1, int(0.9 * len(ordered)))]
+    return f"median {usd(median)}, p90 {usd(p90)}, max {usd(ordered[-1])}"
+
+
 def build_scoreboard(root: Path) -> str:
     """Standing running ledger (SCOREBOARD.md): every session under the live
     rule — hull-only 5m entries 10:00-13:00, flip exits, per-arm daily
@@ -1163,6 +1173,8 @@ def build_scoreboard(root: Path) -> str:
     body: list[str] = []
     run25 = run50 = 0.0
     quiet = 0
+    hw25s: list[float] = []
+    hw50s: list[float] = []
     for day_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         try:
             date.fromisoformat(day_dir.name)
@@ -1189,6 +1201,10 @@ def build_scoreboard(root: Path) -> str:
         strat = [s for s in rows if s["variant"] in STRATEGY_FAMS]
         hw25 = margin_high_water([s for s in rows if s["variant"] == "w25_5m_m0_kal"])
         hw50 = margin_high_water([s for s in rows if s["variant"] == "w50_5m_m0_kal"])
+        if hw25 > 0:
+            hw25s.append(hw25)
+        if hw50 > 0:
+            hw50s.append(hw50)
         body.append(
             f"| {day_dir.name} | {usd(d25)} | {usd(d25ef)} | {usd(d50)} "
             f"| {usd(h25)} | {usd(h25m1)} | {usd(h25ef)} | {usd(h50)} "
@@ -1206,6 +1222,9 @@ def build_scoreboard(root: Path) -> str:
         "the primary kal arm at that width (open verticals hold width − "
         "credit; completed lossless flies hold $0; early-fly deficits hold "
         "the bounded deficit until settlement).",
+        "",
+        f"Margin expectations per one-lot: 25-wide {hw_summary(hw25s)}; "
+        f"50-wide {hw_summary(hw50s)}.",
         "",
         "Primary columns are the kalman-tangent arms (velocity sign flips, "
         "q/r 0.025, history restated 2026-08-28); hull columns are the "
