@@ -167,6 +167,7 @@ Worktrees do NOT inherit the main repo's `.venv` or `.env`. You must bootstrap e
 - [docs/SIGNAL_ARCHITECTURE.md](docs/SIGNAL_ARCHITECTURE.md) - Signal detection pipeline
 - [docs/SERVICE_DISCOVERY.md](docs/SERVICE_DISCOVERY.md) - Configuration resolution
 - [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) - Grafana Cloud + OpenTelemetry logging
+- [docs/TT156_RESEARCH_LOG.md](docs/TT156_RESEARCH_LOG.md) - TT-156 0DTE butterfly research log (living doc: current rule + dated findings)
 - [docs/ISSUES_SPEC.md](docs/ISSUES_SPEC.md) - Jira issue specifications
 - [docs/GITHUB_WORKFLOW_SPEC.md](docs/GITHUB_WORKFLOW_SPEC.md) - GitHub workflow standards
 - [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) - PR evidence standards
