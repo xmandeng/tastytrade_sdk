@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plan Review: TT-139: Backend Data Collection</title>
+  <title>Plan Review: TT-158: Pipeline Health Observability</title>
   <style>
     * {
       margin: 0;
@@ -854,7 +854,7 @@
         </svg>
       </button>
     </div>
-    <h1>TT-139: Backend Data Collection</h1>
+    <h1>TT-158: Pipeline Health Observability</h1>
     <div class="stats" id="stats"></div>
     <div class="topbar-toggles">
       <button class="collapse-toggle" id="termToggle" title="Toggle terminal">
@@ -922,54 +922,45 @@
     // ============================================================
     const docSections = [
   {
-    "id": "status",
-    "title": "Status \u2014 LOCKED (2026-05-25)",
-    "content": "Design **locked** via design-review on 2026-05-25. The two previously-deferred backend questions are now RESOLVED:\n\n- **\u00a76.1 strike fetch** \u2014 flat **\u00b110% of spot** (was \"fetch all\").\n- **\u00a76.3 runtime** \u2014 **Model A** (on-demand, frontend-paced).\n\nThe plan doc `docs/plans/TT-138-gex-snapshot.md` has been updated to match (\u00a74, \u00a75, \u00a76.0, \u00a76.3, \u00a76.4, \u00a76.9). Design-review artifact: `.design-review/TT-139-gex-backend-data-collection-design-review.html`. \u00a76.2 RTH liveness probe PASSED 2026-05-19 \u2014 REST is the v1 data source, no DXLink dependency. **TT-139 is ready to implement.**"
+    "id": "context",
+    "title": "Context \u2014 the silent failure",
+    "content": "TT-157 fixed a candle pipeline that ran **hours behind real time for weeks** with zero signal anywhere: the intake queue is unbounded (excess volume becomes delay, not drops), Influx wrote one HTTP call per event (~300 events/s ceiling), and the backlog drained every night so mornings always looked healthy.\n\nConsequences: the TT-156 signal engine computed indicators on stale bars, afternoon entries fired hours late (some after 14:30 wall clock \u2014 provably impossible on a healthy feed), quiet days were misread as market regime, and the platform's own resilience (clean recovery on restart) hid the problem.\n\n**Goal:** the pipeline's clock becomes observable \u2014 logging alarms while it degrades, and a queryable endpoint so any consumer (or you, or a cron) can ask \"is live data actually live?\" at any moment."
   },
   {
-    "id": "summary",
-    "title": "Summary",
-    "content": "Build a point-in-time **Gamma Exposure (GEX) snapshot** for any underlying with a Tastytrade option chain. Identifies gamma concentration zones (call wall, put wall, max-gamma strike) and broad regime (positive vs negative net GEX) using only the Tastytrade REST API.\n\n- **v1 validation target:** SPX 0DTE (high liquidity, narrow chain, external references for sanity comparison).\n- **Symbol- and expiration-agnostic from day one** \u2014 any underlying, any expiration, one or many per snapshot.\n- **Single-product per snapshot** \u2014 metrics rendered in that product's units; no cross-product overlays in v1.\n- **Not in v1:** OPRA tape, dealer-position inference, DXLink streaming, order execution, backtesting, futures-options *implementation* (field surface already verified)."
+    "id": "functions",
+    "title": "What the health check reports (5 functions)",
+    "content": "| # | Function | Question it answers |\n|---|---|---|\n| 1 | **Candle freshness** \u2014 newest bar time vs wall clock, per (symbol, interval) | Is live data actually live? |\n| 2 | **Intake queue depth** \u2014 per-channel qsize + max-seen, surfaced while running | Is backpressure building? (today: only logged at shutdown) |\n| 3 | **Cross-store agreement** \u2014 newest bar in Redis vs newest bar in InfluxDB | Are both stores seeing the same now? |\n| 4 | **Engine liveness** (research side) \u2014 5m state transitions per RTH session vs minimum | Is the signal engine reacting, or frozen? |\n| 5 | **Session health stamp** (research side) \u2014 REPORT.md carries feed-health verdict | Can a degraded session masquerade as a valid observation? |\n\nFunctions 1\u20133 live in the SDK service (`tasty-subscription run`). Functions 4\u20135 live in the TT-156 collector/report. Phase split below."
   },
   {
-    "id": "architecture",
-    "title": "Data Surface \u2014 4 REST calls",
-    "content": "The entire backend data surface is four REST calls for any single-product snapshot:\n\n1. `GET /option-chains/<symbol>/nested` \u2014 strikes + OCC symbols.\n2. `GET /market-data/by-type?<spot-key>=<symbol>` \u2014 spot price.\n3. **Multiplier lookup** \u2014 `100` for equity-options (constant); `/instruments/futures/<sym>` for futures-options.\n4. `GET /market-data/by-type?equity-option=<batch>` \u2014 gamma + OI + IV + mark per option (batched).\n\n**No async websocket lifecycle. No subscription cap. No dependency on a running streamer.** \u00a76.2 RTH liveness probe (2026-05-19) confirmed REST values advance continuously during market hours \u2014 REST is sufficient for v1."
+    "id": "registry",
+    "title": "Phase 1a \u2014 PipelineHealth registry (SDK)",
+    "content": "New module `src/tastytrade/messaging/health.py`:\n\n```python\nclass PipelineHealth:\n    \"\"\"In-process registry; single instance owned by the orchestrator.\"\"\"\n    def record_candle(self, symbol: str, bar_time: datetime) -> None: ...\n    def set_queue_provider(self, provider: Callable[[], dict[str, int]]) -> None: ...\n    def snapshot(self) -> dict:  # JSON-ready\n        ...\n```\n\n- `record_candle` called from `RedisEventProcessor` on every published CandleEvent (extends the TT-157 lag-warning path \u2014 same parse, no extra cost).\n- `snapshot()` computes per-feed lag = now \u2212 newest bar time, compares against **interval + 120 s** (same threshold as the TT-157 warning, `CANDLE_LAG_WARN_SECONDS` env), and rolls up `status: ok | degraded`.\n- Queue depths come from a provider callback (the DXLink router's `queues` dict) \u2014 the registry never imports socket internals.\n- Protocol-friendly: processors receive the registry as an optional constructor arg; `None` means no-op (unit tests unaffected).\n\nDeliberately **not** included: cross-store Influx polling inside the hot path \u2014 snapshot() queries Influx's newest bar lazily, only when the endpoint is hit, keeping the write path untouched."
   },
   {
-    "id": "runtime",
-    "title": "Runtime model \u2014 Model A (on-demand, frontend-paced)",
-    "content": "**Locked decision.** GEX is the first *pull* data source in the codebase (account-stream/subscribe are *push* via DXLink), so something must decide when to re-fetch. The runtime model puts that clock in the frontend:\n\n- **Start chart:** chart issues one `request(symbol, expiry)`. `snapshot.py` checks Redis `gex:snapshot:<sym>:<exp>`; fresh hit serves immediately (zero REST), miss runs the pipeline, writes the envelope back with TTL ~60s, returns it.\n- **Session:** process-level singleton \u2014 authenticated once, reused across all requests and symbols, refreshed on token expiry. Never per-symbol.\n- **Cache:** one Redis key per (symbol, expiry), TTL ~60s. Fresh hit = zero REST; two charts on the same symbol share the envelope.\n- **Refresh:** the **frontend** is the clock (re-requests ~60s). No backend timer/loop.\n- **Change symbol:** request the new symbol; old key TTL-expires. No teardown.\n- **Stop:** chart stops requesting; cache lapses.\n\n**Key boundary:** the chart consumes the **HTTP response** envelope, NOT Redis directly. Redis is the backend's internal recompute-skipping side-cache. (Model B \u2014 Redis as the delivery channel, mirroring the streaming services \u2014 was considered and deferred as more infrastructure than v1 needs for a pull source.)"
+    "id": "endpoint",
+    "title": "Phase 1b \u2014 GET /health endpoint (SDK)",
+    "content": "Served by the subscription orchestrator via uvicorn on `HEALTH_PORT` (default **8890**), started alongside the existing service tasks.\n\n```json\n{\n  \"status\": \"ok\",\n  \"uptime_seconds\": 3620,\n  \"candles\": {\n    \"SPX{=m}\":  {\"newest_bar\": \"2026-08-27T15:42:00Z\", \"lag_seconds\": 12, \"ok\": true},\n    \"SPX{=5m}\": {\"newest_bar\": \"2026-08-27T15:40:00Z\", \"lag_seconds\": 132, \"ok\": true}\n  },\n  \"queues\": {\"candle\": 3, \"quote\": 0, \"trade\": 1, \"max_seen\": {\"candle\": 84}},\n  \"cross_store\": {\"SPX{=5m}\": {\"redis_newest\": \"...\", \"influx_newest\": \"...\", \"agree\": true}}\n}\n```\n\n- `status: degraded` when any tracked candle lag exceeds its threshold OR any queue depth exceeds `QUEUE_DEPTH_WARN` (default 1000).\n- Read-only, no auth, bound to 0.0.0.0 (LAN-only host, consistent with chart server).\n- Your cron / Grafana / the collector can poll it; `curl localhost:8890/health | jq .status` is the one-liner.\n\n**Alternative considered:** writing health to Redis HSET instead of HTTP (no new port). Rejected as primary because Redis being the observed system makes it a bad witness \u2014 but happy to add the HSET mirror as well if you want both."
   },
   {
-    "id": "strike-filter",
-    "title": "Strike fetch window \u2014 \u00b110% of spot",
-    "content": "**Flat \u00b110% of spot, no DTE-conditional logic.** (Reverses the earlier \"fetch all\" default.)\n\n**Rationale:**\n- Gamma walls cluster near spot.\n- v1 renders split call/put (not net-GEX per \u00a76.8), so full-chain totals are not a v1 output.\n- \u00b110% cuts round-trips by roughly 5x while keeping all plausible walls in range.\n\nThe display window (TT-140) is a sub-selection and must be **\u2264 \u00b110%** \u2014 you can show less than was fetched, never more."
+    "id": "logging",
+    "title": "Phase 1c \u2014 logging alarms (SDK)",
+    "content": "Two WARNING-level alarms, both rate-limited to once per 60 s:\n\n1. **Candle publish lag** \u2014 shipped in TT-157 (`redis.py`): fires when a candle's bar time trails wall clock beyond interval + 120 s. No change.\n2. **Queue backpressure** \u2014 new, in `handlers.queue_listener`: fires when a channel's queue depth exceeds `QUEUE_DEPTH_WARN` (default 1000). The listener already reads `queue.qsize()` every event for its metrics \u2014 this adds a comparison, not new work.\n\nBoth log the measured value and the threshold, so a log grep reconstructs the degradation timeline \u2014 exactly what we could not do for the August incident."
   },
   {
-    "id": "modules",
-    "title": "Module structure \u2014 src/tastytrade/analytics/gex/",
-    "content": "New package, sibling to `analytics/positions.py` (symbol-agnostic compute):\n\n| File | Responsibility |\n|---|---|\n| `client.py` | REST fetchers (chain, market-data, spot, multiplier), chunking, \u00b110% strike pre-filter, `resolve_symbol_context` |\n| `compute.py` | per-option GEX formula + strike-level aggregation; takes M as a parameter, never hard-codes 100 |\n| `levels.py` | call wall, put wall, max-gamma, net-gamma-wall |\n| `snapshot.py` | `take_snapshot(symbol, expirations)` request-handler/orchestrator: cache-check, then client/compute/levels, then publish envelope to Redis with TTL |\n\n**`render.py` and the CLI entry point are TT-140 (frontend)**, not TT-139 \u2014 they consume the envelope, they don't produce it. Backend has no import dependency on `charting/`."
+    "id": "lag-instrument",
+    "title": "Amendment \u2014 bar-age is the wrong lag instrument (2026-08-28)",
+    "revised": true,
+    "content": "**Evidence (tonight, markets closed, BTC feeds live):**\n\n- The TT-157 bar-age alarm fired twice: `BTC/USD:CXTALP{=d}` bar 2026-08-28T00:00Z \"95,715 s behind\", `BTC/USD:CXTALP{=5m}` bar 2026-08-27T04:00Z \"167,850 s behind\".\n- At that moment the pipeline was current: latest published BTC 1m bar 0.1 min old, 5m bar 4 min old (forming). Both warnings were dxfeed re-sending old bars (late correction to the prior daily bar; one stray 5m bar).\n- During the real 2026-08-28 backlog (~3.5 h behind from 10:30 ET) the same alarm emitted **zero** lines.\n\n**Conclusion:** bar time vs wall clock measures the age of an event's timestamp, not pipeline health. It false-positives on every legitimately old event (late corrections \u2014 daily bars most nights; backfill snapshots on subscribe) and false-negatived on the one real incident.\n\n**Amendment to Phases 1a\u20131c:**\n\n1. Primary health signal = **consumer-side queue depth per channel** (`asyncio.Queue.qsize()`, already sampled by `EventHandler.queue_listener` into `self.metrics`) and its trend over a rolling window. Backlog is *sustained depth growth*, not timestamp age.\n2. The bar-age warning is demoted to informational or removed \u2014 it is not an alert condition.\n3. `/health` exposes per channel: current depth, max depth over the last N minutes, drain rate (events/s). The backlog alarm fires on depth trending up across the window.\n4. Open question carried forward: why the bar-age alarm stayed silent during the 2026-08-28 backlog \u2014 confirm the backlogged process was running TT-157 code at all."
   },
   {
-    "id": "multiplier",
-    "title": "Multiplier \u2014 class-aware via resolve_symbol_context",
-    "content": "`M` is **class-aware**, resolved once per symbol and cached:\n\n- **equity-options:** `M=100` as a class constant inside the resolver (OCC convention).\n- **futures-options (post-v1):** `notional-multiplier` from `/instruments/futures/<sym>` (e.g. /MES=5, /ES=50).\n\n`M` is always a **parameter at the formula site** \u2014 `compute_option_gex(df, spot, multiplier)` never hard-codes 100. The only literal `100` lives inside the resolver's equity branch. This is what lets futures-options land as a small extension rather than a parallel pipeline.\n\nFormula: `gex = OI \u00d7 \u03b3 \u00d7 M \u00d7 spot\u00b2 \u00d7 0.01 \u00d7 sign`."
+    "id": "research",
+    "title": "Phase 2 \u2014 collector assertion + report stamp (research side)",
+    "content": "On the TT-156 branch, after Phase 1 merges:\n\n1. **Collector** (`signals.py` / `collector.py`): each cycle records `candle_lag_seconds` for SPX{=m} and SPX{=5m} (newest engine-ingested bar vs wall clock) into `health.json`. The collector measures its **own** view \u2014 even if the service endpoint says ok, the collector proves what *it* actually received.\n2. **REPORT.md header stamp**: nightly report derives the session's worst sustained lag from the health series and prints one line: `Feed: healthy` or `Feed: LAGGED (worst 47 min @ 14:05) \u2014 session excluded from signal conclusions`.\n3. **Engine liveness**: report warns when the 5m engine recorded zero state transitions during RTH while the day had range (the 08-19 signature).\n\nThis is what makes a repeat of August *structurally impossible to miss*: the contamination verdict is printed on the artifact everyone reads."
   },
   {
-    "id": "steps",
-    "title": "Implementation steps",
-    "content": "1. `OptionMarketDataClient` for batched `/market-data/by-type?equity-option=...` (chunking).\n2. `fetch_chain_for_expirations(symbol, expirations)` \u2192 DataFrame, **\u00b110%-of-spot pre-filter**.\n3. `fetch_option_market_data(occ_symbols)` chunked \u2192 gamma/OI/mark/IV per option.\n4. `resolve_symbol_context(symbol)` \u2192 frozen `{spot_key, multiplier, chain_endpoint}`, cached per symbol.\n5. `compute_option_gex(df, spot, multiplier)` + `aggregate_by_strike(df)` keyed by (expiration, strike).\n6. `identify_levels(strike_df, spot)` \u2192 call/put walls, max-gamma, net-gamma-wall.\n7. `take_snapshot(...)` orchestrator: cache-check \u2192 pipeline \u2192 publish to Redis (TTL ~60s) \u2192 return envelope.\n8. *(TT-140)* render + CLI.\n9. Unit tests: formula sign, zero OI, missing gamma, aggregation, level ID, multiplier-as-parameter.\n10. Live REST sanity: SPX 0DTE first, then SPY weekly + AAPL monthly."
-  },
-  {
-    "id": "validation",
-    "title": "Validation",
-    "content": "**Unit tests:** call/put sign, zero OI \u2192 zero GEX, missing gamma excluded, aggregation per (expiration, strike), level identification on synthetic data, `compute_option_gex` uses the passed `multiplier` (parametrized over {100, 50, 5}), `resolve_symbol_context` returns correct M per symbol class.\n\n**Live REST sanity (RTH):** SPX 0DTE (primary), SPY weekly (ETF generalization), AAPL monthly (equity generalization) \u2014 spot inside strike range, OI nonzero near ATM, gamma peaks near ATM, largest GEX at high-OI strikes.\n\n**Manual external comparison:** SPX output vs one external GEX chart over several days \u2014 major levels and regime broadly align (exact match not expected)."
-  },
-  {
-    "id": "scope",
-    "title": "Scope & deferrals",
-    "content": "**v1 (TT-139):** equity-options only; SPX 0DTE validation; the four backend modules + Redis publish.\n\n**Deferred to TT-140 (frontend):**\n- \u00a76.5 \u2014 CLI entry point shape (`tasty-gex` vs subcommand).\n- \u00a76.9 \u2014 display strike window (\u2264 \u00b110% fetch window).\n- \u00a76.10 \u2014 default expirations.\n\n**Post-v1 (separate ticket):** futures-options *implementation* \u2014 REST field surface already verified (\u00a76.13); the chain-endpoint + OCC-encoding plumbing is the remaining work. The `resolve_symbol_context` + parameterized-M architecture already absorbs the multiplier/spot-key concerns."
+    "id": "scoping",
+    "title": "Scoping decisions + open questions",
+    "content": "**In scope (this ticket):** Phases 1a\u20131c on a fresh branch off main; Phase 2 on the TT-156 branch after merge.\n\n**Out of scope (deliberately):** auto-remediation (restart-on-degraded), Grafana dashboards (existing OBSERVABILITY.md stack can consume the endpoint later), per-symbol thresholds, history/persistence of health snapshots.\n\n**Open questions for you:**\n1. Port 8890 for the health endpoint OK? (chart uses 8080-range, devserver 8765-8799)\n2. Thresholds: candle lag = interval + 120 s, queue depth = 1000 \u2014 tune now or ship defaults and calibrate live?\n3. Do you also want the Redis HSET mirror of the health snapshot (for consumers that already speak Redis)?\n4. Report stamp wording: should a LAGGED session's strategy rows also be auto-asterisked in SCOREBOARD.md going forward (ties into the Task 7 asterisk work)?"
   }
 ];
 
@@ -982,16 +973,11 @@
     // ============================================================
     // PLAN NAME: Update this string for the copy-to-prompt output.
     // ============================================================
-    const PLAN_NAME = "TT-139: Backend Data Collection";
+    const PLAN_NAME = "TT-158: Pipeline Health Observability";
     // Populated by the plan-review skill at HTML-generation time with the
     // authoring session's id. The terminal panel uses this to spawn
     // `claude --resume <sid>` via the devserver's /api/claude?session= endpoint.
-    const CLAUDE_SESSION = "1197c92d-5ed9-421b-97cd-9b832af9b0ad";
-    // QUE-226: ACTIVE_SESSION holds the SID of the fork spawned on first WS
-    // connect; subsequent connects re-attach to it. Devserver mutates this
-    // constant in-place after the first fork via atomic write. Blank it
-    // (set back to "") to reset and re-fork from CLAUDE_SESSION on next open.
-    const ACTIVE_SESSION = "";
+    const CLAUDE_SESSION = "7bb4baee-fe4c-461d-b12a-950b43c6e031";
 
     // Persistence — save/restore review state across sessions
     const STORAGE_KEY = 'review-state:' + PLAN_NAME;
@@ -1608,6 +1594,9 @@
     let __claudeTerm = null;
     let __claudeFitAddon = null;
     let __forkedSid = null;
+    // Resumable id for "Hand off to terminal" — the authoring session until a
+    // fork persists its transcript, then the fork SID (server sends `handoff`).
+    let __handoffSid = null;
 
     (function initClaudeTerminal() {
       const host = document.getElementById('termHost');
@@ -1660,10 +1649,9 @@
           return;
         }
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // QUE-226: pass the playground HTML path so the devserver can read
-        // and update this HTML's ACTIVE_SESSION constant and keep us
-        // attached to the same fork across refreshes / "Send to Claude"
-        // clicks / reopens.
+        // Pass the playground HTML path so the devserver can key the live
+        // `claude` child to this page and reattach the same process across
+        // refreshes / "Send to Claude" clicks / reopens.
         const playgroundPath = location.pathname.replace(/^\//, '');
         const url = `${proto}//${location.host}/api/claude?session=${encodeURIComponent(CLAUDE_SESSION)}&playground=${encodeURIComponent(playgroundPath)}`;
         setStatus('connecting…');
@@ -1699,10 +1687,12 @@
                 && (msg.type === 'active_session' || msg.type === 'forked_session');
               if (isSessionMsg) {
                 __forkedSid = msg.sid;
+                if (typeof msg.handoff === 'string' && msg.handoff) __handoffSid = msg.handoff;
+                const shownSid = __handoffSid || __forkedSid;
                 const handoffSidEl = document.getElementById('handoffSid');
                 if (handoffSidEl) {
-                  handoffSidEl.textContent = __forkedSid;
-                  handoffSidEl.title = __forkedSid;
+                  handoffSidEl.textContent = shownSid;
+                  handoffSidEl.title = shownSid;
                 }
                 return;
               }
@@ -1753,7 +1743,7 @@
             handoffStatus.textContent = 'No session id embedded in this review doc.';
             return;
           }
-          const resumeSid = __forkedSid || CLAUDE_SESSION;
+          const resumeSid = __handoffSid || CLAUDE_SESSION;
           const cmd = `claude --resume ${resumeSid}`;
           let copied = false;
           try {
