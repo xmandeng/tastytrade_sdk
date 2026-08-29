@@ -181,6 +181,7 @@ const C = {
   candleUpBorder:'#4CAF50', candleUpBody:'rgba(19,19,19,0.1)',
   candleDownBorder:'#EF5350', candleDownBody:'#EF5350',
   hmaUp:'#01FFFF', hmaDown:'#FF66FE',
+  kalman:'#FFFFFF',
   macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
   // Prior-day reference levels — amber/green/red, slightly transparent so they
   // recede behind candles. Amber for Prior Close matches the conventional
@@ -617,6 +618,12 @@ const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 const hmaPrimitive = new HmaPrimitive();
 candleSeries.attachPrimitive(hmaPrimitive);
 
+// Kalman filtered price (TT-156 primary signal): same primitive class, its
+// own instance. Plain white both directions (per-point color field kept so a
+// direction-colored variant is a server-side change only).
+const kalmanPrimitive = new HmaPrimitive();
+candleSeries.attachPrimitive(kalmanPrimitive);
+
 // TT-156 paper-trade markers (entries, fly locks, closes, tent settles):
 // numbered pins at the exact (time, price) of each event, with detail in
 // the #tradeCallouts panel. Built-in series markers are too small to read
@@ -747,6 +754,10 @@ const STUDIES = {
     kind: 'simple', section: 'overlay', label: 'Hull MA (20)',
     swatch: { color: C.hmaUp, style: 'solid' },
   },
+  kalman: {
+    kind: 'simple', section: 'overlay', label: 'Kalman (q/r 0.025)',
+    swatch: { color: C.kalman, style: 'solid' },
+  },
   priorOHLC: {
     kind: 'group', section: 'overlay', label: 'Prior Day OHLC',
     children: {
@@ -776,7 +787,7 @@ const SECTIONS = [
 
 // All toggles default ON. Children of a group are also ON by default.
 const studyState = {
-  hma: true, macd: true,
+  hma: true, kalman: true, macd: true,
   priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
   openingRange: true, or5: true, or15: true, or30: true,
 };
@@ -934,6 +945,7 @@ function setMacdVisible(visible) {
 // ============================================================================
 function applyStudyState() {
   hmaPrimitive.setVisible(studyState.hma);
+  kalmanPrimitive.setVisible(studyState.kalman);
   setMacdVisible(studyState.macd);
   Object.keys(levels).forEach(id => applyLevelVisibility(id));
   renderStudiesPanel();
@@ -1256,6 +1268,12 @@ function doConnect(dateOverride) {
         hmaPrimitive.clear();
       }
 
+      if (msg.kalman && msg.kalman.length > 0) {
+        kalmanPrimitive.setData(msg.kalman);
+      } else {
+        kalmanPrimitive.clear();
+      }
+
       if (msg.macd && msg.macd.length > 0) {
         macdHistSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.histogram, color:p.histogramColor })));
         macdValueSeries.setData(msg.macd.map(p => ({ time:p.time, value:p.value })));
@@ -1325,6 +1343,7 @@ function doConnect(dateOverride) {
       processCandleOR(msg.candle);
 
       if (msg.hma) hmaPrimitive.update(msg.hma);
+      if (msg.kalman) kalmanPrimitive.update(msg.kalman);
       if (msg.macd) {
         macdHistSeries.update({ time:msg.macd.time, value:msg.macd.histogram, color:msg.macd.histogramColor });
         macdValueSeries.update({ time:msg.macd.time, value:msg.macd.value });
