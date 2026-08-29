@@ -44,6 +44,51 @@ class HullState:
         self.sqrt_length = round(math.sqrt(self.length))
 
 
+try:
+    from research.tt156_zero_dte_butterfly.config import KALMAN_Q_OVER_R
+except ImportError:  # charting works standalone; mirror the frozen calibration
+    KALMAN_Q_OVER_R = 0.025
+
+KALMAN_COLOR = "#FFFFFF"  # single color by user choice — trade chips flag flips
+
+
+@dataclass
+class KalmanState:
+    """Constant-velocity Kalman on candle closes — the TT-156 primary signal.
+
+    State is [price, velocity/bar]; the filtered price is what we plot.
+    Same recursion as the research engine (signals.kalman_step).
+    """
+
+    q_over_r: float = KALMAN_Q_OVER_R
+    x_price: float = 0.0
+    x_vel: float = 0.0
+    p: list[list[float]] = field(default_factory=lambda: [[1.0, 0.0], [0.0, 1.0]])
+    started: bool = False
+
+    def step(self, close: float) -> float:
+        """Advance one sealed close; returns the filtered price."""
+        if not self.started:
+            self.x_price, self.x_vel, self.started = close, 0.0, True
+        r = 1.0
+        q = self.q_over_r * r
+        x0, x1 = self.x_price + self.x_vel, self.x_vel
+        p = self.p
+        p00 = p[0][0] + p[0][1] + p[1][0] + p[1][1] + q / 4
+        p01 = p[0][1] + p[1][1] + q / 2
+        p10 = p[1][0] + p[1][1] + q / 2
+        p11 = p[1][1] + q
+        s = p00 + r
+        k0, k1 = p00 / s, p10 / s
+        y = close - x0
+        self.x_price, self.x_vel = x0 + k0 * y, x1 + k1 * y
+        self.p = [
+            [(1 - k0) * p00, (1 - k0) * p01],
+            [p10 - k1 * p00, p11 - k1 * p01],
+        ]
+        return self.x_price
+
+
 @dataclass
 class MacdState:
     """Rolling state for incremental MACD computation."""
@@ -95,6 +140,7 @@ class StreamingIndicators:
 
         self.hull_state: HullState | None = None
         self.macd_state: MacdState | None = None
+        self.kalman_state: KalmanState | None = None
         self.seeded = False
 
     def seed(
@@ -108,7 +154,7 @@ class StreamingIndicators:
         Also initializes rolling state for subsequent update() calls.
         """
         if df.is_empty():
-            return {"hma": [], "macd": []}
+            return {"hma": [], "macd": [], "kalman": []}
 
         pad = prior_close if prior_close is not None else float(df["close"][0])
 
@@ -213,7 +259,20 @@ class StreamingIndicators:
                 }
             )
 
-        return {"hma": hma_series, "macd": macd_series}
+        self.kalman_state = KalmanState()
+        kalman_series = []
+        times: list[datetime] = df["time"].to_list()
+        for bar_time, close in zip(times, close_values, strict=True):
+            value = self.kalman_state.step(float(close))
+            kalman_series.append(
+                {
+                    "time": to_utc_epoch(bar_time),
+                    "value": round(value, 4),
+                    "color": KALMAN_COLOR,
+                }
+            )
+
+        return {"hma": hma_series, "macd": macd_series, "kalman": kalman_series}
 
     def update(self, close: float, time_epoch: int) -> dict | None:
         """Process one new candle close and return indicator deltas.
@@ -268,12 +327,21 @@ class StreamingIndicators:
             hist_color = "#FE0000" if histogram < ms.prev_histogram else "#7E0100"
         ms.prev_histogram = histogram
 
+        kalman_point = None
+        if self.kalman_state is not None:
+            kalman_point = {
+                "time": time_epoch,
+                "value": round(self.kalman_state.step(close), 4),
+                "color": KALMAN_COLOR,
+            }
+
         return {
             "hma": {
                 "time": time_epoch,
                 "value": round(hma_val, 4),
                 "color": hma_color,
             },
+            "kalman": kalman_point,
             "macd": {
                 "time": time_epoch,
                 "value": round(macd_value, 6),

@@ -341,6 +341,8 @@ class ChartServer:
             point["time"] = utc_epoch_to_et_epoch(point["time"])
         for point in indicator_data["macd"]:
             point["time"] = utc_epoch_to_et_epoch(point["time"])
+        for point in indicator_data["kalman"]:
+            point["time"] = utc_epoch_to_et_epoch(point["time"])
 
         # --- TT-156 paper-trade markers (pass-through from the event log) ---
         trades = load_trade_markers(symbol, target_date)
@@ -357,6 +359,7 @@ class ChartServer:
             "candles": candles,
             "hma": indicator_data["hma"],
             "macd": indicator_data["macd"],
+            "kalman": indicator_data["kalman"],
             "dailyCandle": daily_candle,
             "trades": trades,
         }
@@ -458,6 +461,8 @@ class ChartServer:
                         if indicator_point:
                             delta["hma"] = indicator_point["hma"]
                             delta["macd"] = indicator_point["macd"]
+                            if indicator_point.get("kalman"):
+                                delta["kalman"] = indicator_point["kalman"]
 
                     prev_candle_epoch = et_epoch
                     prev_candle_close = close
