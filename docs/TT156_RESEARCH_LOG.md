@@ -36,6 +36,32 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
 
 ## Findings log
 
+### 2026-08-28 (late) — The tent IS the edge: never trade the lottery ticket for a certain profit
+
+Tested the appealing idea of not locking the fly the instant it's free —
+holding while velocity still builds so the same fly locks at a *guaranteed*
+profit, or banking the entry vertical's profit when momentum fades. Both
+versions lose (53 sessions, 25-wide: lock-ASAP $21,298 vs defer-to-fade
+$18,051 vs bank-on-fade $11,783).
+
+**The essential takeaway, visible in the per-cycle ledger of the 28 diverged
+trades:** deferring/banking is implicitly a bet that settlement will miss the
+tent. It wins more often — 15 of 28 cycles, +$200–600 each, exactly the flies
+that settle at or outside the wings — but the 13 it loses are the flies that
+settle **inside the tent**, worth $675–2,454 (avg ≈ $1,090). Selling that
+lottery ticket for a ~$350 certain profit costs double what it earns, because
+in this regime settlement lands inside the tent often enough to pay for
+everything. The velocity fade is a good profit marker but an unreliable
+trend-end marker (several banked cycles saw the trend resume into a
+$2k tent without the position).
+
+This is the third independent falsification of the same instinct — stops
+(every level subtracts), defer-completion, bank-on-fade — and they all fail
+the same way: **the strategy's economics live in the right tail (in-tent
+settlements). Lock the fly the moment total credit ≥ width; hold every tent
+to settlement.** Any rule that caps, delays, or substitutes for the tent
+underperforms.
+
 ### 2026-08-28 — Kalman tangent adopted as primary; either-exit backstop; width economics
 
 **Kalman beats hull on a plateau, not a point.** 53-session resim on recorded
