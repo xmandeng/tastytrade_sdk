@@ -16,6 +16,7 @@ Usage:
 import argparse
 import gzip
 import json
+import zlib
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
@@ -36,11 +37,23 @@ SWEEP_GRID_MINUTES = 5
 
 
 def load_snapshots(data_dir: Path) -> list[dict]:
+    """Read the day's chain snapshots, salvaging a truncated capture.
+
+    2026-07-30 (disk incident) has a corrupt gzip tail: the readable prefix
+    is real recorded data, so keep it and report the truncation rather than
+    failing the whole day's report.
+    """
     path = data_dir / "chain_snapshots.jsonl.gz"
     snapshots: list[dict] = []
-    with gzip.open(path, "rt", encoding="utf-8") as handle:
-        for line in handle:
-            snapshots.append(json.loads(line))
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            for line in handle:
+                snapshots.append(json.loads(line))
+    except (EOFError, zlib.error, json.JSONDecodeError) as exc:
+        last = snapshots[-1]["ts"] if snapshots else "start"
+        print(
+            f"WARNING: {path} truncated after {len(snapshots)} snapshots ({last}): {exc}"
+        )
     return snapshots
 
 
