@@ -63,6 +63,7 @@ class KalmanState:
     q_over_r: float = KALMAN_Q_OVER_R
     x_price: float = 0.0
     x_vel: float = 0.0
+    prev_vel: float = 0.0
     p: list[list[float]] = field(default_factory=lambda: [[1.0, 0.0], [0.0, 1.0]])
     started: bool = False
 
@@ -70,6 +71,7 @@ class KalmanState:
         """Advance one sealed close; returns the filtered price."""
         if not self.started:
             self.x_price, self.x_vel, self.started = close, 0.0, True
+        self.prev_vel = self.x_vel
         r = 1.0
         q = self.q_over_r * r
         x0, x1 = self.x_price + self.x_vel, self.x_vel
@@ -87,6 +89,14 @@ class KalmanState:
             [p10 - k1 * p00, p11 - k1 * p01],
         ]
         return self.x_price
+
+    def velocity_color(self) -> str:
+        """4-shade histogram color, same semantics as the MACD histogram:
+        bright = building, dark = fading, green/red = sign."""
+        v, pv = self.x_vel, self.prev_vel
+        if v > 0:
+            return "#04FE00" if v > pv else "#006401"
+        return "#FE0000" if v < pv else "#7E0100"
 
 
 @dataclass
@@ -269,6 +279,8 @@ class StreamingIndicators:
                     "time": to_utc_epoch(bar_time),
                     "value": round(value, 4),
                     "color": KALMAN_COLOR,
+                    "velocity": round(self.kalman_state.x_vel, 4),
+                    "velColor": self.kalman_state.velocity_color(),
                 }
             )
 
@@ -333,6 +345,8 @@ class StreamingIndicators:
                 "time": time_epoch,
                 "value": round(self.kalman_state.step(close), 4),
                 "color": KALMAN_COLOR,
+                "velocity": round(self.kalman_state.x_vel, 4),
+                "velColor": self.kalman_state.velocity_color(),
             }
 
         return {
