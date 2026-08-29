@@ -378,15 +378,18 @@ def exit_policy_section(reconstructed: list[dict], snapshots: list[dict]) -> lis
 
 # Canonical all-in cost model (user-calibrated), charged per SPREAD ORDER
 # (one 2-option vertical executed as a complex order):
-# - fill concession: the spread fills at mid plus a fixed concession
-#   (bounds for sensitivity)
-# - commissions + exchange/regulatory fees: ~$1/option x2 plus exchange
-#   fees, ~$5 total per spread order
+# - fill concession: the spread fills at mid plus a fixed slippage buffer
+#   (user fills 0DTE SPX spreads at ~0.05 off mid; 0.10 guarantees the fill)
+# - commissions + fees: measured 2026-08-26 on a live SPXW 2-leg vertical —
+#   open $3.44/spread ($1.00 commission x2 legs + $0.10 clearing + $0.02
+#   regulatory + $0.60 CBOE index fee per leg), close $1.44 (tastytrade
+#   charges commission on opening orders only)
 # - settlement: $5 per option finishing ITM (auto-exercise/assignment);
 #   OTM options expire free
-FILL_COST_PER_SPREAD = 0.075
+FILL_COST_PER_SPREAD = 0.10
 FILL_COST_BOUNDS = (0.05, 0.10)
-FEES_PER_SPREAD = 0.05  # $5/spread commission + exchange fees, in SPX points
+FEES_OPEN_PER_SPREAD = 0.0344  # real fees, opening 2-leg spread order
+FEES_CLOSE_PER_SPREAD = 0.0144  # real fees, closing 2-leg spread order
 SETTLEMENT_FEE_PER_ITM_LEG = 0.05  # $5/option exercise/assignment
 
 
@@ -396,6 +399,22 @@ def legs_filled(s: dict) -> int:
     if s["outcome"] == "closed":
         legs += len(s.get("entry_legs") or [])  # exit crosses the same legs
     return legs
+
+
+def spread_orders(s: dict) -> tuple[int, int]:
+    """(opening, closing) spread orders for a structure — fees differ."""
+    opens = (len(s.get("entry_legs") or []) + len(s.get("completion_legs") or [])) // 2
+    closes = len(s.get("entry_legs") or []) // 2 if s["outcome"] == "closed" else 0
+    return opens, closes
+
+
+def friction(rows: list[dict], concession: float = FILL_COST_PER_SPREAD) -> float:
+    """Total slippage + fees (points) for a set of structures."""
+    opens = sum(spread_orders(s)[0] for s in rows)
+    closes = sum(spread_orders(s)[1] for s in rows)
+    return opens * (concession + FEES_OPEN_PER_SPREAD) + closes * (
+        concession + FEES_CLOSE_PER_SPREAD
+    )
 
 
 def itm_legs_at_settlement(s: dict, settle_spot: float) -> int:
@@ -429,10 +448,8 @@ def time_bucket(opened_at: str) -> int:
 def cell_all_in(rows: list[dict], settle_spot: float) -> float:
     """All-in P&L (points) for a set of structures, canonical cost model."""
     pnl_mid = sum(s["pnl_points"] or 0.0 for s in rows)
-    spreads = sum(legs_filled(s) for s in rows) // 2
     itm = sum(itm_legs_at_settlement(s, settle_spot) for s in rows)
-    per_spread = FILL_COST_PER_SPREAD + FEES_PER_SPREAD
-    return pnl_mid - spreads * per_spread - itm * SETTLEMENT_FEE_PER_ITM_LEG
+    return pnl_mid - friction(rows) - itm * SETTLEMENT_FEE_PER_ITM_LEG
 
 
 def signal_of(variant: str) -> str:
@@ -534,7 +551,7 @@ def family_table(rows: list[dict], settle_spot: float) -> list[str]:
         f"worst {worst['variant']} {worst['direction']} "
         f"K={worst['short_strike']:g}: {fmt_pts(worst.get('pnl_points'))}. "
         f"{spreads} spread orders, friction "
-        f"{fmt_pts(-spreads * (FILL_COST_PER_SPREAD + FEES_PER_SPREAD))}.",
+        f"{fmt_pts(-friction(rows))}.",
         "",
     ]
     return lines
@@ -1099,6 +1116,33 @@ def tent_cell(rows: list[dict], settle_spot: float | None) -> str:
     return " ".join(parts) or "—"
 
 
+def margin_high_water(rows: list[dict]) -> float:
+    """Peak concurrent buying-power reduction (points) across a day's cycles.
+
+    A short vertical holds width − entry_credit from open until it completes
+    or closes. A completed fly holds max(0, width − total_credit) — zero for
+    a lossless fly, the bounded deficit for an early-fly — until settlement.
+    Structures overlap (a new vertical opens while earlier flies are still
+    on), so the high-water is the peak of the summed trajectory.
+    """
+    deltas: list[tuple[str, float]] = []
+    for s in rows:
+        entry_margin = s["width"] - s["entry_credit"]
+        deltas.append((s["opened_at"], entry_margin))
+        if s.get("completed_at") and s.get("completion_credit") is not None:
+            fly_margin = max(
+                0.0, s["width"] - (s["entry_credit"] + s["completion_credit"])
+            )
+            deltas.append((s["completed_at"], fly_margin - entry_margin))
+        elif s.get("closed_at"):
+            deltas.append((s["closed_at"], -entry_margin))
+    running = peak = 0.0
+    for _, delta in sorted(deltas):
+        running += delta
+        peak = max(peak, running)
+    return peak
+
+
 def build_scoreboard(root: Path) -> str:
     """Standing running ledger (SCOREBOARD.md): every session under the live
     rule — hull-only 5m entries 10:00-13:00, flip exits, per-arm daily
@@ -1113,8 +1157,8 @@ def build_scoreboard(root: Path) -> str:
         "",
         "| Date | kal 25-wide | kal early-fly | kal 50-wide "
         "| hull 25-wide | hull +1pt | hull early-fly | hull 50-wide "
-        "| In tent | Run kal 25 | Run kal 50 |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| In tent | HW margin 25 | HW margin 50 | Run kal 25 | Run kal 50 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
     run25 = run50 = 0.0
@@ -1143,10 +1187,13 @@ def build_scoreboard(root: Path) -> str:
         run25 += d25
         run50 += d50
         strat = [s for s in rows if s["variant"] in STRATEGY_FAMS]
+        hw25 = margin_high_water([s for s in rows if s["variant"] == "w25_5m_m0_kal"])
+        hw50 = margin_high_water([s for s in rows if s["variant"] == "w50_5m_m0_kal"])
         body.append(
             f"| {day_dir.name} | {usd(d25)} | {usd(d25ef)} | {usd(d50)} "
             f"| {usd(h25)} | {usd(h25m1)} | {usd(h25ef)} | {usd(h50)} "
-            f"| {tent_cell(strat, day_settle)} | {usd(run25)} | {usd(run50)} |"
+            f"| {tent_cell(strat, day_settle)} | {usd(hw25)} | {usd(hw50)} "
+            f"| {usd(run25)} | {usd(run50)} |"
         )
     footer = [
         "",
@@ -1154,6 +1201,11 @@ def build_scoreboard(root: Path) -> str:
         "",
         "In tent = locked fly whose settlement landed between the wings "
         "(counts by width, primary arms).",
+        "",
+        "HW margin = the day's peak concurrent buying-power reduction for "
+        "the primary kal arm at that width (open verticals hold width − "
+        "credit; completed lossless flies hold $0; early-fly deficits hold "
+        "the bounded deficit until settlement).",
         "",
         "Primary columns are the kalman-tangent arms (velocity sign flips, "
         "q/r 0.025, history restated 2026-08-28); hull columns are the "
@@ -1170,10 +1222,10 @@ def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
     spreads = total_legs // 2  # 2 options per spread order
     itm_legs = sum(itm_legs_at_settlement(s, settle_spot) for s in reconstructed)
     settle_fees = itm_legs * SETTLEMENT_FEE_PER_ITM_LEG
-    per_spread = FILL_COST_PER_SPREAD + FEES_PER_SPREAD
-    realistic = pnl_mid - spreads * per_spread - settle_fees
-    lo = pnl_mid - spreads * (FILL_COST_BOUNDS[1] + FEES_PER_SPREAD) - settle_fees
-    hi = pnl_mid - spreads * (FILL_COST_BOUNDS[0] + FEES_PER_SPREAD) - settle_fees
+    total_friction = friction(reconstructed)
+    realistic = pnl_mid - total_friction - settle_fees
+    lo = pnl_mid - friction(reconstructed, FILL_COST_BOUNDS[1]) - settle_fees
+    hi = pnl_mid - friction(reconstructed, FILL_COST_BOUNDS[0]) - settle_fees
 
     settled = [s for s in reconstructed if s["outcome"] == "settled"]
     closed = [s for s in reconstructed if s["outcome"] == "closed"]
@@ -1197,14 +1249,15 @@ def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
         "| | |",
         "|---|---|",
         f"| **Day P&L at mid fills** | **{fmt_pts(pnl_mid)}** |",
-        f"| **Day P&L all-in** (concession {FILL_COST_PER_SPREAD} + fees "
-        f"{FEES_PER_SPREAD} per spread order + settlement) | "
+        f"| **Day P&L all-in** (slippage {FILL_COST_PER_SPREAD} + real fees "
+        f"{FEES_OPEN_PER_SPREAD} open / {FEES_CLOSE_PER_SPREAD} close per "
+        f"spread order + settlement) | "
         f"**{fmt_pts(realistic)}** (range {fmt_pts(lo)} to {fmt_pts(hi)} at "
-        f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]} concession) |",
+        f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]} slippage) |",
         f"| from closed verticals (realized) | {fmt_pts(realized)} ({len(closed)} trades) |",
         f"| from settled butterflies | {fmt_pts(fly_pnl)} ({len(settled)} flies) |",
-        f"| concession + fees ({spreads} spread orders) | "
-        f"{fmt_pts(-spreads * per_spread)} |",
+        f"| slippage + fees ({spreads} spread orders) | "
+        f"{fmt_pts(-total_friction)} |",
         f"| settlement fees ({itm_legs} ITM legs x $5) | {fmt_pts(-settle_fees)} |",
         f"| whipsaw round trips (<2 min) | {len(whips)}, "
         f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whips))} at mid |",

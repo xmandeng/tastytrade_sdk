@@ -29,8 +29,11 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
   running totals.
 - **Tracked controls:** the hull arms (`w25_5m_m0`, `w25_5m_m1`,
   `w25_5m_m0_ef5`, `w50_5m_m0`) stay in the grid as the lagging control.
-- **Cost model (all-in):** mid fills − 0.075 concession − 0.05 fees per spread
-  order − $5 per ITM leg at settlement.
+- **Cost model (all-in):** mid fills − 0.10 slippage buffer per spread order
+  (user fills 0DTE at ~0.05; 0.10 guarantees the fill) − real fees measured
+  on live 2026-08-26 fills ($3.44 per opening spread, $1.44 per closing
+  spread — commission is charged on opens only; the CBOE index fee is the
+  dominant component) − $5 per ITM leg at settlement.
 - **MACD:** not a control anywhere. Post-hoc report label only
   (agree/converge/diverge at entry).
 
@@ -42,17 +45,33 @@ the yardstick the live forward test is judged against.
 
 | Metric | Value |
 |---|---|
-| Total all-in P&L | $24,833 / 202 cycles |
-| Cycle win rate | 44.1% (89/202) |
-| Day win rate | 62% (31 up / 19 down / 4 flat, 50 traded days) |
-| Avg winner / avg loser | $522 / −$191 (2.73 : 1) |
-| Median winner / loser | $323 / −$170 |
-| Largest win / largest loss | $2,454 / **−$610** |
-| Profit factor | 2.15 (gross $46,415 / −$21,583) |
-| Daily mean / stdev | $460 / $1,056 |
+| Total all-in P&L | $24,773 / 202 cycles |
+| Cycle win rate | 43.1% (87/202) |
+| Day win rate | 62% (31 up / 19 down, 50 traded days) |
+| Avg winner / avg loser | $533 / −$188 (2.83 : 1) |
+| Median winner / loser | $328 / −$165 |
+| Largest win / largest loss | $2,452 / **−$612** |
+| Profit factor | 2.15 (gross $46,370 / −$21,597) |
+| Daily mean / stdev | $459 / $1,055 |
 | Sharpe (annualized, daily) | 6.9 |
-| Sortino (annualized, daily) | 29.2 (downside dev $250/day) |
-| Max drawdown | −$1,449 on $24,833 cumulative |
+| Sortino (annualized, daily) | 29.1 |
+| Max drawdown | −$1,460 on $24,773 cumulative |
+
+**Margin expectations (planning):** the day's peak concurrent buying-power
+reduction, from the same 50 traded days (open verticals hold width − credit;
+completed lossless flies hold $0; early-fly deficits hold the bounded
+deficit to settlement). Now a per-day scoreboard column (HW margin).
+
+| Arm | Median | p90 | Max |
+|---|---|---|---|
+| kal 25-wide | $1,851 | $2,023 | $2,078 |
+| kal 25-wide early-fly | $1,860 | $2,078 | $3,158 |
+| kal 50-wide | $4,174 | $4,502 | $4,538 |
+
+Rule of thumb: a one-lot 25-wide needs ~$2k of buying power ($3.2k worst
+observed when a deficit fly overlapped a fresh vertical); a 50-wide needs
+~$4.5k. Return on peak capital is extreme because the capital is only at
+risk until the fly locks.
 
 **The structural loss cap is the essential feature.** The worst cycle in 54
 sessions lost $610 and the deepest equity drawdown was $1,449 — on a strategy
@@ -91,6 +110,20 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
   and the early-fly conversion *are* the stop.
 
 ## Findings log
+
+### 2026-08-29 — Cost model recalibrated to real fills; margin high-water tracked
+
+Pulled the actual fee breakdown from a live SPXW 2-leg vertical in the
+account (2026-08-26): opening spread $3.44 all-in ($1.00 commission x2 legs
++ $0.10 clearing + $0.02 regulatory + $0.60 CBOE proprietary index fee per
+leg), closing spread $1.44 (no commission on closes). The old model assumed
+$5 flat per spread order. Slippage raised from 0.075 to 0.10 per spread
+(user fills 0DTE at ~0.05; 0.10 is the guarantee-the-fill buffer). Net
+effect ≈ a wash: the extra $2.50 slippage per spread offsets the fee
+overstatement almost exactly (kal early-fly 54-session total moved $24,833
+→ $24,773). All reports and the scoreboard restated; the scoreboard also
+gained per-day HW-margin columns for the primary 25/50-wide arms (see
+Targets & protections for the planning numbers).
 
 ### 2026-08-29 — Execution sensitivity: how much edge survives if ephemeral freebies don't fill
 
