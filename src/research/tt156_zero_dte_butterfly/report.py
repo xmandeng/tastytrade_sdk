@@ -1046,6 +1046,15 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
         lines.append(
             f"- Kalman early-fly arm (tracked): {usd(cell_all_in(kal_ef, settle_spot))}"
         )
+    p2 = [s for s in reconstructed if s["variant"] == "w25_5m_m0_kal_p2"]
+    p4 = [s for s in reconstructed if s["variant"] == "w25_5m_m0_kal_p4"]
+    if p2 or p4:
+        cells = " · ".join(
+            f"{label} {usd(cell_all_in(rows, settle_spot))}"
+            for label, rows in (("30s", p2), ("60s", p4))
+            if rows
+        )
+        lines.append(f"- Fill-persistence overlays (execution bound, tracked): {cells}")
     hull = [s for s in reconstructed if s["variant"] in HULL_FAMS]
     if hull:
         by_fam = {fam: [s for s in hull if s["variant"] == fam] for fam in HULL_FAMS}

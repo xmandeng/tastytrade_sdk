@@ -99,6 +99,13 @@ class VariantConfig:
     # signals by this tag so the arms stay disjoint — except exits on kalman
     # arms, which also honor hull flips (either-exit kill-switch backstop).
     signal_source: str = "hull"
+    # Fill-persistence overlay (execution-sensitivity tracking, 2026-08-29):
+    # the completion threshold must hold for this many consecutive snapshots
+    # before the fly counts as filled. 1 = every mid touch fills (baseline);
+    # the 16/38 single-snapshot freebies are the contested population. Does
+    # not gate early-fly conversions (market-order decisions, not resting
+    # limits).
+    fill_persistence: int = 1
 
     @property
     def signal_symbol(self) -> str:
@@ -167,6 +174,27 @@ def default_variants() -> list[VariantConfig]:
             signal_interval="5m",
             completion_margin=0.0,
             signal_source="kalman",
+        ),
+        # Tracked fill-persistence overlays (user-approved 2026-08-29):
+        # identical trades to the primary, but a completion only fills after
+        # the freebie survives 2 resp. 4 consecutive 15s snapshots. Brackets
+        # the tradable edge until real one-lot fills settle it — the 53-session
+        # resim put the band at $17.1k (30s) / $16.2k (60s) vs $21.3k baseline.
+        VariantConfig(
+            name="w25_5m_m0_kal_p2",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            signal_source="kalman",
+            fill_persistence=2,
+        ),
+        VariantConfig(
+            name="w25_5m_m0_kal_p4",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            signal_source="kalman",
+            fill_persistence=4,
         ),
     ]
 
