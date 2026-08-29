@@ -137,6 +137,18 @@ def atm_strike(spot: float) -> float:
     return round(spot / STRIKE_STEP) * STRIKE_STEP
 
 
+def signal_matches(variant: VariantConfig, signal: TradeSignal) -> bool:
+    """Route a signal to a variant: same symbol AND same signal family.
+
+    Signals without an ``engine`` attribute (replay-rig stubs) belong to the
+    hull family, so every pre-Kalman tool keeps routing exactly as before.
+    """
+    if signal.eventSymbol != variant.signal_symbol:
+        return False
+    from_kalman = getattr(signal, "engine", None) == "kalman"
+    return (variant.signal_source == "kalman") == from_kalman
+
+
 def halfwidth_entry(
     direction: str, spot: float, width: float, quotes: Quotes
 ) -> tuple[float, float, list[LegFill]] | None:
@@ -217,7 +229,7 @@ class ButterflySimulator:
     ) -> None:
         ts_et = ts.astimezone(ET)
         for variant in self.variants:
-            routed = [s for s in signals if s.eventSymbol == variant.signal_symbol]
+            routed = [s for s in signals if signal_matches(variant, s)]
             for signal in routed:
                 if signal.signal_type == "OPEN":
                     self.try_enter(
