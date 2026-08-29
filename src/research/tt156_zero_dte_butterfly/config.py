@@ -61,6 +61,13 @@ HALFWIDTH_MAX_STEPS = 30
 GATE_ETA_IMMINENT = 3.0
 GATE_ETA_NEAR = 10.0
 
+# Kalman tangent arm (user-approved 2026-08-28): constant-velocity Kalman on
+# sealed 5m closes as a faster tangent than the hull. Calibrated on the
+# 53-session resim: a flat ridge of q/r settings 0.015-0.05 beat the hull
+# 2-3x with the hull's own flip set timed better; 0.025 was the best measured
+# point and the consensus of curve fits across arms. Frozen calibration.
+KALMAN_Q_OVER_R = 0.025
+
 # First-entry filter (calibrated 2026-08-27 on 200 5m-family trades): only the
 # first 5m-strategy cluster in any rolling window is "on-strategy"; re-entries
 # within the window lost at every width. Frozen calibration, not a tunable.
@@ -87,6 +94,10 @@ class VariantConfig:
     # the tent. The alternative to a stop that historically added instead of
     # subtracting (+$736/50 sessions vs every stop level losing).
     early_fly_adverse_pts: float | None = None
+    # Which signal family drives this variant: "hull" (sealed-bar hull color
+    # flips) or "kalman" (Kalman velocity sign flips). The simulator routes
+    # signals by this tag so the arms stay disjoint.
+    signal_source: str = "hull"
 
     @property
     def signal_symbol(self) -> str:
@@ -128,6 +139,25 @@ def default_variants() -> list[VariantConfig]:
             signal_interval="5m",
             completion_margin=0.0,
             early_fly_adverse_pts=5.0,
+        ),
+        # Tracked arms (user-approved 2026-08-28): Kalman-velocity tangent at
+        # q/r=KALMAN_Q_OVER_R, plain and with the early-fly overlay. Forward
+        # evidence only — the 53-session resim backs them but history is not
+        # restated; the hull arms stay primary.
+        VariantConfig(
+            name="w25_5m_m0_kal",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            signal_source="kalman",
+        ),
+        VariantConfig(
+            name="w25_5m_m0_kal_ef5",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            early_fly_adverse_pts=5.0,
+            signal_source="kalman",
         ),
     ]
 
