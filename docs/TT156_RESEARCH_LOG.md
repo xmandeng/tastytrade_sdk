@@ -34,6 +34,62 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
 - **MACD:** not a control anywhere. Post-hoc report label only
   (agree/converge/diverge at entry).
 
+## Targets & protections (as of 2026-08-29)
+
+Measured performance profile of the kal early-fly arm (`w25_5m_m0_kal_ef5`,
+the full 54-session restated ledger, canonical all-in cost model). This is
+the yardstick the live forward test is judged against.
+
+| Metric | Value |
+|---|---|
+| Total all-in P&L | $24,833 / 202 cycles |
+| Cycle win rate | 44.1% (89/202) |
+| Day win rate | 62% (31 up / 19 down / 4 flat, 50 traded days) |
+| Avg winner / avg loser | $522 / −$191 (2.73 : 1) |
+| Median winner / loser | $323 / −$170 |
+| Largest win / largest loss | $2,454 / **−$610** |
+| Profit factor | 2.15 (gross $46,415 / −$21,583) |
+| Daily mean / stdev | $460 / $1,056 |
+| Sharpe (annualized, daily) | 6.9 |
+| Sortino (annualized, daily) | 29.2 (downside dev $250/day) |
+| Max drawdown | −$1,449 on $24,833 cumulative |
+
+**The structural loss cap is the essential feature.** The worst cycle in 54
+sessions lost $610 and the deepest equity drawdown was $1,449 — on a strategy
+that made $24.8k — with **no stop-loss anywhere**. The cap is built from
+three layers of the structure itself, not from a risk rule bolted on top:
+
+1. **Defined-risk vertical:** max theoretical loss is width − credit,
+   ~$1,500–1,700 on a 25-wide, before any exit fires.
+2. **Either-flip exit:** the position closes on the first kalman *or* hull
+   flip against it, cutting errant spreads long before max loss — realized
+   losses cluster at $150–250, a fraction of the theoretical cap.
+3. **Early-fly conversion (5 pts adverse):** converts a losing vertical into
+   a bounded-deficit fly, capping the cycle while keeping the tent alive.
+
+This is why Sortino (29) dwarfs Sharpe (6.9): the volatility is almost
+entirely upside. Losses are small, frequent, and bounded; the P&L lives in
+the right tail (in-tent settlements: 42 cycles, +$28.8k; the 160 flip-exited
+cycles net −$4.0k combined — the cost of holding lottery tickets).
+
+**Where the win rate lives:** 44% per cycle is the *expected* shape — the
+strategy scratches often (152 kalman-flip closes net −$6.3k, hull backstop
++$2.4k) and is paid by tents at 2.73:1. Judge the forward test on profit
+factor and the loss cap holding, not on cycle win rate.
+
+**Targets, execution-adjusted:** mid-fill resim overstates fillable edge
+(see 2026-08-29 execution-sensitivity finding). Planning band for the
+25-wide family is the persistence-haircut range, ~76–100% of the numbers
+above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
+
+**Protections that must hold live (violations are red flags, not noise):**
+- No single cycle loses more than ~$700 (worst observed −$610).
+- Drawdown materially past ~$1.5k means the regime, not the luck, changed —
+  stop and re-characterize before continuing.
+- No stop-loss gets added, ever: four independent falsifications (stops,
+  defer-to-fade, bank-on-fade, credit-trailing) all subtract. The flip exit
+  and the early-fly conversion *are* the stop.
+
 ## Findings log
 
 ### 2026-08-29 — Execution sensitivity: how much edge survives if ephemeral freebies don't fill
