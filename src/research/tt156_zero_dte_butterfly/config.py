@@ -96,7 +96,8 @@ class VariantConfig:
     early_fly_adverse_pts: float | None = None
     # Which signal family drives this variant: "hull" (sealed-bar hull color
     # flips) or "kalman" (Kalman velocity sign flips). The simulator routes
-    # signals by this tag so the arms stay disjoint.
+    # signals by this tag so the arms stay disjoint — except exits on kalman
+    # arms, which also honor hull flips (either-exit kill-switch backstop).
     signal_source: str = "hull"
 
     @property
@@ -140,10 +141,11 @@ def default_variants() -> list[VariantConfig]:
             completion_margin=0.0,
             early_fly_adverse_pts=5.0,
         ),
-        # Tracked arms (user-approved 2026-08-28): Kalman-velocity tangent at
-        # q/r=KALMAN_Q_OVER_R, plain and with the early-fly overlay. Forward
-        # evidence only — the 53-session resim backs them but history is not
-        # restated; the hull arms stay primary.
+        # PRIMARY arms (user directive 2026-08-28): Kalman-velocity tangent at
+        # q/r=KALMAN_Q_OVER_R — the hull lags it at every turn (53-session
+        # resim: flat ridge of settings beat the hull 2-3x with the same flip
+        # set timed better). History restated under this rule; the hull arms
+        # above stay in the grid as the lagging control.
         VariantConfig(
             name="w25_5m_m0_kal",
             width=25.0,
@@ -157,6 +159,13 @@ def default_variants() -> list[VariantConfig]:
             signal_interval="5m",
             completion_margin=0.0,
             early_fly_adverse_pts=5.0,
+            signal_source="kalman",
+        ),
+        VariantConfig(
+            name="w50_5m_m0_kal",
+            width=50.0,
+            signal_interval="5m",
+            completion_margin=0.0,
             signal_source="kalman",
         ),
     ]

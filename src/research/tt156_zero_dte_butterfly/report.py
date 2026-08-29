@@ -779,13 +779,13 @@ def flip_eta_gate_block(
     return lines + [""]
 
 
-STRATEGY_FAMS = ("w25_5m_m0", "w50_5m_m0")  # base completion rule only
+# PRIMARY = the Kalman tangent arms (user directive 2026-08-28): shown on
+# charts, drive the strategy table, tent counts, and running totals. The
+# hull arms remain in the grid as the lagging control.
+STRATEGY_FAMS = ("w25_5m_m0_kal", "w50_5m_m0_kal")
 MARGIN_OVERLAY_FAMS = ("w25_5m_m1",)  # tracked +1pt completion-credit arm
-KALMAN_FAMS = ("w25_5m_m0_kal", "w25_5m_m0_kal_ef5")  # tracked Kalman tangent
-# First session the Kalman arms ran live — earlier scoreboard rows show "—"
-# (arm did not exist), not $0 (arm ran and stood aside).
-KALMAN_ARM_START = "2026-08-31"
-WIDTH_LABEL = {"w25_5m_m0": "25-wide", "w50_5m_m0": "50-wide"}
+HULL_FAMS = ("w25_5m_m0", "w50_5m_m0", "w25_5m_m0_ef5")  # lagging control
+WIDTH_LABEL = {"w25_5m_m0_kal": "25-wide", "w50_5m_m0_kal": "50-wide"}
 
 
 def strategy_structures(rows: list[dict]) -> list[dict]:
@@ -915,11 +915,14 @@ def strategy_block(
     settle_spot: float,
     macd_labels: dict[str, str] | None = None,
 ) -> list[str]:
-    """The strategy: hull-only 5m entries, 10:00-13:00, flip exits."""
-    lines = ["## Strategy — hull 5m, 25/50-wide, entries 10:00-13:00", ""]
+    """The strategy: Kalman-tangent 5m entries, 10:00-13:00, flip exits."""
+    lines = [
+        "## Strategy — kalman 5m tangent (q/r 0.025), 25/50-wide, entries 10:00-13:00",
+        "",
+    ]
     rows = strategy_structures(reconstructed)
     if not rows:
-        return lines + ["No hull entries today — stood aside.", ""]
+        return lines + ["No kalman entries today — stood aside.", ""]
     labels = macd_labels if macd_labels is not None else macd_entry_labels(rows)
     lines += [
         "| Entry (ET) | Order | Width | Credit | All-in | Outcome | 5m MACD |",
@@ -1038,17 +1041,24 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
             f"- Completion-margin overlay (+1 pt, tracked): "
             f"{usd(cell_all_in(overlay, settle_spot))}"
         )
-    kal = [s for s in reconstructed if s["variant"] == "w25_5m_m0_kal"]
     kal_ef = [s for s in reconstructed if s["variant"] == "w25_5m_m0_kal_ef5"]
-    if kal:
-        lines.append(
-            f"- Kalman tangent arm (q/r 0.025, tracked): "
-            f"{usd(cell_all_in(kal, settle_spot))}"
-        )
     if kal_ef:
         lines.append(
             f"- Kalman early-fly arm (tracked): {usd(cell_all_in(kal_ef, settle_spot))}"
         )
+    hull = [s for s in reconstructed if s["variant"] in HULL_FAMS]
+    if hull:
+        by_fam = {fam: [s for s in hull if s["variant"] == fam] for fam in HULL_FAMS}
+        cells = " · ".join(
+            f"{label} {usd(cell_all_in(by_fam[fam], settle_spot))}"
+            for fam, label in (
+                ("w25_5m_m0", "25-wide"),
+                ("w50_5m_m0", "50-wide"),
+                ("w25_5m_m0_ef5", "early-fly"),
+            )
+            if by_fam[fam]
+        )
+        lines.append(f"- Hull arms (lagging control, tracked): {cells}")
     if ghw:
         lines.append(f"- Gate-enforced arm: {usd(cell_all_in(ghw, settle_spot))}")
     if len(lines) == 2:  # header + blank only — nothing tracked off-strategy
@@ -1087,13 +1097,15 @@ def build_scoreboard(root: Path) -> str:
     header = [
         "# TT-156 Running Scoreboard",
         "",
-        "All sessions under the live rule (hull-only 5m entries, "
-        "10:00-13:00 ET, flip exits, complete into flies). Daily all-in "
-        "dollars per arm. Rebuilt nightly.",
+        "All sessions under the live rule (kalman-tangent 5m entries, "
+        "q/r 0.025, 10:00-13:00 ET, flip exits, complete into flies). "
+        "Daily all-in dollars per arm; unqualified columns are the primary "
+        "kalman arms, hull columns the lagging control. Rebuilt nightly.",
         "",
-        "| Date | 25-wide | 25-wide +1pt | 25-wide early-fly | 50-wide "
-        "| 25-wide kal | kal early-fly | In tent | Run 25-wide | Run 50-wide |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Date | 25-wide | early-fly | 50-wide "
+        "| hull 25-wide | hull +1pt | hull early-fly | hull 50-wide "
+        "| In tent | Run 25-wide | Run 50-wide |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
     run25 = run50 = 0.0
@@ -1112,21 +1124,19 @@ def build_scoreboard(root: Path) -> str:
         if not by_var:
             quiet += 1
             continue
-        d25 = by_var.get("w25_5m_m0", 0.0)
-        d25m1 = by_var.get("w25_5m_m1", 0.0)
-        d25ef = by_var.get("w25_5m_m0_ef5", 0.0)
-        d50 = by_var.get("w50_5m_m0", 0.0)
+        d25 = by_var.get("w25_5m_m0_kal", 0.0)
+        d25ef = by_var.get("w25_5m_m0_kal_ef5", 0.0)
+        d50 = by_var.get("w50_5m_m0_kal", 0.0)
+        h25 = by_var.get("w25_5m_m0", 0.0)
+        h25m1 = by_var.get("w25_5m_m1", 0.0)
+        h25ef = by_var.get("w25_5m_m0_ef5", 0.0)
+        h50 = by_var.get("w50_5m_m0", 0.0)
         run25 += d25
         run50 += d50
-        if day_dir.name >= KALMAN_ARM_START:
-            dkal = usd(by_var.get("w25_5m_m0_kal", 0.0))
-            dkal_ef = usd(by_var.get("w25_5m_m0_kal_ef5", 0.0))
-        else:
-            dkal = dkal_ef = "—"
         strat = [s for s in rows if s["variant"] in STRATEGY_FAMS]
         body.append(
-            f"| {day_dir.name} | {usd(d25)} | {usd(d25m1)} | {usd(d25ef)} "
-            f"| {usd(d50)} | {dkal} | {dkal_ef} "
+            f"| {day_dir.name} | {usd(d25)} | {usd(d25ef)} | {usd(d50)} "
+            f"| {usd(h25)} | {usd(h25m1)} | {usd(h25ef)} | {usd(h50)} "
             f"| {tent_cell(strat, day_settle)} | {usd(run25)} | {usd(run50)} |"
         )
     footer = [
@@ -1136,9 +1146,9 @@ def build_scoreboard(root: Path) -> str:
         "In tent = locked fly whose settlement landed between the wings "
         "(counts by width, primary arms).",
         "",
-        "kal columns: Kalman tangent tracked arms (velocity sign flips, "
-        f"q/r 0.025), live from {KALMAN_ARM_START}; — before that (arm did "
-        "not exist).",
+        "Primary columns are the kalman-tangent arms (velocity sign flips, "
+        "q/r 0.025, history restated 2026-08-28); hull columns are the "
+        "lagging-control tracked arms.",
         "",
     ]
     return "\n".join(header + body + footer)

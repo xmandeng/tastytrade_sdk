@@ -65,6 +65,14 @@ class FakeKalmanSignal:
     engine = "kalman"
 
 
+class FakeHullClose:
+    eventSymbol = "SPX{=5m}"
+    signal_type = "CLOSE"
+    direction = "BULLISH"
+    trigger = "hull"
+    engine = "hull_only"
+
+
 class RigSig:
     """Replay-rig stub without an engine attribute — hull family."""
 
@@ -159,14 +167,46 @@ class TestRouting:
         )
         hull_sig = cast("TradeSignal", FakeHullSignal())
         kal_sig = cast("TradeSignal", FakeKalmanSignal())
+        hull_close = cast("TradeSignal", FakeHullClose())
         rig_sig = cast("TradeSignal", RigSig())
         assert signal_matches(hull_arm, hull_sig)
         assert not signal_matches(hull_arm, kal_sig)
         assert signal_matches(kal_arm, kal_sig)
+        # entries stay disjoint: a hull OPEN never enters a kalman arm
         assert not signal_matches(kal_arm, hull_sig)
+        # either-exit backstop: a hull CLOSE also reaches kalman arms
+        assert signal_matches(kal_arm, hull_close)
+        assert signal_matches(hull_arm, hull_close)
         # rig stubs without .engine stay hull-family
         assert signal_matches(hull_arm, rig_sig)
         assert not signal_matches(kal_arm, rig_sig)
+
+    def test_hull_flip_closes_kalman_position(self) -> None:
+        kal_arm = VariantConfig(
+            name="w25_5m_m0_kal",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            signal_source="kalman",
+        )
+        sim = ButterflySimulator([kal_arm])
+        sim.on_snapshot(
+            TS,
+            7740.0,
+            quotes_for(7740.0),
+            cast("list[TradeSignal]", [FakeKalmanSignal()]),
+        )
+        opened = [s for s in sim.structures if s.status == "OPEN"]
+        assert opened
+        later = TS + timedelta(minutes=10)
+        sim.on_snapshot(
+            later,
+            7740.0,
+            quotes_for(7740.0),
+            cast("list[TradeSignal]", [FakeHullClose()]),
+        )
+        assert all(s.status == "CLOSED" for s in opened)
+        assert all(s.close_reason == "signal_hull" for s in opened)
 
     def test_simulator_routes_families_to_their_arms(self) -> None:
         sim = ButterflySimulator(default_variants())

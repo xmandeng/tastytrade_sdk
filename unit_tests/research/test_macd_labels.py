@@ -31,7 +31,7 @@ class TestMacdStateLabel:
 class TestStrategyBlockLabels:
     def make_row(self) -> dict:
         return {
-            "variant": "w25_5m_m0",
+            "variant": "w25_5m_m0_kal",
             "direction": "BULLISH",
             "short_strike": 7700.0,
             "width": 25.0,
