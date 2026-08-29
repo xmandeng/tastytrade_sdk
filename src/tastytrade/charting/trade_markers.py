@@ -1,9 +1,10 @@
 """TT-156 paper-trade markers for the chart (pure reader).
 
 Reads the research harness's per-day event log (events.jsonl) and converts
-the strategy trades — 5m confluence, 25/50-wide — into lightweight-charts
-marker dicts. The chart server passes them through in the init payload;
-nothing is computed beyond grouping, and no store is written.
+the primary strategy trades — kalman-tangent 5m, 25/50-wide — into
+lightweight-charts marker dicts. The chart server passes them through in
+the init payload; nothing is computed beyond grouping, and no store is
+written.
 """
 
 import json
@@ -17,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MARKER_SYMBOL = "SPX"
-STRATEGY_VARIANTS = ("w25_5m_m0", "w50_5m_m0")
+STRATEGY_VARIANTS = ("w25_5m_m0_kal", "w50_5m_m0_kal")
 DATA_DIR_ENV = "TT156_DATA_DIR"
 DEFAULT_DATA_DIR = "research_data/TT-156"
 

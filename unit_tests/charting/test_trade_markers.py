@@ -41,13 +41,15 @@ def data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class TestLoadTradeMarkers:
     def test_missing_day_and_foreign_symbol_return_empty(self, data_root: Path) -> None:
         assert load_trade_markers("SPX", DAY) == []
-        write_events(data_root, [entry("w25_5m_m0", 25.0)])
+        write_events(data_root, [entry("w25_5m_m0_kal", 25.0)])
         assert load_trade_markers("NDX", DAY) == []
 
     def test_sibling_widths_collapse_into_one_entry_marker(
         self, data_root: Path
     ) -> None:
-        write_events(data_root, [entry("w25_5m_m0", 25.0), entry("w50_5m_m0", 50.0)])
+        write_events(
+            data_root, [entry("w25_5m_m0_kal", 25.0), entry("w50_5m_m0_kal", 50.0)]
+        )
         markers = load_trade_markers("SPX", DAY)
         assert len(markers) == 1
         m = markers[0]
@@ -66,7 +68,7 @@ class TestLoadTradeMarkers:
         assert load_trade_markers("SPX", DAY) == []
 
     def test_full_lifecycle_markers_sorted(self, data_root: Path) -> None:
-        base = entry("w25_5m_m0", 25.0, direction="BEARISH")
+        base = entry("w25_5m_m0_kal", 25.0, direction="BEARISH")
         write_events(
             data_root,
             [
@@ -95,7 +97,7 @@ class TestLoadTradeMarkers:
     def test_settlement_outside_wings_gets_no_tent_marker(
         self, data_root: Path
     ) -> None:
-        base = entry("w25_5m_m0", 25.0)
+        base = entry("w25_5m_m0_kal", 25.0)
         write_events(
             data_root,
             [
@@ -113,7 +115,7 @@ class TestLoadTradeMarkers:
         assert texts == ["S 7700P 25"]
 
     def test_close_marker_labels_reason(self, data_root: Path) -> None:
-        base = entry("w25_5m_m0", 25.0)
+        base = entry("w25_5m_m0_kal", 25.0)
         write_events(
             data_root,
             [
