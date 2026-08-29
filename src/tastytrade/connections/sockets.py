@@ -212,10 +212,9 @@ class DXLinkManager:
                     event = EventReceivedModel(**json.loads(message))
                     channel = event.channel if event.type == "FEED_DATA" else 0
 
-                    try:
-                        await self.queues[channel].put(event.fields)
-                    except asyncio.QueueFull:
-                        logger.warning("Queue %d is full - dropping message", channel)
+                    # Per-channel queues are unbounded by design (TT-161):
+                    # put() never blocks or raises. See ARCHITECTURE.md §1.
+                    await self.queues[channel].put(event.fields)
 
                 except json.JSONDecodeError as e:
                     logger.error("Failed to parse message: %s\n%s", e, message)
