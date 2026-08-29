@@ -72,10 +72,14 @@ class TradeEvent(BaseEvent, FloatFieldMixin):
 
 
 class QuoteEvent(BaseEvent, FloatFieldMixin):
-    bidPrice: float = Field(description="Best bid price")
-    askPrice: float = Field(description="Best ask price")
-    bidSize: Optional[float] = Field(description="Size available at bid price")
-    askSize: Optional[float] = Field(description="Size available at ask price")
+    bidPrice: Optional[float] = Field(default=None, description="Best bid price")
+    askPrice: Optional[float] = Field(default=None, description="Best ask price")
+    bidSize: Optional[float] = Field(
+        default=None, description="Size available at bid price"
+    )
+    askSize: Optional[float] = Field(
+        default=None, description="Size available at ask price"
+    )
 
     convert_float = FloatFieldMixin.validate_float_fields(
         "bidPrice", "askPrice", "bidSize", "askSize"
