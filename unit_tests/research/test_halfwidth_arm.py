@@ -74,6 +74,8 @@ def test_grid_is_hull_only_forward_test():
         "w25_5m_m0_kal",
         "w25_5m_m0_kal_ef5",
         "w50_5m_m0_kal",
+        "w25_5m_m0_kal_p2",
+        "w25_5m_m0_kal_p4",
     ]
     assert all(v.signal_interval == "5m" for v in variants)
     assert all(v.strike_rule == "atm" for v in variants)
