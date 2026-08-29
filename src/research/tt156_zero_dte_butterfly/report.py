@@ -1098,13 +1098,13 @@ def build_scoreboard(root: Path) -> str:
         "# TT-156 Running Scoreboard",
         "",
         "All sessions under the live rule (kalman-tangent 5m entries, "
-        "q/r 0.025, 10:00-13:00 ET, flip exits, complete into flies). "
-        "Daily all-in dollars per arm; unqualified columns are the primary "
+        "q/r 0.025, 10:00-13:00 ET, either-flip exits, complete into "
+        "flies). Daily all-in dollars per arm; kal columns are the primary "
         "kalman arms, hull columns the lagging control. Rebuilt nightly.",
         "",
-        "| Date | 25-wide | early-fly | 50-wide "
+        "| Date | kal 25-wide | kal early-fly | kal 50-wide "
         "| hull 25-wide | hull +1pt | hull early-fly | hull 50-wide "
-        "| In tent | Run 25-wide | Run 50-wide |",
+        "| In tent | Run kal 25 | Run kal 50 |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     body: list[str] = []
