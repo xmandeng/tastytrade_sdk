@@ -111,6 +111,33 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-08-31 — Feed-lag incident: a lagged candle stream poisons the filter state (not just delays it)
+
+Day one of the kalman-primary forward test hit a DXLink degradation: from
+the open-volume ramp (~09:35 ET) the shared candle stream fell ~55 minutes
+behind wall clock while staying connected — no disconnect, no reconnect,
+events still flowing, every bar late. The collector sealed no 5m bar after
+09:55 and the charts froze.
+
+**The key finding came from comparing the live trace against a clean-history
+replay: the live engine didn't just trade late, it traded the WRONG
+direction.** The corrupted stream (one bar mutating for an hour, then a
+compressed catch-up burst) left the kalman/hull recursions in a state that
+disagreed with the clean-data recursion — live read the 11:40 flip as
+bullish; the truth was bearish. A lagged stream poisons filter state.
+Detection must therefore act on bar-TIME staleness (TT-157's watchdog
+criterion), not event arrival, and recovery must rebuild engine state from
+clean history, never resume a poisoned recursion.
+
+Fixes shipped same day: TT-164 two-tier candle channels (configured fast
+pool — SPX 1m/5m — at 0.1s firehose; every other subscription conflated at
+1.0s, ~10x wire reduction on 24/36 subscriptions). Ledger cleaned by
+replaying the broken window from recorded chains + true candle timing and
+keeping the healthy-feed live trades (12:25 onward) verbatim. Day result:
+chop, six flip-exit scratches, no tents (kal 25-wide -$662 all-in). Note:
+the scoreboard's HW-margin cells for this date are inflated by a 3-minute
+merge-seam overlap ($3,600 vs a real ~$1,800).
+
 ### 2026-08-29 — Cost model recalibrated to real fills; margin high-water tracked
 
 Pulled the actual fee breakdown from a live SPXW 2-leg vertical in the
