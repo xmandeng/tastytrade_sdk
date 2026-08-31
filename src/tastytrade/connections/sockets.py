@@ -23,7 +23,11 @@ class ConnectionState(Enum):
 
 from websockets.asyncio.client import ClientConnection, connect
 
-from tastytrade.config.configurations import CHANNEL_SPECS, DXLinkConfig
+from tastytrade.config.configurations import (
+    CHANNEL_SPECS,
+    ChannelSpecification,
+    DXLinkConfig,
+)
 from tastytrade.config.enumerations import Channels, ReconnectReason
 from tastytrade.connections import Credentials
 from tastytrade.connections.requests import AsyncSessionHandler
@@ -52,6 +56,38 @@ from tastytrade.messaging.models.messages import (
 from tastytrade.utils.helpers import parse_candle_symbol
 
 logger = logging.getLogger(__name__)
+
+
+# Fast candle pool (TT-164): candle subscriptions listed here ride the
+# firehose CandleFast channel; every other candle subscription defaults to
+# the conflated Candle channel. Env override (mirrors RedisConfigManager.get
+# behavior) so the pool can be retuned without code changes; a service
+# bounce re-sends FEED_SETUP and re-routes subscriptions.
+DEFAULT_CANDLE_FAST_POOL = "SPX{=m},SPX{=5m}"
+
+
+def candle_fast_pool() -> set[str]:
+    """The configured set of full-rate candle subscriptions."""
+    raw = os.environ.get("CANDLE_FAST_POOL", DEFAULT_CANDLE_FAST_POOL)
+    return {entry.strip() for entry in raw.split(",") if entry.strip()}
+
+
+def channel_for_candle(event_symbol: str) -> Channels:
+    """Which candle channel a subscription rides. Default: slow (conflated)."""
+    if event_symbol in candle_fast_pool():
+        return Channels.CandleFast
+    return Channels.Candle
+
+
+def aggregation_period_for(spec: ChannelSpecification) -> float:
+    """FEED_SETUP aggregation for a channel, with env override for the
+    candle tiers (CANDLE_FAST_AGGREGATION / CANDLE_SLOW_AGGREGATION)."""
+    env_key = {
+        Channels.CandleFast: "CANDLE_FAST_AGGREGATION",
+        Channels.Candle: "CANDLE_SLOW_AGGREGATION",
+    }.get(spec.channel)
+    override = os.environ.get(env_key) if env_key else None
+    return float(override) if override else spec.aggregation_period
 
 
 @dataclass
@@ -304,6 +340,7 @@ class DXLinkManager:
                 continue
 
             request = FeedSetupModel(
+                acceptAggregationPeriod=aggregation_period_for(specification),
                 acceptEventFields={specification.type: specification.fields},
                 channel=specification.channel.value,
             ).model_dump_json()
@@ -396,7 +433,11 @@ class DXLinkManager:
             await self.track_subscription(symbol)
 
         for specification in CHANNEL_SPECS.values():
-            if specification.channel in [Channels.Control, Channels.Candle]:
+            if specification.channel in [
+                Channels.Control,
+                Channels.Candle,
+                Channels.CandleFast,
+            ]:
                 continue
 
             subscription = SubscriptionRequest(
@@ -431,7 +472,11 @@ class DXLinkManager:
             await self.remove_subscription(symbol)
 
         for specification in CHANNEL_SPECS.values():
-            if specification.channel in [Channels.Control, Channels.Candle]:
+            if specification.channel in [
+                Channels.Control,
+                Channels.Candle,
+                Channels.CandleFast,
+            ]:
                 continue
 
             cancellation = SubscriptionRequest(
@@ -473,8 +518,9 @@ class DXLinkManager:
             to_time=to_time,  # type: ignore[arg-type]
         )
 
+        channel = channel_for_candle(request.formatted)
         subscription = SubscriptionRequest(
-            channel=Channels.Candle.value,
+            channel=channel.value,
             add=[
                 AddCandleItem(
                     type=Channels.Candle.name,
@@ -484,6 +530,9 @@ class DXLinkManager:
                 )
             ],
         ).model_dump_json()
+        logger.info(
+            "Candle subscription %s -> %s channel", request.formatted, channel.name
+        )
 
         tracker = self.candle_snapshot_tracker
         async with self.candle_subscription_semaphore:
@@ -512,7 +561,7 @@ class DXLinkManager:
         )
 
         cancellation = SubscriptionRequest(
-            channel=Channels.Candle.value,
+            channel=channel_for_candle(event_symbol).value,
             remove=[
                 CancelCandleItem(
                     type=Channels.Candle.name,

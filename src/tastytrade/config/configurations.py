@@ -38,6 +38,11 @@ class ChannelSpecification:
     channel: Channels
     event_type: EventTypes
     description: str
+    # FEED_SETUP acceptAggregationPeriod for this channel: the minimum
+    # seconds between updates dxFeed sends per subscription. 0.1 is the
+    # practical firehose; candle channels are tiered (TT-164) because only
+    # the traded intervals need sub-second forming-bar repaints.
+    aggregation_period: float = 0.1
 
     @property
     def fields(self) -> List[str]:
@@ -87,6 +92,17 @@ CHANNEL_SPECS = {
         type=Channels.Candle.name,
         channel=Channels.Candle,
         event_type=EventTypes.Candle,
-        description="Historical and real-time candle data",
+        description="Historical and real-time candle data (conflated tier)",
+        aggregation_period=1.0,
+    ),
+    # Fast candle tier (TT-164): subscriptions in the configured fast pool
+    # (CANDLE_FAST_POOL, default SPX 1m/5m) ride this channel at full rate.
+    # The dxFeed event type is still "Candle" — only the channel differs.
+    Channels.CandleFast: ChannelSpecification(
+        type=Channels.Candle.name,
+        channel=Channels.CandleFast,
+        event_type=EventTypes.Candle,
+        description="Firehose candle data for the configured fast pool",
+        aggregation_period=0.1,
     ),
 }
