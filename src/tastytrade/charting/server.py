@@ -411,59 +411,66 @@ class ChartServer:
         prev_candle_epoch: int = 0
         prev_candle_close: float = 0.0
 
-        async for event_type, event in feed.listen(symbol, candle_symbol):
-            if event_type == "candle":
-                raw_close = event.get("close")
-                t = event.get("time")
-                if raw_close is None or t is None:
-                    continue
-                close = float(raw_close)
-                if close == 0:
-                    continue
+        try:
+            async for event_type, event in feed.listen(symbol, candle_symbol):
+                if event_type == "candle":
+                    raw_close = event.get("close")
+                    t = event.get("time")
+                    if raw_close is None or t is None:
+                        continue
+                    close = float(raw_close)
+                    if close == 0:
+                        continue
 
-                utc_epoch = (
-                    int(t)
-                    if isinstance(t, (int, float))
-                    else int(datetime.fromisoformat(str(t)).timestamp())
-                )
-                et_epoch = utc_epoch_to_et_epoch(utc_epoch)
-
-                candle_msg = {
-                    "time": et_epoch,
-                    "open": round(float(event.get("open") or 0), 4),
-                    "high": round(float(event.get("high") or 0), 4),
-                    "low": round(float(event.get("low") or 0), 4),
-                    "close": round(close, 4),
-                }
-
-                delta: dict[str, Any] = {"type": "update", "candle": candle_msg}
-
-                # Only advance indicators when a new candle period starts.
-                # Use the final close of the *previous* candle for accuracy.
-                if prev_candle_epoch != 0 and et_epoch != prev_candle_epoch:
-                    indicator_point = indicators.update(
-                        prev_candle_close,
-                        prev_candle_epoch,
+                    utc_epoch = (
+                        int(t)
+                        if isinstance(t, (int, float))
+                        else int(datetime.fromisoformat(str(t)).timestamp())
                     )
-                    if indicator_point:
-                        delta["hma"] = indicator_point["hma"]
-                        delta["macd"] = indicator_point["macd"]
+                    et_epoch = utc_epoch_to_et_epoch(utc_epoch)
 
-                prev_candle_epoch = et_epoch
-                prev_candle_close = close
+                    candle_msg = {
+                        "time": et_epoch,
+                        "open": round(float(event.get("open") or 0), 4),
+                        "high": round(float(event.get("high") or 0), 4),
+                        "low": round(float(event.get("low") or 0), 4),
+                        "close": round(close, 4),
+                    }
 
-                await ws.send_text(json.dumps(delta))
+                    delta: dict[str, Any] = {"type": "update", "candle": candle_msg}
 
-            elif event_type == "level":
-                level_msg = {
-                    "type": "level",
-                    "price": float(event.get("price", 0)),
-                    "label": event.get("label", ""),
-                    "color": event.get("color", "#ffffff"),
-                    "lineStyle": event.get("line_dash", "solid"),
-                    "opacity": float(event.get("opacity", 0.7)),
-                }
-                await ws.send_text(json.dumps(level_msg))
+                    # Only advance indicators when a new candle period starts.
+                    # Use the final close of the *previous* candle for accuracy.
+                    if prev_candle_epoch != 0 and et_epoch != prev_candle_epoch:
+                        indicator_point = indicators.update(
+                            prev_candle_close,
+                            prev_candle_epoch,
+                        )
+                        if indicator_point:
+                            delta["hma"] = indicator_point["hma"]
+                            delta["macd"] = indicator_point["macd"]
+
+                    prev_candle_epoch = et_epoch
+                    prev_candle_close = close
+
+                    await ws.send_text(json.dumps(delta))
+
+                elif event_type == "level":
+                    level_msg = {
+                        "type": "level",
+                        "price": float(event.get("price", 0)),
+                        "label": event.get("label", ""),
+                        "color": event.get("color", "#ffffff"),
+                        "lineStyle": event.get("line_dash", "solid"),
+                        "opacity": float(event.get("opacity", 0.7)),
+                    }
+                    await ws.send_text(json.dumps(level_msg))
+        except WebSocketDisconnect:
+            # Abrupt client disconnect (e.g. keepalive ping timeout) surfaces
+            # here on the next send; the endpoint's asyncio.wait never reads
+            # this task's exception, so an unhandled raise would log a noisy
+            # "Task exception was never retrieved" traceback.
+            logger.info("Chart client disconnected during live stream for %s", symbol)
 
     async def start(self, port: int | None = None) -> None:
         """Start the chart server."""
