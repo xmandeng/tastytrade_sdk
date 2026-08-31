@@ -39,6 +39,9 @@ class MessageRouter:
         Channels.Candle: EventHandler(
             Channels.Candle, processor=CandleEventProcessor()
         ),
+        Channels.CandleFast: EventHandler(
+            Channels.CandleFast, processor=CandleEventProcessor()
+        ),
     }
 
     def __new__(cls, *args: object, **kwargs: object) -> "MessageRouter":
@@ -81,6 +84,11 @@ class MessageRouter:
             ),
             Channels.Candle: EventHandler(
                 Channels.Candle,
+                processor=CandleEventProcessor(),
+                subscription_store=subscription_store,
+            ),
+            Channels.CandleFast: EventHandler(
+                Channels.CandleFast,
                 processor=CandleEventProcessor(),
                 subscription_store=subscription_store,
             ),

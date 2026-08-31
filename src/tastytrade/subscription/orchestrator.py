@@ -306,9 +306,12 @@ async def _run_subscription_once(
         total_candle_feeds = len(symbols) * len(intervals)
         start_date_str = start_date.strftime("%Y-%m-%d")
         # Set up snapshot tracker with per-symbol gap-fill via completions queue
-        candle_handler = handlers_dict.get(Channels.Candle)
-        if candle_handler is None:
-            raise RuntimeError("Candle handler not found in router")
+        candle_handlers = [
+            handlers_dict.get(Channels.Candle),
+            handlers_dict.get(Channels.CandleFast),
+        ]
+        if any(h is None for h in candle_handlers):
+            raise RuntimeError("Candle handlers not found in router")
 
         snapshot_tracker = CandleSnapshotTracker()
 
@@ -317,7 +320,9 @@ async def _run_subscription_once(
                 event_symbol = format_candle_symbol(f"{symbol}{{={interval}}}")
                 snapshot_tracker.register_symbol(event_symbol)
 
-        candle_handler.add_processor(snapshot_tracker)
+        for handler in candle_handlers:
+            assert handler is not None
+            handler.add_processor(snapshot_tracker)
         logger.info(
             "Subscribing to %d candle feeds from %s",
             total_candle_feeds,
@@ -405,7 +410,9 @@ async def _run_subscription_once(
         await snapshot_tracker.completions.join()
         consumer_task.cancel()
 
-        candle_handler.remove_processor(snapshot_tracker)
+        for handler in candle_handlers:
+            assert handler is not None
+            handler.remove_processor(snapshot_tracker)
         logger.info(
             "Subscription and back-fill complete for %d/%d subscriptions",
             len(snapshot_tracker.completed_symbols),

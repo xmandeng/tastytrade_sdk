@@ -66,7 +66,7 @@ class EventHandler:
             self.feed_processor.name: self.feed_processor
         }
 
-        if self.channel == Channels.Candle:
+        if self.channel in (Channels.Candle, Channels.CandleFast):
             self.previous_candle: dict[str, CandleEvent] = {}
 
     def add_processor(self, processor: BaseEventProcessor) -> None:
