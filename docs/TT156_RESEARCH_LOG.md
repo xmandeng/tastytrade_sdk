@@ -29,6 +29,14 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
   running totals.
 - **Tracked controls:** the hull arms (`w25_5m_m0`, `w25_5m_m1`,
   `w25_5m_m0_ef5`, `w50_5m_m0`) stay in the grid as the lagging control.
+- **Tracked complement — pin-fly arms (added 2026-08-31):** a defined-debit
+  long ATM 25-wide butterfly bought in the 14:00 ET window, held to
+  settlement — long the afternoon pin, max loss = the debit. Three arms:
+  `pinfly25_all` (every day, control), `pinfly25_notent` (only when no
+  kalman tent exists yet — the cushion mandate), `pinfly25_notent_mid`
+  (no-tent + spot in the middle half of the day's range). Evidence and the
+  falsified short-premium alternatives:
+  [TT156_CONDOR_OVERLAY_STUDY.md](TT156_CONDOR_OVERLAY_STUDY.md).
 - **Cost model (all-in):** mid fills − 0.10 slippage buffer per spread order
   (user fills 0DTE at ~0.05; 0.10 guarantees the fill) − real fees measured
   on live 2026-08-26 fills ($3.44 per opening spread, $1.44 per closing
