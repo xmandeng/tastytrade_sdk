@@ -236,6 +236,14 @@ def reconstruct_structures(
             )
             s["outcome"] = "settled"
         elif s["outcome"] == "open":
+            if s["variant"].startswith("pinfly"):
+                # A pin fly orphaned by a crash settles like any other fly:
+                # payoff at settlement plus the (negative) entry debit.
+                payoff = max(0.0, s["width"] - abs(settle_spot - s["short_strike"]))
+                s["pnl_points"] = payoff + s["entry_credit"]
+                s["outcome"] = "settled"
+                s["orphaned"] = True
+                continue
             # Orphaned by a collector restart. No backdated fills: flips are
             # only detectable at snapshots, which only exist while a collector
             # was alive — so the exit prices at recovery, never inside a gap.
@@ -456,6 +464,21 @@ def time_bucket(opened_at: str) -> int:
     t = datetime.fromisoformat(opened_at)  # collector writes ET-local timestamps
     m = t.hour * 60 + t.minute
     return 0 if m < 11 * 60 + 30 else (1 if m < 13 * 60 + 30 else 2)
+
+
+def pinfly_all_in(rows: list[dict], settle_spot: float) -> float:
+    """All-in P&L (points) for pin-fly rows. Same cost model; the ITM count
+    comes from the fly's own legs (no completion side exists), and the 4-leg
+    opening complex order costs two spread orders of slippage + open fees."""
+    total = 0.0
+    for s in rows:
+        pnl = s["pnl_points"] or 0.0
+        itm = sum(
+            1 for leg in s.get("entry_legs") or [] if settle_spot > leg["occ_strike"]
+        )
+        total += pnl - 2 * (FILL_COST_PER_SPREAD + FEES_OPEN_PER_SPREAD)
+        total -= itm * SETTLEMENT_FEE_PER_ITM_LEG
+    return total
 
 
 def cell_all_in(rows: list[dict], settle_spot: float) -> float:
@@ -1047,7 +1070,9 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
     m_atm = [
         s
         for s in reconstructed
-        if arm_of(s["variant"]) == "atm" and signal_of(s["variant"]) == "1m"
+        if arm_of(s["variant"]) == "atm"
+        and signal_of(s["variant"]) == "1m"
+        and not s["variant"].startswith("pinfly")
     ]
     hw = [s for s in reconstructed if arm_of(s["variant"]) == "hw"]
     ghw = [s for s in reconstructed if arm_of(s["variant"]) == "ghw"]
@@ -1085,6 +1110,24 @@ def off_strategy_lines(reconstructed: list[dict], settle_spot: float) -> list[st
             if rows
         )
         lines.append(f"- Fill-persistence overlays (execution bound, tracked): {cells}")
+    pinfly = [s for s in reconstructed if s["variant"].startswith("pinfly")]
+    if pinfly:
+        by_arm = {
+            label: [s for s in pinfly if s["variant"] == name]
+            for name, label in (
+                ("pinfly25_all", "always"),
+                ("pinfly25_notent", "no-tent"),
+                ("pinfly25_notent_mid", "no-tent+mid"),
+            )
+        }
+        cells = " · ".join(
+            f"{label} {usd(pinfly_all_in(rows, settle_spot))}"
+            for label, rows in by_arm.items()
+            if rows
+        )
+        skipped_arms = [label for label, rows in by_arm.items() if not rows]
+        note = f" (not triggered: {', '.join(skipped_arms)})" if skipped_arms else ""
+        lines.append(f"- Pin-fly arms (14:00 long fly, tracked): {cells}{note}")
     hull = [s for s in reconstructed if s["variant"] in HULL_FAMS]
     if hull:
         by_fam = {fam: [s for s in hull if s["variant"] == fam] for fam in HULL_FAMS}

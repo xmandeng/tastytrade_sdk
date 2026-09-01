@@ -33,6 +33,10 @@ from research.tt156_zero_dte_butterfly.config import (
 )
 from research.tt156_zero_dte_butterfly import regime
 from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
+from research.tt156_zero_dte_butterfly.pinfly import (
+    PinFlySimulator,
+    default_pinfly_arms,
+)
 from research.tt156_zero_dte_butterfly.simulator import (
     ButterflySimulator,
     JsonlEventSink,
@@ -50,9 +54,15 @@ class DayCollector:
             warmup_days=run_config.warmup_days,
             confirm_on_close=run_config.confirm_on_close,
         )
+        event_sink = JsonlEventSink(str(run_config.data_dir / "events.jsonl"))
         self.simulator = ButterflySimulator(
             run_config.variants,
-            event_sink=JsonlEventSink(str(run_config.data_dir / "events.jsonl")),
+            event_sink=event_sink,
+        )
+        self.pinfly = PinFlySimulator(
+            default_pinfly_arms(),
+            tent_exists=self.kal_tent_exists,
+            event_sink=event_sink,
         )
         self.chain_df: pl.DataFrame | None = None
         self.occ_to_meta: dict[str, tuple[float, str]] = {}
@@ -64,6 +74,15 @@ class DayCollector:
         self.last_snapshot_ts: datetime | None = None
         self.day_atr: float | None = None
         self.spot_path: list[tuple[int, float]] = []
+
+    def kal_tent_exists(self) -> bool:
+        """Any kalman-family fly completed so far today (the pin-fly
+        no-tent trigger asks: has the primary already secured its payoff)."""
+        return any(
+            s.variant.endswith(("_kal", "_kal_ef5"))
+            and s.status in ("COMPLETED", "SETTLED")
+            for s in self.simulator.structures
+        )
 
     def now_et(self) -> datetime:
         return datetime.now(tz=ET)
@@ -241,6 +260,7 @@ class DayCollector:
                 self.simulator.on_snapshot(
                     cycle_start, spot, quotes, signals, gate_ctx, regime_state
                 )
+                self.pinfly.on_snapshot(cycle_start, spot, quotes)
                 if cycle_start.time() <= MARKET_CLOSE:
                     self.settlement_spot = spot
                 self.cycles += 1
@@ -253,6 +273,7 @@ class DayCollector:
 
         settle_spot = self.settlement_spot if self.settlement_spot is not None else spot
         self.simulator.settle(self.now_et(), settle_spot)
+        self.pinfly.settle(self.now_et(), settle_spot)
         results = self.simulator.summary()
         results["settlement_spot"] = settle_spot
         results["cycles"] = self.cycles
