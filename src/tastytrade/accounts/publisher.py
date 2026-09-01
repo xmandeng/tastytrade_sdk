@@ -177,11 +177,6 @@ class AccountStreamPublisher:
             status,
         )
 
-    async def remove_entry_credit(self, symbol: str) -> None:
-        """Remove an entry credit record for a closed position."""
-        await self.redis.hdel(self.ENTRY_CREDITS_KEY, symbol)
-        logger.info("Removed entry credit for closed position: %s", symbol)
-
     @staticmethod
     def fill_stream_key(account_number: str, underlying: str) -> str:
         """Build the Redis Stream key for fills by underlying.

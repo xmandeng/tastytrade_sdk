@@ -17,10 +17,6 @@ class Credentials:
     login: Optional[str]
     password: Optional[str]
 
-    @property
-    def as_dict(self) -> dict:
-        return vars(self)
-
     def __init__(self, config: ConfigurationManager, env: str = "Test"):
         """TastyTrade credentials with environment-aware auth field loading.
 
@@ -64,14 +60,3 @@ class Credentials:
             self.oauth_client_id = config.get("TT_OAUTH_CLIENT_ID")
             self.oauth_client_secret = config.get("TT_OAUTH_CLIENT_SECRET")
             self.oauth_refresh_token = config.get("TT_OAUTH_REFRESH_TOKEN")
-
-
-class InfluxCredentials:
-    url: str
-    token: str
-    org: str
-
-    def __init__(self, config: ConfigurationManager):
-        self.url = config.get("INFLUX_DB_URL")
-        self.org = config.get("INFLUX_DB_ORG")
-        self.token = config.get("INFLUX_DB_TOKEN")
