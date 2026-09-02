@@ -138,6 +138,7 @@ class EventHandler:
                         "Unhandled exception in %s listener on channel %s:",
                         self.channel.name,
                         self.channel.value,
+                        exc_info=True,
                     )
                 finally:
                     for _ in replies:
@@ -192,7 +193,11 @@ class EventHandler:
         Supports both sync and async processors — async processors (the
         RedisEventProcessor pipeline) return a coroutine that is awaited.
         """
-        for _, processor in self.processors.items():
+        # Snapshot the processor set: the orchestrator attaches/removes
+        # processors (Influx, Redis, snapshot tracker) while events are
+        # already flowing, and this loop awaits mid-iteration — iterating
+        # the live dict raced those mutations.
+        for processor in list(self.processors.values()):
             result = processor.process_events(events)  # type: ignore[func-returns-value]
             if asyncio.iscoroutine(result):
                 await result  # type: ignore[arg-type]
