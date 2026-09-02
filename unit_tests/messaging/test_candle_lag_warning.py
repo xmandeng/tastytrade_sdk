@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,7 +12,9 @@ from tastytrade.messaging.processors.redis import RedisEventProcessor
 
 def make_processor() -> RedisEventProcessor:
     p = RedisEventProcessor.__new__(RedisEventProcessor)
-    p.redis = AsyncMock()  # type: ignore[assignment]
+    # TT-164 phase 2: commands go through one pipelined round-trip.
+    p.redis = MagicMock()  # type: ignore[assignment]
+    p.redis.pipeline.return_value.execute = AsyncMock(return_value=[])
     p.last_lag_warning = 0.0
     return p
 
@@ -74,7 +76,7 @@ async def test_non_candle_events_ignored(caplog: pytest.LogCaptureFixture) -> No
     with caplog.at_level(logging.WARNING):
         await p.process_event(event)
     assert "Candle publish lag" not in caplog.text
-    p.redis.publish.assert_called_once()  # type: ignore[attr-defined]
+    p.redis.pipeline.return_value.publish.assert_called_once()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -83,5 +85,5 @@ async def test_stale_candle_still_published(caplog: pytest.LogCaptureFixture) ->
     p = make_processor()
     with caplog.at_level(logging.WARNING):
         await p.process_event(candle("SPX{=m}", minutes_old=120))
-    p.redis.publish.assert_called_once()  # type: ignore[attr-defined]
-    p.redis.hset.assert_called_once()  # type: ignore[attr-defined]
+    p.redis.pipeline.return_value.publish.assert_called_once()  # type: ignore[attr-defined]
+    p.redis.pipeline.return_value.hset.assert_called_once()  # type: ignore[attr-defined]

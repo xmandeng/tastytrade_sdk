@@ -120,8 +120,11 @@ async def test_queue_listener_continues_after_validation_error(
 
     # Should have recorded exactly 1 error in metrics
     assert quote_handler.metrics.error_count == 1
-    # Should have processed both messages (2 total)
-    assert quote_handler.metrics.total_messages == 2
+    # TT-164 phase 2: the coalescing drain consumes both queued replies in
+    # ONE listener iteration (one metrics update), skipping the bad reply
+    # and still processing the good one.
+    assert quote_handler.metrics.total_messages == 1
+    assert len(quote_handler.feed_processor.pl) == 1
 
     # The error log should be WARNING, not ERROR
     handler_records = [

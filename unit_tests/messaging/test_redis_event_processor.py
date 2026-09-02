@@ -1,6 +1,6 @@
 """Tests for RedisEventProcessor pub/sub + HSET storage."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -11,7 +11,9 @@ from tastytrade.messaging.processors.redis import RedisEventProcessor
 def make_redis_processor() -> RedisEventProcessor:
     """Create a RedisEventProcessor with a mocked async Redis client."""
     processor = RedisEventProcessor.__new__(RedisEventProcessor)
-    processor.redis = AsyncMock()  # type: ignore[assignment]
+    # TT-164 phase 2: commands go through one pipelined round-trip.
+    processor.redis = MagicMock()  # type: ignore[assignment]
+    processor.redis.pipeline.return_value.execute = AsyncMock(return_value=[])
     processor.pl = __import__("polars").DataFrame()
     processor.frames = {}
     return processor
@@ -24,8 +26,8 @@ async def test_process_event_publishes_to_channel() -> None:
         eventSymbol="SPY", bidPrice=600.0, askPrice=601.0, bidSize=100.0, askSize=200.0
     )
     await processor.process_event(event)
-    processor.redis.publish.assert_called_once()  # type: ignore[attr-defined]
-    channel = processor.redis.publish.call_args[1]["channel"]  # type: ignore[attr-defined]
+    processor.redis.pipeline.return_value.publish.assert_called_once()  # type: ignore[attr-defined]
+    channel = processor.redis.pipeline.return_value.publish.call_args[0][0]  # type: ignore[attr-defined]
     assert channel == "market:QuoteEvent:SPY"
 
 
@@ -36,8 +38,8 @@ async def test_process_event_stores_latest_in_hset() -> None:
         eventSymbol="SPY", bidPrice=600.0, askPrice=601.0, bidSize=100.0, askSize=200.0
     )
     await processor.process_event(event)
-    processor.redis.hset.assert_called_once()  # type: ignore[attr-defined]
-    args = processor.redis.hset.call_args  # type: ignore[attr-defined]
+    processor.redis.pipeline.return_value.hset.assert_called_once()  # type: ignore[attr-defined]
+    args = processor.redis.pipeline.return_value.hset.call_args  # type: ignore[attr-defined]
     assert args[0][0] == "tastytrade:latest:QuoteEvent"
     assert args[0][1] == "SPY"
 
@@ -55,8 +57,8 @@ async def test_process_event_stores_greeks_in_hset() -> None:
         volatility=0.19,
     )
     await processor.process_event(event)
-    processor.redis.hset.assert_called_once()  # type: ignore[attr-defined]
-    args = processor.redis.hset.call_args  # type: ignore[attr-defined]
+    processor.redis.pipeline.return_value.hset.assert_called_once()  # type: ignore[attr-defined]
+    args = processor.redis.pipeline.return_value.hset.call_args  # type: ignore[attr-defined]
     assert args[0][0] == "tastytrade:latest:GreeksEvent"
 
 
@@ -72,6 +74,6 @@ async def test_process_event_latest_overwrites_previous() -> None:
     await processor.process_event(event1)
     await processor.process_event(event2)
     # HSET called twice for same key — last value wins in Redis
-    assert processor.redis.hset.call_count == 2  # type: ignore[attr-defined]
-    last_call = processor.redis.hset.call_args  # type: ignore[attr-defined]
+    assert processor.redis.pipeline.return_value.hset.call_count == 2  # type: ignore[attr-defined]
+    last_call = processor.redis.pipeline.return_value.hset.call_args  # type: ignore[attr-defined]
     assert "605.0" in last_call[0][2] or "605" in last_call[0][2]

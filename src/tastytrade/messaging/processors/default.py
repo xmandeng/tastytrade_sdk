@@ -1,5 +1,6 @@
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Protocol
 
 import pandas as pd
@@ -39,6 +40,16 @@ class BaseEventProcessor:
         if len(self.pl) > 2 * ROW_LIMIT:
             self.pl = self.pl.tail(ROW_LIMIT)
 
+    def process_events(self, events: Sequence[BaseEvent]) -> None:
+        """Batch hook for the coalescing drain (TT-164 phase 2).
+
+        The default preserves per-event semantics exactly; processors with a
+        cheaper whole-batch form (RedisEventProcessor's pipelined publish)
+        override it. Async overrides return a coroutine the dispatcher awaits.
+        """
+        for event in events:
+            self.process_event(event)
+
         # ? Idea: Split into symbol dfs to improve large scale performance
         # self.frames[event.eventSymbol] = self.frames[event.eventSymbol].vstack(
         #     pl.DataFrame([event])
@@ -77,7 +88,7 @@ class CandleEventProcessor(BaseEventProcessor):
     def __init__(self) -> None:
         self.frames: dict[str, pl.DataFrame] = defaultdict(lambda: pl.DataFrame())
 
-    def process_event(self, event: CandleEvent) -> None:
+    def process_event(self, event: CandleEvent) -> None:  # type: ignore[override]
         self.frames[event.eventSymbol] = (
             self.frames[event.eventSymbol]
             .vstack(pl.DataFrame([event]))
