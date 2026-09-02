@@ -119,6 +119,25 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-02 — OR-conditioned early entry falsified; the 10:00 start survives
+
+Tested (user speculation after today's missed morning move): open the
+entry window from 09:35 when a sealed 5m close breaks the opening range
+in the kalman direction — the flip arms, the breakout confirms. 54-session
+replay, primary arms, all-in.
+
+5m-OR confirm: worse everywhere (32 triggers, −$605/−$812/−$1,483 vs
+control). 15m-OR confirm: +$1,484 on the 25-wide in aggregate — but the
+decomposition kills it: 23 trigger days split 6 improved / 17 hurt, the
+entire gain sits in three days, the 50-wide loses $2,787 outright, and the
+early cycles produce losses of −$705 to −$1,210 — through the structural
+cap that the strategy's economics depend on (worst-ever regular cycle:
+−$612). The first 30 minutes is churn even when an OR breakout with
+kalman agreement says otherwise; the rare early monster is a tail masking
+a habitual bleed, the same shape as the defer/bank/trail falsifications.
+The hard 10:00 start stays. Rig: or_entry_sweep (session scratch);
+results JSON archived with the sweep.
+
 ### 2026-08-31 — Feed-lag incident: a lagged candle stream poisons the filter state (not just delays it)
 
 Day one of the kalman-primary forward test hit a DXLink degradation: from
