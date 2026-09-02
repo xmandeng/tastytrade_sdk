@@ -183,6 +183,39 @@ class TestPipelinedRedis:
         assert p.redis.commands[-1] == ("execute",)  # type: ignore[attr-defined]
 
 
+class ProtocolOnlyProcessor:
+    """Implements only the EventProcessor protocol — no BaseEventProcessor,
+    no process_events (the CandleSnapshotTracker shape)."""
+
+    name = "protocol_only"
+
+    def __init__(self) -> None:
+        self.symbols: list[str] = []
+
+    def process_event(self, event) -> None:
+        self.symbols.append(event.eventSymbol)
+
+    def close(self) -> None:
+        pass
+
+
+class TestProtocolOnlyProcessor:
+    @pytest.mark.asyncio
+    async def test_batch_feeds_process_event_per_event(self) -> None:
+        rec = RecordingProcessor()
+        h = handler_with(rec)
+        proto = ProtocolOnlyProcessor()
+        h.add_processor(proto)  # type: ignore[arg-type]
+        events = []
+        for i in range(3):
+            events.extend(h.parse_events(h.make_message(quote_reply(f"S{i}"))))
+
+        await h.dispatch_batch(events)
+
+        assert proto.symbols == ["S0", "S1", "S2"]
+        assert rec.batches == [3]
+
+
 class TestStatusThrottle:
     @pytest.mark.asyncio
     async def test_symbol_stamped_once_per_batch(self) -> None:
