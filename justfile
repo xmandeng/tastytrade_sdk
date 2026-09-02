@@ -26,8 +26,13 @@ status-json:
     uv run tasty-subscription status --json
 
 # Run subscription with defaults (start date = prior workday)
+# POLARS_MAX_THREADS caps the polars worker pool: the service's frame
+# updates are tiny per-batch operations that gain nothing from 8 workers,
+# and the pool's coordination overhead was measured saturating a core at
+# market-hours event rates. Must be set before Python imports polars, so
+# it lives here, not in .env.
 subscribe start_date=prior_workday log_level="INFO":
-    uv run tasty-subscription run \
+    POLARS_MAX_THREADS=2 uv run tasty-subscription run \
         --symbols "{{default_symbols}}" \
         --intervals {{default_intervals}} \
         --start-date {{start_date}} \
