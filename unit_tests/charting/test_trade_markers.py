@@ -138,3 +138,84 @@ class TestLoadTradeMarkers:
         day_dir.mkdir(parents=True)
         (day_dir / "events.jsonl").write_text("{not json\n")
         assert load_trade_markers("SPX", DAY) == []
+
+
+class TestPnlSummary:
+    """Day-P&L card data: per-arm totals via the report's own accounting."""
+
+    def test_missing_day_returns_none(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        assert pnl_summary(DAY) is None
+
+    def test_settled_day_totals_and_tent(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        base = {
+            "direction": "BULLISH",
+            "short_strike": 7700.0,
+            "opened_at": "2026-08-18T15:03:35-04:00",
+            "entry_credit": 12.0,
+            "entry_legs": [{}, {}],
+        }
+        write_events(
+            data_root,
+            [
+                # w25: settled in the tent (completed fly, settle between wings)
+                {
+                    "event": "SETTLEMENT",
+                    "variant": "w25_5m_m0_kal",
+                    "width": 25.0,
+                    "status": "SETTLED",
+                    "completion_credit": 14.0,
+                    "completion_legs": [{}, {}],
+                    "pnl_points": 3.0,
+                    "settlement_spot": 7705.0,
+                    **base,
+                },
+                # w50: flip-exit scratch
+                {
+                    "event": "CLOSE",
+                    "variant": "w50_5m_m0_kal",
+                    "width": 50.0,
+                    "status": "CLOSED",
+                    "closed_at": "2026-08-18T15:33:35-04:00",
+                    "close_reason": "signal_kalman",
+                    "pnl_points": -1.5,
+                    **base,
+                },
+            ],
+        )
+        pnl = pnl_summary(DAY)
+        assert pnl is not None and pnl["settled"] is True
+        w25, w50 = pnl["arms"]
+        assert (w25["label"], w25["cycles"], w25["tents"]) == ("25-wide", 1, 1)
+        assert w25["total"] > 0 and w25["open"] is False
+        assert (w50["label"], w50["cycles"], w50["tents"]) == ("50-wide", 1, 0)
+        assert w50["total"] < 0
+
+    def test_open_vertical_flagged_midsession(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        write_events(
+            data_root,
+            [
+                {
+                    "event": "ENTRY",
+                    "variant": "w25_5m_m0_kal",
+                    "direction": "BULLISH",
+                    "short_strike": 7700.0,
+                    "width": 25.0,
+                    "opened_at": "2026-08-18T15:03:35-04:00",
+                    "entry_credit": 12.0,
+                    "entry_legs": [{}, {}],
+                    "status": "OPEN",
+                    "pnl_points": None,
+                }
+            ],
+        )
+        pnl = pnl_summary(DAY)
+        assert pnl is not None and pnl["settled"] is False
+        w25 = pnl["arms"][0]
+        assert w25["open"] is True
+        assert w25["total"] is None and w25["cycles"] == 0
