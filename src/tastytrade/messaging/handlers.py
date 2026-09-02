@@ -18,6 +18,16 @@ from tastytrade.messaging.processors.default import BaseEventProcessor
 
 logger = logging.getLogger(__name__)
 
+# Coalescing drain (TT-164 phase 2): a listener iteration consumes at most
+# this many queued replies. Bounds the work between task_done batches so a
+# deep backlog is worked in slices, without ever delaying a current channel
+# (an empty queue simply yields a batch of one).
+DRAIN_SLICE = 500
+
+# last_update stamping is throttled to once per symbol per second — its
+# readers (reconnect start-date, health display) are second-granularity.
+STATUS_STAMP_SECONDS = 1.0
+
 ROW_LIMIT = 100_000
 
 
@@ -69,6 +79,10 @@ class EventHandler:
         if self.channel in (Channels.Candle, Channels.CandleFast):
             self.previous_candle: dict[str, CandleEvent] = {}
 
+        # Throttled last_update stamping (TT-164 phase 2): monotonic time of
+        # the most recent stamp per symbol.
+        self.last_status_stamp: dict[str, float] = {}
+
     def add_processor(self, processor: BaseEventProcessor) -> None:
         """Add new event processor"""
         self.processors.update({processor.name: processor})
@@ -93,22 +107,20 @@ class EventHandler:
 
         try:
             while not self.stop_listener.is_set():
-                try:
-                    reply = await queue.get()
-                    self.metrics.update(queue.qsize())
-
-                    message = Message(
-                        type=reply.get("type", "UNKNOWN"),
-                        channel=reply.get("channel", 0),
-                        headers=reply,
-                        data=reply.get("data", {}),
-                    )
-
+                # Coalescing drain (TT-164 phase 2): take everything already
+                # queued, bounded by DRAIN_SLICE, and process it as one batch.
+                # An empty queue yields a batch of one — per-event latency is
+                # unchanged on a current channel; only a backlog batches.
+                replies = [await queue.get()]
+                while len(replies) < DRAIN_SLICE:
                     try:
-                        await self.handle_message(message)
-                    finally:
-                        queue.task_done()
+                        replies.append(queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+                self.metrics.update(queue.qsize())
 
+                try:
+                    await self.handle_batch(replies)
                 except MessageProcessingError as e:
                     self.metrics.record_error()
                     logger.warning(
@@ -120,8 +132,6 @@ class EventHandler:
                         logger.debug(
                             "Original exception:", exc_info=e.original_exception
                         )
-                    continue
-
                 except Exception:
                     self.metrics.record_error()
                     logger.error(
@@ -129,7 +139,9 @@ class EventHandler:
                         self.channel.name,
                         self.channel.value,
                     )
-                    continue
+                finally:
+                    for _ in replies:
+                        queue.task_done()
 
         except asyncio.CancelledError:
             logger.info(
@@ -147,9 +159,85 @@ class EventHandler:
                 self.metrics.max_queue_size,
             )
 
+    @staticmethod
+    def make_message(reply: dict) -> Message:
+        return Message(
+            type=reply.get("type", "UNKNOWN"),
+            channel=reply.get("channel", 0),
+            headers=reply,
+            data=reply.get("data", {}),
+        )
+
+    async def handle_batch(self, replies: List[dict]) -> None:
+        """Parse a slice of raw replies, then dispatch all events at once.
+
+        Parse failures skip that reply (recorded, logged) without dropping
+        the rest of the slice — the same per-message skip semantics the
+        serial loop had. ControlHandler overrides this with per-message
+        handling; control messages are commands, not data events.
+        """
+        events: List[BaseEvent] = []
+        for reply in replies:
+            try:
+                events.extend(self.parse_events(self.make_message(reply)))
+            except MessageProcessingError as e:
+                self.metrics.record_error()
+                logger.warning("Event skipped in %s listener: %s", self.channel.name, e)
+        if events:
+            await self.dispatch_batch(events)
+
+    async def dispatch_batch(self, events: List[BaseEvent]) -> None:
+        """One processor call for the whole batch, then throttled stamps.
+
+        Supports both sync and async processors — async processors (the
+        RedisEventProcessor pipeline) return a coroutine that is awaited.
+        """
+        for _, processor in self.processors.items():
+            result = processor.process_events(events)  # type: ignore[func-returns-value]
+            if asyncio.iscoroutine(result):
+                await result  # type: ignore[arg-type]
+        await self.touch_subscriptions(events)
+
+    async def touch_subscriptions(self, events: List[BaseEvent]) -> None:
+        """Stamp last_update at most once per symbol per second.
+
+        The stamp's readers (reconnect start-date derivation, health display)
+        work at second granularity or coarser; per-event stamping cost two
+        Redis round-trips per event for no added information.
+        """
+        if not self.subscription_store:
+            return
+        now = time.monotonic()
+        for symbol in {e.eventSymbol for e in events if hasattr(e, "eventSymbol")}:
+            if now - self.last_status_stamp.get(symbol, 0.0) >= STATUS_STAMP_SECONDS:
+                self.last_status_stamp[symbol] = now
+                await self.subscription_store.update_subscription_status(symbol, {})
+
     async def handle_message(
         self, message: Message
     ) -> Optional[Union[BaseEvent, List[BaseEvent]]]:
+        """Parse one message and dispatch its events (compatibility path)."""
+        events = self.parse_events(message)
+        if events:
+            try:
+                await self.dispatch_batch(events)
+            except Exception as e:
+                logger.warning(
+                    "Skipped invalid event on %s channel: %s",
+                    Channels(message.channel).name,
+                    e,
+                )
+                raise MessageProcessingError("Skipped invalid event", e) from e
+        if self.diagnostic:
+            logger.debug(
+                "%s handler for channel %s processed %d events",
+                self.channel.name,
+                message.channel,
+                len(events),
+            )
+        return events if events else None
+
+    def parse_events(self, message: Message) -> List[BaseEvent]:
         events: List[BaseEvent] = []
         channel_name = Channels(message.channel).name
 
@@ -202,30 +290,7 @@ class EventHandler:
                     ", ".join(map(str, remaining)),
                 )
 
-            # Process events through registered processors.
-            # Supports both sync and async processors — async processors
-            # (e.g. RedisEventProcessor) return a coroutine that must be awaited.
-            for event in events:
-                for _, processor in self.processors.items():
-                    result = processor.process_event(event)  # type: ignore[func-returns-value]
-                    if asyncio.iscoroutine(result):
-                        await result  # type: ignore[arg-type]
-
-                # Update subscription status with last_update timestamp
-                if self.subscription_store and hasattr(event, "eventSymbol"):
-                    await self.subscription_store.update_subscription_status(
-                        event.eventSymbol, {}
-                    )
-
-            if self.diagnostic:
-                logger.debug(
-                    "%s handler for channel %s processed %d events",
-                    self.channel.name,
-                    message.channel,
-                    len(events),
-                )
-
-            return events if events else None
+            return events
 
         except Exception as e:
             logger.warning("Skipped invalid event on %s channel: %s", channel_name, e)
@@ -255,6 +320,12 @@ class ControlHandler(EventHandler):
             "ERROR": self.handle_error,
             "CONNECTION_DROPPED": self.handle_connection_dropped,
         }
+
+    async def handle_batch(self, replies: List[dict]) -> None:
+        """Control messages are commands, not data events — handle each in
+        order, per message, exactly as the serial loop did."""
+        for reply in replies:
+            await self.handle_message(self.make_message(reply))
 
     async def handle_message(self, message: Message) -> None:
         if self.control_handlers.get(message.type):

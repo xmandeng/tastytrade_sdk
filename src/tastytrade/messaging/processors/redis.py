@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
+from collections.abc import Sequence
+
 from tastytrade.messaging.models.events import BaseEvent
 from tastytrade.messaging.processors.default import BaseEventProcessor
 
@@ -47,21 +49,34 @@ class RedisEventProcessor(BaseEventProcessor):
         self.last_lag_warning = 0.0
 
     async def process_event(self, event: BaseEvent) -> None:  # type: ignore[override]
-        """Process an event: publish to pub/sub AND store latest in HSET."""
-        event_json = event.model_dump_json()
-        event_type = event.__class__.__name__
-        symbol = event.eventSymbol
+        """Process one event: publish to pub/sub AND store latest in HSET."""
+        await self.process_events([event])
 
-        if event_type == "CandleEvent":
-            self.warn_if_stale(event)
+    async def process_events(self, events: Sequence[BaseEvent]) -> None:  # type: ignore[override]
+        """Publish a batch in one pipelined round-trip (TT-164 phase 2).
 
-        # Pub/sub for real-time streaming
-        channel = f"market:{event_type}:{symbol}"
-        await self.redis.publish(channel=channel, message=event_json)
+        A batch of one — the empty-queue case, i.e. every event on a current
+        channel — is sent immediately, so per-event delivery latency is
+        unchanged. Larger batches only occur when a backlog already exists,
+        exactly when condensing round-trips is wanted. The non-transactional
+        pipeline preserves command order on the one connection: subscribers
+        see events in arrival order and each latest-value HSET lands after
+        its event's publish, as before.
+        """
+        pipe = self.redis.pipeline(transaction=False)
+        for event in events:
+            event_json = event.model_dump_json()
+            event_type = event.__class__.__name__
+            symbol = event.eventSymbol
 
-        # HSET for latest-value reads
-        hset_key = f"tastytrade:latest:{event_type}"
-        await self.redis.hset(hset_key, symbol, event_json)
+            if event_type == "CandleEvent":
+                self.warn_if_stale(event)
+
+            # Pub/sub for real-time streaming
+            pipe.publish(f"market:{event_type}:{symbol}", event_json)
+            # HSET for latest-value reads
+            pipe.hset(f"tastytrade:latest:{event_type}", symbol, event_json)
+        await pipe.execute()
 
     def warn_if_stale(self, event: BaseEvent) -> None:
         """Log (rate-limited) when a candle publishes far behind wall clock.
