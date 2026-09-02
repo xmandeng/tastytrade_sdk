@@ -216,6 +216,52 @@ class TestProtocolOnlyProcessor:
         assert rec.batches == [3]
 
 
+class TestBatchedFrameCaches:
+    def test_base_cache_one_vstack_per_batch(self) -> None:
+        from tastytrade.messaging.processors.default import BaseEventProcessor as B
+
+        h = handler_with(B())
+        events = []
+        for i in range(4):
+            events.extend(h.parse_events(h.make_message(quote_reply(f"S{i}"))))
+        proc = B()
+        proc.process_events(events)
+        assert len(proc.pl) == 4
+
+    def test_latest_cache_keeps_last_per_symbol(self) -> None:
+        from tastytrade.messaging.processors.default import LatestEventProcessor
+
+        h = handler_with(BaseEventProcessor())
+        events = []
+        for ask in (2.0, 3.0, 4.0):
+            events.extend(h.parse_events(h.make_message(quote_reply("SPY", ask=ask))))
+        proc = LatestEventProcessor()
+        proc.process_events(events)
+        assert len(proc.pl) == 1
+        assert proc.pl["askPrice"][0] == 4.0
+
+    def test_candle_cache_dedups_by_time_per_symbol(self) -> None:
+        from datetime import datetime, timezone
+
+        from tastytrade.messaging.models.events import CandleEvent
+        from tastytrade.messaging.processors.default import CandleEventProcessor
+
+        t0 = datetime(2026, 9, 2, 14, 30, tzinfo=timezone.utc)
+
+        def bar(sym: str, t, close: float) -> CandleEvent:
+            return CandleEvent(
+                eventSymbol=sym, time=t, open=1.0, high=1.0, low=1.0, close=close
+            )
+
+        proc = CandleEventProcessor()
+        proc.process_events(
+            [bar("A{=m}", t0, 1.0), bar("A{=m}", t0, 2.0), bar("B{=m}", t0, 9.0)]
+        )
+        assert len(proc.frames["A{=m}"]) == 1
+        assert proc.frames["A{=m}"]["close"][0] == 2.0  # last update wins
+        assert len(proc.frames["B{=m}"]) == 1
+
+
 class TestStatusThrottle:
     @pytest.mark.asyncio
     async def test_symbol_stamped_once_per_batch(self) -> None:
