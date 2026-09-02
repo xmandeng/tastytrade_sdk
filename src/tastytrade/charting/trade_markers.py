@@ -80,10 +80,9 @@ def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
         group.sort(key=lambda r: r["width"])
 
     def all_in(r: dict) -> str:
-        if settle is None:
-            d = (r.get("pnl_points") or 0.0) * 100
-            return f"-${abs(d):,.0f}" if d < 0 else f"${d:,.0f}"
-        return usd(cell_all_in([r], settle))
+        # Mid-session (settle unknown) still applies the cost model — the
+        # chip nets, the P&L card, and REPORT.md must never disagree.
+        return usd(cell_all_in([r], settle or 0.0))
 
     return by_open, first, settle, all_in, order_outcome
 
