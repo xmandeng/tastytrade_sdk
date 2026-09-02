@@ -53,7 +53,7 @@ class RedisEventProcessor(BaseEventProcessor):
         await self.process_events([event])
 
     async def process_events(self, events: Sequence[BaseEvent]) -> None:  # type: ignore[override]
-        """Publish a batch in one pipelined round-trip (TT-164 phase 2).
+        """Publish a batch in one pipelined round-trip.
 
         A batch of one — the empty-queue case, i.e. every event on a current
         channel — is sent immediately, so per-event delivery latency is

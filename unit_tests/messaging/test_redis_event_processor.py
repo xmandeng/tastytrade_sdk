@@ -11,7 +11,7 @@ from tastytrade.messaging.processors.redis import RedisEventProcessor
 def make_redis_processor() -> RedisEventProcessor:
     """Create a RedisEventProcessor with a mocked async Redis client."""
     processor = RedisEventProcessor.__new__(RedisEventProcessor)
-    # TT-164 phase 2: commands go through one pipelined round-trip.
+    # Redis commands go through one pipelined round-trip.
     processor.redis = MagicMock()  # type: ignore[assignment]
     processor.redis.pipeline.return_value.execute = AsyncMock(return_value=[])
     processor.pl = __import__("polars").DataFrame()

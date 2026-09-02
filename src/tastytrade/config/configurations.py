@@ -40,7 +40,7 @@ class ChannelSpecification:
     description: str
     # FEED_SETUP acceptAggregationPeriod for this channel: the minimum
     # seconds between updates dxFeed sends per subscription. 0.1 is the
-    # practical firehose; candle channels are tiered (TT-164) because only
+    # practical firehose; candle channels are tiered because only
     # the traded intervals need sub-second forming-bar repaints.
     aggregation_period: float = 0.1
 
@@ -95,7 +95,7 @@ CHANNEL_SPECS = {
         description="Historical and real-time candle data (conflated tier)",
         aggregation_period=1.0,
     ),
-    # Fast candle tier (TT-164): subscriptions in the configured fast pool
+    # Fast candle tier: subscriptions in the configured fast pool
     # (CANDLE_FAST_POOL, default SPX 1m/5m) ride this channel at full rate.
     # The dxFeed event type is still "Candle" — only the channel differs.
     Channels.CandleFast: ChannelSpecification(

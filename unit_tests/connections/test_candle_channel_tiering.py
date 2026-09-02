@@ -1,4 +1,4 @@
-"""TT-164 two-tier candle channels: the configured fast pool rides the
+"""Two-tier candle channels: the configured fast pool rides the
 firehose CandleFast channel; every other candle subscription defaults to
 the conflated Candle channel."""
 

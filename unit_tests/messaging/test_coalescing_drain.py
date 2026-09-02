@@ -1,4 +1,4 @@
-"""TT-164 phase 2: coalescing + pipelined drain.
+"""Coalescing + pipelined intake drain.
 
 The listener empties whatever is already queued (bounded by DRAIN_SLICE),
 dispatches the batch once, and the Redis processor sends the batch's
