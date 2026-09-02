@@ -198,9 +198,19 @@ class EventHandler:
         # already flowing, and this loop awaits mid-iteration — iterating
         # the live dict raced those mutations.
         for processor in list(self.processors.values()):
-            result = processor.process_events(events)  # type: ignore[func-returns-value]
+            # Protocol-only processors (CandleSnapshotTracker) implement just
+            # process_event; feed them per event rather than requiring the
+            # batch method.
+            batch_method = getattr(processor, "process_events", None)
+            if batch_method is None:
+                for event in events:
+                    result = processor.process_event(event)  # type: ignore[func-returns-value]
+                    if asyncio.iscoroutine(result):
+                        await result  # type: ignore[arg-type]
+                continue
+            result = batch_method(events)
             if asyncio.iscoroutine(result):
-                await result  # type: ignore[arg-type]
+                await result
         await self.touch_subscriptions(events)
 
     async def touch_subscriptions(self, events: List[BaseEvent]) -> None:
