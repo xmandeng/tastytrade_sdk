@@ -24,7 +24,7 @@ from influxdb_client import InfluxDBClient
 
 from tastytrade.charting.feed import ChartFeed
 from tastytrade.charting.indicators import StreamingIndicators
-from tastytrade.charting.trade_markers import load_trade_markers
+from tastytrade.charting.trade_markers import load_trade_markers, pnl_summary
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
@@ -362,6 +362,7 @@ class ChartServer:
             "kalman": indicator_data["kalman"],
             "dailyCandle": daily_candle,
             "trades": trades,
+            "pnl": pnl_summary(target_date) if symbol == "SPX" else None,
         }
 
         await ws.send_text(json.dumps(initial_payload))
@@ -377,7 +378,9 @@ class ChartServer:
         # --- Phase 2: Live updates from Redis ---
         feed = ChartFeed(config)
         live_task = asyncio.create_task(
-            self.stream_live_updates(ws, feed, indicators, symbol, interval)
+            self.stream_live_updates(
+                ws, feed, indicators, symbol, interval, target_date
+            )
         )
 
         # Monitor WebSocket for client disconnect so the feed task is cancelled
@@ -410,6 +413,7 @@ class ChartServer:
         indicators: StreamingIndicators,
         symbol: str,
         interval: str,
+        target_date: date_type,
     ) -> None:
         """Subscribe to Redis and stream deltas to the WebSocket client.
 
@@ -463,6 +467,13 @@ class ChartServer:
                             delta["macd"] = indicator_point["macd"]
                             if indicator_point.get("kalman"):
                                 delta["kalman"] = indicator_point["kalman"]
+                        # Refresh the P&L tracker once per candle period — the
+                        # event log is small and this keeps the card in step
+                        # with the ledger without a second data path.
+                        if symbol == "SPX":
+                            pnl = pnl_summary(target_date)
+                            if pnl is not None:
+                                delta["pnl"] = pnl
 
                     prev_candle_epoch = et_epoch
                     prev_candle_close = close

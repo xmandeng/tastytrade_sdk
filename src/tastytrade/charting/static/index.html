@@ -139,6 +139,38 @@
     }
     .tt-time { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
     .tt-line { color: var(--text); margin-top: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* TT-156 day-P&L tracker: draggable floating card, position persists. */
+    #pnlCard {
+      position: absolute; top: 12px; right: 74px; width: 252px; z-index: 20;
+      display: none; flex-direction: column; gap: 7px;
+      background: rgba(19,19,19,0.94); border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 12px 9px;
+      font-family: monospace; box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+      user-select: none;
+    }
+    #pnlCard.on { display: flex; }
+    .pnl-head { display: flex; justify-content: space-between; align-items: center; cursor: grab; }
+    .pnl-head:active { cursor: grabbing; }
+    .pnl-head-l { display: flex; align-items: center; gap: 7px; }
+    .pnl-cap { font-size: 10px; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+    .pnl-sub { font-size: 9px; color: var(--text-dim); }
+    .pnl-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .pnl-arm { font-size: 12px; color: var(--text); }
+    .pnl-r { display: flex; align-items: center; gap: 8px; }
+    .pnl-cyc { font-size: 10px; color: var(--text-muted); }
+    .pnl-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .pnl-val.pos { color: #3fb950; } .pnl-val.neg { color: #ef5350; } .pnl-val.flat { color: var(--text-dim); }
+    .pnl-open {
+      font-size: 9px; color: #131313; background: #d29922;
+      border-radius: 3px; padding: 1px 5px; font-weight: 700;
+    }
+    .pnl-foot {
+      border-top: 1px solid var(--border); padding-top: 6px;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 10px;
+    }
+    .pnl-foot .k { color: var(--text-muted); } .pnl-foot .v { color: var(--text); }
   </style>
 </head>
 <body>
@@ -172,7 +204,17 @@
   </div>
 </div>
 
-<div id="chart"><div id="tradeTip"></div></div>
+<div id="chart"><div id="tradeTip"></div><div id="pnlCard">
+  <div class="pnl-head" id="pnlHead">
+    <div class="pnl-head-l">
+      <svg width="10" height="14" viewBox="0 0 10 14"><g fill="#4a4a5a"><circle cx="2.5" cy="2.5" r="1.3"/><circle cx="7.5" cy="2.5" r="1.3"/><circle cx="2.5" cy="7" r="1.3"/><circle cx="7.5" cy="7" r="1.3"/><circle cx="2.5" cy="11.5" r="1.3"/><circle cx="7.5" cy="11.5" r="1.3"/></g></svg>
+      <span class="pnl-cap">DAY P&amp;L &middot; ALL-IN</span>
+    </div>
+    <span class="pnl-sub">kal arms</span>
+  </div>
+  <div id="pnlRows" style="display: flex; flex-direction: column; gap: 7px;"></div>
+  <div class="pnl-foot" id="pnlFoot" style="display:none"><span class="k" id="pnlFootK">In tent</span><span class="v" id="pnlFootV"></span></div>
+</div></div>
 
 <script>
 // --- Colors (plots.py) ---
@@ -1227,6 +1269,76 @@ initDropdown('intervalBtn', 'intervalList', (intv) => {
 })();
 
 let connectTimer = null;
+// ---- TT-156 day-P&L tracker: floating card, dragged by its grip; the
+// parked position persists per browser. Data arrives in init and once per
+// candle period thereafter, computed with the report's own accounting.
+const pnlCard = document.getElementById('pnlCard');
+const pnlRows = document.getElementById('pnlRows');
+const pnlFoot = document.getElementById('pnlFoot');
+const pnlFootK = document.getElementById('pnlFootK');
+const pnlFootV = document.getElementById('pnlFootV');
+
+function pnlUsd(v) { return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(); }
+
+function renderPnl(pnl) {
+  if (!pnl || !pnl.arms || !pnl.arms.length) { pnlCard.classList.remove('on'); return; }
+  pnlRows.innerHTML = pnl.arms.map(a => {
+    const cls = a.total == null ? 'flat' : (a.total > 0 ? 'pos' : (a.total < 0 ? 'neg' : 'flat'));
+    const val = a.total == null ? '&mdash;' : pnlUsd(a.total);
+    const cyc = a.cycles ? `<span class="pnl-cyc">${a.cycles} cyc</span>` : '';
+    const open = a.open ? '<span class="pnl-open">OPEN</span>' : '';
+    return `<div class="pnl-row"><span class="pnl-arm">${a.label}</span>` +
+           `<div class="pnl-r">${open}${cyc}<span class="pnl-val ${cls}">${val}</span></div></div>`;
+  }).join('');
+  const tents = pnl.arms
+    .map(a => a.tents ? `${a.tents}×${a.label.replace('-wide', 'w')}` : '')
+    .filter(Boolean).join(' ');
+  if (tents) {
+    pnlFootK.textContent = pnl.settled ? 'In tent' : 'Locked';
+    pnlFootV.textContent = tents;
+    pnlFoot.style.display = 'flex';
+  } else {
+    pnlFoot.style.display = 'none';
+  }
+  pnlCard.classList.add('on');
+}
+
+(() => {
+  const head = document.getElementById('pnlHead');
+  try {
+    const saved = JSON.parse(localStorage.getItem('pnlCardPos') || 'null');
+    if (saved && saved.left != null) {
+      pnlCard.style.left = saved.left + 'px';
+      pnlCard.style.top = saved.top + 'px';
+      pnlCard.style.right = 'auto';
+    }
+  } catch (e) { /* storage unavailable — default position */ }
+  let drag = null;
+  head.addEventListener('pointerdown', (ev) => {
+    const r = pnlCard.getBoundingClientRect();
+    drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top, host: chartEl.getBoundingClientRect() };
+    head.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+  head.addEventListener('pointermove', (ev) => {
+    if (!drag) return;
+    const left = Math.min(Math.max(ev.clientX - drag.dx - drag.host.left, 0), drag.host.width - pnlCard.offsetWidth);
+    const top = Math.min(Math.max(ev.clientY - drag.dy - drag.host.top, 0), drag.host.height - pnlCard.offsetHeight);
+    pnlCard.style.left = left + 'px';
+    pnlCard.style.top = top + 'px';
+    pnlCard.style.right = 'auto';
+  });
+  head.addEventListener('pointerup', () => {
+    if (!drag) return;
+    drag = null;
+    try {
+      localStorage.setItem('pnlCardPos', JSON.stringify({
+        left: parseFloat(pnlCard.style.left), top: parseFloat(pnlCard.style.top),
+      }));
+    } catch (e) { /* storage unavailable — position not remembered */ }
+  });
+})();
+
 function connect(dateOverride) {
   if (connectTimer) clearTimeout(connectTimer);
   connectTimer = setTimeout(() => doConnect(dateOverride), 100);
@@ -1282,6 +1394,7 @@ function doConnect(dateOverride) {
       }
       candleSeries.setData(msg.candles);
       tradeMarkers.setData(snapMarkersToCandles(msg.trades, msg.candles));
+      renderPnl(msg.pnl);
       hideTradeTip();
       computeBounds(msg.candles);
       if (hasMarketHours) msg.candles.forEach(c => processCandleOR(c));
@@ -1358,6 +1471,7 @@ function doConnect(dateOverride) {
 
     if (msg.type === 'update') {
       candleSeries.update(msg.candle);
+      if (msg.pnl) renderPnl(msg.pnl);
       // Keep lastCandles in sync (used by computeBounds and OR processor).
       if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {
         lastCandles[lastCandles.length - 1] = msg.candle;

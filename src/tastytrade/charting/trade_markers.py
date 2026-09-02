@@ -95,6 +95,58 @@ def order_text(r: dict) -> str:
     return f"SOLD {K:g}/{K - w:g} put spread"
 
 
+PNL_ARMS = (("w25_5m_m0_kal", "25-wide"), ("w50_5m_m0_kal", "50-wide"))
+
+
+def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
+    """Per-arm day P&L for the chart's floating tracker card.
+
+    Same accounting as REPORT.md (events_only_day / cell_all_in), so the
+    card and the nightly report never disagree. Mid-session (no settlement
+    yet) the totals cover realized cycles only, and the tent count falls
+    back to locked flies still riding to settlement.
+    """
+    path = events_path(chart_date)
+    if not path.exists():
+        return None
+    try:
+        from research.tt156_zero_dte_butterfly.report import (
+            cell_all_in,
+            events_only_day,
+            settled_in_tent,
+        )
+    except ImportError:
+        return None
+    try:
+        rows, _, settle = events_only_day(path.parent)
+        raw = [
+            json.loads(line) for line in path.read_text().splitlines() if line.strip()
+        ]
+    except (OSError, KeyError, ValueError, TypeError):
+        logger.exception("P&L summary unavailable for %s", path)
+        return None
+    arms: list[dict[str, Any]] = []
+    for variant, label in PNL_ARMS:
+        sub = [r for r in rows if r["variant"] == variant]
+        events = [e for e in raw if e.get("variant") == variant]
+        entries = sum(1 for e in events if e.get("event") == "ENTRY")
+        terminal = sum(1 for e in events if e.get("event") in ("CLOSE", "SETTLEMENT"))
+        if settle is not None:
+            tents = sum(1 for r in sub if settled_in_tent(r, settle))
+        else:
+            tents = sum(1 for e in events if e.get("event") == "COMPLETION")
+        arms.append(
+            {
+                "label": label,
+                "total": round(cell_all_in(sub, settle or 0.0) * 100) if sub else None,
+                "cycles": len(sub),
+                "open": entries > terminal,
+                "tents": tents,
+            }
+        )
+    return {"arms": arms, "settled": settle is not None}
+
+
 def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any]]:
     """Marker dicts (UTC-epoch times) for one chart day, oldest first.
 
