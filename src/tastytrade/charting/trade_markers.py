@@ -96,6 +96,9 @@ def order_text(r: dict) -> str:
 
 
 PNL_ARMS = (("w25_5m_m0_kal", "25-wide"), ("w50_5m_m0_kal", "50-wide"))
+# The 14:00 long ATM butterfly, cushion-mandate trigger (fires only when no
+# kalman tent exists yet; the always-on sibling is its control).
+PNL_EOD_FLY = ("pinfly25_notent", "EOD fly")
 
 
 def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
@@ -113,6 +116,7 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
         from research.tt156_zero_dte_butterfly.report import (
             cell_all_in,
             events_only_day,
+            pinfly_all_in,
             settled_in_tent,
         )
     except ImportError:
@@ -144,6 +148,20 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
                 "tents": tents,
             }
         )
+    variant, label = PNL_EOD_FLY
+    sub = [r for r in rows if r["variant"] == variant]
+    events = [e for e in raw if e.get("variant") == variant]
+    entries = sum(1 for e in events if e.get("event") == "ENTRY")
+    terminal = sum(1 for e in events if e.get("event") in ("CLOSE", "SETTLEMENT"))
+    arms.append(
+        {
+            "label": label,
+            "total": round(pinfly_all_in(sub, settle or 0.0) * 100) if sub else None,
+            "cycles": len(sub),
+            "open": entries > terminal,
+            "tents": 0,
+        }
+    )
     return {"arms": arms, "settled": settle is not None}
 
 

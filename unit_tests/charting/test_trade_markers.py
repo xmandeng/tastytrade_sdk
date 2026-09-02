@@ -188,7 +188,7 @@ class TestPnlSummary:
         )
         pnl = pnl_summary(DAY)
         assert pnl is not None and pnl["settled"] is True
-        w25, w50 = pnl["arms"]
+        w25, w50, _fly = pnl["arms"]
         assert (w25["label"], w25["cycles"], w25["tents"]) == ("25-wide", 1, 1)
         assert w25["total"] > 0 and w25["open"] is False
         assert (w50["label"], w50["cycles"], w50["tents"]) == ("50-wide", 1, 0)
@@ -219,3 +219,45 @@ class TestPnlSummary:
         w25 = pnl["arms"][0]
         assert w25["open"] is True
         assert w25["total"] is None and w25["cycles"] == 0
+
+    def test_eod_fly_line_item(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        write_events(
+            data_root,
+            [
+                {
+                    "event": "SETTLEMENT",
+                    "variant": "pinfly25_notent",
+                    "direction": "PIN",
+                    "short_strike": 7700.0,
+                    "width": 25.0,
+                    "opened_at": "2026-08-18T14:00:05-04:00",
+                    "entry_credit": -3.1,
+                    "entry_legs": [
+                        {"occ_strike": 7675.0},
+                        {"occ_strike": 7700.0},
+                        {"occ_strike": 7700.0},
+                        {"occ_strike": 7725.0},
+                    ],
+                    "status": "SETTLED",
+                    "pnl_points": 7.4,
+                    "settlement_spot": 7705.0,
+                }
+            ],
+        )
+        pnl = pnl_summary(DAY)
+        assert pnl is not None
+        fly = pnl["arms"][2]
+        assert fly["label"] == "EOD fly"
+        assert fly["cycles"] == 1 and fly["open"] is False
+        assert 600 < fly["total"] < 740  # 7.4 pts minus fly friction
+
+    def test_eod_fly_dash_when_not_triggered(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        write_events(data_root, [entry("w25_5m_m0_kal", 25.0)])
+        pnl = pnl_summary(DAY)
+        assert pnl is not None
+        fly = pnl["arms"][2]
+        assert fly["total"] is None and fly["open"] is False and fly["cycles"] == 0
