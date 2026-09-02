@@ -18,7 +18,7 @@ from tastytrade.messaging.processors.default import BaseEventProcessor
 
 logger = logging.getLogger(__name__)
 
-# Coalescing drain (TT-164 phase 2): a listener iteration consumes at most
+# Coalescing drain: a listener iteration consumes at most
 # this many queued replies. Bounds the work between task_done batches so a
 # deep backlog is worked in slices, without ever delaying a current channel
 # (an empty queue simply yields a batch of one).
@@ -79,7 +79,7 @@ class EventHandler:
         if self.channel in (Channels.Candle, Channels.CandleFast):
             self.previous_candle: dict[str, CandleEvent] = {}
 
-        # Throttled last_update stamping (TT-164 phase 2): monotonic time of
+        # Throttled last_update stamping: monotonic time of
         # the most recent stamp per symbol.
         self.last_status_stamp: dict[str, float] = {}
 
@@ -107,7 +107,7 @@ class EventHandler:
 
         try:
             while not self.stop_listener.is_set():
-                # Coalescing drain (TT-164 phase 2): take everything already
+                # Coalescing drain: take everything already
                 # queued, bounded by DRAIN_SLICE, and process it as one batch.
                 # An empty queue yields a batch of one — per-event latency is
                 # unchanged on a current channel; only a backlog batches.

@@ -41,7 +41,7 @@ class BaseEventProcessor:
             self.pl = self.pl.tail(ROW_LIMIT)
 
     def process_events(self, events: Sequence[BaseEvent]) -> None:
-        """Batch hook for the coalescing drain (TT-164 phase 2).
+        """Batch hook for the coalescing drain.
 
         The default preserves per-event semantics exactly; processors with a
         cheaper whole-batch form (RedisEventProcessor's pipelined publish)

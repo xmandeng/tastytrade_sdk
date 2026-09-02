@@ -110,6 +110,9 @@ See [docs/PR_EVIDENCE_GUIDELINES.md](docs/PR_EVIDENCE_GUIDELINES.md) and [docs/P
 ### Naming
 - Do NOT prefix private functions or methods with `_`. Use descriptive names without underscore prefixes.
 
+### Comments
+- Do NOT put Jira ticket numbers in code or comments. Tickets and git history carry provenance; the comment itself must carry the rationale.
+
 ### PII in Logging
 - NEVER log account numbers, monetary balances, or other PII
 - Log counts and status instead (e.g., "Fetched 3 positions" not "Fetched positions for account 5WT00001")

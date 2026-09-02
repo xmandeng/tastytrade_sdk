@@ -58,7 +58,7 @@ from tastytrade.utils.helpers import parse_candle_symbol
 logger = logging.getLogger(__name__)
 
 
-# Fast candle pool (TT-164): candle subscriptions listed here ride the
+# Fast candle pool: candle subscriptions listed here ride the
 # firehose CandleFast channel; every other candle subscription defaults to
 # the conflated Candle channel. Env override (mirrors RedisConfigManager.get
 # behavior) so the pool can be retuned without code changes; a service

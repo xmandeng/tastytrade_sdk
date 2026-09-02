@@ -22,7 +22,7 @@ class Channels(Enum):
     Quote = 7
     Candle = 9
     Greeks = 11
-    # Firehose candle channel for the configured fast pool (TT-164). dxFeed
+    # Firehose candle channel for the configured fast pool. dxFeed
     # applies acceptAggregationPeriod per channel, so full-rate and conflated
     # candle subscriptions must ride separate channels.
     CandleFast = 13

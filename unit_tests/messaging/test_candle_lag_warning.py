@@ -12,7 +12,7 @@ from tastytrade.messaging.processors.redis import RedisEventProcessor
 
 def make_processor() -> RedisEventProcessor:
     p = RedisEventProcessor.__new__(RedisEventProcessor)
-    # TT-164 phase 2: commands go through one pipelined round-trip.
+    # Redis commands go through one pipelined round-trip.
     p.redis = MagicMock()  # type: ignore[assignment]
     p.redis.pipeline.return_value.execute = AsyncMock(return_value=[])
     p.last_lag_warning = 0.0
