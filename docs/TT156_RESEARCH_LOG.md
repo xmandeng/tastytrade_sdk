@@ -119,6 +119,57 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-03 — "Better tents": completion geometry, entry offset, and a runaway classifier all falsified; one candidate for a tracked arm
+
+Prompted by today's 10:50 25-wide: locked at 11:11 with spot already
+7728.8 on a 7680/7705/7730 tent, spot then ran to 7748 and the tent was
+worth scratch while the uncompleted 50-wide rode the same move to +8.17
+pts at the 11:45 flip. Three parallel replays over the 54–56 settled
+sessions (kalman entries, either-family exits, lock-ASAP, all-in, per arm,
+IS = first 27 sessions / OOS = the rest). Timing was deliberately NOT
+retested (four prior falsifications, 2026-08-28).
+
+**Completion geometry (what counter to sell at the lossless instant):
+falsified by construction.** Surplus at lock (total credit − width) over
+42 flies: median 0.20 pts, p90 0.70. A shifted or wider counter is also
+lossless in 2 of 42 flies; every rule collapses to the baseline (25-wide
+within +$310, zero OOS divergence; 50-wide identical). The freebie is a
+momentum spike that pushes total credit to exactly the width; any other
+geometry needs more travel first, i.e. deferral. Today at 11:11 the
+one-strike shift was 1.53 pts short, a 30-wide counter 2.12 pts short.
+
+**Entry strike offset (k strikes OTM/ITM so the tent centers further along
+the move): falsified.** Completion timing is invariant to k (all six
+offsets locked at the same snapshot today); the offset only slides a fixed
+tent against a settlement that is not predictable to ±10 pts. 25-wide:
+1 OTM +$4,005 in aggregate but median day $0, median cycle +$15, five days
+carry it; ITM offsets monotonically worse and negative OOS. 50-wide 3 ITM
++$8,994 with median cycle −$55 (125 losers / 72 winners) — the half-width
+credit-leverage tail, not tent quality.
+
+**Runaway classifier at the lossless moment (1m/5m velocity and its
+change, spot−K, minutes since entry/open, OR15/OR30 distance, drive_atr,
+retrace_frac, range/ATR, surplus): the fifth falsification.** 38 25-wide
+flies, 21 settle in tent (55%, avg $1,301) vs $10 outside; ride-instead
+total $15,855 vs tent $27,502. No feature exceeds AUC 0.6, and the
+intuitive ones point the wrong way: 15 flies locked with spot already past
+the far wing, 9 of those still settled in the tent (riding them nets
+−$1,723); strong 1m/5m velocity at lock leans toward in-tent. Today's lock
+scored drive 0.71 / retrace 0.79 → complete, exactly what production did.
+
+**One survivor, tracked-arm grade only:** when the freebie arrives as
+price reclaims the open (rolling drive_atr < ~0.23 with retrace_frac
+saturated), 6 of 8 flagged cycles ran through by 30–45 pts; tent $2,010 vs
+ride $5,093 over the 8 (IS +$1,787 / OOS +$1,294, permutation p = 0.03
+for the whole select-then-score procedure). Eight cycles from a
+14-feature grid confirmed on two OOS cycles: needs forward evidence, not
+a rule change.
+
+Conclusion: today's tent was a regime cost, not a rule defect. Lock-ASAP
+same-strike stays. Rigs: tent_geometry_sweep, entry_offset_sweep,
+runaway_classifier (session scratch); result JSONs archived under
+research_data/TT-156/.
+
 ### 2026-09-02 — OR-conditioned early entry falsified; the 10:00 start survives
 
 Tested (user speculation after today's missed morning move): open the
