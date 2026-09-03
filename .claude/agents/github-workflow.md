@@ -54,10 +54,18 @@ BEFORE any file operation, validate:
 2. Valid Jira ticket in branch name (feature/TT-XXX-description)
 3. Branch based on main (warning only)
 
-## MCP Gaps — `gh` CLI Fallback (ONLY these 6 operations)
+## Editing a PR title or body after creation
+
+There is no `github-update_pull_request` tool, and `gh pr edit` is denied by
+the project's permission rules. Use `github-update_issue` with the PR number:
+pull requests share the issue number space, and the response carries a
+`pull_request` key confirming it acted on the PR. Send the FULL replacement
+body (the tool replaces, it does not patch), then re-read the PR with
+`github-get_pull_request` and confirm the change.
+
+## MCP Gaps — `gh` CLI Fallback (ONLY these operations)
 
 These operations have no MCP tool. Use `gh` directly for ONLY these:
-- Edit PR title/body: `gh pr edit <number> --title "..." --body "..."`
 - List branches: `gh api repos/xmandeng/tastytrade_sdk/branches --jq '.[].name'`
 - Delete branch: `gh api -X DELETE repos/xmandeng/tastytrade_sdk/git/refs/heads/<branch>`
 - CI workflows: `gh run list`, `gh run view <id>`, `gh run rerun <id>`
@@ -69,7 +77,7 @@ For ALL other operations (list PRs, get PR, create PR, get files, etc.), use the
 After creating any PR:
 1. Re-read the PR to verify all sections present
 2. Check: Summary, Jira link, Acceptance Criteria with evidence, Test Evidence, Changes Made
-3. Fix any missing sections via `gh pr edit`
+3. Fix any missing sections via `github-update_issue` on the PR number (see "Editing a PR title or body after creation")
 4. Report confidence level to main agent
 
 ## Gateway

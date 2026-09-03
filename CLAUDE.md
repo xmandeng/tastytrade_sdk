@@ -64,6 +64,8 @@ You MUST delegate ALL GitHub operations to the github-workflow agent. No excepti
 
 **Autonomous PR creation:** When all ACs pass and code is pushed → create PR immediately. Do NOT ask permission.
 
+**Order of creation:** Anything a PR body will cite (a follow-up Jira ticket, an artifact) is created BEFORE the PR, so the body is final on creation. Post-creation edits go through github-workflow only (the agent knows the gateway route); never attempt `gh` directly from the main session.
+
 **Operations:** create/list/view PRs, create/push branches, repository operations, PR reviews.
 
 **Branch push requirement:** All new branches MUST be pushed to remote IMMEDIATELY after creation (triggers Jira automation).
