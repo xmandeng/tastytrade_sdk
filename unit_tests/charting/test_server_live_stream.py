@@ -9,6 +9,7 @@ retrieved by the endpoint's asyncio.wait and spams the log with a
 
 import logging
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,6 +19,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 from tastytrade.charting.feed import ChartFeed
 from tastytrade.charting.indicators import StreamingIndicators
 from tastytrade.charting.server import ChartServer
+
+# A date with no research ledger, so the per-period P&L refresh is a no-op.
+NO_LEDGER_DAY = date(2020, 1, 1)
 
 CANDLE = {
     "time": 1756645200,
@@ -53,7 +57,9 @@ async def test_client_disconnect_logs_info_and_returns(
     server = ChartServer.__new__(ChartServer)
 
     with caplog.at_level(logging.INFO, logger="tastytrade.charting.server"):
-        await server.stream_live_updates(ws, feed, StreamingIndicators(), "SPX", "5m")
+        await server.stream_live_updates(
+            ws, feed, StreamingIndicators(), "SPX", "5m", NO_LEDGER_DAY
+        )
 
     send_text.assert_awaited_once()  # loop must stop at the first failed send
     assert "disconnected during live stream" in caplog.text
@@ -69,7 +75,9 @@ async def test_unexpected_send_errors_still_propagate() -> None:
     server = ChartServer.__new__(ChartServer)
 
     with pytest.raises(RuntimeError):
-        await server.stream_live_updates(ws, feed, StreamingIndicators(), "SPX", "5m")
+        await server.stream_live_updates(
+            ws, feed, StreamingIndicators(), "SPX", "5m", NO_LEDGER_DAY
+        )
 
 
 @pytest.mark.asyncio
@@ -78,6 +86,8 @@ async def test_deltas_sent_for_each_candle() -> None:
     ws, feed = live_stream_args(send_text)
     server = ChartServer.__new__(ChartServer)
 
-    await server.stream_live_updates(ws, feed, StreamingIndicators(), "SPX", "5m")
+    await server.stream_live_updates(
+        ws, feed, StreamingIndicators(), "SPX", "5m", NO_LEDGER_DAY
+    )
 
     assert send_text.await_count == 2
