@@ -291,6 +291,7 @@ class TestPnlSummary:
         assert fly["label"] == "EOD fly"
         assert fly["cycles"] == 1 and fly["open"] is False
         assert 600 < fly["total"] < 740  # 7.4 pts minus fly friction
+        assert fly["margin"] == 310  # the debit is the fly's full requirement
 
     def test_eod_fly_dash_when_not_triggered(self, data_root: Path) -> None:
         from tastytrade.charting.trade_markers import pnl_summary

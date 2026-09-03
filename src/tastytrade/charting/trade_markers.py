@@ -176,7 +176,12 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
             "cycles": len(sub),
             "open": entries > terminal,
             "tents": 0,
-            "margin": None,
+            # A long fly's requirement is its debit (entry_credit is negative)
+            "margin": (
+                round(max(-s["entry_credit"] for s in latest_structures(events)) * 100)
+                if events
+                else None
+            ),
         }
     )
     return {"arms": arms, "settled": settle is not None}
