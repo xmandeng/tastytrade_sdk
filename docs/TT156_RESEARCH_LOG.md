@@ -29,12 +29,13 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
   running totals.
 - **Tracked controls:** the hull arms (`w25_5m_m0`, `w25_5m_m1`,
   `w25_5m_m0_ef5`, `w50_5m_m0`) stay in the grid as the lagging control.
-- **Tracked complement — pin-fly arms (added 2026-08-31):** a defined-debit
-  long ATM 25-wide butterfly bought in the 14:00 ET window, held to
-  settlement — long the afternoon pin, max loss = the debit. Three arms:
-  `pinfly25_all` (every day, control), `pinfly25_notent` (only when no
-  kalman tent exists yet — the cushion mandate), `pinfly25_notent_mid`
-  (no-tent + spot in the middle half of the day's range). Evidence and the
+- **End-of-day fly — mandatory every session (decision 2026-09-03; arms
+  added 2026-08-31):** a defined-debit long ATM 25-wide butterfly bought in
+  the 14:00 ET window, held to settlement — long the afternoon pin, max
+  loss = the debit. `pinfly25_all` is the primary and drives the chart
+  card's EOD line. `pinfly25_notent` (only when no kalman tent exists yet)
+  and `pinfly25_notent_mid` (no-tent + spot in the middle half of the
+  day's range) stay in the grid as tracked alternatives. Evidence and the
   falsified short-premium alternatives:
   [TT156_CONDOR_OVERLAY_STUDY.md](TT156_CONDOR_OVERLAY_STUDY.md).
 - **Cost model (all-in):** mid fills − 0.10 slippage buffer per spread order

@@ -228,7 +228,7 @@ class TestPnlSummary:
             [
                 {
                     "event": "SETTLEMENT",
-                    "variant": "pinfly25_notent",
+                    "variant": "pinfly25_all",
                     "direction": "PIN",
                     "short_strike": 7700.0,
                     "width": 25.0,
