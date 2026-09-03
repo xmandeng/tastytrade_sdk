@@ -139,7 +139,9 @@ class TestCoalescing:
         h = handler_with(rec)
         queue: asyncio.Queue = asyncio.Queue()
         await queue.put(quote_reply("GOOD1"))
-        await queue.put(quote_reply("BAD", ask=None))  # type: ignore[arg-type]
+        # A missing price is valid brokerage data (inbound models never reject
+        # it); a non-numeric price is the genuinely unparseable reply.
+        await queue.put(quote_reply("BAD", ask="not-a-price"))  # type: ignore[arg-type]
         await queue.put(quote_reply("GOOD2"))
 
         task = asyncio.create_task(h.queue_listener(queue))
