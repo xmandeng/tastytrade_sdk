@@ -140,7 +140,7 @@
     .tt-time { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
     .tt-line { color: var(--text); margin-top: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-    /* TT-156 day-P&L tracker: draggable floating card, position persists. */
+    /* Day-P&L tracker: draggable floating card, position persists. */
     #pnlCard {
       position: absolute; top: 12px; right: 74px; width: 252px; z-index: 20;
       display: none; flex-direction: column; gap: 7px;
@@ -1301,6 +1301,18 @@ function renderPnl(pnl) {
     pnlFoot.style.display = 'none';
   }
   pnlCard.classList.add('on');
+  clampPnlCard();
+}
+
+// A remembered position is only valid for the window it was dragged in; a
+// smaller window or another device must not leave the card outside the chart.
+function clampPnlCard() {
+  if (!pnlCard.style.left) return;
+  const host = chartEl.getBoundingClientRect();
+  const maxLeft = Math.max(0, host.width - pnlCard.offsetWidth);
+  const maxTop = Math.max(0, host.height - pnlCard.offsetHeight);
+  pnlCard.style.left = Math.min(Math.max(parseFloat(pnlCard.style.left), 0), maxLeft) + 'px';
+  pnlCard.style.top = Math.min(Math.max(parseFloat(pnlCard.style.top), 0), maxTop) + 'px';
 }
 
 (() => {
@@ -1313,6 +1325,7 @@ function renderPnl(pnl) {
       pnlCard.style.right = 'auto';
     }
   } catch (e) { /* storage unavailable — default position */ }
+  window.addEventListener('resize', clampPnlCard);
   let drag = null;
   head.addEventListener('pointerdown', (ev) => {
     const r = pnlCard.getBoundingClientRect();
