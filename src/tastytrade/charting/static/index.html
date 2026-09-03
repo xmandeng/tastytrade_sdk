@@ -155,17 +155,16 @@
     .pnl-head-l { display: flex; align-items: center; gap: 7px; }
     .pnl-cap { font-size: 10px; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
     .pnl-sub { font-size: 9px; color: var(--text-dim); }
-    .pnl-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    /* Three columns: arm | day P&L (with OPEN / cycle badges) | peak margin.
+       Column captions live once in the header line, never per row. */
+    .pnl-grid { display: grid; grid-template-columns: auto 1fr auto; column-gap: 12px; row-gap: 7px; align-items: center; }
+    .pnl-hdr { font-size: 9px; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; text-align: right; }
     .pnl-arm { font-size: 12px; color: var(--text); }
-    .pnl-r { display: flex; align-items: center; gap: 8px; }
+    .pnl-r { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
     .pnl-cyc { font-size: 10px; color: var(--text-muted); }
     .pnl-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
     .pnl-val.pos { color: #3fb950; } .pnl-val.neg { color: #ef5350; } .pnl-val.flat { color: var(--text-dim); }
-    /* Peak margin so far in the day, under the arm it belongs to. */
-    .pnl-mgn {
-      display: flex; justify-content: space-between; margin-top: -4px;
-      font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums;
-    }
+    .pnl-mgn { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; }
     .pnl-open {
       font-size: 9px; color: #131313; background: #d29922;
       border-radius: 3px; padding: 1px 5px; font-weight: 700;
@@ -215,9 +214,8 @@
       <svg width="10" height="14" viewBox="0 0 10 14"><g fill="#4a4a5a"><circle cx="2.5" cy="2.5" r="1.3"/><circle cx="7.5" cy="2.5" r="1.3"/><circle cx="2.5" cy="7" r="1.3"/><circle cx="7.5" cy="7" r="1.3"/><circle cx="2.5" cy="11.5" r="1.3"/><circle cx="7.5" cy="11.5" r="1.3"/></g></svg>
       <span class="pnl-cap">DAY P&amp;L</span>
     </div>
-    <span class="pnl-sub">kal arms</span>
   </div>
-  <div id="pnlRows" style="display: flex; flex-direction: column; gap: 7px;"></div>
+  <div id="pnlRows" class="pnl-grid"></div>
   <div class="pnl-foot" id="pnlFoot" style="display:none"><span class="k" id="pnlFootK">In tent</span><span class="v" id="pnlFootV"></span></div>
 </div></div>
 
@@ -1287,15 +1285,16 @@ function pnlUsd(v) { return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString();
 
 function renderPnl(pnl) {
   if (!pnl || !pnl.arms || !pnl.arms.length) { pnlCard.classList.remove('on'); return; }
-  pnlRows.innerHTML = pnl.arms.map(a => {
+  const header = '<span></span><span class="pnl-hdr">P&amp;L</span><span class="pnl-hdr">MAX MARGIN</span>';
+  pnlRows.innerHTML = header + pnl.arms.map(a => {
     const cls = a.total == null ? 'flat' : (a.total > 0 ? 'pos' : (a.total < 0 ? 'neg' : 'flat'));
     const val = a.total == null ? '&mdash;' : pnlUsd(a.total);
     const cyc = a.cycles ? `<span class="pnl-cyc">${a.cycles} cyc</span>` : '';
     const open = a.open ? '<span class="pnl-open">OPEN</span>' : '';
-    const mgn = a.margin == null ? '' :
-      `<div class="pnl-mgn"><span>max margin</span><span>${pnlUsd(a.margin)}</span></div>`;
-    return `<div class="pnl-row"><span class="pnl-arm">${a.label}</span>` +
-           `<div class="pnl-r">${open}${cyc}<span class="pnl-val ${cls}">${val}</span></div></div>` + mgn;
+    const mgn = a.margin == null ? '&mdash;' : pnlUsd(a.margin);
+    return `<span class="pnl-arm">${a.label}</span>` +
+           `<div class="pnl-r">${open}${cyc}<span class="pnl-val ${cls}">${val}</span></div>` +
+           `<span class="pnl-mgn">${mgn}</span>`;
   }).join('');
   const tents = pnl.arms
     .map(a => a.tents ? `${a.tents}×${a.label.replace('-wide', 'w')}` : '')
