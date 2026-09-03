@@ -120,6 +120,32 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-03 — The every-session 14:00 fly earns on tent days too; its place is justified, the no-tent half is the stronger half
+
+Purpose of the no-tent arms was always this split. Replayed the 14:00
+ATM 25-wide call fly at mid from the recorded 14:00 snapshot across 55
+sessions (2026-06-11 → 09-02), settled to the recorded settlement (32),
+the 15:59 1m close (21) or the last snapshot (2), all-in, and split by
+whether a 25-wide kalman tent existed at 14:00 (live ledger; 3 sessions
+lack a kalman ledger).
+
+| Sessions | n | total | mean | median | win rate | worst | best |
+|---|---|---|---|---|---|---|---|
+| all | 55 | $14,214 | $258 | $328 | 73% | −$1,299 | $1,392 |
+| tent existed at 14:00 | 26 | $4,026 | $155 | $134 | 65% | −$1,169 | $1,392 |
+| no tent at 14:00 | 26 | $8,049 | $310 | $545 | 77% | −$1,299 | $1,033 |
+| first half / second half | 27 / 28 | $5,859 / $8,355 | | | 67% / 79% | | |
+
+Reading: the fly is not a drag on tent days — it nets +$4k over 26 with
+a 65% hit rate — so buying it every session (decision 2026-09-03) costs
+nothing in expectation and adds a second, independent afternoon-pin
+payoff on days the tent already exists. The no-tent half is the stronger
+half (double the mean, four times the median), which is what the
+cushion logic predicted: no tent usually means a choppy, range-bound day,
+the fly's home regime. The tent-day losers are the trend days that run
+through both structures. Both halves are positive out of sample. Rig:
+pinfly_tent_split (session scratch); results JSON under research_data/TT-156/.
+
 ### 2026-09-03 — "Better tents": completion geometry, entry offset, and a runaway classifier all falsified; one candidate for a tracked arm
 
 Prompted by today's 10:50 25-wide: locked at 11:11 with spot already
