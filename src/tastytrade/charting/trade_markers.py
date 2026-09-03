@@ -100,13 +100,25 @@ PNL_ARMS = (("w25_5m_m0_kal", "25-wide"), ("w50_5m_m0_kal", "50-wide"))
 PNL_EOD_FLY = ("pinfly25_all", "EOD fly")
 
 
+def latest_structures(events: list[dict]) -> list[dict]:
+    """One dict per structure — its most recent ledger event — so margin can
+    be traced for verticals still open, not only for settled cycles."""
+    latest: dict[str, dict] = {}
+    for e in events:
+        if e.get("event") in ("ENTRY", "COMPLETION", "CLOSE", "SETTLEMENT"):
+            latest[e["opened_at"]] = e
+    return list(latest.values())
+
+
 def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
     """Per-arm day P&L for the chart's floating tracker card.
 
     Same accounting as REPORT.md (events_only_day / cell_all_in), so the
     card and the nightly report never disagree. Mid-session (no settlement
     yet) the totals cover realized cycles only, and the tent count falls
-    back to locked flies still riding to settlement.
+    back to locked flies still riding to settlement. ``margin`` is the arm's
+    peak concurrent buying-power reduction so far in the day (the
+    scoreboard's high-water margin), in dollars per lot.
     """
     path = events_path(chart_date)
     if not path.exists():
@@ -115,6 +127,7 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
         from research.tt156_zero_dte_butterfly.report import (
             cell_all_in,
             events_only_day,
+            margin_high_water,
             pinfly_all_in,
             settled_in_tent,
         )
@@ -138,6 +151,7 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
             tents = sum(1 for r in sub if settled_in_tent(r, settle))
         else:
             tents = sum(1 for e in events if e.get("event") == "COMPLETION")
+        structures = latest_structures(events)
         arms.append(
             {
                 "label": label,
@@ -145,6 +159,9 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
                 "cycles": len(sub),
                 "open": entries > terminal,
                 "tents": tents,
+                "margin": (
+                    round(margin_high_water(structures) * 100) if structures else None
+                ),
             }
         )
     variant, label = PNL_EOD_FLY
@@ -159,6 +176,7 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
             "cycles": len(sub),
             "open": entries > terminal,
             "tents": 0,
+            "margin": None,
         }
     )
     return {"arms": arms, "settled": settle is not None}

@@ -161,6 +161,11 @@
     .pnl-cyc { font-size: 10px; color: var(--text-muted); }
     .pnl-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
     .pnl-val.pos { color: #3fb950; } .pnl-val.neg { color: #ef5350; } .pnl-val.flat { color: var(--text-dim); }
+    /* Peak margin so far in the day, under the arm it belongs to. */
+    .pnl-mgn {
+      display: flex; justify-content: space-between; margin-top: -4px;
+      font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+    }
     .pnl-open {
       font-size: 9px; color: #131313; background: #d29922;
       border-radius: 3px; padding: 1px 5px; font-weight: 700;
@@ -208,7 +213,7 @@
   <div class="pnl-head" id="pnlHead">
     <div class="pnl-head-l">
       <svg width="10" height="14" viewBox="0 0 10 14"><g fill="#4a4a5a"><circle cx="2.5" cy="2.5" r="1.3"/><circle cx="7.5" cy="2.5" r="1.3"/><circle cx="2.5" cy="7" r="1.3"/><circle cx="7.5" cy="7" r="1.3"/><circle cx="2.5" cy="11.5" r="1.3"/><circle cx="7.5" cy="11.5" r="1.3"/></g></svg>
-      <span class="pnl-cap">DAY P&amp;L &middot; ALL-IN</span>
+      <span class="pnl-cap">DAY P&amp;L</span>
     </div>
     <span class="pnl-sub">kal arms</span>
   </div>
@@ -1287,8 +1292,10 @@ function renderPnl(pnl) {
     const val = a.total == null ? '&mdash;' : pnlUsd(a.total);
     const cyc = a.cycles ? `<span class="pnl-cyc">${a.cycles} cyc</span>` : '';
     const open = a.open ? '<span class="pnl-open">OPEN</span>' : '';
+    const mgn = a.margin == null ? '' :
+      `<div class="pnl-mgn"><span>max margin</span><span>${pnlUsd(a.margin)}</span></div>`;
     return `<div class="pnl-row"><span class="pnl-arm">${a.label}</span>` +
-           `<div class="pnl-r">${open}${cyc}<span class="pnl-val ${cls}">${val}</span></div></div>`;
+           `<div class="pnl-r">${open}${cyc}<span class="pnl-val ${cls}">${val}</span></div></div>` + mgn;
   }).join('');
   const tents = pnl.arms
     .map(a => a.tents ? `${a.tents}×${a.label.replace('-wide', 'w')}` : '')
