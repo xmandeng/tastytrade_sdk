@@ -95,9 +95,9 @@ def order_text(r: dict) -> str:
 
 
 PNL_ARMS = (("w25_5m_m0_kal", "25-wide"), ("w50_5m_m0_kal", "50-wide"))
-# The 14:00 long ATM butterfly, cushion-mandate trigger (fires only when no
-# kalman tent exists yet; the always-on sibling is its control).
-PNL_EOD_FLY = ("pinfly25_notent", "EOD fly")
+# The 14:00 long ATM butterfly, bought every session by decision (the
+# no-tent-only sibling stays in the grid as a tracked alternative).
+PNL_EOD_FLY = ("pinfly25_all", "EOD fly")
 
 
 def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
