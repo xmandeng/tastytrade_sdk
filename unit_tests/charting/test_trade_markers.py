@@ -193,6 +193,44 @@ class TestPnlSummary:
         assert w25["total"] > 0 and w25["open"] is False
         assert (w50["label"], w50["cycles"], w50["tents"]) == ("50-wide", 1, 0)
         assert w50["total"] < 0
+        # peak margin = width − entry credit per lot, in dollars
+        assert w25["margin"] == 1300 and w50["margin"] == 3800
+        assert _fly["margin"] is None
+
+    def test_peak_margin_sums_overlapping_verticals(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        first = entry("w25_5m_m0_kal", 25.0, entry_credit=10.0, status="OPEN")
+        second = entry(
+            "w25_5m_m0_kal",
+            25.0,
+            opened_at="2026-08-18T15:20:35-04:00",
+            entry_credit=8.0,
+            status="OPEN",
+        )
+        # the first vertical completes into a lossless fly before the second
+        # opens: its margin drops to zero, so the peak is the larger single
+        # vertical, not the sum
+        completed = {
+            **first,
+            "event": "COMPLETION",
+            "completed_at": "2026-08-18T15:10:35-04:00",
+            "completion_credit": 16.0,
+            "status": "COMPLETED",
+        }
+        write_events(data_root, [first, completed, second])
+        pnl = pnl_summary(DAY)
+        assert pnl is not None
+        assert pnl["arms"][0]["margin"] == 1700  # 25 − 8, the second vertical
+
+        # same two verticals with the first still open: margins stack
+        import shutil
+
+        shutil.rmtree(data_root / DAY.isoformat())
+        write_events(data_root, [first, second])
+        pnl = pnl_summary(DAY)
+        assert pnl is not None
+        assert pnl["arms"][0]["margin"] == 3200  # (25 − 10) + (25 − 8)
 
     def test_open_vertical_flagged_midsession(self, data_root: Path) -> None:
         from tastytrade.charting.trade_markers import pnl_summary
@@ -219,6 +257,7 @@ class TestPnlSummary:
         w25 = pnl["arms"][0]
         assert w25["open"] is True
         assert w25["total"] is None and w25["cycles"] == 0
+        assert w25["margin"] == 1300  # open vertical already consumes margin
 
     def test_eod_fly_line_item(self, data_root: Path) -> None:
         from tastytrade.charting.trade_markers import pnl_summary
