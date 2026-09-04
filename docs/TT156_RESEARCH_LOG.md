@@ -21,8 +21,14 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
   backstop for errant/wrong-direction spreads. No stop-loss, ever: every stop
   level tested made results worse; the flip exit is the stop.
 - **Completion:** when total credit ≥ width, buy the counter vertical —
-  lossless iron fly; hold tents to 16:00 settlement. Forced close of
+  lossless iron fly; hold tents to settlement. Forced close of
   incomplete verticals at 15:45.
+- **Settlement price (since 2026-09-04):** the official SPX close — the
+  close of the SPX daily candle in InfluxDB for the session date, read at
+  16:15 ET. Never a snapshot spot: the index keeps updating for ~4 minutes
+  after 16:00. If the candle is missing the day stays unsettled and
+  `python -m research.tt156_zero_dte_butterfly.settlement restate` completes
+  it later. The whole ledger was restated on 2026-09-04 (see findings).
 - **Primary arms:** `w25_5m_m0_kal` (25-wide), `w50_5m_m0_kal` (50-wide),
   `w25_5m_m0_kal_ef5` (early-fly: at 5 pts adverse, buy the counter side now —
   bounded deficit, tent kept). These drive the charts, strategy table, and
@@ -119,6 +125,51 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
   and the early-fly conversion *are* the stop.
 
 ## Findings log
+
+### 2026-09-04 — Settlement was priced at a stale pre-close snapshot; ledger restated at the official SPX close
+
+**How it surfaced.** The 2026-09-04 EOD fly (7685/7710/7735 calls, 15.78
+debit) showed +$268 on the chart card while the close of 7718.60 sat one
+point inside the upper breakeven, worth about +$21 all-in. The collector
+settled at 7716.28 — the last chain snapshot at or before 16:00:00, taken
+at 15:59:56 — and the index rose 2.3 points in the seconds after it.
+
+**Scope.** The rule "last snapshot at or before 16:00" was structurally
+wrong, not a one-off: a 15 s cadence makes the spot up to 15 s stale, and
+the index's official close is only final ~4 minutes after 16:00 (checked
+on five sessions: last change between 16:03 and 16:04). Recorded
+settlement spot vs the official close over 56 settled sessions:
+
+| Measure | Value |
+|---|---|
+| Median absolute miss | 1.48 pts |
+| Sessions missing by more than 2 pts | 21 of 56 |
+| Largest miss | 15.63 pts (2026-06-26, recorded 7338.39 vs 7354.02) |
+
+**Restatement (gross points × $100, every settled row re-priced at the
+official close; 108 session directories incl. the pre-fix archive, 381
+rows rewritten; 2026-06-23/24 have no daily candle and no settled rows):**
+
+| Arm | Before | After | Difference |
+|---|---|---|---|
+| `w25_5m_m0_kal` (25-wide tents, 39) | $28,841 | $27,303 | −$1,538 |
+| `w50_5m_m0_kal` (50-wide tents, 4) | $7,193 | $7,147 | −$46 |
+| `w25_5m_m0_kal_ef5` | $30,200 | $28,783 | −$1,417 |
+| `pinfly25_all` (live sessions, 4) | $2,176 | $2,078 | −$98 |
+| `pinfly25_notent` | $1,514 | $1,370 | −$144 |
+| `pinfly25_notent_mid` | $478 | $608 | +$130 |
+
+Seventeen structures moved by $100 or more; the largest was the 2026-06-26
+25-wide, recorded +$85, actually +$1,427. The 25-wide tent count moved
+from 19 to 20. No strategy conclusion changes; every retro sweep that read
+`recorded_settlement` inherited the stale spots and now reads the restated
+values without change.
+
+**Rule going forward.** Settlement price = official SPX close (daily
+candle, date-checked so the provider's walk-back to a prior day can never
+substitute). No fallback: an unavailable close leaves the day unsettled
+and is completed by the `restate` command. Ledger backup before the
+rewrite: `research_data/TT-156.pre-restate-20260904-165110/`.
 
 ### 2026-09-03 — The every-session 14:00 fly earns on tent days too; its place is justified, the no-tent half is the stronger half
 
