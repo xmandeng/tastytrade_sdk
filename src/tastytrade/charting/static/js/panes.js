@@ -214,7 +214,30 @@ function paneTop(i) {
   return top;
 }
 
+// Reserve the top of every pane for its label strip (and, on the candle
+// pane, the top chip gutter) by pushing the price scale's top margin below it.
+function applyPaneMargins() {
+  const panes = chart.panes();
+  if (!panes.length) return;
+  const candleH = panes[0].getHeight();
+  if (candleH) {
+    candleSeries.priceScale().applyOptions({
+      scaleMargins: { top: Math.min(0.35, (tradeMarkers._topInset + 12) / candleH), bottom: 0.06 },
+    });
+  }
+  mountedKeys.forEach((key, i) => {
+    const objs = paneObjs[key];
+    const el = stripsEl.querySelector(`[data-pane="${key}"]`);
+    const h = panes[i + 1] ? panes[i + 1].getHeight() : 0;
+    if (!objs || !el || !h) return;
+    objs.all[0].priceScale().applyOptions({
+      scaleMargins: { top: Math.min(0.5, (6 + el.offsetHeight + 10) / h), bottom: 0.08 },
+    });
+  });
+}
+
 function layoutStrips() {
+  applyPaneMargins();
   const left = axisLeftWidth() + 10;
   ['candle', ...mountedKeys].forEach((key, i) => {
     const el = stripsEl.querySelector(`[data-pane="${key}"]`);

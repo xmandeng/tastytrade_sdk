@@ -130,12 +130,10 @@
 
     /* Pane label strips (ThinkorSwim-style): name · params · live values at
        the top-left of every pane; lower panes carry a close control. */
-    /* The strips sit BEHIND the chart canvases (whose background is transparent),
-       so bars and lines draw over the label as on ThinkorSwim; only the close
-       control lives above the canvas so it stays clickable. */
-    #chart > .tv-lightweight-charts { position: relative; z-index: 5; }
-    #paneStrips { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-    #paneControls { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+    /* Strips sit above the canvases; each pane's plot area is inset below its
+       strip (see applyPaneMargins) so labels and data never overlap. */
+    #paneStrips { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+    #paneControls { position: absolute; inset: 0; pointer-events: none; z-index: 31; }
     #paneControls .pane-x { position: absolute; }
     .pane-strip { position: absolute; display: flex; flex-direction: column; gap: 3px; font-family: monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
     .ps-line { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
