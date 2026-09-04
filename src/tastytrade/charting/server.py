@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 import uvicorn
-from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from influxdb_client import InfluxDBClient
@@ -25,6 +25,7 @@ from influxdb_client import InfluxDBClient
 from tastytrade.charting.feed import ChartFeed
 from tastytrade.charting.indicators import StreamingIndicators
 from tastytrade.charting.trade_markers import load_trade_markers, pnl_summary
+from tastytrade.common.logging import setup_logging
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
@@ -513,3 +514,20 @@ class ChartServer:
         config = uvicorn.Config(self.app, host=self.host, port=p, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
+
+
+def create_app() -> FastAPI:
+    """Uvicorn app factory for ``tasty-chart --reload``.
+
+    The reloader re-imports this module in a fresh worker process, so the
+    CLI's arguments travel through the environment instead of a constructor.
+    """
+    setup_logging(
+        level=logging.DEBUG if os.environ.get("TASTY_CHART_DEBUG") else logging.INFO
+    )
+    return ChartServer(
+        symbol=os.environ.get("TASTY_CHART_SYMBOL", "SPX"),
+        interval=os.environ.get("TASTY_CHART_INTERVAL", "m"),
+        host=os.environ.get("TASTY_CHART_HOST", "0.0.0.0"),
+        port=int(os.environ.get("TASTY_CHART_PORT", "8080")),
+    ).app

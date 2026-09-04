@@ -39,16 +39,9 @@ class HmaPrimitive {
   last() { return this._data.length ? this._data[this._data.length - 1] : null; }
   at(time) { return this._data.find(p => p.time === time) || null; }
 
-  autoscaleInfo() {
-    if (!this._visible || !this._data.length) return null;
-    let lo = Infinity, hi = -Infinity;
-    for (const p of this._data) {
-      if (p.value == null) continue;
-      if (p.value < lo) lo = p.value;
-      if (p.value > hi) hi = p.value;
-    }
-    return lo === Infinity ? null : { priceRange: { minValue: lo, maxValue: hi } };
-  }
+  // The line never widens the scale: it tracks price except at the open,
+  // where its pre-market seed would drag the session down.
+  autoscaleInfo() { return null; }
 
   drawPolyline(target) {
     if (!this._visible || !this._series || !this._chart || this._data.length < 2) return;
@@ -95,12 +88,16 @@ function resolveBoundX(ts, time, width, xR, sideFallback) {
 // its price to candle-pane autoscale.
 // ============================================================================
 class BoundedLineSegment {
-  constructor(price, color, lineStyle, tStart, tEnd) {
+  constructor(price, color, lineStyle, tStart, tEnd, autoscale = true) {
     this._price = price;
     this._color = color;
     this._style = lineStyle; // 'solid' | 'dotted' | 'dashed'
     this._tStart = tStart;
     this._tEnd = tEnd;
+    // Intraday levels sit inside the day's range and may widen it a little;
+    // a reference far outside it (a gap day's prior close) must not squeeze
+    // the candles, so those opt out and simply fall off-scale.
+    this._autoscale = autoscale;
     this._series = null;
     this._chart = null;
     this._paneView = { renderer: () => ({ draw: (target) => this.drawLine(target) }) };
@@ -109,7 +106,9 @@ class BoundedLineSegment {
   detached() { this._series = null; this._chart = null; }
   paneViews() { return [this._paneView]; }
   updateAllViews() {}
-  autoscaleInfo() { return { priceRange: { minValue: this._price, maxValue: this._price } }; }
+  autoscaleInfo() {
+    return this._autoscale ? { priceRange: { minValue: this._price, maxValue: this._price } } : null;
+  }
 
   drawLine(target) {
     if (!this._series || !this._chart) return;
