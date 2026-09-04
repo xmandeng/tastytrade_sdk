@@ -26,9 +26,9 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
 - **Settlement price (since 2026-09-04):** the official SPX close — the
   close of the SPX daily candle in InfluxDB for the session date, read at
   16:15 ET. Never a snapshot spot: the index keeps updating for ~4 minutes
-  after 16:00. If the candle is missing the day stays unsettled and
-  `python -m research.tt156_zero_dte_butterfly.settlement restate` completes
-  it later. The whole ledger was restated on 2026-09-04 (see findings).
+  after 16:00. If the candle is missing the day stays unsettled; there is
+  no approximation. The whole ledger was restated once on 2026-09-04 (see
+  findings).
 - **Primary arms:** `w25_5m_m0_kal` (25-wide), `w50_5m_m0_kal` (50-wide),
   `w25_5m_m0_kal_ef5` (early-fly: at 5 pts adverse, buy the counter side now —
   bounded deficit, tent kept). These drive the charts, strategy table, and
@@ -167,9 +167,11 @@ values without change.
 
 **Rule going forward.** Settlement price = official SPX close (daily
 candle, date-checked so the provider's walk-back to a prior day can never
-substitute). No fallback: an unavailable close leaves the day unsettled
-and is completed by the `restate` command. Ledger backup before the
-rewrite: `research_data/TT-156.pre-restate-20260904-165110/`.
+substitute). No fallback: an unavailable close leaves the day unsettled.
+The restatement was a one-off; the script that ran it is archived with the
+other rigs at `research_data/TT-156/restate_official_close_20260904.py`
+and the pre-rewrite ledger at
+`research_data/TT-156.pre-restate-20260904-165110/`.
 
 ### 2026-09-03 — The every-session 14:00 fly earns on tent days too; its place is justified, the no-tent half is the stronger half
 

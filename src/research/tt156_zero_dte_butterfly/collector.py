@@ -280,8 +280,8 @@ class DayCollector:
 
         # SPXW settles to the official SPX close, published minutes after
         # 16:00 as late prints land. A snapshot spot is never that value, so
-        # when the close is unavailable the structures stay unsettled and
-        # the restate command completes the day once the candle exists.
+        # when the close is unavailable the structures stay unsettled rather
+        # than settle at an approximation.
         settle_spot = self.official_close_today()
         if settle_spot is None:
             logger.error(
