@@ -113,7 +113,7 @@ function computeBounds(candles) {
   if (candles.length) {
     const d = new Date(candles[0].time * 1000);
     const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate();
-    viewStartEpoch   = Date.UTC(y, mo, day, 9, 30) / 1000;
+    viewStartEpoch   = Date.UTC(y, mo, day, 9, 0) / 1000;
     levelStartEpoch  = Date.UTC(y, mo, day, 9, 30) / 1000;
     marketCloseEpoch = Date.UTC(y, mo, day, 16, 30) / 1000;
     levelTimeStart   = Date.UTC(y, mo, day, 9, 30) / 1000;
@@ -144,12 +144,12 @@ function setTradingHoursView() {
     return;
   }
   if (viewStartEpoch === 0 || marketCloseEpoch === 0) return;
-  // The session fills the pane: the open to five past the close (or just
-  // past the latest bar while the day is still running). Starting exactly at
-  // 9:30 keeps flat pre-market bars out of the autoscale.
+  // The session fills the pane with half an hour of breathing room on each
+  // side: 9:00 to 4:30 (or just past the latest bar while the day is still
+  // running).
   const from = viewStartEpoch;
   const lastCandle = lastCandles.length ? lastCandles[lastCandles.length - 1].time : levelStartEpoch;
-  const to = Math.min(levelTimeEnd + 300, Math.max(lastCandle + 600, levelStartEpoch + 3600));
+  const to = Math.min(marketCloseEpoch, Math.max(lastCandle + 600, levelStartEpoch + 3600));
   chart.timeScale().setVisibleRange({ from, to });
 }
 
