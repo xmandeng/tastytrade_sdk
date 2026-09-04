@@ -49,6 +49,8 @@
     }
     .dropdown-list.open { display: block; }
     .dropdown-list.right { left: auto; right: 0; }
+    /* The studies panel lists every study; let it run to the viewport before scrolling. */
+    #studiesList { max-height: calc(100vh - 56px); }
     .dropdown-item {
       padding: 6px 12px; font-size: 12px; font-family: monospace;
       color: var(--text-muted); cursor: pointer; white-space: nowrap;
