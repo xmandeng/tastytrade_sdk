@@ -1,15 +1,17 @@
 """TT-156 paper-trade markers for the chart (pure reader).
 
 Reads the research harness's per-day event log (events.jsonl) and converts
-the primary strategy trades — kalman-tangent 5m, 25/50-wide — into
-lightweight-charts marker dicts. The chart server passes them through in
-the init payload; nothing is computed beyond grouping, and no store is
-written.
+the primary strategy trades — kalman-tangent 5m, 25/50-wide — plus the
+14:00 EOD fly into chart marker dicts, one per order event, numbered per
+structure so an entry and its close share a number. The chart server
+passes them through in the init payload; nothing is computed beyond
+grouping and the fly break-even arithmetic, and no store is written.
 """
 
 import json
 import logging
 import os
+from decimal import ROUND_HALF_UP, Decimal
 from datetime import date as date_type
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +20,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MARKER_SYMBOL = "SPX"
-STRATEGY_VARIANTS = ("w25_5m_m0_kal", "w25_5m_m0_kal_ef5", "w50_5m_m0_kal")
+# The two card arms carry chips; the early-fly sibling is a tracked
+# alternative that would only duplicate every row.
+STRATEGY_VARIANTS = ("w25_5m_m0_kal", "w50_5m_m0_kal")
+ARM_NAMES = {"w25_5m_m0_kal": "w25", "w50_5m_m0_kal": "w50"}
+EOD_FLY_VARIANT = "pinfly25_all"
+CLOSE_REASONS = {
+    "signal_kalman": "kalman flip",
+    "signal_hull": "hull flip",
+    "forced_eod": "forced EOD",
+}
 DATA_DIR_ENV = "TT156_DATA_DIR"
 DEFAULT_DATA_DIR = "research_data/TT-156"
 
@@ -30,15 +41,6 @@ def events_path(chart_date: date_type) -> Path:
 
 def to_epoch(stamp: str) -> int:
     return int(datetime.fromisoformat(stamp).timestamp())
-
-
-def widths_label(widths: list[float]) -> str:
-    return "/".join(f"{w:g}" for w in sorted(set(widths)))
-
-
-def arm_label(row: dict) -> str:
-    suffix = " (early-fly)" if str(row.get("variant", "")).endswith("_ef5") else ""
-    return f"{row['width']:g}-wide{suffix}"
 
 
 def in_tent(event: dict) -> bool:
@@ -62,6 +64,7 @@ def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
             classify_first_entries,
             events_only_day,
             order_outcome,
+            pinfly_all_in,
             usd,
         )
     except ImportError:
@@ -74,24 +77,34 @@ def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
     strat = [r for r in rows if r["variant"] in STRATEGY_VARIANTS]
     first = classify_first_entries(strat) if strat else {}
     by_open: dict[str, list[dict]] = {}
-    for r in strat:
-        by_open.setdefault(r["opened_at"], []).append(r)
+    for r in rows:
+        if r["variant"] in STRATEGY_VARIANTS or r["variant"] == EOD_FLY_VARIANT:
+            by_open.setdefault(r["opened_at"], []).append(r)
     for group in by_open.values():
         group.sort(key=lambda r: r["width"])
 
     def all_in(r: dict) -> str:
         # Mid-session (settle unknown) still applies the cost model — the
-        # chip nets, the P&L card, and REPORT.md must never disagree.
+        # chip nets, the P&L card, and REPORT.md must never disagree. The
+        # long EOD fly has its own cost model.
+        if r["variant"] == EOD_FLY_VARIANT:
+            return usd(pinfly_all_in([r], settle or 0.0))
         return usd(cell_all_in([r], settle or 0.0))
 
     return by_open, first, settle, all_in, order_outcome
 
 
-def order_text(r: dict) -> str:
+def spread_text(r: dict) -> str:
+    """Short strike / long strike and the option type: ``7705/7680 P``."""
     K, w = r["short_strike"], r["width"]
     if r["direction"] == "BEARISH":
-        return f"SOLD {K:g}/{K + w:g} call spread"
-    return f"SOLD {K:g}/{K - w:g} put spread"
+        return f"{K:g}/{K + w:g} C"
+    return f"{K:g}/{K - w:g} P"
+
+
+def round2(v: float) -> float:
+    """Half-up to cents; float round() would show 15.625 as 15.62."""
+    return float(Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 PNL_ARMS = (("w25_5m_m0_kal", "25-wide"), ("w50_5m_m0_kal", "50-wide"))
@@ -187,19 +200,39 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
     return {"arms": arms, "settled": settle is not None}
 
 
+def fly_break_evens(body: float, width: float, credit: float) -> list[int]:
+    """Short iron fly: P&L = credit − min(width, |S − K|), so the break evens
+    sit at K ± credit; once the credit covers the width the fly is lossless
+    and the wing strikes are reported instead. Whole points are enough for
+    a chart annotation."""
+    half = min(credit, width)
+    return [round(body - half), round(body + half)]
+
+
+def long_fly_break_evens(body: float, width: float, debit: float) -> list[int]:
+    """Long fly: P&L = max(0, width − |S − K|) − debit → K ± (width − debit),
+    rounded to whole points."""
+    half = width - debit
+    return [round(body - half), round(body + half)]
+
+
 def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any]]:
     """Marker dicts (UTC-epoch times) for one chart day, oldest first.
 
-    Each marker is semantic — ``kind`` (entry/close/fly/tent), ``dir``
-    (bull/bear, entries and closes only), ``text``, ``price`` (the spot at
-    the event, so the frontend can pin it where the trade occurred; None
-    for closes, which anchor to their bar), ``details`` (ledger-language
-    lines for the hover tooltip, mirroring the daily report's per-order
-    rows) — and the frontend owns all styling. Entries also carry
-    ``strike`` and ``end`` (epoch when the structure closed or settled).
-    Strategy-family trades only. Sibling widths sharing a timestamp
-    collapse into one marker so the chart stays readable. Returns [] for
-    non-SPX symbols or days without an event log.
+    One marker per order event, numbered per structure (``n``) so an entry
+    and its close share a number:
+
+    * ``entry``   — ``dir`` bull/bear, ``price`` (entry spot), ``legs`` of
+      ``{arm, spread, credit}`` for the sibling arms opened together.
+    * ``close``   — ``reason`` and ``legs`` of ``{arm, spread, credit, cost,
+      net}``; sibling arms closed on the same snapshot share a marker.
+    * ``fly``     — the w25/w50 completion: ``strikes`` [lower wing, body,
+      upper wing], net ``credit``, ``breakEvens`` and all-in ``net``.
+    * ``eod_fly`` — the 14:00 long fly: ``strikes``, ``debit``,
+      ``breakEvens`` and ``net``.
+
+    ``net`` strings reuse the daily report's accounting so chart and
+    REPORT.md agree. Returns [] for non-SPX symbols or days without a log.
     """
     if symbol != MARKER_SYMBOL:
         return []
@@ -208,170 +241,125 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         return []
 
     entries: dict[str, dict] = {}
-    completions: dict[tuple[str, float, bool], dict] = {}
-    closes: dict[tuple[str, str], dict] = {}
-    tents: dict[str, dict] = {}
-    ends: dict[str, int] = {}
+    closes: dict[tuple[str, str], list[dict]] = {}
+    completions: list[dict] = []
+    eod: dict[str, dict] = {}
     try:
         with path.open() as fh:
             for line in fh:
                 e = json.loads(line)
-                if e.get("variant") not in STRATEGY_VARIANTS:
-                    continue
+                variant = e.get("variant")
                 kind = e.get("event")
+                if variant == EOD_FLY_VARIANT:
+                    if kind == "ENTRY":
+                        eod.setdefault(e["opened_at"], e)
+                    continue
+                if variant not in STRATEGY_VARIANTS:
+                    continue
                 if kind == "ENTRY":
-                    entries.setdefault(e["opened_at"], {**e, "widths": []})[
-                        "widths"
-                    ].append(e["width"])
-                elif kind == "COMPLETION":
-                    # sibling arms completing on the same snapshot at the same
-                    # width collapse; early-fly conversions stay distinct
-                    comp_key = (e["completed_at"], e["width"], bool(e.get("early_fly")))
-                    completions.setdefault(comp_key, e)
+                    entries.setdefault(e["opened_at"], {**e, "arms": []})[
+                        "arms"
+                    ].append(e)
                 elif kind == "CLOSE":
-                    close_key = (e["closed_at"], str(e.get("close_reason")))
-                    closes.setdefault(close_key, {**e, "widths": []})["widths"].append(
-                        e["width"]
-                    )
-                    ends[e["opened_at"]] = max(
-                        ends.get(e["opened_at"], 0), to_epoch(e["closed_at"])
-                    )
-                elif kind == "SETTLEMENT":
-                    ends[e["opened_at"]] = max(
-                        ends.get(e["opened_at"], 0), to_epoch(e["ts"])
-                    )
-                    if in_tent(e):
-                        tents.setdefault(e["ts"], {**e, "widths": []})["widths"].append(
-                            e["width"]
-                        )
+                    closes.setdefault((e["opened_at"], e["closed_at"]), []).append(e)
+                elif kind == "COMPLETION":
+                    completions.append(e)
     except (OSError, json.JSONDecodeError, KeyError, ValueError):
         logger.exception("Unreadable trade event log: %s", path)
         return []
 
-    by_open, first, settle, all_in, outcome_of = ledger_context(path.parent)
+    by_open, _first, _settle, all_in, _outcome = ledger_context(path.parent)
 
-    def cycle_story(r: dict) -> str:
-        """Plain-language cycle commentary for the visual history."""
-        if r.get("completion_credit") is not None:
-            formed = (
-                "converted early into a deficit fly"
-                if r.get("early_fly")
-                else "formed a butterfly"
-            )
-            if r.get("outcome") == "settled" and settle is not None:
-                where = (
-                    "settled in the tent"
-                    if abs(settle - r["short_strike"]) < r["width"]
-                    else "settled outside the tent"
-                )
-                return f"{formed} · {where}"
-            return formed
-        reason = r.get("close_reason")
-        if reason == "forced_eod":
-            return "forced close at 15:45"
-        if reason == "signal_hull":
-            return "closed early on hull flip (backstop)"
-        if reason == "signal_kalman":
-            return "closed early on kalman flip"
-        return str(outcome_of(r)) if outcome_of is not None else "open"
+    def ledger_row(opened_at: str, variant: str) -> dict | None:
+        for r in by_open.get(opened_at, []):
+            if r["variant"] == variant:
+                return r
+        return None
 
-    def entry_details(opened_at: str) -> list[str]:
-        if all_in is None:
-            return []
-        kind = "first entry" if first.get(opened_at, True) else "re-entry"
-        return [
-            f"{arm_label(r)}: {order_text(r)} · {kind} · "
-            f"credit {r['entry_credit']:.2f} · {cycle_story(r)} · "
-            f"net {all_in(r)}"
-            for r in by_open.get(opened_at, [])
-        ]
+    def net_of(opened_at: str, variant: str) -> str | None:
+        r = ledger_row(opened_at, variant)
+        return all_in(r) if (r is not None and all_in is not None) else None
 
-    def fly_details(e: dict) -> list[str]:
-        if all_in is None:
-            return []
-        for r in by_open.get(e["opened_at"], []):
-            if r["variant"] == e["variant"] and r.get("completion_credit") is not None:
-                total = r["entry_credit"] + r["completion_credit"]
-                prefix = (
-                    "early conversion (bounded deficit) · "
-                    if e.get("early_fly")
-                    else ""
-                )
-                return [
-                    f"{prefix}completion credit {r['completion_credit']:.2f} · "
-                    f"total {total:.2f} vs {r['width']:g} wide · "
-                    f"all-in {all_in(r)}"
-                ]
-        return []
-
-    def close_details(e: dict) -> list[str]:
-        if all_in is None:
-            return []
-        return [
-            f"{arm_label(r)}: bought back @ {r['close_cost']:.2f} · all-in {all_in(r)}"
-            for r in by_open.get(e["opened_at"], [])
-            if r.get("close_cost") is not None
-        ]
-
-    def tent_details(e: dict) -> list[str]:
-        lines = []
-        for r in by_open.get(e["opened_at"], []):
-            if r.get("completion_credit") is None or settle is None:
-                continue
-            K, w = r["short_strike"], r["width"]
-            if abs(settle - K) < w:
-                line = f"settled {settle:g} in {K - w:g}/{K + w:g} tent"
-                if all_in is not None:
-                    line += f" · {arm_label(r)} all-in {all_in(r)}"
-                lines.append(line)
-        return lines
-
+    numbers = {opened_at: i + 1 for i, opened_at in enumerate(sorted(entries))}
     markers: list[dict[str, Any]] = []
+
     for opened_at, e in entries.items():
-        bull = e["direction"] == "BULLISH"
-        cp = "P" if bull else "C"
+        arms = sorted(e["arms"], key=lambda a: a["width"])
         markers.append(
             {
-                "time": to_epoch(opened_at),
+                "n": numbers[opened_at],
                 "kind": "entry",
-                "dir": "bull" if bull else "bear",
-                "text": f"S {e['short_strike']:g}{cp} {widths_label(e['widths'])}",
-                "price": e.get("entry_spot"),
-                "strike": e["short_strike"],
-                "end": ends.get(opened_at),
-                "details": entry_details(opened_at),
-            }
-        )
-    for (_, width, early), e in completions.items():
-        markers.append(
-            {
-                "time": to_epoch(e["completed_at"]),
-                "kind": "fly",
-                "text": f"{'EF ' if early else ''}FLY {width:g}",
-                "price": e.get("completion_spot"),
-                "details": fly_details(e),
-            }
-        )
-    for (closed_at, reason), e in closes.items():
-        label = "EOD" if reason == "forced_eod" else "FLIP"
-        markers.append(
-            {
-                "time": to_epoch(closed_at),
-                "kind": "close",
                 "dir": "bull" if e["direction"] == "BULLISH" else "bear",
-                "text": f"{label} {widths_label(e['widths'])}",
-                "price": None,
-                "details": close_details(e),
+                "time": to_epoch(opened_at),
+                "price": e.get("entry_spot"),
+                "legs": [
+                    {
+                        "arm": ARM_NAMES[a["variant"]],
+                        "spread": spread_text(a),
+                        "credit": round2(a["entry_credit"]),
+                    }
+                    for a in arms
+                ],
             }
         )
-    for ts, e in tents.items():
+
+    for (opened_at, closed_at), group in closes.items():
+        group.sort(key=lambda a: a["width"])
+        reason = str(group[0].get("close_reason") or "")
         markers.append(
             {
-                "time": to_epoch(ts),
-                "kind": "tent",
-                "text": f"TENT {widths_label(e['widths'])}",
-                "price": e.get("settlement_spot"),
-                "details": tent_details(e),
+                "n": numbers.get(opened_at, 0),
+                "kind": "close",
+                "time": to_epoch(closed_at),
+                "price": None,
+                "reason": CLOSE_REASONS.get(reason, reason.replace("_", " ")),
+                "legs": [
+                    {
+                        "arm": ARM_NAMES[a["variant"]],
+                        "spread": spread_text(a),
+                        "credit": round2(a["entry_credit"]),
+                        "cost": round2(a["close_cost"]),
+                        "net": net_of(opened_at, a["variant"]),
+                    }
+                    for a in group
+                    if a.get("close_cost") is not None
+                ],
             }
         )
-    return sorted(markers, key=lambda m: m["time"])
+
+    for e in completions:
+        K, w = e["short_strike"], e["width"]
+        credit = e["entry_credit"] + e["completion_credit"]
+        markers.append(
+            {
+                "n": numbers.get(e["opened_at"], 0),
+                "kind": "fly",
+                "time": to_epoch(e["completed_at"]),
+                "price": e.get("completion_spot"),
+                "arm": ARM_NAMES[e["variant"]],
+                "strikes": [K - w, K, K + w],
+                "credit": round2(credit),
+                "lossless": credit >= w,
+                "breakEvens": fly_break_evens(K, w, credit),
+                "net": net_of(e["opened_at"], e["variant"]),
+            }
+        )
+
+    for opened_at, e in eod.items():
+        K, w = e["short_strike"], e["width"]
+        debit = -e["entry_credit"]
+        markers.append(
+            {
+                "n": len(numbers) + 1,
+                "kind": "eod_fly",
+                "time": to_epoch(opened_at),
+                "price": e.get("entry_spot"),
+                "arm": f"w{w:g}",
+                "strikes": [K - w, K, K + w],
+                "debit": round2(debit),
+                "breakEvens": long_fly_break_evens(K, w, debit),
+                "net": net_of(opened_at, EOD_FLY_VARIANT),
+            }
+        )
+
+    return sorted(markers, key=lambda m: (m["time"], m["n"]))
