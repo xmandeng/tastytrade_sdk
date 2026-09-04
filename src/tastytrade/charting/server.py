@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from influxdb_client import InfluxDBClient
@@ -210,6 +210,16 @@ class ChartServer:
                     pass
 
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+        @app.middleware("http")
+        async def revalidate_static(request: Request, call_next: Any) -> Any:
+            # The page is split into separately cached scripts; make browsers
+            # revalidate them on every load so a redeploy shows up on refresh.
+            response = await call_next(request)
+            if request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "no-cache"
+            return response
+
         return app
 
     async def handle_chart_session(
