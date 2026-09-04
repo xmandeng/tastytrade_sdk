@@ -12,10 +12,10 @@ const chart = LightweightCharts.createChart(chartEl, {
   },
   grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  // One axis column on the left for price and every study, as the original
-  // chart had it; the right edge stays clear.
+  // Price reads on the left as the original chart had it; the lower studies
+  // read on the right, so a study value never sits beside a price.
   leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
-  rightPriceScale: { visible: false },
+  rightPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.1, bottom: 0.1 } },
   localization: { timeFormatter: (t) => fmtTime(t) },
   timeScale: {
     borderColor: C.border, timeVisible: true, secondsVisible: false,
