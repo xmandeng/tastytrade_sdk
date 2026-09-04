@@ -1331,8 +1331,7 @@ def rollup_block(reconstructed: list[dict], settle_spot: float) -> list[str]:
         f"+{FILL_COST_BOUNDS[0]}/+{FILL_COST_BOUNDS[1]} slippage) |",
         f"| from closed verticals (realized) | {fmt_pts(realized)} ({len(closed)} trades) |",
         f"| from settled butterflies | {fmt_pts(fly_pnl)} ({len(settled)} flies) |",
-        f"| slippage + fees ({spreads} spread orders) | "
-        f"{fmt_pts(-total_friction)} |",
+        f"| slippage + fees ({spreads} spread orders) | {fmt_pts(-total_friction)} |",
         f"| settlement fees ({itm_legs} ITM legs x $5) | {fmt_pts(-settle_fees)} |",
         f"| whipsaw round trips (<2 min) | {len(whips)}, "
         f"{fmt_pts(sum(s['pnl_points'] or 0.0 for s in whips))} at mid |",
@@ -1384,6 +1383,18 @@ def build_report(data_dir: Path) -> str:
         lines += ["## The day's story", "", narrative.read_text().strip(), ""]
     lines += regime_slim_lines(snapshots, data_dir)
     settle_value = results.get("settlement_spot")
+    if settle_value is None:
+        # the ledger rows carry the official close once a day is settled
+        # (or restated); only an unsettled day falls through to the
+        # last pre-close snapshot, which is an approximation
+        settle_value = next(
+            (
+                e["settlement_spot"]
+                for e in load_events(data_dir)
+                if e.get("settlement_spot") is not None
+            ),
+            None,
+        )
     if settle_value is None:
         settle_value = next(
             (

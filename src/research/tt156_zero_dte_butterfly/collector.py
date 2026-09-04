@@ -25,7 +25,6 @@ from research.tt156_zero_dte_butterfly.chain import (
 )
 from research.tt156_zero_dte_butterfly.config import (
     ET,
-    MARKET_CLOSE,
     SESSION_END,
     SESSION_START,
     SYMBOL,
@@ -36,6 +35,10 @@ from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
 from research.tt156_zero_dte_butterfly.pinfly import (
     PinFlySimulator,
     default_pinfly_arms,
+)
+from research.tt156_zero_dte_butterfly.settlement import (
+    influx_source,
+    official_close,
 )
 from research.tt156_zero_dte_butterfly.simulator import (
     ButterflySimulator,
@@ -70,10 +73,16 @@ class DayCollector:
         self.window_hi: float = 0.0
         self.expiration: str = ""
         self.cycles: int = 0
-        self.settlement_spot: float | None = None
         self.last_snapshot_ts: datetime | None = None
         self.day_atr: float | None = None
         self.spot_path: list[tuple[int, float]] = []
+
+    def official_close_today(self) -> float | None:
+        source, influx = influx_source()
+        try:
+            return official_close(source, self.now_et().date(), self.now_et())
+        finally:
+            influx.close()  # type: ignore[attr-defined]
 
     def kal_tent_exists(self) -> bool:
         """Any kalman-family fly completed so far today (the pin-fly
@@ -261,8 +270,6 @@ class DayCollector:
                     cycle_start, spot, quotes, signals, gate_ctx, regime_state
                 )
                 self.pinfly.on_snapshot(cycle_start, spot, quotes)
-                if cycle_start.time() <= MARKET_CLOSE:
-                    self.settlement_spot = spot
                 self.cycles += 1
                 self.write_health(cycle_start, spot, len(quotes))
                 await self.maybe_recenter(spot)
@@ -271,9 +278,19 @@ class DayCollector:
             elapsed = (self.now_et() - cycle_start).total_seconds()
             await asyncio.sleep(max(0.5, self.cfg.cadence_seconds - elapsed))
 
-        settle_spot = self.settlement_spot if self.settlement_spot is not None else spot
-        self.simulator.settle(self.now_et(), settle_spot)
-        self.pinfly.settle(self.now_et(), settle_spot)
+        # SPXW settles to the official SPX close, published minutes after
+        # 16:00 as late prints land. A snapshot spot is never that value, so
+        # when the close is unavailable the structures stay unsettled and
+        # the restate command completes the day once the candle exists.
+        settle_spot = self.official_close_today()
+        if settle_spot is None:
+            logger.error(
+                "Official close unavailable; %d structures left unsettled",
+                len(self.simulator.structures) + len(self.pinfly.structures),
+            )
+        else:
+            self.simulator.settle(self.now_et(), settle_spot)
+            self.pinfly.settle(self.now_et(), settle_spot)
         results = self.simulator.summary()
         results["settlement_spot"] = settle_spot
         results["cycles"] = self.cycles
