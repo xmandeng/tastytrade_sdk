@@ -12,10 +12,12 @@ const chart = LightweightCharts.createChart(chartEl, {
   },
   grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  // Price reads on the left as the original chart had it; the lower studies
-  // read on the right, so a study value never sits beside a price.
+  // Price and study scales read on the left as the original chart had it.
+  // The right column carries only the candle pane's level badges (prior day,
+  // opening range): its tick labels are painted transparent and its range is
+  // slaved to the price scale (see levelAxisSeries).
   leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
-  rightPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.1, bottom: 0.1 } },
+  rightPriceScale: { visible: true, borderColor: C.border, textColor: 'rgba(0,0,0,0)', scaleMargins: { top: 0, bottom: 0 } },
   localization: { timeFormatter: (t) => fmtTime(t) },
   timeScale: {
     borderColor: C.border, timeVisible: true, secondsVisible: false,
@@ -40,6 +42,27 @@ const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
   lastValueVisible: false, priceLineVisible: false,
   priceScaleId: 'left',
 }, 0);
+
+// A series can sit on one price scale only, so level badges on the right
+// hang off an invisible line series whose autoscale range is read back from
+// the candle series (top and bottom pixel -> price), keeping the two scales
+// in step. It carries the candle closes so it always has bars to scale.
+const levelAxisSeries = chart.addSeries(LightweightCharts.LineSeries, {
+  priceScaleId: 'right', color: 'rgba(0,0,0,0)', lineWidth: 1,
+  lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+  autoscaleInfoProvider: () => {
+    const pane = chart.panes()[0];
+    const h = pane ? pane.getHeight() : 0;
+    const top = h ? candleSeries.coordinateToPrice(0) : null;
+    const bot = h ? candleSeries.coordinateToPrice(h) : null;
+    if (top == null || bot == null) return null;
+    return { priceRange: { minValue: Math.min(top, bot), maxValue: Math.max(top, bot) }, margins: { above: 0, below: 0 } };
+  },
+}, 0);
+
+function setLevelAxisData(bars) {
+  levelAxisSeries.setData(bars.map(b => ({ time: b.time, value: b.close })));
+}
 
 // Last-price badge on the axis, coloured by the last bar's direction. The
 // candlestick series' own badge inherits the hollow up-body colour, so a

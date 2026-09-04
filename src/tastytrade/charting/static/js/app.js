@@ -117,8 +117,11 @@ function applyInit(msg) {
     const prec = mid >= 1000 ? 0 : mid >= 100 ? 1 : mid >= 1 ? 2 : 4;
     const mv = mid >= 1000 ? 1 : mid >= 100 ? 0.1 : mid >= 1 ? 0.01 : 0.0001;
     candleSeries.applyOptions({ priceFormat: { type: 'price', precision: prec, minMove: mv } });
+    // Level badges keep cents whatever the axis shows: 7712.30, not 7712.
+    levelAxisSeries.applyOptions({ priceFormat: { type: 'price', precision: Math.max(2, prec), minMove: Math.min(0.01, mv) } });
   }
   candleSeries.setData(msg.candles);
+  setLevelAxisData(msg.candles);
   updateLastPriceBadge(msg.candles.length ? msg.candles[msg.candles.length - 1] : null);
   setTrades(msg.trades, msg.candles);
   renderPnl(msg.pnl);
@@ -137,6 +140,7 @@ function applyInit(msg) {
 
 function applyUpdate(msg) {
   candleSeries.update(msg.candle);
+  levelAxisSeries.update({ time: msg.candle.time, value: msg.candle.close });
   updateLastPriceBadge(msg.candle);
   if (msg.pnl) renderPnl(msg.pnl);
   if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {

@@ -8,7 +8,7 @@ const LOWER_PANE_H = { two: 150, one: 195 };
 const lineOpts = (extra) => ({
   priceLineVisible: false, lastValueVisible: false,
   priceFormat: { type: 'custom', minMove: 0.01, formatter: fmtTrim },
-  priceScaleId: 'right', ...extra,
+  priceScaleId: 'left', ...extra,
 });
 
 const LOWER_STUDIES = [
