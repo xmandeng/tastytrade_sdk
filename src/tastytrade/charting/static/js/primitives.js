@@ -157,6 +157,7 @@ class TradeMarkersPrimitive {
     this._pinned = null;
     this._zones = new Set();
     this._visible = true;
+    this._topInset = 14;   // pane edge -> top-gutter chip center; grows to clear the label strip
     this._series = null;
     this._chart = null;
     this._paneView = { renderer: () => ({ draw: (target) => this.drawPins(target) }) };
@@ -168,6 +169,12 @@ class TradeMarkersPrimitive {
   autoscaleInfo() { return null; }
 
   requestRedraw() { if (this._series) this._series.applyOptions({}); }
+  setTopInset(px) {
+    const v = Math.max(14, Math.round(px));
+    if (v === this._topInset) return;
+    this._topInset = v;
+    this.requestRedraw();
+  }
   setData(arr) {
     this._data = (arr || []).slice().sort((a, b) => a.time - b.time || a.n - b.n);
     this._pinned = null;
@@ -214,7 +221,7 @@ class TradeMarkersPrimitive {
         }
         placed[side].push({ cx, lane });
         const cy = side === 'above'
-          ? GUTTER + lane * LANE
+          ? this._topInset * r + lane * LANE
           : scope.bitmapSize.height - GUTTER - lane * LANE;
         const py = yPoint * yr;
         const hue = tradeHue(m);

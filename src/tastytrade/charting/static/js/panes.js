@@ -240,6 +240,8 @@ function renderCandleStrip() {
     if (on.length) parts.push(`<span class="ps-key">OR</span>${stripValue(on.join(' · '), 'rgba(76,175,80,0.9)')}`);
   }
   el.innerHTML = `<div class="ps-line">${line1}</div>` + (parts.length ? `<div class="ps-line">${parts.join('')}</div>` : '');
+  // Top-gutter chips sit below the strip (strip top 6 px + its height + a gap).
+  tradeMarkers.setTopInset(6 + el.offsetHeight + 16);
 }
 
 function renderLowerStrip(key) {
