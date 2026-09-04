@@ -111,14 +111,14 @@ function applyInit(msg) {
 
   lastCandles = msg.candles;
   if (msg.candles.length) {
-    // Cents on the axis as in the design; sub-dollar symbols keep four places.
+    // Axis precision follows the price level: whole points above 1000, one
+    // decimal above 100, cents above 1, four places below.
     const mid = msg.candles[Math.floor(msg.candles.length / 2)].close;
-    const prec = mid >= 1 ? 2 : 4;
-    const mv = mid >= 1 ? 0.01 : 0.0001;
+    const prec = mid >= 1000 ? 0 : mid >= 100 ? 1 : mid >= 1 ? 2 : 4;
+    const mv = mid >= 1000 ? 1 : mid >= 100 ? 0.1 : mid >= 1 ? 0.01 : 0.0001;
     candleSeries.applyOptions({ priceFormat: { type: 'price', precision: prec, minMove: mv } });
   }
   candleSeries.setData(msg.candles);
-  setMirrorData(candleMirror, msg.candles, 'close');
   updateLastPriceBadge(msg.candles.length ? msg.candles[msg.candles.length - 1] : null);
   setTrades(msg.trades, msg.candles);
   renderPnl(msg.pnl);
@@ -137,7 +137,6 @@ function applyInit(msg) {
 
 function applyUpdate(msg) {
   candleSeries.update(msg.candle);
-  candleMirror.update({ time: msg.candle.time, value: msg.candle.close });
   updateLastPriceBadge(msg.candle);
   if (msg.pnl) renderPnl(msg.pnl);
   if (lastCandles.length && lastCandles[lastCandles.length - 1].time === msg.candle.time) {

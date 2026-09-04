@@ -77,6 +77,12 @@ function fmtPx(v, digits = 2) {
   return v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(digits);
 }
 
+// Study axes: up to two decimals with trailing zeros trimmed (12, 0.5, -0.25).
+function fmtTrim(v) {
+  if (v == null || Number.isNaN(Number(v))) return '';
+  return String(Number(Number(v).toFixed(2)));
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 }

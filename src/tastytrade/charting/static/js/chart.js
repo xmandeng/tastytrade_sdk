@@ -12,10 +12,10 @@ const chart = LightweightCharts.createChart(chartEl, {
   },
   grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  // Price scale on the right as on ThinkorSwim, mirrored on the left so the
-  // scale reads from either edge (see mirrorOnLeftScale).
-  leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0, bottom: 0 } },
-  rightPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
+  // One axis column on the left for price and every study, as the original
+  // chart had it; the right edge stays clear.
+  leftPriceScale: { visible: true, borderColor: C.border, scaleMargins: { top: 0.05, bottom: 0.05 } },
+  rightPriceScale: { visible: false },
   localization: { timeFormatter: (t) => fmtTime(t) },
   timeScale: {
     borderColor: C.border, timeVisible: true, secondsVisible: false,
@@ -38,38 +38,13 @@ const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
   borderUpColor: C.candleUpBorder, borderDownColor: C.candleDownBorder,
   wickUpColor: C.candleUpBorder, wickDownColor: C.candleDownBorder,
   lastValueVisible: false, priceLineVisible: false,
-  priceScaleId: 'right',
+  priceScaleId: 'left',
 }, 0);
-
-// A series can sit on one price scale only, so the left axis is fed by an
-// invisible line series whose autoscale range is read back from the pane's
-// real series (top and bottom pixel -> price). It carries the same bars so
-// the two scales stay in step as the view scrolls.
-function mirrorOnLeftScale(refSeries, paneIndex) {
-  const mirror = chart.addSeries(LightweightCharts.LineSeries, {
-    priceScaleId: 'left', color: 'rgba(0,0,0,0)', lineWidth: 1,
-    lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
-    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-    autoscaleInfoProvider: () => {
-      const pane = chart.panes()[paneIndex];
-      const h = pane ? pane.getHeight() : 0;
-      const top = h ? refSeries.coordinateToPrice(0) : null;
-      const bot = h ? refSeries.coordinateToPrice(h) : null;
-      if (top == null || bot == null) return null;
-      return { priceRange: { minValue: Math.min(top, bot), maxValue: Math.max(top, bot) }, margins: { above: 0, below: 0 } };
-    },
-  }, paneIndex);
-  return mirror;
-}
 
 // Last-price badge on the axis, coloured by the last bar's direction. The
 // candlestick series' own badge inherits the hollow up-body colour, so a
 // price line carries it instead (label only, no line).
 let lastPriceLine = null;
-function setMirrorData(mirror, bars, key) {
-  mirror.setData(bars.map(b => ({ time: b.time, value: b[key] })));
-}
-
 function updateLastPriceBadge(bar) {
   if (lastPriceLine) { try { candleSeries.removePriceLine(lastPriceLine); } catch (e) {} lastPriceLine = null; }
   if (!bar) return;
@@ -80,8 +55,6 @@ function updateLastPriceBadge(bar) {
   });
 }
 
-const candleMirror = mirrorOnLeftScale(candleSeries, 0);
-
 const hmaPrimitive = new HmaPrimitive();
 candleSeries.attachPrimitive(hmaPrimitive);
 const tradeMarkers = new TradeMarkersPrimitive();
@@ -89,7 +62,7 @@ candleSeries.attachPrimitive(tradeMarkers);
 const profitZones = new ProfitZonePrimitive();
 candleSeries.attachPrimitive(profitZones);
 
-// Horizontal offset of the pane area inside #chart (0 with the axis on the right).
+// Horizontal offset of the pane area inside #chart (the left axis width).
 function axisLeftWidth() {
   try { return chart.priceScale('left').width(); } catch (e) { return 0; }
 }

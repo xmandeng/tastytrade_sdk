@@ -7,8 +7,8 @@ const LOWER_PANE_H = { two: 150, one: 195 };
 
 const lineOpts = (extra) => ({
   priceLineVisible: false, lastValueVisible: false,
-  priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-  priceScaleId: 'right', ...extra,
+  priceFormat: { type: 'custom', minMove: 0.01, formatter: fmtTrim },
+  priceScaleId: 'left', ...extra,
 });
 
 const LOWER_STUDIES = [
@@ -19,20 +19,17 @@ const LOWER_STUDIES = [
       const value = chart.addSeries(LightweightCharts.LineSeries, lineOpts({ color: C.macdValue, lineWidth: 1 }), paneIndex);
       const signal = chart.addSeries(LightweightCharts.LineSeries, lineOpts({ color: C.macdSignal, lineWidth: 1 }), paneIndex);
       value.createPriceLine({ price: 0, color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false });
-      const mirror = mirrorOnLeftScale(hist, paneIndex);
-      return { hist, value, signal, mirror, all: [hist, value, signal, mirror] };
+      return { hist, value, signal, all: [hist, value, signal] };
     },
     load(objs, points) {
       objs.hist.setData(points.map(p => ({ time: p.time, value: p.histogram, color: p.histogramColor })));
       objs.value.setData(points.map(p => ({ time: p.time, value: p.value })));
       objs.signal.setData(points.map(p => ({ time: p.time, value: p.signal })));
-      objs.mirror.setData(points.map(p => ({ time: p.time, value: p.histogram })));
     },
     update(objs, p) {
       objs.hist.update({ time: p.time, value: p.histogram, color: p.histogramColor });
       objs.value.update({ time: p.time, value: p.value });
       objs.signal.update({ time: p.time, value: p.signal });
-      objs.mirror.update({ time: p.time, value: p.histogram });
     },
     values(p) {
       return p ? [
@@ -47,17 +44,14 @@ const LOWER_STUDIES = [
     mount(paneIndex) {
       const vel = chart.addSeries(LightweightCharts.HistogramSeries, lineOpts({}), paneIndex);
       vel.createPriceLine({ price: 0, color: C.macdZero, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false });
-      const mirror = mirrorOnLeftScale(vel, paneIndex);
-      return { vel, mirror, all: [vel, mirror] };
+      return { vel, all: [vel] };
     },
     load(objs, points) {
       objs.vel.setData(points.map(p => ({ time: p.time, value: p.velocity, color: p.velColor })));
-      objs.mirror.setData(points.map(p => ({ time: p.time, value: p.velocity })));
     },
     update(objs, p) {
       if (p.velocity == null) return;
       objs.vel.update({ time: p.time, value: p.velocity, color: p.velColor });
-      objs.mirror.update({ time: p.time, value: p.velocity });
     },
     values(p) {
       return p ? [{ text: fmtPx(p.velocity, 3), color: p.velColor || C.text }] : [];
