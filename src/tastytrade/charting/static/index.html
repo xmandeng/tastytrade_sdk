@@ -1285,7 +1285,7 @@ function pnlUsd(v) { return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString();
 
 function renderPnl(pnl) {
   if (!pnl || !pnl.arms || !pnl.arms.length) { pnlCard.classList.remove('on'); return; }
-  const header = '<span></span><span class="pnl-hdr">CYC</span>' +
+  const header = '<span></span><span class="pnl-hdr" style="text-align: center">CYC</span>' +
                  '<span class="pnl-hdr">P&amp;L</span><span class="pnl-hdr">MARGIN</span>';
   pnlRows.innerHTML = header + pnl.arms.map(a => {
     const cls = a.total == null ? 'flat' : (a.total > 0 ? 'pos' : (a.total < 0 ? 'neg' : 'flat'));
