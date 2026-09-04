@@ -127,10 +127,17 @@ function observePanes() {
   for (const pane of chart.panes()) {
     if (typeof pane.getHTMLElement !== 'function') continue;
     const el = pane.getHTMLElement();
-    if (el) paneObserver.observe(el);
+    if (!el) continue;
+    // The pane element is a table row, which ResizeObserver does not report
+    // on; its cells do resize-observe, so watch those (and the row itself).
+    paneObserver.observe(el);
+    Array.from(el.children).forEach(cell => paneObserver.observe(cell));
   }
   requestAnimationFrame(layoutStrips);
 }
+// A separator drag ends with a pointer release over the chart; settle the
+// strips once the new pane heights have been applied.
+chartEl.addEventListener('pointerup', () => requestAnimationFrame(layoutStrips));
 
 function setLowerData(key, points) {
   cacheLowerInit(key, points);
