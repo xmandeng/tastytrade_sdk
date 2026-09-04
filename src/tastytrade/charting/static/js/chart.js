@@ -4,7 +4,9 @@ const chartEl = document.getElementById('chart');
 
 const chart = LightweightCharts.createChart(chartEl, {
   layout: {
-    background: { type: 'solid', color: C.bg },
+    // Transparent so the pane label strips, which sit behind the canvases,
+    // show through empty space and get overdrawn by the plot.
+    background: { type: 'solid', color: 'transparent' },
     textColor: C.text,
     fontFamily: 'monospace',
     panes: { separatorColor: C.border, separatorHoverColor: C.accent, enableResize: true },

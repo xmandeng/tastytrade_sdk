@@ -174,17 +174,29 @@ function sizePanes() {
 // the top-left of each pane; lower strips carry a close control.
 // ============================================================================
 const stripsEl = document.getElementById('paneStrips');
+const controlsEl = document.getElementById('paneControls');
 let stripBarTime = null;   // hovered bar, or null for the latest bar
 
 function ensureStripElements() {
   const want = ['candle', ...mountedKeys];
   Array.from(stripsEl.children).forEach(el => { if (!want.includes(el.dataset.pane)) el.remove(); });
+  Array.from(controlsEl.children).forEach(el => { if (!mountedKeys.includes(el.dataset.study)) el.remove(); });
   want.forEach(key => {
     if (!stripsEl.querySelector(`[data-pane="${key}"]`)) {
       const el = document.createElement('div');
       el.className = 'pane-strip';
       el.dataset.pane = key;
       stripsEl.appendChild(el);
+    }
+  });
+  mountedKeys.forEach(key => {
+    if (!controlsEl.querySelector(`[data-study="${key}"]`)) {
+      const x = document.createElement('span');
+      x.className = 'pane-x';
+      x.dataset.study = key;
+      x.title = 'Hide pane';
+      x.innerHTML = '<svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 1 L7 7 M7 1 L1 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>';
+      controlsEl.appendChild(x);
     }
   });
 }
@@ -210,6 +222,9 @@ function layoutStrips() {
     if (!el || top == null) return;
     el.style.top = `${top + 6}px`;
     el.style.left = `${left}px`;
+    // The close control follows its strip's right edge.
+    const x = controlsEl.querySelector(`[data-study="${key}"]`);
+    if (x) { x.style.top = `${top + 6}px`; x.style.left = `${left + el.offsetWidth + 4}px`; }
   });
 }
 
@@ -260,17 +275,16 @@ function renderLowerStrip(key) {
     `<span class="ps-title">${escapeHtml(study.label)}</span>` +
     `<span class="ps-params">${escapeHtml(study.params)}</span>` +
     vals.map(v => stripValue(v.text, v.color)).join('') +
-    `<span class="pane-x" data-study="${key}" title="Hide pane">` +
-    `<svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 1 L7 7 M7 1 L1 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></span>` +
     `</div>`;
 }
 
 function renderStrips() {
   renderCandleStrip();
   mountedKeys.forEach(renderLowerStrip);
+  layoutStrips();
 }
 
-stripsEl.addEventListener('click', (e) => {
+controlsEl.addEventListener('click', (e) => {
   const x = e.target.closest('.pane-x');
   if (!x) return;
   setStudy(x.dataset.study, false);
