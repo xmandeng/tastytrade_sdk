@@ -130,7 +130,13 @@
 
     /* Pane label strips (ThinkorSwim-style): name · params · live values at
        the top-left of every pane; lower panes carry a close control. */
-    #paneStrips { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+    /* The strips sit BEHIND the chart canvases (whose background is transparent),
+       so bars and lines draw over the label as on ThinkorSwim; only the close
+       control lives above the canvas so it stays clickable. */
+    #chart > .tv-lightweight-charts { position: relative; z-index: 5; }
+    #paneStrips { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    #paneControls { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+    #paneControls .pane-x { position: absolute; }
     .pane-strip { position: absolute; display: flex; flex-direction: column; gap: 3px; font-family: monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
     .ps-line { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
     .ps-title { color: var(--text); font-weight: 700; font-size: 12px; }
@@ -139,7 +145,7 @@
     .ps-key + .ps-val { margin-left: -6px; }
     .ps-val { color: var(--text); }
     .pane-x {
-      pointer-events: auto; cursor: pointer; width: 16px; height: 16px; margin-left: -4px;
+      pointer-events: auto; cursor: pointer; width: 16px; height: 16px;
       display: inline-flex; align-items: center; justify-content: center;
       border-radius: 3px; color: var(--text-dim);
     }
@@ -245,6 +251,7 @@
 
 <div id="chart">
   <div id="paneStrips"></div>
+  <div id="paneControls"></div>
   <div id="tradeCard"></div>
   <div id="pnlCard">
     <div class="pnl-head" id="pnlHead">
