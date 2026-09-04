@@ -89,9 +89,10 @@ options symbol *args:
 
 # --- Charting ---
 
-# Live chart: just chart, just chart SPY, just chart BTC/USD:CXTALP 8092
+# Live chart with auto-restart on Python changes (static files need only a
+# browser refresh): just chart, just chart SPY, just chart BTC/USD:CXTALP 8092
 chart symbol="SPX" port="8091" interval="m":
-    uv run tasty-chart --symbol "{{symbol}}" --interval {{interval}} --port {{port}}
+    uv run tasty-chart --symbol "{{symbol}}" --interval {{interval}} --port {{port}} --reload
 
 # List running chart servers
 chart-list:

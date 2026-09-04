@@ -31,7 +31,8 @@ function createLevelLine(entry, axisLabel) {
   const priceLineOpts = {
     price: entry.price, color: entry.color, lineWidth: 1,
     lineStyle: lwcStyle(entry.lineStyle),
-    axisLabelVisible: !!axisLabel, title: entry.label,
+    // Badge shows the price only; the strip carries the level names.
+    axisLabelVisible: !!axisLabel, title: '',
     lineVisible: false,
   };
   if (entry.badgeColor)     priceLineOpts.axisLabelColor     = entry.badgeColor;
@@ -41,7 +42,7 @@ function createLevelLine(entry, axisLabel) {
   let primitive = null;
   if (hasBounds) {
     primitive = new BoundedLineSegment(entry.price, entry.color, entry.lineStyle,
-      entry.tStart ?? null, entry.tEnd ?? null);
+      entry.tStart ?? null, entry.tEnd ?? null, entry.autoscale !== false);
     candleSeries.attachPrimitive(primitive);
   } else {
     priceLine.applyOptions({ lineVisible: true });
@@ -95,7 +96,7 @@ function registerPriorDay(dc) {
   for (const [id, price, label, color, badge] of spec) {
     if (price == null) continue;
     registerLevel(id, [{ price, label, color, lineStyle: 'dotted',
-      badgeColor: badge, badgeTextColor: C.badgeText, tStart, tEnd }], true);
+      badgeColor: badge, badgeTextColor: C.badgeText, tStart, tEnd, autoscale: false }], true);
   }
 }
 
