@@ -1,4 +1,4 @@
-"""TT-156 trade markers: event-log → lightweight-charts marker pass-through."""
+"""TT-156 trade markers: event-log → per-order chart markers."""
 
 import json
 from datetime import date, datetime, timezone
@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from tastytrade.charting.trade_markers import load_trade_markers
+from tastytrade.charting.trade_markers import (
+    fly_break_evens,
+    load_trade_markers,
+    long_fly_break_evens,
+)
 
 DAY = date(2026, 8, 18)
 
@@ -28,8 +32,13 @@ def entry(variant: str, width: float, **kw) -> dict:
         "width": width,
         "opened_at": "2026-08-18T15:03:35-04:00",
         "entry_credit": 22.0,
+        "entry_spot": 7701.5,
         **kw,
     }
+
+
+def epoch(stamp: str) -> int:
+    return int(datetime.fromisoformat(stamp).astimezone(timezone.utc).timestamp())
 
 
 @pytest.fixture
@@ -38,83 +47,96 @@ def data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+class TestBreakEvens:
+    def test_short_iron_fly_break_evens_at_body_plus_minus_credit(self) -> None:
+        assert fly_break_evens(7705.0, 25.0, 18.0) == [7687, 7723]
+
+    def test_lossless_fly_reports_wing_strikes(self) -> None:
+        assert fly_break_evens(7705.0, 25.0, 25.43) == [7680, 7730]
+
+    def test_long_fly_break_evens_round_to_whole_points(self) -> None:
+        assert long_fly_break_evens(7750.0, 25.0, 15.625) == [7741, 7759]
+
+
 class TestLoadTradeMarkers:
     def test_missing_day_and_foreign_symbol_return_empty(self, data_root: Path) -> None:
         assert load_trade_markers("SPX", DAY) == []
         write_events(data_root, [entry("w25_5m_m0_kal", 25.0)])
         assert load_trade_markers("NDX", DAY) == []
 
-    def test_sibling_widths_collapse_into_one_entry_marker(
-        self, data_root: Path
-    ) -> None:
+    def test_sibling_arms_share_one_entry_marker(self, data_root: Path) -> None:
         write_events(
-            data_root, [entry("w25_5m_m0_kal", 25.0), entry("w50_5m_m0_kal", 50.0)]
+            data_root,
+            [
+                entry("w50_5m_m0_kal", 50.0, entry_credit=30.0),
+                entry("w25_5m_m0_kal", 25.0),
+            ],
         )
         markers = load_trade_markers("SPX", DAY)
         assert len(markers) == 1
         m = markers[0]
-        assert m["text"] == "S 7700P 25/50"
         assert m["kind"] == "entry"
+        assert m["n"] == 1
         assert m["dir"] == "bull"
-        expected = int(
-            datetime.fromisoformat("2026-08-18T15:03:35-04:00")
-            .astimezone(timezone.utc)
-            .timestamp()
-        )
-        assert m["time"] == expected
+        assert m["time"] == epoch("2026-08-18T15:03:35-04:00")
+        assert m["price"] == 7701.5
+        # Narrow arm first, spread text is short/long strike plus type.
+        assert m["legs"] == [
+            {"arm": "w25", "spread": "7700/7675 P", "credit": 22.0},
+            {"arm": "w50", "spread": "7700/7650 P", "credit": 30.0},
+        ]
 
-    def test_non_strategy_variants_ignored(self, data_root: Path) -> None:
-        write_events(data_root, [entry("w25_m_m0", 25.0), entry("w10_5m_m0", 10.0)])
-        assert load_trade_markers("SPX", DAY) == []
-
-    def test_full_lifecycle_markers_sorted(self, data_root: Path) -> None:
-        base = entry("w25_5m_m0_kal", 25.0, direction="BEARISH")
+    def test_non_strategy_and_early_fly_variants_ignored(self, data_root: Path) -> None:
         write_events(
             data_root,
             [
-                base,
+                entry("w25_m_m0", 25.0),
+                entry("w10_5m_m0", 10.0),
+                entry("w25_5m_m0_kal_ef5", 25.0),
+            ],
+        )
+        assert load_trade_markers("SPX", DAY) == []
+
+    def test_flip_yields_close_and_entry_with_own_numbers(
+        self, data_root: Path
+    ) -> None:
+        first = entry("w25_5m_m0_kal", 25.0, direction="BEARISH")
+        second = entry(
+            "w25_5m_m0_kal",
+            25.0,
+            opened_at="2026-08-18T15:20:00-04:00",
+            short_strike=7710.0,
+            entry_credit=9.5,
+        )
+        write_events(
+            data_root,
+            [
+                first,
                 {
-                    **base,
-                    "event": "COMPLETION",
-                    "completed_at": "2026-08-18T15:20:00-04:00",
-                    "completion_credit": 22.0,
+                    **first,
+                    "event": "CLOSE",
+                    "closed_at": "2026-08-18T15:20:00-04:00",
+                    "close_reason": "signal_kalman",
+                    "close_cost": 24.5,
                 },
-                {
-                    **base,
-                    "event": "SETTLEMENT",
-                    "ts": "2026-08-18T16:15:00-04:00",
-                    "completion_credit": 22.0,
-                    "settlement_spot": 7690.0,
-                },
+                second,
             ],
         )
         markers = load_trade_markers("SPX", DAY)
-        assert [m["text"] for m in markers] == ["S 7700C 25", "FLY 25", "TENT 25"]
-        assert [m["kind"] for m in markers] == ["entry", "fly", "tent"]
-        assert markers == sorted(markers, key=lambda m: m["time"])
-        assert markers[0]["dir"] == "bear"
+        assert [(m["kind"], m["n"]) for m in markers] == [
+            ("entry", 1),
+            ("close", 1),
+            ("entry", 2),
+        ]
+        close = markers[1]
+        assert close["reason"] == "kalman flip"
+        assert close["price"] is None
+        assert close["legs"][0]["spread"] == "7700/7725 C"
+        assert close["legs"][0]["credit"] == 22.0
+        assert close["legs"][0]["cost"] == 24.5
+        assert markers[2]["legs"][0]["spread"] == "7710/7685 P"
 
-    def test_settlement_outside_wings_gets_no_tent_marker(
-        self, data_root: Path
-    ) -> None:
-        base = entry("w25_5m_m0_kal", 25.0)
-        write_events(
-            data_root,
-            [
-                base,
-                {
-                    **base,
-                    "event": "SETTLEMENT",
-                    "ts": "2026-08-18T16:15:00-04:00",
-                    "completion_credit": 22.0,
-                    "settlement_spot": 7600.0,
-                },
-            ],
-        )
-        texts = [m["text"] for m in load_trade_markers("SPX", DAY)]
-        assert texts == ["S 7700P 25"]
-
-    def test_close_marker_labels_reason(self, data_root: Path) -> None:
+    def test_close_reason_labels(self, data_root: Path) -> None:
         base = entry("w25_5m_m0_kal", 25.0)
         write_events(
             data_root,
@@ -125,13 +147,87 @@ class TestLoadTradeMarkers:
                     "event": "CLOSE",
                     "closed_at": "2026-08-18T15:45:06-04:00",
                     "close_reason": "forced_eod",
+                    "close_cost": 1.0,
                 },
             ],
         )
         markers = load_trade_markers("SPX", DAY)
-        assert markers[-1]["text"] == "EOD 25"
         assert markers[-1]["kind"] == "close"
-        assert markers[-1]["dir"] == "bull"
+        assert markers[-1]["reason"] == "forced EOD"
+
+    def test_completion_becomes_fly_marker_with_break_evens(
+        self, data_root: Path
+    ) -> None:
+        base = entry("w25_5m_m0_kal", 25.0, entry_credit=7.5)
+        write_events(
+            data_root,
+            [
+                base,
+                {
+                    **base,
+                    "event": "COMPLETION",
+                    "completed_at": "2026-08-18T15:20:00-04:00",
+                    "completion_credit": 10.0,
+                    "completion_spot": 7712.0,
+                },
+            ],
+        )
+        markers = load_trade_markers("SPX", DAY)
+        assert [m["kind"] for m in markers] == ["entry", "fly"]
+        fly = markers[1]
+        assert fly["n"] == 1
+        assert fly["arm"] == "w25"
+        assert fly["price"] == 7712.0
+        assert fly["strikes"] == [7675.0, 7700.0, 7725.0]
+        assert fly["credit"] == 17.5
+        assert fly["lossless"] is False
+        assert fly["breakEvens"] == [7682, 7718]
+
+    def test_lossless_completion_flagged(self, data_root: Path) -> None:
+        base = entry("w25_5m_m0_kal", 25.0, entry_credit=7.5)
+        write_events(
+            data_root,
+            [
+                base,
+                {
+                    **base,
+                    "event": "COMPLETION",
+                    "completed_at": "2026-08-18T15:20:00-04:00",
+                    "completion_credit": 18.0,
+                },
+            ],
+        )
+        fly = load_trade_markers("SPX", DAY)[1]
+        assert fly["lossless"] is True
+        assert fly["breakEvens"] == [7675, 7725]
+
+    def test_eod_fly_gets_the_next_number(self, data_root: Path) -> None:
+        write_events(
+            data_root,
+            [
+                entry("w25_5m_m0_kal", 25.0),
+                {
+                    "event": "ENTRY",
+                    "variant": "pinfly25_all",
+                    "direction": "NEUTRAL",
+                    "short_strike": 7750.0,
+                    "width": 25.0,
+                    "opened_at": "2026-08-18T14:00:10-04:00",
+                    "entry_credit": -15.625,
+                    "entry_spot": 7751.4,
+                },
+            ],
+        )
+        markers = load_trade_markers("SPX", DAY)
+        # Sorted by time: the 14:00 fly precedes the 15:03 entry but keeps
+        # the number after every vertical structure.
+        assert [(m["kind"], m["n"]) for m in markers] == [("eod_fly", 2), ("entry", 1)]
+        fly = markers[0]
+        assert fly["arm"] == "w25"
+        assert fly["strikes"] == [7725.0, 7750.0, 7775.0]
+        assert fly["debit"] == 15.63
+        assert fly["breakEvens"] == [7741, 7759]
+        assert fly["price"] == 7751.4
 
     def test_corrupt_log_returns_empty(self, data_root: Path) -> None:
         day_dir = data_root / DAY.isoformat()
