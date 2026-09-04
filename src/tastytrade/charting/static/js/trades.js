@@ -41,7 +41,8 @@ function syncProfitZones() {
   const ids = new Set(tradeMarkers.zoneIds());
   profitZones.setZones(tradeMarkers._data
     .filter(m => ids.has(m.id) && m.breakEvens && m.breakEvens.length === 2)
-    .map(m => ({ id: m.id, tStart: m.time, lo: m.breakEvens[0], hi: m.breakEvens[1] })));
+    // 0DTE structures settle on the 4 PM print, so the zone ends with RTH.
+    .map(m => ({ id: m.id, tStart: m.time, tEnd: levelTimeEnd || null, lo: m.breakEvens[0], hi: m.breakEvens[1] })));
 }
 
 // Chip click pins the card; a fly dot click toggles its zone; a click on
