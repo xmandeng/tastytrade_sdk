@@ -114,7 +114,7 @@ function registerPriorDay(dc) {
   for (const [id, price, label, color, badge] of spec) {
     if (price == null) continue;
     registerLevel(id, [{ price, label, color, lineStyle: 'dotted',
-      badgeColor: badge, badgeTextColor: C.badgeText, tStart, tEnd, autoscale: false }], true);
+      badgeColor: badge, badgeTextColor: C.badgeText, tStart, tEnd }], true);
   }
 }
 
