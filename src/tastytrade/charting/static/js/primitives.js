@@ -273,8 +273,8 @@ class TradeMarkersPrimitive {
 // ============================================================================
 // Series Primitive: profit zones of the flies whose dot was clicked. Two thin
 // amber lines at the break evens with a faint fill between, from the fly's
-// bar to the right edge. Contributes its bounds to autoscale so both edges
-// stay on screen.
+// bar to the session close (tEnd; null extends to the right edge).
+// Contributes its bounds to autoscale so both edges stay on screen.
 // ============================================================================
 class ProfitZonePrimitive {
   constructor() {
@@ -310,15 +310,16 @@ class ProfitZonePrimitive {
         const yLo = this._series.priceToCoordinate(z.lo);
         if (yHi == null || yLo == null) continue;
         const x1 = Math.max(0, resolveBoundX(ts, z.tStart, width, xR, 0));
-        if (x1 >= width) continue;
+        const x2 = Math.min(width, resolveBoundX(ts, z.tEnd ?? null, width, xR, width));
+        if (x1 >= width || x2 <= x1) continue;
         const top = yHi * yR, bot = yLo * yR;
         ctx.fillStyle = C.zoneFill;
-        ctx.fillRect(x1, top, width - x1, bot - top);
+        ctx.fillRect(x1, top, x2 - x1, bot - top);
         ctx.strokeStyle = C.zoneLine;
         ctx.lineWidth = Math.max(1, Math.round(yR));
         ctx.beginPath();
-        ctx.moveTo(x1, top); ctx.lineTo(width, top);
-        ctx.moveTo(x1, bot); ctx.lineTo(width, bot);
+        ctx.moveTo(x1, top); ctx.lineTo(x2, top);
+        ctx.moveTo(x1, bot); ctx.lineTo(x2, bot);
         ctx.stroke();
       }
     });
