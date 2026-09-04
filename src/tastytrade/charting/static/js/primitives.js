@@ -228,7 +228,7 @@ class TradeMarkersPrimitive {
         const pinned = this._pinned === m.id;
         const zoneOn = this._zones.has(m.id);
         this._hits.push({ x: cx / r, y: cy / yr, m });
-        if (TradeMarkersPrimitive.isFly(m)) this._dotHits.push({ x: cx / r, y: py / yr, m });
+
 
         // Pointer: chip edge to the event point. Long by design, so it recedes.
         ctx.strokeStyle = hue;
@@ -240,14 +240,19 @@ class TradeMarkersPrimitive {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Event dot: haloed against the candles so it reads at a glance,
-        // ringed while its profit zone is shown.
+        // Event dot. Fly dots are click targets, so they get a haloed 3.5 px
+        // dot and a ring while the zone is shown; other events keep a quiet
+        // 2 px dot.
+        const isFly = TradeMarkersPrimitive.isFly(m);
+        if (isFly) this._dotHits.push({ x: cx / r, y: py / yr, m });
+        if (isFly) {
+          ctx.beginPath();
+          ctx.arc(cx, py, 5 * r, 0, 2 * Math.PI);
+          ctx.fillStyle = C.bg;
+          ctx.fill();
+        }
         ctx.beginPath();
-        ctx.arc(cx, py, 5 * r, 0, 2 * Math.PI);
-        ctx.fillStyle = C.bg;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(cx, py, 3.5 * r, 0, 2 * Math.PI);
+        ctx.arc(cx, py, (isFly ? 3.5 : 2) * r, 0, 2 * Math.PI);
         ctx.fillStyle = hue;
         ctx.fill();
         if (zoneOn) {
