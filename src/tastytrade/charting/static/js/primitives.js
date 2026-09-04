@@ -233,15 +233,20 @@ class TradeMarkersPrimitive {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Event dot, ringed while its profit zone is shown.
+        // Event dot: haloed against the candles so it reads at a glance,
+        // ringed while its profit zone is shown.
         ctx.beginPath();
-        ctx.arc(cx, py, 2 * r, 0, 2 * Math.PI);
+        ctx.arc(cx, py, 5 * r, 0, 2 * Math.PI);
+        ctx.fillStyle = C.bg;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, py, 3.5 * r, 0, 2 * Math.PI);
         ctx.fillStyle = hue;
         ctx.fill();
         if (zoneOn) {
           ctx.beginPath();
-          ctx.arc(cx, py, 5 * r, 0, 2 * Math.PI);
-          ctx.lineWidth = Math.max(1, Math.round(r));
+          ctx.arc(cx, py, 7 * r, 0, 2 * Math.PI);
+          ctx.lineWidth = Math.max(1, Math.round(1.25 * r));
           ctx.strokeStyle = C.zoneLine;
           ctx.stroke();
         }

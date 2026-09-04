@@ -58,7 +58,8 @@ chart.subscribeClick(param => {
     }
     return bestD <= radius ? best : null;
   };
-  const dot = nearest(tradeMarkers._dotHits, 8);
+  // Generous hit radius: the dot is a 7 px target sitting among candles.
+  const dot = nearest(tradeMarkers._dotHits, 14);
   if (dot) {
     const on = !tradeMarkers.zoneIds().includes(dot.m.id);
     tradeMarkers.setZoneActive(dot.m.id, on);
