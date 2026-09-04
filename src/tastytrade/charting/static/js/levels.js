@@ -1,7 +1,7 @@
 // Level lines on the candle pane: prior-day OHLC and the opening range.
-// Each level is TWO objects on the candle series — a price line for the
-// axis badge (line suppressed) and a BoundedLineSegment for the clipped
-// line itself, which also contributes to autoscale. Visibility is owned by
+// Each level is TWO objects — a price line on levelAxisSeries for the badge
+// on the right axis (line suppressed) and a BoundedLineSegment on the candle
+// series for the clipped line itself. Visibility is owned by
 // studyState; entries stay registered and applyLevelVisibility reconciles.
 const levels = {};  // id -> { entries, axisLabel, lines }
 
@@ -37,7 +37,7 @@ function createLevelLine(entry, axisLabel) {
   };
   if (entry.badgeColor)     priceLineOpts.axisLabelColor     = entry.badgeColor;
   if (entry.badgeTextColor) priceLineOpts.axisLabelTextColor = entry.badgeTextColor;
-  const priceLine = candleSeries.createPriceLine(priceLineOpts);
+  const priceLine = levelAxisSeries.createPriceLine(priceLineOpts);
   const hasBounds = entry.tStart !== undefined || entry.tEnd !== undefined;
   let primitive = null;
   if (hasBounds) {
@@ -52,7 +52,7 @@ function createLevelLine(entry, axisLabel) {
 
 function removeLevelLine(obj) {
   if (!obj) return;
-  if (obj.priceLine) { try { candleSeries.removePriceLine(obj.priceLine); } catch (e) {} }
+  if (obj.priceLine) { try { levelAxisSeries.removePriceLine(obj.priceLine); } catch (e) {} }
   if (obj.primitive) { try { candleSeries.detachPrimitive(obj.primitive); } catch (e) {} }
 }
 
@@ -68,6 +68,24 @@ function applyLevelVisibility(id) {
   lv.lines.forEach(removeLevelLine);
   lv.lines = [];
   if (isLevelVisible(id)) lv.lines = lv.entries.map(e => createLevelLine(e, lv.axisLabel));
+  dedupeBadges();
+}
+
+// Levels that coincide (the 5m and 15m opening-range lows on a quiet open)
+// would stack identical badges; keep the first badge per price.
+function dedupeBadges() {
+  const seen = new Set();
+  for (const id of Object.keys(levels)) {
+    const lv = levels[id];
+    if (!lv.axisLabel) continue;
+    lv.lines.forEach((line, i) => {
+      if (!line.priceLine) return;
+      const key = Math.round(lv.entries[i].price * 100);
+      const dup = seen.has(key);
+      seen.add(key);
+      line.priceLine.applyOptions({ axisLabelVisible: !dup });
+    });
+  }
 }
 
 function clearAllLevels() {
@@ -125,9 +143,11 @@ function processCandleOR(candle) {
       st.locked = true;
       if (st.high !== null) {
         registerLevel(w.id, [
-          { price: st.high, label: `${w.label} Hi`, color: C.orLevel, lineStyle: w.style, tStart: levelTimeStart, tEnd: levelTimeEnd },
-          { price: st.low,  label: `${w.label} Lo`, color: C.orLevel, lineStyle: w.style, tStart: levelTimeStart, tEnd: levelTimeEnd },
-        ], false);
+          { price: st.high, label: `${w.label} Hi`, color: C.orLevel, lineStyle: w.style, tStart: levelTimeStart, tEnd: levelTimeEnd,
+            badgeColor: C.priorHighBadge, badgeTextColor: C.badgeText },
+          { price: st.low,  label: `${w.label} Lo`, color: C.orLevel, lineStyle: w.style, tStart: levelTimeStart, tEnd: levelTimeEnd,
+            badgeColor: C.priorHighBadge, badgeTextColor: C.badgeText },
+        ], true);
         renderStrips();
       }
       return;
