@@ -126,6 +126,105 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-05 — Kalman Velocity Trend Filter proposal replayed: the KSV entry wait gate is a plateau (θ 0.25–1.0) that removes whipsaw entries; every other component subtracts
+
+**Proposal** (docs/Kalman Velocity Trend Filter Proposal - Updated.pdf, Rev 1.1;
+ticket TT-180): keep the kalman direction but gate entries on standardized
+velocity (KSV = v / sqrt(P_vv)) and the Kaufman efficiency ratio (ER), exit
+by hysteresis at a lower hold threshold, arm that exit with a velocity-decay
+warning, and veto entries under a sticky CHOP latch on repeated sign flips.
+
+**Method.** Replay over 56 sessions (2026-06-11 → 09-04, settled at the
+official close; 06-23, 06-24 and 06-29 lack a daily candle or snapshots) on
+top of the production rule — kalman flip entries 10:00–13:00, either-family
+flip exits kept as the backstop in every cell, lock-ASAP completion, 15:45
+forced close, tents held to settlement, all-in cost model. One feature at a
+time, 93 cells × 2 widths. Rig and results archived at
+`research_data/TT-156/kalman_trend_filter_sweep_20260905.{py,_results.json,_report.txt}`.
+
+**Calibration fact first.** With r fixed at 1 and q/r = 0.025 the posterior
+velocity variance converges to a constant, σ_v = 0.278 pts/bar. KSV is
+therefore raw velocity in units of 0.278 pts/bar, not an adaptive z-score,
+and the proposal's 1.0–2.0 thresholds sit at the flip bar's own |KSV|
+(median 1.24 at the flip, 2.85 one bar later, 4.35 across the entry
+window). The grid was run from 0.25 to 8 so the gate was tested on both
+sides of where it bites.
+
+**The one component that works: the KSV entry wait gate (test A).** The
+gate applies only to the entry vertical of each butterfly — enter on the
+first sealed bar after a kalman flip whose |KSV| exceeds θ, in the flip's
+direction — with completion, exits and everything else unchanged.
+
+| θ (pts/bar) | 25-wide total / cycles / tents | 1st half | 2nd half | 50-wide total / cycles / tents | 1st half | 2nd half |
+|---|---|---|---|---|---|---|
+| production | $17,862 / 225 / 20 | $15,377 | $2,485 | $14,714 / 225 / 3 | $10,087 | $4,626 |
+| 0.25 (0.07) | $18,468 / 214 / 20 | $15,779 | $2,689 | $15,675 / 214 / 3 | $10,762 | $4,913 |
+| 0.5 (0.14) | $19,105 / 210 / 20 | $16,799 | $2,306 | $14,909 / 210 / 3 | $10,536 | $4,373 |
+| 0.75 (0.21) | $19,918 / 202 / 19 | $17,282 | $2,636 | $14,796 / 202 / 3 | $9,976 | $4,820 |
+| 1.0 (0.28) | $20,375 / 197 / 19 | $17,512 | $2,863 | $15,453 / 197 / 3 | $10,278 | $5,174 |
+| 1.25 (0.35) | $19,460 / 195 / 19 | $17,084 | $2,375 | $13,597 / 195 / 3 | $8,996 | $4,602 |
+| 1.5 (0.42) | $18,817 / 186 / 18 | $15,900 | $2,917 | $13,511 / 186 / 3 | $8,180 | $5,331 |
+| 2.0 (0.56) | $13,484 / 173 / 14 | $15,285 | −$1,800 | $12,300 / 173 / 3 | $9,562 | $2,738 |
+| 3.0 / 6.0 | $12,021 / −$200 | | | $11,543 / $211 | | |
+
+Reading: a monotone rise from θ 0.25 to 1.0 on 25-wide, above production
+at every point on both widths, every tent kept up to 0.5 and one forfeited
+at 0.75–1.25; the cliff starts at 1.25 on 50-wide and at 1.75 on 25-wide.
+At θ 1.0: +14% on 25-wide, +5% on 50-wide, max drawdown −$3,359 → −$2,701
+and −$3,729 → −$3,074, 24 sessions better / 18 worse / 14 unchanged
+(26 / 14 / 16 at θ 0.75). At θ 0.25 and 1.0 the gate is above production
+in both halves on both widths; at 0.5 and 0.75 one half on one width
+falls short of production by under $200 (25-wide second half at 0.5,
+50-wide first half at 0.75). That is the plateau the proposal asked for.
+
+Mechanism, paired by baseline flip: the cycles the gate never enters are
+losers by construction — a flip whose velocity never clears θ before the
+next flip is a one-or-two-bar whipsaw that pays friction and nothing else.
+At θ 1.0 it skips 28 such cycles worth −$5,307 with no tent among them,
+while the 197 kept cycles enter 0.4 bars later on average and earn $20,375
+against $23,169 for the same cycles entered at the flip. The gate is
+therefore a trade between whipsaws avoided and entry delay paid; the
+savings grow faster than the delay cost up to θ 1.0 and slower beyond it.
+The flip bar's own |KSV| carries no information (test G, veto without
+waiting: dropping 99 of 225 flips at θ 1.0 nets −$411); the information
+is in the following bar failing to strengthen.
+
+**Everything else subtracts** (25-wide, production $17,862 / 225 / 20):
+
+| Test | Cell | Total | Cycles | Tents |
+|---|---|---|---|---|
+| G · KSV flip-bar veto, no wait | θ 1.0 / 1.25 / 1.5 | $18,273 / $16,561 / $11,520 | 126 / 110 / 96 | 16 / 15 / 12 |
+| B · ER gate (20 cells) | best er6 > 0.20; er8 > 0.30 | $12,130; $4,910 | 200; 163 | 15; 13 |
+| C · KSV + ER (12 cells) | best θ1.5, er6 > 0.25 | $9,270 | 181 | 12 |
+| D0 · hysteresis exit, production entries | hold 0.5 / 1.0 / 3.0 | $15,530 / $12,620 / −$80 | 286 / 360 / 758 | 20 / 20 / 17 |
+| D · KSV + hysteresis (9 cells) | best θ1.5, hold 1.0 | $17,826 | 202 | 17 |
+| E0 · armed decay exit, production entries | hold 0.5 / 1.0 | $16,187 / $14,640 | 264 / 302 | 20 / 20 |
+| E · KSV + armed decay (9 cells) | best θ1.5, hold 0.5 | $17,875 | 191 | 18 |
+| F · CHOP veto (7 cells) | alone; with θ1.5 | $14,139; $15,697 | 218; 182 | 18; 17 |
+
+50-wide: B best $10,991; C best $8,418; D0 hold 0.5 $12,531; D best
+$14,866; E best $14,645; F $13,373 — all below production.
+
+- *Hysteresis / decay exits (D0, E0).* On the same 225 cycles the earlier
+  exit is nearly neutral (kept-cycle P&L $17,054–$18,129 vs $17,862): as
+  with the fade exit, the vertical's mark barely moves between the hold
+  breach and the flip. The state machine's re-entries (61 to 533 extra
+  cycles) lose $1.5k–$13k. Tents are unaffected because they are already
+  locked.
+- *ER and CHOP.* Forfeit tents (20 → 15 or fewer) and never earn it back.
+  The CHOP latch fires on 1.6% of bars yet still costs $3.7k, because its
+  release condition delays the eventual entry by several bars.
+
+**Verdict.** The KSV entry wait gate at θ 1.0 (0.28 pts/bar) is the first
+entry filter in this program to survive a walk-forward split on both
+widths; it removes whipsaw entries without touching completion, exits or
+tents, and improves drawdown. It is recommended as a tracked live arm
+beside the primary (a `_k1` variant on the 25- and 50-wide kalman arms),
+not as a retro-justified change to the primary rule: the improvement is
++$2.5k / +$0.7k over 56 sessions and only live fills can confirm the
+delay cost. The exit, ER and CHOP components are the seventh falsification
+of the earlier-exit / later-entry instinct and are closed.
+
 ### 2026-09-04 — Settlement was priced at a stale pre-close snapshot; ledger restated at the official SPX close
 
 **How it surfaced.** The 2026-09-04 EOD fly (7685/7710/7735 calls, 15.78
