@@ -126,6 +126,82 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-05 — Kalman Velocity Trend Filter proposal replayed: no cell beats production robustly; the entry delay gives back what loser removal saves
+
+**Proposal** (docs/Kalman Velocity Trend Filter Proposal - Updated.pdf, Rev 1.1;
+ticket TT-180): keep the kalman direction but gate entries on standardized
+velocity (KSV = v / sqrt(P_vv)) and the Kaufman efficiency ratio (ER), exit
+by hysteresis at a lower hold threshold, arm that exit with a velocity-decay
+warning, and veto entries under a sticky CHOP latch on repeated sign flips.
+
+**Method.** Replay over 56 sessions (2026-06-11 → 09-04, settled at the
+official close; 06-23, 06-24 and 06-29 lack a daily candle or snapshots) on
+top of the production rule — kalman flip entries 10:00–13:00, either-family
+flip exits kept as the backstop in every cell, lock-ASAP completion, 15:45
+forced close, tents held to settlement, all-in cost model. One feature at a
+time, 82 cells × 2 widths. Rig and results archived at
+`research_data/TT-156/kalman_trend_filter_sweep_20260905.{py,_results.json,_report.txt}`.
+
+**Calibration fact first.** With r fixed at 1 and q/r = 0.025 the posterior
+velocity variance converges to a constant, σ_v = 0.278 pts/bar. KSV is
+therefore raw velocity in units of 0.278 pts/bar, not an adaptive z-score,
+and the proposal's 1.0–2.0 thresholds sit at the flip bar's own |KSV|
+(median 1.24 at the flip, 2.85 one bar later, 4.35 across the entry
+window). The grid was extended to 8 so the gate was tested where it bites.
+
+25-wide (production 25-wide: $17,862 over 225 cycles, 20 tents):
+
+| Test | Cell | Total | Cycles | Tents |
+|---|---|---|---|---|
+| A · KSV wait gate | θ 1.0 / 1.5 / 2.0 / 3.0 / 6.0 | $20,375 / $18,817 / $13,484 / $12,021 / −$200 | 197 / 186 / 173 / 158 / 109 | 19 / 18 / 14 / 13 / 6 |
+| G · KSV flip-bar veto, no wait | θ 1.0 / 1.25 / 1.5 | $18,273 / $16,561 / $11,520 | 126 / 110 / 96 | 16 / 15 / 12 |
+| B · ER gate (20 cells) | best er6 > 0.20; er8 > 0.30 | $12,130; $4,910 | 200; 163 | 15; 13 |
+| C · KSV + ER (12 cells) | best θ1.5, er6 > 0.25 | $9,270 | 181 | 12 |
+| D0 · hysteresis exit, production entries | hold 0.5 / 1.0 / 3.0 | $15,530 / $12,620 / −$80 | 286 / 360 / 758 | 20 / 20 / 17 |
+| D · KSV + hysteresis (9 cells) | best θ1.5, hold 1.0 | $17,826 | 202 | 17 |
+| E0 · armed decay exit, production entries | hold 0.5 / 1.0 | $16,187 / $14,640 | 264 / 302 | 20 / 20 |
+| E · KSV + armed decay (9 cells) | best θ1.5, hold 0.5 | $17,875 | 191 | 18 |
+| F · CHOP veto (7 cells) | alone; with θ1.5 | $14,139; $15,697 | 218; 182 | 18; 17 |
+
+50-wide (production: $14,714, 225 cycles, 3 tents): A θ1.0 $15,453, θ1.5
+$13,511; G θ1.25 $17,042 (110 cycles); B best $10,991; C best $8,418; D0
+hold 0.5 $12,531; D best $14,866; E best $14,645; F $13,373.
+
+Splits for the only family at or above production (A, θ 1.0): first half
+$17,512 vs $15,377, second half $2,863 vs $2,485 on 25-wide; $10,278 vs
+$10,087 and $5,174 vs $4,626 on 50-wide. Per session 24 better, 18 worse,
+14 unchanged; largest daily swing ±$660. The ridge is one cell wide — θ
+1.25 is already below production on 50-wide.
+
+**Mechanism (paired by baseline flip).**
+
+- *Wait gate (A).* At θ 1.0 the 28 baseline cycles it never enters net
+  −$5,307 and include no tent; but the 197 it keeps enter 0.4 bars later on
+  average and earn $20,375 against $23,169 for the same cycles at the flip.
+  The delay gives back $2.8k of the $5.3k saved. At θ 1.5 it saves $7,168
+  and gives back $6,213.
+- *Flip-bar veto (G).* The flip bar's own |KSV| carries no information:
+  vetoing 99 of 225 flips at θ 1.0 drops cycles that net −$411 in total
+  (4 tents among them). It is the following bars — the flip failing to
+  strengthen — that identify the losers, and using that information means
+  entering later.
+- *Hysteresis / decay exits (D0, E0).* On the same 225 cycles the earlier
+  exit is nearly neutral (kept-cycle P&L $17,054–$18,129 vs $17,862): as
+  with the fade exit, the vertical's mark barely moves between the hold
+  breach and the flip. The state machine's re-entries (61 to 533 extra
+  cycles) lose $1.5k–$13k. Tents are unaffected because they are already
+  locked.
+- *ER and CHOP.* Forfeit tents (20 → 15 or fewer) and never earn it back.
+
+**Verdict — not adopted.** The seventh falsification of the same instinct
+(stops, defer, bank, credit-trail, fade exit, completion geometry): what
+looks like a weak or deteriorating trend is also the path back to the
+strike that completes the fly, and the tent is the edge. The mildest KSV
+wait (θ 1.0–1.5, i.e. 0.28–0.42 pts/bar) is the only region at or above
+production; it is one cell wide, within daily noise, and mixed on 50-wide.
+It would need a live tracked arm to be believed, not a retro replay. No
+change to the live grid.
+
 ### 2026-09-04 — Settlement was priced at a stale pre-close snapshot; ledger restated at the official SPX close
 
 **How it surfaced.** The 2026-09-04 EOD fly (7685/7710/7735 calls, 15.78
