@@ -172,8 +172,10 @@ at every point on both widths, every tent kept up to 0.5 and one forfeited
 at 0.75–1.25; the cliff starts at 1.25 on 50-wide and at 1.75 on 25-wide.
 At θ 1.0: +14% on 25-wide, +5% on 50-wide, max drawdown −$3,359 → −$2,701
 and −$3,729 → −$3,074, 24 sessions better / 18 worse / 14 unchanged
-(26 / 14 / 16 at θ 0.75). Both halves and both widths positive at 0.25,
-0.5, 0.75 and 1.0. That is the plateau the proposal asked for.
+(26 / 14 / 16 at θ 0.75). At θ 0.25 and 1.0 the gate is above production
+in both halves on both widths; at 0.5 and 0.75 one half on one width
+falls short of production by under $200 (25-wide second half at 0.5,
+50-wide first half at 0.75). That is the plateau the proposal asked for.
 
 Mechanism, paired by baseline flip: the cycles the gate never enters are
 losers by construction — a flip whose velocity never clears θ before the
