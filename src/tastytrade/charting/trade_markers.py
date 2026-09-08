@@ -134,7 +134,11 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
     scoreboard's high-water margin), in dollars per lot.
     """
     path = events_path(chart_date)
-    if not path.exists():
+    # The collector creates the session directory at 09:15 and the events
+    # file only on the first entry. A directory without events is a live
+    # session with no trades yet: show the card with dashes from the open.
+    # No directory means the research never ran that day: no card.
+    if not path.parent.exists():
         return None
     try:
         from research.tt156_zero_dte_butterfly.report import (
@@ -148,9 +152,11 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
         return None
     try:
         rows, _, settle = events_only_day(path.parent)
-        raw = [
-            json.loads(line) for line in path.read_text().splitlines() if line.strip()
-        ]
+        raw = (
+            [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            if path.exists()
+            else []
+        )
     except (OSError, KeyError, ValueError, TypeError):
         logger.exception("P&L summary unavailable for %s", path)
         return None

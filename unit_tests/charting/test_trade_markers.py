@@ -244,6 +244,19 @@ class TestPnlSummary:
 
         assert pnl_summary(DAY) is None
 
+    def test_session_without_trades_yet_shows_empty_card(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        # the collector has created the day directory (market open) but no
+        # structure has opened, so there is no events file yet
+        (data_root / DAY.isoformat()).mkdir(parents=True)
+        pnl = pnl_summary(DAY)
+        assert pnl is not None and pnl["settled"] is False
+        assert [a["label"] for a in pnl["arms"]] == ["25-wide", "50-wide", "EOD fly"]
+        for arm in pnl["arms"]:
+            assert arm["total"] is None and arm["margin"] is None
+            assert arm["cycles"] == 0 and arm["open"] is False
+
     def test_settled_day_totals_and_tent(self, data_root: Path) -> None:
         from tastytrade.charting.trade_markers import pnl_summary
 
