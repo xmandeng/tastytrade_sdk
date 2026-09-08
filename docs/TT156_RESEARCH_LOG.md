@@ -23,12 +23,15 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
 - **Completion:** when total credit ≥ width, buy the counter vertical —
   lossless iron fly; hold tents to settlement. Forced close of
   incomplete verticals at 15:45.
-- **Settlement price (since 2026-09-04):** the official SPX close — the
-  close of the SPX daily candle in InfluxDB for the session date, read at
-  16:15 ET. Never a snapshot spot: the index keeps updating for ~4 minutes
-  after 16:00. If the candle is missing the day stays unsettled; there is
-  no approximation. The whole ledger was restated once on 2026-09-04 (see
-  findings).
+- **Settlement price (since 2026-09-04, source corrected 2026-09-08):**
+  the official SPX close. Live, at 16:15 ET, the collector reads the SPX
+  daily candle from the Redis latest-event hash (the feed's own value,
+  final by ~16:05); for history and restatement the same candle is read
+  from InfluxDB, where it lands only when the next session's bar begins.
+  Never a snapshot spot: the index keeps updating for ~4 minutes after
+  16:00. If the candle is missing or dated on another day the day stays
+  unsettled; there is no approximation. The whole ledger was restated
+  once on 2026-09-04 (see findings).
 - **Primary arms:** `w25_5m_m0_kal` (25-wide), `w50_5m_m0_kal` (50-wide),
   `w25_5m_m0_kal_ef5` (early-fly: at 5 pts adverse, buy the counter side now —
   bounded deficit, tent kept). These drive the charts, strategy table, and
@@ -125,6 +128,25 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
   and the early-fly conversion *are* the stop.
 
 ## Findings log
+
+### 2026-09-08 — First live settle at the official close failed on its data source; ledger completed by hand at 7673.52
+
+The 2026-09-04 rule read the official close from the InfluxDB daily
+candle. At 16:15:11 on its first live run the candle for 2026-09-08 did
+not exist: since the sealed-bar write change (2026-08-28) InfluxDB gets a
+candle only when the next bar for that symbol begins, so a session's
+daily candle is written hours after the close. The date check refused the
+walk-back to 2026-09-04 and the collector left the three pin flies
+unsettled, as designed. The read also broke the project's data-source
+rule (live values from Redis, history from InfluxDB).
+
+Repair: the day was settled at 16:17 at 7673.52, the close of the SPX
+daily candle in the Redis latest-event hash, equal to the frozen 1-minute
+print from 16:04 onward. Fix: the live settle now reads that Redis
+candle (date-checked, at or after 16:05); InfluxDB stays the historical
+source. Day result: five kalman cycles, none completed, two one-bar
+whipsaws; 25-wide -$352, 50-wide -$257, EOD fly -$907 (7690 body,
+settled 16.5 points below it).
 
 ### 2026-09-04 — Settlement was priced at a stale pre-close snapshot; ledger restated at the official SPX close
 

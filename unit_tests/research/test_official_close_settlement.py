@@ -1,10 +1,14 @@
-"""Settlement at the official SPX close: the lookup and its refusals."""
+"""Settlement at the official SPX close: both lookups and their refusals."""
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime
 
 from research.tt156_zero_dte_butterfly.config import ET
-from research.tt156_zero_dte_butterfly.settlement import official_close
+from research.tt156_zero_dte_butterfly.settlement import (
+    live_official_close,
+    official_close,
+)
 
 DAY = date(2026, 9, 4)
 AFTER_CLOSE = datetime(2026, 9, 4, 16, 15, tzinfo=ET)
@@ -51,3 +55,38 @@ class TestOfficialClose:
             official_close(src, DAY, now=datetime(2026, 9, 5, 9, 0, tzinfo=ET))
             == 7716.28
         )
+
+
+class Latest:
+    """Stand-in for the Redis client's hget on the latest-event hash."""
+
+    def __init__(self, payload: dict | None) -> None:
+        self.payload = payload
+
+    def hget(self, name: str, key: str) -> bytes | None:
+        assert (name, key) == ("tastytrade:latest:CandleEvent", "SPX{=d}")
+        return None if self.payload is None else json.dumps(self.payload).encode()
+
+
+def daily(time: str, close: float | None) -> dict:
+    return {"eventSymbol": "SPX{=d}", "time": time, "close": close, "open": 7717.81}
+
+
+class TestLiveOfficialClose:
+    def test_returns_close_of_the_session_candle(self) -> None:
+        latest = Latest(daily("2026-09-04T00:00:00Z", 7718.6))
+        assert live_official_close(latest, DAY, now=AFTER_CLOSE) == 7718.6
+
+    def test_refuses_candle_from_an_earlier_session(self) -> None:
+        latest = Latest(daily("2026-09-03T00:00:00Z", 7747.71))
+        assert live_official_close(latest, DAY, now=AFTER_CLOSE) is None
+
+    def test_refuses_missing_entry_or_close(self) -> None:
+        assert live_official_close(Latest(None), DAY, now=AFTER_CLOSE) is None
+        latest = Latest(daily("2026-09-04T00:00:00Z", None))
+        assert live_official_close(latest, DAY, now=AFTER_CLOSE) is None
+
+    def test_refuses_before_the_close_is_final(self) -> None:
+        latest = Latest(daily("2026-09-04T00:00:00Z", 7716.28))
+        intraday = datetime(2026, 9, 4, 15, 59, 56, tzinfo=ET)
+        assert live_official_close(latest, DAY, now=intraday) is None

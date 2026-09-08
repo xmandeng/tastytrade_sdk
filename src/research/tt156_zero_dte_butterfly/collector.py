@@ -36,10 +36,7 @@ from research.tt156_zero_dte_butterfly.pinfly import (
     PinFlySimulator,
     default_pinfly_arms,
 )
-from research.tt156_zero_dte_butterfly.settlement import (
-    influx_source,
-    official_close,
-)
+from research.tt156_zero_dte_butterfly.settlement import live_official_close
 from research.tt156_zero_dte_butterfly.simulator import (
     ButterflySimulator,
     JsonlEventSink,
@@ -78,11 +75,17 @@ class DayCollector:
         self.spot_path: list[tuple[int, float]] = []
 
     def official_close_today(self) -> float | None:
-        source, influx = influx_source()
+        """Settlement price from the live feed's daily candle in Redis."""
+        latest = RedisConfigManager().redis_client
         try:
-            return official_close(source, self.now_et().date(), self.now_et())
+            close = live_official_close(latest, self.now_et().date(), self.now_et())
         finally:
-            influx.close()  # type: ignore[attr-defined]
+            latest.close()
+        if close is not None:
+            logger.info(
+                "Settling at the official SPX close from the Redis daily candle"
+            )
+        return close
 
     def kal_tent_exists(self) -> bool:
         """Any kalman-family fly completed so far today (the pin-fly
