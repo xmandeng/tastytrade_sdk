@@ -25,6 +25,7 @@ from influxdb_client import InfluxDBClient
 from tastytrade.charting.feed import ChartFeed
 from tastytrade.charting.indicators import StreamingIndicators
 from tastytrade.charting.trade_markers import load_trade_markers, pnl_summary
+from research.tt156_zero_dte_butterfly.config import KALMAN_WARMUP_DAYS
 from tastytrade.common.logging import setup_logging
 from tastytrade.config.manager import RedisConfigManager
 from tastytrade.providers.market import MarketDataProvider
@@ -340,9 +341,40 @@ class ChartServer:
         except Exception:
             logger.warning("Could not fetch prior day candle for %s", symbol)
 
+        # --- Kalman warmup: the sessions before this one, same interval ---
+        # The engine replays this window before going live; without it the
+        # pane starts cold and disagrees with the engine after a gap open.
+        session_start = datetime(
+            target_date.year, target_date.month, target_date.day, tzinfo=ET
+        )
+        warm_start = session_start - timedelta(days=KALMAN_WARMUP_DAYS)
+        warm_df = provider.download(
+            symbol=candle_symbol,
+            start=warm_start.astimezone(timezone.utc).replace(tzinfo=None),
+            stop=session_start.astimezone(timezone.utc).replace(tzinfo=None),
+            debug_mode=True,
+        )
+        kalman_warmup_closes: list[float] = []
+        if (
+            warm_df is not None
+            and not warm_df.is_empty()
+            and "close" in warm_df.columns
+        ):
+            kalman_warmup_closes = (
+                warm_df.filter((pl.col("close").is_not_null()) & (pl.col("close") != 0))
+                .sort("time")["close"]
+                .to_list()
+            )
+        logger.info(
+            "Kalman warmup: %d %s bars from %s",
+            len(kalman_warmup_closes),
+            candle_symbol,
+            warm_start.date(),
+        )
+
         # --- Compute indicators ---
         indicators = StreamingIndicators()
-        indicator_data = indicators.seed(hist_df, prior_close)
+        indicator_data = indicators.seed(hist_df, prior_close, kalman_warmup_closes)
 
         # --- Build payload with ET-converted timestamps ---
         candles = build_candle_payload(hist_df)
