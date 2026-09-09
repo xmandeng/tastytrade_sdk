@@ -129,6 +129,37 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-09 — The kalman warmup earns its place; the chart pane now warms the same way
+
+The chart's Kalman pane flipped Up at 09:55 on a 20-point gap-down open
+while the engine stayed Down until the 10:35 bar, because the chart seeded
+its filter from the session's first bar and the engine from three prior
+sessions. Replay of 57 settled sessions with the production rule fixed and
+only the filter's starting state varied:
+
+| Start state | 25-wide | 50-wide | 10:00-hour entries (25-wide) |
+|---|---|---|---|
+| 3-session warmup (production) | $17,458 | $14,372 | 69 for +$8,960 |
+| 1-session warmup | identical | identical | identical |
+| Seeded at the session's 00:00 bar | identical | identical | identical |
+| Cold start at 09:30 | $14,406 | $11,484 | 74 for +$4,495 |
+
+Cold start loses about $3,000 per arm, worse in both halves, all of it in
+first-hour entries. Mechanism: the gain schedule is fixed by q/r and
+settles in nine bars regardless of data (level 0.43, velocity 0.12); what
+the warmup supplies is yesterday's close in the state, so a gap registers
+as velocity and is treated as trend for roughly the first hour. The cold
+filter never sees the gap and fades the first bounce, which loses.
+
+Why it surfaced only now: on a normal day the chart's day-only seed
+includes 114 flat overnight SPX bars and converges to the engine; on
+2026-09-09 InfluxDB held zero SPX 5m bars before 09:30 (SPY, QQQ and BTC
+kept theirs) after a 03:08 DNS outage, so the chart started cold. Fix:
+the chart seeds from the engine's warmup window (`KALMAN_WARMUP_DAYS`),
+which also makes it immune to a missing-bar day. Rig and results:
+`research_data/TT-156/warmup_sweep_20260909.{py,json}`. Adaptive-gain
+filters are a separate research ticket.
+
 ### 2026-09-08 — First live settle at the official close failed on its data source; ledger completed by hand at 7673.52
 
 The 2026-09-04 rule read the official close from the InfluxDB daily
