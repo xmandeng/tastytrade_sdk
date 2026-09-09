@@ -67,6 +67,10 @@ GATE_ETA_NEAR = 10.0
 # 2-3x with the hull's own flip set timed better; 0.025 was the best measured
 # point and the consensus of curve fits across arms. Frozen calibration.
 KALMAN_Q_OVER_R = 0.025
+# Sessions of sealed bars the kalman and hull filters replay before going
+# live. The chart's kalman pane seeds from the same window so it shows the
+# state the engine actually trades on.
+KALMAN_WARMUP_DAYS = 3
 
 # First-entry filter (calibrated 2026-08-27 on 200 5m-family trades): only the
 # first 5m-strategy cluster in any rolling window is "on-strategy"; re-entries
@@ -209,7 +213,7 @@ class RunConfig:
     recenter_buffer: float = (
         40.0  # re-resolve chain when spot drifts this close to edge
     )
-    warmup_days: int = 3
+    warmup_days: int = KALMAN_WARMUP_DAYS
     variants: list[VariantConfig] = field(default_factory=default_variants)
     # Only act on closed Hull/MACD candles: buffer the forming bar from the
     # live feed and forward it to the engine only once a newer bar arrives, so

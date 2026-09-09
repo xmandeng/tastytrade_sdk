@@ -35,6 +35,7 @@ from research.tt156_zero_dte_butterfly.config import (
     HULL_ENTRY_END,
     HULL_ENTRY_START,
     KALMAN_Q_OVER_R,
+    KALMAN_WARMUP_DAYS,
     SYMBOL,
 )
 from research.tt156_zero_dte_butterfly.gate import flip_eta
@@ -71,7 +72,9 @@ class SignalCapture:
 class LiveSignalEngine:
     """HullMacdEngine wrapper: InfluxDB warmup, live Redis feed, spot tracking."""
 
-    def __init__(self, warmup_days: int = 3, confirm_on_close: bool = True) -> None:
+    def __init__(
+        self, warmup_days: int = KALMAN_WARMUP_DAYS, confirm_on_close: bool = True
+    ) -> None:
         self.capture = SignalCapture()
         self.engine = HullMacdEngine(publisher=self.capture)
         self.warmup_days = warmup_days
@@ -230,7 +233,9 @@ class HullSignalEngine:
     routes only to ``signal_source="kalman"`` variants.
     """
 
-    def __init__(self, warmup_days: int = 3, confirm_on_close: bool = True) -> None:
+    def __init__(
+        self, warmup_days: int = KALMAN_WARMUP_DAYS, confirm_on_close: bool = True
+    ) -> None:
         self.capture = SignalCapture()
         self.warmup_days = warmup_days
         self.confirm_on_close = confirm_on_close

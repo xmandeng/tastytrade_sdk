@@ -158,11 +158,17 @@ class StreamingIndicators:
         self,
         df: pl.DataFrame,
         prior_close: float | None = None,
+        kalman_warmup_closes: list[float] | None = None,
     ) -> dict:
         """Seed indicators from historical candle data.
 
         Returns the full computed series as lists for chart backfill.
         Also initializes rolling state for subsequent update() calls.
+
+        ``kalman_warmup_closes`` are the sealed closes of the sessions before
+        this one; the Kalman state steps through them first so the pane shows
+        the same filter the trading engine carries into the open, not a
+        cold start on the session's first bar.
         """
         if df.is_empty():
             return {"hma": [], "macd": [], "kalman": []}
@@ -271,6 +277,8 @@ class StreamingIndicators:
             )
 
         self.kalman_state = KalmanState()
+        for warm_close in kalman_warmup_closes or []:
+            self.kalman_state.step(float(warm_close))
         kalman_series = []
         times: list[datetime] = df["time"].to_list()
         for bar_time, close in zip(times, close_values, strict=True):
