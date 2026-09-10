@@ -1,4 +1,4 @@
-"""HullSignalEngine — the Basics v2 forward-test rule (2026-08-27).
+"""SealedBarSignalEngine, hull family — the Basics v2 forward-test rule (2026-08-27).
 
 Direction follows the 5m hull, full stop: OPEN on a sealed-bar color flip
 inside 10:00-14:00 ET, CLOSE for the old direction on every flip, MACD
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from tastytrade.messaging.models.events import CandleEvent
 
-from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
+from research.tt156_zero_dte_butterfly.signals import SealedBarSignalEngine
 
 
 def bar(ts: datetime, close: float) -> CandleEvent:
@@ -23,9 +23,9 @@ def bar(ts: datetime, close: float) -> CandleEvent:
     )
 
 
-def seeded_engine(start: datetime, closes: list[float]) -> HullSignalEngine:
+def seeded_engine(start: datetime, closes: list[float]) -> SealedBarSignalEngine:
     """Engine with a declining warmup ramp then the given closes fed sealed."""
-    eng = HullSignalEngine(confirm_on_close=False)
+    eng = SealedBarSignalEngine(confirm_on_close=False)
     t = start - timedelta(minutes=5 * 60)
     for i in range(40):  # long down ramp so hull starts firmly Down
         eng.ingest_sealed(bar(t, 7700.0 - i * 2), emit=False)
@@ -43,7 +43,7 @@ def rally(n: int = 25) -> list[float]:
     return [7622.0 + i * 4 for i in range(n)]
 
 
-class TestHullSignalEngine:
+class TestHullFamily:
     def test_flip_in_window_emits_close_and_open(self) -> None:
         start = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)  # 11:00 ET
         eng = seeded_engine(start, rally())
@@ -72,7 +72,7 @@ class TestHullSignalEngine:
 
     def test_confirm_on_close_buffers_forming_bar(self) -> None:
         start = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)
-        eng = HullSignalEngine(confirm_on_close=True)
+        eng = SealedBarSignalEngine(confirm_on_close=True)
         t = start - timedelta(minutes=5 * 40)
         for i in range(40):
             eng.ingest_sealed(bar(t, 7700.0 - i * 2), emit=False)
@@ -110,7 +110,7 @@ class TestHullSignalEngine:
         assert eng.candles["close"][-1] == 7652.0  # with the final value
 
     def test_gate_context_is_none(self) -> None:
-        assert HullSignalEngine().gate_context() is None
+        assert SealedBarSignalEngine().gate_context() is None
 
     def test_state_summary_reports_hull_only(self) -> None:
         start = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)
@@ -120,7 +120,7 @@ class TestHullSignalEngine:
         assert summary["SPX{=5m}"]["macd_position"] is None
 
     def test_spot_tracking_from_1m_channel(self) -> None:
-        eng = HullSignalEngine()
+        eng = SealedBarSignalEngine()
         ts = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)
         eng.on_candle(
             CandleEvent(

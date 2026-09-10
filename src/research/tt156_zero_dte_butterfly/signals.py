@@ -2,11 +2,14 @@
 
 Two engines live here:
 
-- ``HullSignalEngine`` — the ACTIVE forward-test engine (Basics v2,
-  2026-08-27): direction follows the 5m hull, full stop. OPEN on a
-  sealed-bar hull color flip inside the 10:00-13:00 ET window, CLOSE on
-  the opposite flip. MACD is nowhere (removed by user directive after the
-  TT-157 feed-lag contamination).
+- ``SealedBarSignalEngine`` — the ACTIVE forward-test engine: one pass
+  over sealed 5m bars emits two signal families. The Kalman velocity
+  flip (primary since 2026-08-28) drives entries on the kalman arms; the
+  hull color flip (Basics v2, 2026-08-27) is the exit backstop on every
+  arm and still drives the lagging-control hull arms. OPEN only inside
+  the 10:00-13:00 ET window, CLOSE on the opposite flip of either
+  family. MACD is nowhere (removed by user directive after the
+  feed-lag contamination).
 - ``LiveSignalEngine`` — the retired Hull/MACD confluence wrapper, kept
   for replay tooling and history.
 
@@ -233,18 +236,18 @@ class LiveSignalEngine:
             await self.subscription.close()
 
 
-class HullSignalEngine:
-    """Sealed-bar 5m signal engine — hull rule plus the Kalman tracked arm.
+class SealedBarSignalEngine:
+    """Sealed-bar 5m signal engine — two signal families from one pass.
 
-    Direction follows the hull, full stop: a sealed 5m bar that flips the
-    hull color emits CLOSE for the old direction (exits always fire) and,
-    inside the entry window, OPEN for the new one. Interface-compatible
-    with the collector's LiveSignalEngine usage. No MACD anywhere.
-
-    The same sealed bars also drive a constant-velocity Kalman filter
-    (q/r=KALMAN_Q_OVER_R, 2026-08-28 calibration); velocity sign flips emit
-    a parallel signal family tagged ``engine="kalman"`` that the simulator
-    routes only to ``signal_source="kalman"`` variants.
+    A constant-velocity Kalman filter (q/r=KALMAN_Q_OVER_R, 2026-08-28
+    calibration) is the primary rule: a velocity sign flip on a sealed bar
+    emits the ``engine="kalman"`` family that the simulator routes to
+    ``signal_source="kalman"`` variants. The hull color flip emits the
+    ``hull_only`` family: the exit backstop on every arm, and the entry
+    rule for the lagging-control hull arms. Either family's flip emits
+    CLOSE for the old direction (exits always fire); OPEN fires only
+    inside the entry window. Interface-compatible with the collector's
+    LiveSignalEngine usage. No MACD anywhere.
     """
 
     def __init__(

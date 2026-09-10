@@ -31,7 +31,7 @@ from research.tt156_zero_dte_butterfly.config import (
     RunConfig,
 )
 from research.tt156_zero_dte_butterfly import regime
-from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
+from research.tt156_zero_dte_butterfly.signals import SealedBarSignalEngine
 from research.tt156_zero_dte_butterfly.pinfly import (
     PinFlySimulator,
     default_pinfly_arms,
@@ -50,7 +50,7 @@ class DayCollector:
     def __init__(self, run_config: RunConfig) -> None:
         self.cfg = run_config
         self.session: AsyncSessionHandler | None = None
-        self.signal_engine = HullSignalEngine(
+        self.signal_engine = SealedBarSignalEngine(
             warmup_days=run_config.warmup_days,
             confirm_on_close=run_config.confirm_on_close,
         )
