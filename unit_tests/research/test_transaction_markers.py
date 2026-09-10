@@ -13,11 +13,7 @@ from pathlib import Path
 
 from tastytrade.messaging.models.events import CandleEvent
 
-from research.tt156_zero_dte_butterfly.signals import (
-    HullSignalEngine,
-    LiveSignalEngine,
-    is_transaction_marker,
-)
+from research.tt156_zero_dte_butterfly.signals import HullSignalEngine, LiveSignalEngine
 
 T0 = datetime(2026, 9, 10, 14, 30, tzinfo=timezone.utc)
 SYM5 = "SPX{=5m}"
@@ -39,11 +35,13 @@ def placeholder() -> CandleEvent:
 
 
 def test_marker_predicate() -> None:
-    assert is_transaction_marker(placeholder())
-    assert is_transaction_marker(bar(0, 7600.0, flags=1))
-    assert is_transaction_marker(CandleEvent(eventSymbol=SYM5, time=T0))
-    assert not is_transaction_marker(bar(0, 7600.0))
-    assert not is_transaction_marker(bar(0, 7600.0, flags=4))
+    assert placeholder().is_transaction_marker()
+    assert bar(0, 7600.0, flags=1).is_transaction_marker()
+    assert CandleEvent(eventSymbol=SYM5, time=T0).is_transaction_marker()
+    assert not bar(0, 7600.0).is_transaction_marker()
+    assert not bar(0, 7600.0, flags=4).is_transaction_marker()
+    assert CandleEvent.is_transaction_payload({"eventFlags": 2, "close": None})
+    assert not CandleEvent.is_transaction_payload({"eventFlags": 0, "close": 7600.0})
 
 
 class FakeEngine:
