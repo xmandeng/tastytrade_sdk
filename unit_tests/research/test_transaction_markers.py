@@ -3,15 +3,15 @@
 The filter is recursive, so a bar presented twice (a warmup/live overlap on a
 restart, or a replay that repeats a bar) would be a fake extra step in the
 price path. The bar-close gate itself relies on the candle pipeline dropping
-dxFeed transaction bookkeeping at ingestion (see
-unit_tests/messaging/test_transaction_markers.py).
+dxFeed transaction bookkeeping before publishing (see
+unit_tests/messaging/test_published_feed_markers.py).
 """
 
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from tastytrade.messaging.handlers import is_transaction_marker
+from tastytrade.messaging.processors.redis import is_transaction_marker
 from tastytrade.messaging.models.events import CandleEvent
 
 from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
