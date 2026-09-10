@@ -192,6 +192,13 @@ class LiveSignalEngine:
             self.engine.on_candle_event(event)
             return
 
+        # DXLink time-series snapshot markers arrive on the same channel with
+        # a far-future time and no price. They are protocol bookkeeping, not
+        # bars: letting one through would seal the forming bar early and then
+        # let the real boundary seal it a second time.
+        if event.close is None:
+            return
+
         # Bar-close gate: forward the previous bar to the engine only once a
         # newer bar opens (it has sealed); buffer the forming bar otherwise.
         # The engine never sees an intra-candle update, so a signal cannot fire
@@ -308,6 +315,10 @@ class HullSignalEngine:
             return
         if not self.confirm_on_close:
             self.ingest_sealed(event, emit=True)
+            return
+        # Snapshot markers (far-future time, no price) must not seal the
+        # forming bar; see the bar-close gate above.
+        if event.close is None:
             return
         prev = self.forming.get(event.eventSymbol)
         if prev is not None and event.time > prev.time:

@@ -129,6 +129,27 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-10 — Snapshot markers were sealing 5m bars early and feeding them twice
+
+A passive Redis tap on the collector's own input channel caught the event
+behind the premature seals seen on 09-09 (10:36:56, 14:20:57) and 09-10
+(10:21:58, 10:46:11): DXLink time-series snapshot markers arrive on the
+SPX{=5m} channel with time 2038-01-19T03:14:08 (the 32-bit epoch maximum),
+eventFlags 2, sequence 4194303, count 0 and no close, each preceded by one
+TX_PENDING update. The bar-close gate sealed the forming bar whenever any
+event carried a greater time, so a marker sealed the bar at whatever partial
+state it had reached; the real boundary then sealed the same bar again with
+its final values, so the hull frame and the Kalman state advanced twice on
+one bar. Five markers arrived between 10:24 and 10:46 on 09-10.
+
+Replaying the tapped production stream (1,601 events, 10:22 to 10:49)
+through the gate: unpatched, 10 seals with 4 bars ingested twice (the 10:20
+bar sealed at 7596.93 against a final 7607.11; the 10:35 bar sealed three
+times); patched to ignore events without a close, 5 seals on the bar
+boundaries and no duplicates. Both engines now drop price-less events before
+the seal comparison. Days from 09-09 onward that used the live engine carry
+this contamination in their entry timing; the retro replays do not.
+
 ### 2026-09-09 — The kalman warmup earns its place; the chart pane now warms the same way
 
 The chart's Kalman pane flipped Up at 09:55 on a 20-point gap-down open
