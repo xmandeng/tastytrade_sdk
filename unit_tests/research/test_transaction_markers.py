@@ -96,6 +96,22 @@ def test_same_bar_updates_kalman_once() -> None:
     assert eng.kalman_x[1] == velocity_after_first
 
 
+def test_naive_warmup_then_aware_live_bar() -> None:
+    """InfluxDB warmup rows are naive, live events aware; the guard must not raise."""
+    eng = HullSignalEngine(confirm_on_close=True)
+    for i in range(6):
+        eng.ingest_sealed(
+            CandleEvent(
+                eventSymbol=SYM5,
+                time=(T0 + timedelta(minutes=-30 + 5 * i)).replace(tzinfo=None),
+                close=7580.0 + 2 * i,
+            ),
+            emit=False,
+        )
+    eng.ingest_sealed(bar(0, 7592.0), emit=True)
+    assert eng.kalman_last_time == T0
+
+
 def load_fixture() -> list[CandleEvent]:
     events = []
     for line in FIXTURE.read_text().splitlines():
