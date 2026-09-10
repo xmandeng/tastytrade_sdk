@@ -16,7 +16,7 @@ published by the already-running subscribe service.
 
 import logging
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import polars as pl
@@ -45,6 +45,13 @@ logger = logging.getLogger(__name__)
 
 INTERVALS = ("m", "5m")
 HULL_CANDLE_CAP = 500
+
+
+def as_utc(moment: datetime) -> datetime:
+    """Warmup rows from InfluxDB arrive naive, live events aware; compare on one basis."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment
 
 
 def is_transaction_marker(event: CandleEvent) -> bool:
@@ -384,9 +391,10 @@ class HullSignalEngine:
     def kalman_step(self, event: CandleEvent, emit: bool) -> None:
         """Constant-velocity Kalman update on one sealed close; emit the
         ``engine="kalman"`` signal family on a velocity sign flip."""
-        if self.kalman_last_time is not None and event.time <= self.kalman_last_time:
+        bar_time = as_utc(event.time)
+        if self.kalman_last_time is not None and bar_time <= self.kalman_last_time:
             return
-        self.kalman_last_time = event.time
+        self.kalman_last_time = bar_time
         z = float(event.close or 0.0)
         if self.kalman_x is None:
             self.kalman_x = [z, 0.0]
