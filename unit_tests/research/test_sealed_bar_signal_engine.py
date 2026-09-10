@@ -88,7 +88,7 @@ class TestHullFamily:
         it must neither seal the forming bar early nor cause the bar to be
         ingested twice once the real boundary arrives."""
         start = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)
-        eng = HullSignalEngine(confirm_on_close=True)
+        eng = SealedBarSignalEngine(confirm_on_close=True)
         t = start - timedelta(minutes=5 * 40)
         for i in range(40):
             eng.ingest_sealed(bar(t, 7700.0 - i * 2), emit=False)
