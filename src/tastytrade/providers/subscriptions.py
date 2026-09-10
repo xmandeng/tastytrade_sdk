@@ -11,7 +11,7 @@ import redis.asyncio as redis  # type: ignore
 
 import tastytrade.messaging.models.events as events
 from tastytrade.config import ConfigurationManager
-from tastytrade.messaging.models.events import BaseEvent
+from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,10 @@ class RedisSubscription(DataSubscription):
                     except Exception as e:
                         logger.error("Error deserializing %s: %s", channel, e)
                         continue
+
+                # Transaction bookkeeping from dxFeed never reaches a consumer.
+                if isinstance(event, CandleEvent) and event.is_transaction_marker():
+                    continue
 
                 # Event-driven: fire callback directly, skip queue
                 callback = self._callbacks.get(pattern)

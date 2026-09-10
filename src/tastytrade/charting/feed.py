@@ -12,6 +12,7 @@ import redis.asyncio as aioredis
 from redis.asyncio.client import PubSub
 
 from tastytrade.config.manager import ConfigurationManager
+from tastytrade.messaging.models.events import CandleEvent
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ class ChartFeed:
                 continue
 
             if channel == candle_channel:
+                # Transaction bookkeeping from dxFeed never reaches the chart.
+                if CandleEvent.is_transaction_payload(data):
+                    continue
                 yield ("candle", data)
             elif channel == level_channel:
                 yield ("level", data)

@@ -26,7 +26,6 @@ from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.analytics.indicators.momentum import hull, macd
 from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
-from tastytrade.messaging.processors.snapshot import REMOVE_EVENT, TX_PENDING
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
 from tastytrade.utils.time_series import initialize_influx_client
@@ -52,19 +51,6 @@ def as_utc(moment: datetime) -> datetime:
     if moment.tzinfo is None:
         return moment.replace(tzinfo=timezone.utc)
     return moment
-
-
-def is_transaction_marker(event: CandleEvent) -> bool:
-    """True for DXLink transaction bookkeeping that must never act as a bar.
-
-    dxFeed wraps candle corrections in a transaction: a copy of the forming
-    bar flagged TX_PENDING, then a placeholder flagged REMOVE_EVENT with no
-    prices and a far-future timestamp. The bar-close gate compares timestamps
-    only, so the placeholder would seal the forming bar early on a partial
-    close and the real close would then seal the same bar a second time.
-    """
-    flags = event.eventFlags or 0
-    return event.close is None or bool(flags & (TX_PENDING | REMOVE_EVENT))
 
 
 class SignalCapture:
@@ -209,7 +195,7 @@ class LiveSignalEngine:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
 
-        if is_transaction_marker(event):
+        if event.is_transaction_marker():
             return
 
         if not self.confirm_on_close:
@@ -341,7 +327,7 @@ class HullSignalEngine:
             self.latest_spot_time = event.time
         if event.eventSymbol != f"{SYMBOL}{{=5m}}":
             return
-        if is_transaction_marker(event):
+        if event.is_transaction_marker():
             return
         if not self.confirm_on_close:
             self.ingest_sealed(event, emit=True)
