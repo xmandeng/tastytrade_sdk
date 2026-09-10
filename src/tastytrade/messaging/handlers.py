@@ -15,11 +15,6 @@ from tastytrade.connections.subscription import SubscriptionStore
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
 from tastytrade.messaging.models.messages import Message
 from tastytrade.messaging.processors.default import BaseEventProcessor
-from tastytrade.messaging.processors.snapshot import (
-    REMOVE_EVENT,
-    SNAPSHOT_END,
-    SNAPSHOT_SNIP,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +29,6 @@ DRAIN_SLICE = 500
 STATUS_STAMP_SECONDS = 1.0
 
 ROW_LIMIT = 100_000
-
-
-def is_transaction_marker(event: CandleEvent) -> bool:
-    """dxFeed closes a candle transaction with a virtual REMOVE_EVENT record at
-    index Long.MAX_VALUE: a 2038 timestamp, count 0, no prices. It is
-    bookkeeping, not a bar, and any consumer that detects a new bar by a newer
-    timestamp would seal the forming bar early on it. Dropping it here, once,
-    keeps every consumer free of the check. A record that also ends a
-    snapshot is kept: the snapshot tracker depends on it, and it only occurs
-    at subscription start."""
-    flags = event.eventFlags or 0
-    return bool(flags & REMOVE_EVENT) and not flags & (SNAPSHOT_END | SNAPSHOT_SNIP)
 
 
 @dataclass
@@ -302,8 +285,6 @@ class EventHandler:
                     # the result is a BaseEvent subclass. The cast narrows
                     # the Union to satisfy the typed list.
                     event = cast(BaseEvent, self.event.value(**data))
-                    if isinstance(event, CandleEvent) and is_transaction_marker(event):
-                        continue
                     events.append(event)
 
                 except ValidationError as e:
