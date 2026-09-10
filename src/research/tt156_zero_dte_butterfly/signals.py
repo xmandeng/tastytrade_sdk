@@ -195,9 +195,6 @@ class LiveSignalEngine:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
 
-        if event.is_transaction_marker():
-            return
-
         if not self.confirm_on_close:
             self.engine.on_candle_event(event)
             return
@@ -270,7 +267,8 @@ class HullSignalEngine:
         self.kalman_sign: str | None = None
         # The filter is recursive, so one bar must update it exactly once. The
         # hull rebuilds from a table deduped by bar time; the Kalman needs its
-        # own guard against a bar that seals twice.
+        # own guard against a bar that is presented twice (a warmup/live
+        # overlap on restart, or a replay that repeats a bar).
         self.kalman_last_time: datetime | None = None
         # collector reads len(signal_engine.engine.signals) for health counts
         self.engine = SimpleNamespace(signals=[])
@@ -326,8 +324,6 @@ class HullSignalEngine:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
         if event.eventSymbol != f"{SYMBOL}{{=5m}}":
-            return
-        if event.is_transaction_marker():
             return
         if not self.confirm_on_close:
             self.ingest_sealed(event, emit=True)

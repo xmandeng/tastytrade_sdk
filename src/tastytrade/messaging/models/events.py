@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Any, Callable, ClassVar, Mapping, Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -209,23 +209,6 @@ class CandleEvent(BaseEvent, FloatFieldMixin):
         "vwap",
         "impVolatility",
     )
-
-    # dxFeed wraps candle corrections in a transaction: a copy of the forming
-    # bar flagged TX_PENDING (0x01), then a placeholder flagged REMOVE_EVENT
-    # (0x02) with no prices and a far-future timestamp. Neither is a bar a
-    # study may consume; the placeholder's timestamp would otherwise seal the
-    # forming bar early and the real close would seal the same bar again.
-    TRANSACTION_FLAGS: ClassVar[int] = 0x03
-
-    @classmethod
-    def is_transaction_payload(cls, data: Mapping[str, Any]) -> bool:
-        """Marker test on the raw channel payload, before model construction."""
-        flags = data.get("eventFlags") or 0
-        return data.get("close") is None or bool(int(flags) & cls.TRANSACTION_FLAGS)
-
-    def is_transaction_marker(self) -> bool:
-        flags = self.eventFlags or 0
-        return self.close is None or bool(flags & self.TRANSACTION_FLAGS)
 
 
 class StudyEvent(BaseEvent):
