@@ -26,6 +26,7 @@ from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.analytics.indicators.momentum import hull, macd
 from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
+from tastytrade.messaging.processors.snapshot import REMOVE_EVENT, TX_PENDING
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
 from tastytrade.utils.time_series import initialize_influx_client
@@ -44,6 +45,19 @@ logger = logging.getLogger(__name__)
 
 INTERVALS = ("m", "5m")
 HULL_CANDLE_CAP = 500
+
+
+def is_transaction_marker(event: CandleEvent) -> bool:
+    """True for DXLink transaction bookkeeping that must never act as a bar.
+
+    dxFeed wraps candle corrections in a transaction: a copy of the forming
+    bar flagged TX_PENDING, then a placeholder flagged REMOVE_EVENT with no
+    prices and a far-future timestamp. The bar-close gate compares timestamps
+    only, so the placeholder would seal the forming bar early on a partial
+    close and the real close would then seal the same bar a second time.
+    """
+    flags = event.eventFlags or 0
+    return event.close is None or bool(flags & (TX_PENDING | REMOVE_EVENT))
 
 
 class SignalCapture:
@@ -188,6 +202,9 @@ class LiveSignalEngine:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
 
+        if is_transaction_marker(event):
+            return
+
         if not self.confirm_on_close:
             self.engine.on_candle_event(event)
             return
@@ -258,6 +275,10 @@ class HullSignalEngine:
         self.kalman_x: list[float] | None = None
         self.kalman_p: list[list[float]] = [[1.0, 0.0], [0.0, 1.0]]
         self.kalman_sign: str | None = None
+        # The filter is recursive, so one bar must update it exactly once. The
+        # hull rebuilds from a table deduped by bar time; the Kalman needs its
+        # own guard against a bar that seals twice.
+        self.kalman_last_time: datetime | None = None
         # collector reads len(signal_engine.engine.signals) for health counts
         self.engine = SimpleNamespace(signals=[])
 
@@ -313,6 +334,8 @@ class HullSignalEngine:
             self.latest_spot_time = event.time
         if event.eventSymbol != f"{SYMBOL}{{=5m}}":
             return
+        if is_transaction_marker(event):
+            return
         if not self.confirm_on_close:
             self.ingest_sealed(event, emit=True)
             return
@@ -361,6 +384,9 @@ class HullSignalEngine:
     def kalman_step(self, event: CandleEvent, emit: bool) -> None:
         """Constant-velocity Kalman update on one sealed close; emit the
         ``engine="kalman"`` signal family on a velocity sign flip."""
+        if self.kalman_last_time is not None and event.time <= self.kalman_last_time:
+            return
+        self.kalman_last_time = event.time
         z = float(event.close or 0.0)
         if self.kalman_x is None:
             self.kalman_x = [z, 0.0]
