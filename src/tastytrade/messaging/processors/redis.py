@@ -1,5 +1,4 @@
 import logging
-from typing import cast
 import os
 import time
 from datetime import datetime, timezone
@@ -8,12 +7,7 @@ import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
 from collections.abc import Sequence
 
-from tastytrade.messaging.models.events import BaseEvent, CandleEvent
-from tastytrade.messaging.processors.snapshot import (
-    REMOVE_EVENT,
-    SNAPSHOT_END,
-    SNAPSHOT_SNIP,
-)
+from tastytrade.messaging.models.events import BaseEvent
 from tastytrade.messaging.processors.default import BaseEventProcessor
 
 logger = logging.getLogger(__name__)
@@ -34,18 +28,6 @@ INTERVAL_SECONDS = {
     "d": 86400.0,
     "1d": 86400.0,
 }
-
-
-def is_transaction_marker(event: CandleEvent) -> bool:
-    """dxFeed closes a candle transaction with a virtual REMOVE_EVENT record at
-    index Long.MAX_VALUE: a 2038 timestamp, count 0, no prices. It is
-    bookkeeping, not a bar, and a subscriber that detects a new bar by a newer
-    timestamp would seal the forming bar early on it. The published feeds are
-    cleaned of it here, once, so no subscriber carries the check. A record
-    that also ends a snapshot is kept: it only occurs at subscription start
-    and the snapshot tracker upstream depends on the same flags."""
-    flags = event.eventFlags or 0
-    return bool(flags & REMOVE_EVENT) and not flags & (SNAPSHOT_END | SNAPSHOT_SNIP)
 
 
 class RedisEventProcessor(BaseEventProcessor):
@@ -88,8 +70,6 @@ class RedisEventProcessor(BaseEventProcessor):
             symbol = event.eventSymbol
 
             if event_type == "CandleEvent":
-                if is_transaction_marker(cast(CandleEvent, event)):
-                    continue
                 self.warn_if_stale(event)
 
             # Pub/sub for real-time streaming
