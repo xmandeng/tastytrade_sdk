@@ -29,6 +29,7 @@ from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.analytics.indicators.momentum import hull, macd
 from tastytrade.config import RedisConfigManager
 from tastytrade.messaging.models.events import BaseEvent, CandleEvent
+from tastytrade.messaging.processors.snapshot import REMOVE_EVENT
 from tastytrade.providers.market import MarketDataProvider
 from tastytrade.providers.subscriptions import RedisSubscription
 from tastytrade.utils.time_series import initialize_influx_client
@@ -47,6 +48,21 @@ logger = logging.getLogger(__name__)
 
 INTERVALS = ("m", "5m")
 HULL_CANDLE_CAP = 500
+
+
+def is_transaction_marker(event: CandleEvent) -> bool:
+    """True for a dxFeed transaction record that must never act as a bar.
+
+    dxFeed closes a candle transaction with a virtual REMOVE_EVENT record at
+    index Long.MAX_VALUE: a 2038 timestamp, count 0, no prices. The bar-close
+    gate below detects a new bar by a newer timestamp, so that record would
+    seal the forming bar early on a partial close and the real close would
+    then seal the same bar a second time. The check lives here, in the
+    consumer that needs it: the publisher does not know what its readers
+    need. A record with no close cannot be a bar for this engine either.
+    """
+    flags = event.eventFlags or 0
+    return event.close is None or bool(flags & REMOVE_EVENT)
 
 
 def as_utc(moment: datetime) -> datetime:
@@ -198,6 +214,9 @@ class LiveSignalEngine:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
 
+        if is_transaction_marker(event):
+            return
+
         if not self.confirm_on_close:
             self.engine.on_candle_event(event)
             return
@@ -327,6 +346,8 @@ class SealedBarSignalEngine:
             self.latest_spot = float(event.close)
             self.latest_spot_time = event.time
         if event.eventSymbol != f"{SYMBOL}{{=5m}}":
+            return
+        if is_transaction_marker(event):
             return
         if not self.confirm_on_close:
             self.ingest_sealed(event, emit=True)
