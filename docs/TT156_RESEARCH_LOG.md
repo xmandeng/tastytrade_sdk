@@ -129,26 +129,18 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
-### 2026-09-10 — Snapshot markers were sealing 5m bars early and feeding them twice
+### 2026-09-10 — dxFeed transaction records sealed forming bars early and double-updated the Kalman (TT-187)
 
-A passive Redis tap on the collector's own input channel caught the event
-behind the premature seals seen on 09-09 (10:36:56, 14:20:57) and 09-10
-(10:21:58, 10:46:11): DXLink time-series snapshot markers arrive on the
-SPX{=5m} channel with time 2038-01-19T03:14:08 (the 32-bit epoch maximum),
-eventFlags 2, sequence 4194303, count 0 and no close, each preceded by one
-TX_PENDING update. The bar-close gate sealed the forming bar whenever any
-event carried a greater time, so a marker sealed the bar at whatever partial
-state it had reached; the real boundary then sealed the same bar again with
-its final values, so the hull frame and the Kalman state advanced twice on
-one bar. Five markers arrived between 10:24 and 10:46 on 09-10.
+**Symptom.** The chart's Kalman pane and the ledger disagreed. Trade #1 (7590/7565 put vertical, +8.50 credit at 10:15) closed at 10:46 and three churn trades followed (bear 10:46, bull 11:00, bear 11:05, −4.35 pts combined), while the chart's velocity stayed positive through 10:45 (+1.54) and only dipped at the 11:15 bar.
 
-Replaying the tapped production stream (1,601 events, 10:22 to 10:49)
-through the gate: unpatched, 10 seals with 4 bars ingested twice (the 10:20
-bar sealed at 7596.93 against a final 7607.11; the 10:35 bar sealed three
-times); patched to ignore events without a close, 5 seals on the bar
-boundaries and no duplicates. Both engines now drop price-less events before
-the seal comparison. Days from 09-09 onward that used the live engine carry
-this contamination in their entry timing; the retro replays do not.
+**Cause.** dxFeed brackets multi-record history changes with a transaction: a copy of the forming 5m bar flagged `TX_PENDING`, then a virtual `REMOVE_EVENT` record at index `Long.MAX_VALUE` (time 2038-01-19, count 0, no prices) that closes the bracket. The engines' bar-close gate detects a new bar by a newer timestamp, so the 2038 record sealed the forming bar early on a partial close (10:45 bar at 10:46:11 on 7601.95) and the real close sealed the same bar again (10:50:00 on 7600.73). The hull rebuilds from a frame deduped by bar time and shrugged it off; the Kalman is recursive and took two updates for one bar, which flipped its sign three times. Eight pairs arrived that session between 10:24 and 11:59, some a minute apart. Our service never resubscribed; the sweeps are server-side (typically another client on the shared multiplexer re-requesting the symbol) and unpredictable. The records are not new: the 2038 placeholder sits in InfluxDB for 113 series back to early 2025, and no pipeline version ever filtered them.
+
+**Scope.** Kalman-arm ledgers are contaminated where the pairs landed inside the entry window: 2026-09-03 (8 ledger entries vs 4 clean), 2026-09-04, 09-08 and 09-09 (one bar late each) and 2026-09-10. August sessions show no off-grid entries. Backtests are unaffected: they run on sealed bars from InfluxDB and recorded chain snapshots.
+
+**Fix (TT-187).** The check lives in the consumer whose logic depends on bar boundaries: both engines ignore a record with no close or with `REMOVE_EVENT` set before it can touch the forming-bar buffer, and the Kalman refuses a second update for a bar time it has seen (UTC-normalized; warmup rows are naive, live bars aware). The subscribe service, its publisher and the shared feed classes stay untouched by principle: a publisher must not know what its readers need. The engine is renamed `SealedBarSignalEngine`: one pass over sealed bars, Kalman primary, hull backstop. Replaying the raw 2026-09-10 feed through the fixed engine reproduces the chart's flips exactly (10:20 bull, 11:15 bear, 11:20 bull, 11:50 bear, 12:40 bull). The chart feed still receives the placeholder; if the sporadic odd plots persist, the chart is the consumer that needs its own check.
+
+**How it was caught twice.** A parallel session (TT-184, merged first) found the same early seals from a passive tap on the collector's input channel and shipped a null-close guard at the gate, calling the record a snapshot marker. The follow-up research on this ticket established the record's real identity as dxFeed's transaction-close bookkeeping, and the flag-based check here subsumes that guard.
+
 
 ### 2026-09-09 — The kalman warmup earns its place; the chart pane now warms the same way
 

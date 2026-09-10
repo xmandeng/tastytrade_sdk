@@ -122,6 +122,13 @@ Processor.process_event(event)     ← straight-through, no callbacks
     └── MetricsTracker → in-memory metrics
 ```
 
+**Consumer side.** Every reader of the published feeds goes through one of two in-process delivery paths, neither of which crosses a service boundary:
+
+- `providers/subscriptions.py` (`RedisSubscription`) pattern-subscribes, JSON-decodes and rebuilds the declared Pydantic event class, then delivers it either to the caller's `on_update` callback on the listener task or to a per-`{EventType}:{Symbol}` asyncio queue the caller awaits. The TT-156 engines, the signal runner and the backtester use the callback; the market data provider uses the queue.
+- `charting/feed.py` (`ChartFeed`) yields the raw JSON dict to the chart server's websocket handler; no model is built.
+
+The "no callbacks" rule above is about component and service boundaries. An in-process callback from a consumer's own listener task to its own handler is the event-driven alternative to the queue hop, not a violation of it.
+
 #### Account Events (account-stream service)
 
 ```
@@ -259,6 +266,8 @@ Each service is a black box: Redis in → process → output. The producer doesn
 - `tastytrade:events:Order` — Order fill events (consumed by fill monitor)
 - `tastytrade:events:EntryCreditsUpdated` — Entry credit recomputation notifications
 - `account:simulate_failure` / `subscription:simulate_failure` — Failure simulation
+
+**Payload contract.** A market channel carries the parsed DXLink record verbatim: the Pydantic event serialized with every field the feed sent, including `eventFlags`, `index`, `count` and null prices. The publisher makes no promise about content beyond that and does not know what its readers need. In particular, dxFeed brackets multi-record history changes with transaction bookkeeping: a copy of the forming candle flagged `TX_PENDING`, then a virtual `REMOVE_EVENT` record at index `Long.MAX_VALUE` (a 2038 timestamp, no prices) that closes the bracket. Those records are published like any other. A consumer whose logic infers a bar boundary from a newer timestamp must recognise the closing record as bookkeeping and carries that check itself (`research/tt156_zero_dte_butterfly/signals.py`, `is_transaction_marker`). Business logic on behalf of readers does not belong in the service layer.
 
 ### 4. Protocol-Based Design — Structural Subtyping
 
