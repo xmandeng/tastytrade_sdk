@@ -83,6 +83,32 @@ class TestHullSignalEngine:
         eng.on_candle(bar(start + timedelta(minutes=5), 7655.0))  # seals prior
         assert eng.candles.height == before + 1
 
+    def test_snapshot_marker_does_not_seal_forming_bar(self) -> None:
+        """A DXLink snapshot marker (far-future time, no close) must be ignored:
+        it must neither seal the forming bar early nor cause the bar to be
+        ingested twice once the real boundary arrives."""
+        start = datetime(2026, 8, 27, 15, 0, tzinfo=timezone.utc)
+        eng = HullSignalEngine(confirm_on_close=True)
+        t = start - timedelta(minutes=5 * 40)
+        for i in range(40):
+            eng.ingest_sealed(bar(t, 7700.0 - i * 2), emit=False)
+            t += timedelta(minutes=5)
+        before = eng.candles.height
+        eng.on_candle(bar(start, 7650.0))  # forming, partial
+        marker = CandleEvent(
+            eventSymbol="SPX{=5m}",
+            time=datetime(2038, 1, 19, 3, 14, 8, tzinfo=timezone.utc),
+            eventFlags=2,
+            count=0,
+        )
+        eng.on_candle(marker)
+        assert eng.candles.height == before  # not sealed by the marker
+        eng.on_candle(bar(start, 7652.0))  # forming, final value
+        assert eng.candles.height == before
+        eng.on_candle(bar(start + timedelta(minutes=5), 7655.0))  # real seal
+        assert eng.candles.height == before + 1  # exactly once
+        assert eng.candles["close"][-1] == 7652.0  # with the final value
+
     def test_gate_context_is_none(self) -> None:
         assert HullSignalEngine().gate_context() is None
 

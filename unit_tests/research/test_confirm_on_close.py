@@ -73,3 +73,21 @@ def test_spot_tracking_stays_live() -> None:
     eng.on_candle(candle(0, 7505.0))  # intra-candle update
     # spot follows the latest tick even though the bar hasn't sealed
     assert eng.latest_spot == 7505.0
+
+
+def test_snapshot_marker_is_ignored() -> None:
+    """DXLink time-series snapshot markers (far-future time, no close) must
+    neither seal the forming bar early nor cause a double ingestion."""
+    eng, fake = make_engine(confirm=True)
+    eng.on_candle(candle(0, 7500.0))  # bar 0 forming
+    marker = CandleEvent(
+        eventSymbol=SYM,
+        time=datetime(2038, 1, 19, 3, 14, 8, tzinfo=timezone.utc),
+        eventFlags=2,
+        count=0,
+    )
+    eng.on_candle(marker)
+    assert fake.seen == []  # marker did not seal bar 0
+    eng.on_candle(candle(0, 7498.0))  # bar 0 final close
+    eng.on_candle(candle(1, 7510.0))  # real boundary seals bar 0 once
+    assert fake.seen == [(T0, 7498.0)]
