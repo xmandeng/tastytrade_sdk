@@ -14,7 +14,7 @@ from pathlib import Path
 from tastytrade.messaging.processors.redis import is_transaction_marker
 from tastytrade.messaging.models.events import CandleEvent
 
-from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
+from research.tt156_zero_dte_butterfly.signals import SealedBarSignalEngine
 
 T0 = datetime(2026, 9, 10, 14, 30, tzinfo=timezone.utc)
 SYM5 = "SPX{=5m}"
@@ -27,8 +27,8 @@ def bar(minute: int, close: float) -> CandleEvent:
     )
 
 
-def kalman_engine() -> HullSignalEngine:
-    eng = HullSignalEngine(confirm_on_close=True)
+def kalman_engine() -> SealedBarSignalEngine:
+    eng = SealedBarSignalEngine(confirm_on_close=True)
     for i in range(6):
         eng.ingest_sealed(bar(-30 + 5 * i, 7580.0 + 2 * i), emit=False)
     return eng
@@ -45,7 +45,7 @@ def test_same_bar_updates_kalman_once() -> None:
 
 def test_naive_warmup_then_aware_live_bar() -> None:
     """InfluxDB warmup rows are naive, live events aware; the guard must not raise."""
-    eng = HullSignalEngine(confirm_on_close=True)
+    eng = SealedBarSignalEngine(confirm_on_close=True)
     for i in range(6):
         eng.ingest_sealed(
             CandleEvent(

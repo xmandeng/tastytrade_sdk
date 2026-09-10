@@ -9,7 +9,7 @@ from tastytrade.analytics.engines.models import TradeSignal
 from tastytrade.messaging.models.events import CandleEvent
 
 from research.tt156_zero_dte_butterfly.config import VariantConfig, default_variants
-from research.tt156_zero_dte_butterfly.signals import HullSignalEngine
+from research.tt156_zero_dte_butterfly.signals import SealedBarSignalEngine
 from research.tt156_zero_dte_butterfly.simulator import (
     ButterflySimulator,
     signal_matches,
@@ -29,9 +29,9 @@ def bar(ts: datetime, close: float) -> CandleEvent:
     )
 
 
-def seeded_engine(start: datetime, closes: list[float]) -> HullSignalEngine:
+def seeded_engine(start: datetime, closes: list[float]) -> SealedBarSignalEngine:
     """Engine warmed on a down ramp (velocity firmly negative), then live."""
-    eng = HullSignalEngine(confirm_on_close=False)
+    eng = SealedBarSignalEngine(confirm_on_close=False)
     t = start - timedelta(minutes=5 * 60)
     for i in range(40):
         eng.ingest_sealed(bar(t, 7700.0 - i * 2), emit=False)
@@ -45,7 +45,7 @@ def seeded_engine(start: datetime, closes: list[float]) -> HullSignalEngine:
     return eng
 
 
-def kalman_sigs(eng: HullSignalEngine) -> list[TradeSignal]:
+def kalman_sigs(eng: SealedBarSignalEngine) -> list[TradeSignal]:
     return [s for s in eng.capture.drain() if s.engine == "kalman"]
 
 
@@ -131,7 +131,7 @@ class TestKalmanSignals:
     def test_kalman_flips_before_hull(self) -> None:
         """The point of the arm: on a sharp reversal the velocity sign flips
         on an earlier sealed bar than the hull color."""
-        eng = HullSignalEngine(confirm_on_close=False)
+        eng = SealedBarSignalEngine(confirm_on_close=False)
         t = TS - timedelta(minutes=5 * 60)
         for i in range(40):
             eng.ingest_sealed(bar(t, 7700.0 - i * 2), emit=False)
