@@ -110,6 +110,11 @@ class VariantConfig:
     # not gate early-fly conversions (market-order decisions, not resting
     # limits).
     fill_persistence: int = 1
+    # When the kalman entry fires: "sealed" = on the sealed velocity flip
+    # (production); "provisional" = at the first intra-bar crossing of the
+    # provisional velocity, with the false-start regime until the seal
+    # confirms (tracked arm, 2026-09-11).
+    entry_timing: str = "sealed"
 
     @property
     def signal_symbol(self) -> str:
@@ -199,6 +204,27 @@ def default_variants() -> list[VariantConfig]:
             completion_margin=0.0,
             signal_source="kalman",
             fill_persistence=4,
+        ),
+        # Tracked provisional-entry arms: enter at the first intra-bar
+        # crossing of the provisional velocity instead of the seal, manage a
+        # non-confirming bar out by scratch / 30-minute clock / -1x credit
+        # stop / long-strike breach, then trade as production once the seal
+        # confirms. Same widths as the primary arms.
+        VariantConfig(
+            name="w25_5m_m0_kal_prov",
+            width=25.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            signal_source="kalman",
+            entry_timing="provisional",
+        ),
+        VariantConfig(
+            name="w50_5m_m0_kal_prov",
+            width=50.0,
+            signal_interval="5m",
+            completion_margin=0.0,
+            signal_source="kalman",
+            entry_timing="provisional",
         ),
     ]
 

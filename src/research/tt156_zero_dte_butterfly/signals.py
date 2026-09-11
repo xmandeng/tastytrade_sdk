@@ -285,6 +285,10 @@ class SealedBarSignalEngine:
         # own guard against a bar that is presented twice (a warmup/live
         # overlap on restart, or a replay that repeats a bar).
         self.kalman_last_time: datetime | None = None
+        # Provisional-entry tracking: the forming bar that already produced
+        # its one crossing trigger, and the trigger awaiting its seal.
+        self.provisional_bar: datetime | None = None
+        self.provisional_pending: tuple[datetime, str] | None = None
         # collector reads len(signal_engine.engine.signals) for health counts
         self.engine = SimpleNamespace(signals=[])
 
@@ -294,6 +298,59 @@ class SealedBarSignalEngine:
     def gate_context(self) -> dict[str, float | None] | None:
         """MACD gate retired — no context (simulator stamps None)."""
         return None
+
+    def forming_bar_time(self) -> datetime | None:
+        forming = self.forming.get(f"{SYMBOL}{{=5m}}")
+        return forming.time if forming is not None else None
+
+    def provisional_velocity(self, spot: float) -> float | None:
+        """Velocity the filter would hold if the forming bar closed at ``spot``
+        now: one predict+update on a copy of the sealed state. The sealed
+        state itself is untouched; only the seal updates it."""
+        if self.kalman_x is None:
+            return None
+        x, p = self.kalman_x, self.kalman_p
+        r = 1.0
+        q = KALMAN_Q_OVER_R * r
+        xp = [x[0] + x[1], x[1]]
+        p00 = p[0][0] + p[0][1] + p[1][0] + p[1][1] + q / 4
+        p10 = p[1][0] + p[1][1] + q / 2
+        k1 = p10 / (p00 + r)
+        return xp[1] + k1 * (spot - xp[0])
+
+    def provisional_signals(self, bar_time: datetime, spot: float) -> None:
+        """Provisional-entry trigger: the first moment in a forming bar where
+        the provisional velocity crosses against the sealed regime emits OPEN
+        in the new direction (trigger ``kalman_provisional``), once per bar and
+        only inside the entry window. The seal then settles it in kalman_step:
+        a confirming seal emits the ordinary flip, a non-confirming seal emits
+        FALSE_START so the simulator manages the position out."""
+        if self.kalman_sign is None:
+            return
+        bar_time = as_utc(bar_time)
+        if self.kalman_last_time is not None and bar_time <= self.kalman_last_time:
+            return  # that bar has already sealed
+        if self.provisional_bar == bar_time:
+            return
+        velocity = self.provisional_velocity(spot)
+        if velocity is None:
+            return
+        sign = "Up" if velocity > 0 else "Down"
+        if sign == self.kalman_sign:
+            return
+        self.provisional_bar = bar_time
+        candle_et = bar_time.astimezone(ET_TZ).time()
+        if not (HULL_ENTRY_START <= candle_et <= HULL_ENTRY_END):
+            return
+        self.provisional_pending = (bar_time, sign)
+        self.emit_signal(
+            CandleEvent(eventSymbol=f"{SYMBOL}{{=5m}}", time=bar_time, close=spot),
+            "OPEN",
+            "BULLISH" if sign == "Up" else "BEARISH",
+            "kalman_provisional",
+            velocity,
+            engine="kalman",
+        )
 
     def warmup(self, session_date: date) -> None:
         """Replay recent 5m history from InfluxDB; discard warmup signals."""
@@ -414,6 +471,18 @@ class SealedBarSignalEngine:
         sign = "Up" if self.kalman_x[1] > 0 else "Down"
         prev_sign = self.kalman_sign
         self.kalman_sign = sign
+        pending = self.provisional_pending
+        if pending is not None and as_utc(event.time) >= pending[0]:
+            self.provisional_pending = None
+            if emit and sign != pending[1]:
+                self.emit_signal(
+                    event,
+                    "FALSE_START",
+                    "BULLISH" if pending[1] == "Up" else "BEARISH",
+                    "kalman_seal",
+                    self.kalman_x[1],
+                    engine="kalman",
+                )
         if not emit or prev_sign is None or sign == prev_sign:
             return
         candle_et = event.time.astimezone(ET_TZ).time()
