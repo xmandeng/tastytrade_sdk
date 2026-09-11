@@ -25,27 +25,40 @@ def bar(minute: int, close: float) -> CandleEvent:
     )
 
 
-def rising_engine() -> SealedBarSignalEngine:
-    """Sealed regime Up: six rising closes, last sealed bar is T0-5."""
+def rising_engine(step: float = 0.2) -> SealedBarSignalEngine:
+    """Sealed regime Up on a gentle ramp: velocity decayed enough to qualify
+    a crossing (|v| ~ step); last sealed bar is T0-5."""
     eng = SealedBarSignalEngine(confirm_on_close=True)
-    for i in range(6):
-        eng.ingest_sealed(bar(-30 + 5 * i, 7580.0 + 2 * i), emit=False)
+    for i in range(12):
+        eng.ingest_sealed(bar(-60 + 5 * i, 7580.0 + step * i), emit=False)
     eng.capture.drain()
     assert eng.kalman_sign == "Up"
+    assert eng.kalman_x is not None
     return eng
+
+
+def test_crossing_against_a_fast_regime_is_not_an_entry() -> None:
+    eng = rising_engine(step=2.0)  # |v| well above the decayed level
+    assert eng.kalman_x is not None and abs(eng.kalman_x[1]) > 0.25
+    eng.provisional_signals(T0, 7500.0)
+    assert eng.capture.drain() == []
+    eng = rising_engine(step=0.2)
+    assert eng.kalman_x is not None and abs(eng.kalman_x[1]) <= 0.25
+    eng.provisional_signals(T0, 7570.0)
+    assert [s.trigger for s in eng.capture.drain()] == ["kalman_provisional"]
 
 
 def test_first_crossing_emits_one_provisional_open_per_bar() -> None:
     eng = rising_engine()
-    eng.provisional_signals(T0, 7592.0)  # in line with the regime
+    eng.provisional_signals(T0, 7590.0)  # in line with the regime
     assert eng.capture.drain() == []
-    eng.provisional_signals(T0, 7560.0)  # crosses against it
+    eng.provisional_signals(T0, 7570.0)  # crosses against it
     sigs = eng.capture.drain()
     assert [(s.signal_type, s.direction, s.trigger) for s in sigs] == [
         ("OPEN", "BEARISH", "kalman_provisional")
     ]
     assert sigs[0].engine == "kalman"
-    eng.provisional_signals(T0, 7540.0)  # same bar: no second trigger
+    eng.provisional_signals(T0, 7560.0)  # same bar: no second trigger
     assert eng.capture.drain() == []
 
 
@@ -64,9 +77,9 @@ def test_already_sealed_bar_cannot_trigger() -> None:
 
 def test_non_confirming_seal_emits_false_start() -> None:
     eng = rising_engine()
-    eng.provisional_signals(T0, 7560.0)
+    eng.provisional_signals(T0, 7570.0)
     eng.capture.drain()
-    eng.ingest_sealed(bar(0, 7593.0), emit=True)  # closes with the regime
+    eng.ingest_sealed(bar(0, 7584.0), emit=True)  # closes with the regime
     sigs = eng.capture.drain()
     assert [(s.signal_type, s.direction, s.trigger) for s in sigs] == [
         ("FALSE_START", "BEARISH", "kalman_seal")
@@ -76,9 +89,9 @@ def test_non_confirming_seal_emits_false_start() -> None:
 
 def test_confirming_seal_emits_the_ordinary_flip_only() -> None:
     eng = rising_engine()
-    eng.provisional_signals(T0, 7560.0)
+    eng.provisional_signals(T0, 7570.0)
     eng.capture.drain()
-    eng.ingest_sealed(bar(0, 7550.0), emit=True)
+    eng.ingest_sealed(bar(0, 7560.0), emit=True)
     sigs = [
         (s.signal_type, s.direction, s.trigger)
         for s in eng.capture.drain()
@@ -197,13 +210,27 @@ def test_confirmed_vertical_is_never_stopped_and_not_re_entered() -> None:
     assert sim.structures[0].status == "OPEN"
 
 
-def test_sealed_flip_with_no_crossing_enters_the_provisional_arm() -> None:
+def test_sealed_flip_never_enters_the_provisional_arm() -> None:
     events: list[dict] = []
     sim = ButterflySimulator([PROV], event_sink=events.append)
     sim.on_snapshot(T0, K, quotes(9.0, 2.0), [SEALED_OPEN])
-    assert sim.structures[0].entry_timing == "sealed"
-    sim.on_snapshot(T0 + timedelta(minutes=2), K - 30, quotes(20.0, 3.0), [])
+    assert sim.structures == [] and events == []
+
+
+def test_same_direction_crossing_rearms_a_live_false_start() -> None:
+    sim, events = opened()
+    t = T0 + timedelta(minutes=5)
+    sim.on_snapshot(t, K, quotes(10.0, 2.0), [FALSE_START])
+    assert sim.structures[0].exposed_at is not None
+    sim.on_snapshot(t + timedelta(minutes=1), K, quotes(10.0, 2.0), [PROV_OPEN])
+    assert len(sim.structures) == 1
+    assert sim.structures[0].exposed_at is None
+    assert [e["event"] for e in events] == ["ENTRY", "EXPOSED", "REARMED"]
+    # no scratch or clock while re-armed; the stop still guards it
+    sim.on_snapshot(t + timedelta(minutes=2), K, quotes(8.5, 2.0), [])
     assert sim.structures[0].status == "OPEN"
+    sim.on_snapshot(t + timedelta(minutes=3), K - 8, quotes(16.0, 2.0), [])
+    assert sim.structures[0].close_reason == "false_start_stop"
 
 
 def test_family_flip_does_not_close_an_unconfirmed_vertical() -> None:

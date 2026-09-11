@@ -67,6 +67,11 @@ GATE_ETA_NEAR = 10.0
 # 2-3x with the hull's own flip set timed better; 0.025 was the best measured
 # point and the consensus of curve fits across arms. Frozen calibration.
 KALMAN_Q_OVER_R = 0.025
+# Provisional entry (tracked arms): a crossing of the provisional velocity
+# counts only when the sealed velocity entering the forming bar is already
+# decayed to this magnitude or less. A crossing against a fast regime is not
+# an entry. Level chosen from the 59-session replay (see the research log).
+PROVISIONAL_ENTRY_MAX_VELOCITY = 0.25
 # Sessions of sealed bars the kalman and hull filters replay before going
 # live. The chart's kalman pane seeds from the same window so it shows the
 # state the engine actually trades on.

@@ -259,8 +259,14 @@ class ButterflySimulator:
             routed = [s for s in signals if signal_matches(variant, s)]
             for signal in routed:
                 if signal.signal_type == "OPEN":
-                    if signal.trigger != "kalman_provisional":
+                    if signal.trigger == "kalman_provisional":
+                        if self.rearm_provisional(variant, signal.direction, ts):
+                            continue
+                    elif variant.entry_timing == "provisional":
+                        # The sealed flip confirms a live provisional vertical;
+                        # it never enters this arm, whose entry is the crossing.
                         self.confirm_provisional(variant, signal.direction, ts)
+                        continue
                     self.try_enter(
                         variant, ts, spot, quotes, signal, gate_ctx, regime_state
                     )
@@ -300,6 +306,20 @@ class ButterflySimulator:
         for s in self.provisional_unconfirmed(variant.name, direction):
             s.confirmed_at = ts.isoformat()
             self.emit("CONFIRMED", ts, s)
+
+    def rearm_provisional(
+        self, variant: VariantConfig, direction: str, ts: datetime
+    ) -> bool:
+        """A crossing in the direction of a live unconfirmed vertical: the
+        thesis is back on, and that vertical is the new bar's provisional
+        position. Its exposure clears (the new seal will confirm or expose it
+        afresh); the stop and breach stay armed. True when something was
+        re-armed, so no second entry is taken."""
+        live = self.provisional_unconfirmed(variant.name, direction)
+        for s in live:
+            s.exposed_at = None
+            self.emit("REARMED", ts, s)
+        return bool(live)
 
     def expose_provisional(
         self, variant: VariantConfig, direction: str, ts: datetime

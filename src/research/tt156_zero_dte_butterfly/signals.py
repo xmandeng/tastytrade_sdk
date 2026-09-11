@@ -40,6 +40,7 @@ from research.tt156_zero_dte_butterfly.config import (
     HULL_ENTRY_START,
     KALMAN_Q_OVER_R,
     KALMAN_WARMUP_DAYS,
+    PROVISIONAL_ENTRY_MAX_VELOCITY,
     SYMBOL,
 )
 from research.tt156_zero_dte_butterfly.gate import flip_eta
@@ -321,12 +322,17 @@ class SealedBarSignalEngine:
     def provisional_signals(self, bar_time: datetime, spot: float) -> None:
         """Provisional-entry trigger: the first moment in a forming bar where
         the provisional velocity crosses against the sealed regime emits OPEN
-        in the new direction (trigger ``kalman_provisional``), once per bar and
-        only inside the entry window. The seal then settles it in kalman_step:
-        a confirming seal emits the ordinary flip, a non-confirming seal emits
-        FALSE_START so the simulator manages the position out."""
-        if self.kalman_sign is None:
+        in the new direction (trigger ``kalman_provisional``), once per bar,
+        only inside the entry window, and only when the sealed velocity
+        entering the bar is already decayed (|v| at or below
+        PROVISIONAL_ENTRY_MAX_VELOCITY). The seal then settles it in
+        kalman_step: a confirming seal emits the ordinary flip, a
+        non-confirming seal emits FALSE_START so the simulator manages the
+        position out."""
+        if self.kalman_sign is None or self.kalman_x is None:
             return
+        if abs(self.kalman_x[1]) > PROVISIONAL_ENTRY_MAX_VELOCITY:
+            return  # the regime is still fast; a crossing here is not an entry
         bar_time = as_utc(bar_time)
         if self.kalman_last_time is not None and bar_time <= self.kalman_last_time:
             return  # that bar has already sealed
