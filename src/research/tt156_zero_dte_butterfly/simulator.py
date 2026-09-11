@@ -503,6 +503,14 @@ class ButterflySimulator:
         reason: str,
     ) -> None:
         for structure in self.live_incomplete(variant.name, direction):
+            if (
+                structure.entry_timing == "provisional"
+                and structure.confirmed_at is None
+            ):
+                # Until the seal rules, only the false-start regime (stop,
+                # breach, then scratch and clock) may close the vertical; a
+                # family flip is not one of its exits.
+                continue
             self.close_structure(structure, ts, quotes, reason)
 
     def close_structure(
