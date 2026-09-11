@@ -17,7 +17,7 @@ All fills are at mid-price. P&L is in SPX points (×100 = dollars/contract).
 import json
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 
 from tastytrade.analytics.engines.models import TradeSignal
@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 # quotes mapping: (strike, "C"|"P") -> market-data field dict
 Quotes = dict[tuple[float, str], dict[str, float | None]]
+
+# False-start regime (settled 2026-09-10): a provisional vertical the seal did
+# not confirm leaves at the first scratch, else this long after that seal.
+FALSE_START_CLOCK = timedelta(minutes=30)
 
 
 @dataclass
@@ -84,6 +88,12 @@ class Structure:
     close_cost: float | None = None
     close_reason: str | None = None
     pnl_points: float | None = None
+    # Provisional-entry arms: entered at the intra-bar crossing; the seal
+    # either confirms it (confirmed_at, then production rules) or exposes it
+    # as a false start (exposed_at, then scratch / clock / stop / breach).
+    entry_timing: str = "sealed"
+    confirmed_at: str | None = None
+    exposed_at: str | None = None
 
 
 def leg_mid(quote: dict[str, float | None] | None) -> float | None:
@@ -150,6 +160,13 @@ def signal_matches(variant: VariantConfig, signal: TradeSignal) -> bool:
     """
     if signal.eventSymbol != variant.signal_symbol:
         return False
+    provisional = (
+        signal.trigger == "kalman_provisional" or signal.signal_type == "FALSE_START"
+    )
+    if provisional:
+        return (
+            variant.signal_source == "kalman" and variant.entry_timing == "provisional"
+        )
     from_kalman = getattr(signal, "engine", None) == "kalman"
     if variant.signal_source == "kalman":
         return signal.signal_type == "CLOSE" or from_kalman
@@ -242,6 +259,8 @@ class ButterflySimulator:
             routed = [s for s in signals if signal_matches(variant, s)]
             for signal in routed:
                 if signal.signal_type == "OPEN":
+                    if signal.trigger != "kalman_provisional":
+                        self.confirm_provisional(variant, signal.direction, ts)
                     self.try_enter(
                         variant, ts, spot, quotes, signal, gate_ctx, regime_state
                     )
@@ -253,6 +272,11 @@ class ButterflySimulator:
                         quotes,
                         f"signal_{signal.trigger}",
                     )
+                elif signal.signal_type == "FALSE_START":
+                    self.expose_provisional(variant, signal.direction, ts)
+
+            if variant.entry_timing == "provisional":
+                self.manage_false_starts(variant, ts, spot, quotes)
 
             if ts_et.time() <= LAST_COMPLETION:
                 self.try_complete(variant, ts, spot, quotes, regime_state)
@@ -260,6 +284,61 @@ class ButterflySimulator:
             if ts_et.time() >= FORCED_CLOSE:
                 for structure in self.live_incomplete(variant.name):
                     self.close_structure(structure, ts, quotes, "forced_eod")
+
+    def provisional_unconfirmed(self, variant: str, direction: str | None = None):
+        return [
+            s
+            for s in self.live_incomplete(variant, direction)
+            if s.entry_timing == "provisional" and s.confirmed_at is None
+        ]
+
+    def confirm_provisional(
+        self, variant: VariantConfig, direction: str, ts: datetime
+    ) -> None:
+        """A sealed flip in the position's direction: the crossing was right,
+        the vertical is a launch and trades under production rules from here."""
+        for s in self.provisional_unconfirmed(variant.name, direction):
+            s.confirmed_at = ts.isoformat()
+            self.emit("CONFIRMED", ts, s)
+
+    def expose_provisional(
+        self, variant: VariantConfig, direction: str, ts: datetime
+    ) -> None:
+        """The crossing bar sealed without flipping: the vertical is a false
+        start and the scratch / clock exits arm on top of the stop and breach."""
+        for s in self.provisional_unconfirmed(variant.name, direction):
+            s.exposed_at = ts.isoformat()
+            self.emit("EXPOSED", ts, s)
+
+    def manage_false_starts(
+        self, variant: VariantConfig, ts: datetime, spot: float, quotes: Quotes
+    ) -> None:
+        """False-start regime on every unconfirmed provisional vertical: from
+        entry, -1x credit stop and long-strike breach (never a max loss); once
+        the seal has exposed it, out at the first scratch, else at 30 minutes
+        after that seal."""
+        for s in self.provisional_unconfirmed(variant.name):
+            priced = self.entry_legs_for(s.direction, s.short_strike, s.width, quotes)
+            if priced is None:
+                continue
+            pnl = s.entry_credit - priced[0]
+            beyond_long = (
+                spot < s.short_strike - s.width
+                if s.direction == "BULLISH"
+                else spot > s.short_strike + s.width
+            )
+            exposed = datetime.fromisoformat(s.exposed_at) if s.exposed_at else None
+            if exposed is not None and pnl >= 0:
+                reason = "false_start_scratch"
+            elif pnl <= -s.entry_credit:
+                reason = "false_start_stop"
+            elif beyond_long:
+                reason = "false_start_breach"
+            elif exposed is not None and ts - exposed >= FALSE_START_CLOCK:
+                reason = "false_start_clock"
+            else:
+                continue
+            self.close_structure(s, ts, quotes, reason)
 
     def entry_legs_for(
         self, direction: str, strike: float, width: float, quotes: Quotes
@@ -337,6 +416,9 @@ class ButterflySimulator:
             entry_credit=credit,
             entry_legs=legs,
             signal_trigger=signal.trigger,
+            entry_timing=(
+                "provisional" if signal.trigger == "kalman_provisional" else "sealed"
+            ),
             gate_bucket=bucket,
             gate_hist_5m=ctx.get("hist_5m"),
             gate_slope_5m=ctx.get("slope_5m"),

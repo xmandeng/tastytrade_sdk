@@ -263,6 +263,10 @@ class DayCollector:
                 spot = await asyncio.wait_for(self.spot(), timeout=30)
                 quotes = self.build_quotes(market)
                 signals = self.signal_engine.capture.drain()
+                bar_time = self.signal_engine.forming_bar_time()
+                if bar_time is not None:
+                    self.signal_engine.provisional_signals(bar_time, spot)
+                    signals += self.signal_engine.capture.drain()
                 self.write_snapshot(cycle_start, spot, market)
                 gate_ctx = self.signal_engine.gate_context() if signals else None
                 self.spot_path.append(
