@@ -204,3 +204,13 @@ def test_sealed_flip_with_no_crossing_enters_the_provisional_arm() -> None:
     assert sim.structures[0].entry_timing == "sealed"
     sim.on_snapshot(T0 + timedelta(minutes=2), K - 30, quotes(20.0, 3.0), [])
     assert sim.structures[0].status == "OPEN"
+
+
+def test_family_flip_does_not_close_an_unconfirmed_vertical() -> None:
+    sim, _ = opened()
+    hull_close = signal("CLOSE", "BULLISH", "hull")
+    sim.on_snapshot(T0 + timedelta(minutes=2), K, quotes(10.0, 2.0), [hull_close])
+    assert sim.structures[0].status == "OPEN"
+    sim.on_snapshot(T0 + timedelta(minutes=5), K, quotes(10.0, 2.0), [SEALED_OPEN])
+    sim.on_snapshot(T0 + timedelta(minutes=7), K, quotes(10.0, 2.0), [hull_close])
+    assert sim.structures[0].close_reason == "signal_hull"
