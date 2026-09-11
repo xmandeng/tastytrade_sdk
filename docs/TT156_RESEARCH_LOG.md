@@ -38,6 +38,13 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
   running totals.
 - **Tracked controls:** the hull arms (`w25_5m_m0`, `w25_5m_m1`,
   `w25_5m_m0_ef5`, `w50_5m_m0`) stay in the grid as the lagging control.
+- **Tracked provisional-entry arms (since 2026-09-11, TT-188):**
+  `w25_5m_m0_kal_prov`, `w50_5m_m0_kal_prov` enter at the first intra-bar
+  crossing of the provisional velocity instead of the seal; until the seal
+  confirms, a −1× credit stop and long-strike breach are armed, and a bar
+  that seals without flipping exposes a false start that leaves at the
+  first scratch or 30 minutes after that seal. Confirmed launches trade
+  under production rules. See the 2026-09-10 finding.
 - **End-of-day fly — mandatory every session (decision 2026-09-03; arms
   added 2026-08-31):** a defined-debit long ATM 25-wide butterfly bought in
   the 14:00 ET window, held to settlement — long the afternoon pin, max
@@ -128,6 +135,83 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
   and the early-fly conversion *are* the stop.
 
 ## Findings log
+
+### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
+
+**Question.** The user's observation that the sealed 5m Kalman "sticks to a
+regime": could the entry come at the moment the velocity crosses inside the
+forming bar instead of at the seal, and what happens to the trades that
+turn out to be false starts?
+
+**Provisional velocity.** One Kalman predict+update on a copy of the sealed
+state with the current spot (the sealed state is untouched). Velocity gain
+k1 = 0.119, so a crossing is a forming close ~8 pts past the filter's
+prediction. Rigs: `research_data/TT-156/provisional_flip_sweep_20260910.py`
+and companions (all dated 20260910/20260911, mids, no friction unless stated).
+
+**What the crossing is worth (360 crossings, 59 sessions).** Toggle parity
+decides the seal: an odd number of intra-bar toggles confirms 94–100 %, an
+even number reverts. Flicker lives in bars entering with sealed |v| < 0.25.
+Of the 360 first crossings, 234 confirmed (launches) and 126 did not (false
+starts). The two populations are indistinguishable at the crossing. The head
+start over the seal scales with the flip bar's size, 0.6 to 2.8 pts by
+quartile; per launch it costs ~0.54 false starts.
+
+**False-start handling (settled).** A false start reaches scratch 94 % of the
+time after the seal that exposed it, median 5 min; the 8 that never do are
+the max-loss tail. Regime: out at the first scratch after the exposing seal,
+else a 30-minute clock, with a −1× credit stop and long-strike breach armed
+from entry. 30 min beats 15 (79→96 scratches); −1× and −0.5× are flat in
+expectation but −0.5× fires three times as often and interrupts recoveries;
+forming a fly at the stop is worse than closing (spot is ~15 pts past the
+short strike, counter credit ~1.3).
+
+**Good starts and the exit (234 launches).** Held to settlement 67 % win, but
+no launch survives to the close: the opposite flip of either family closes
+every one, median 40 min after the seal. The flip exit is fair: +2.8 mean
+when it fires with spot beyond the short strike, −1.3 inside. Holding
+through a beyond-strike flip (decay hold, full-arm replay on sealed entries,
+`strike_exit_replay_20260910.py`) is a wash on w25 (+154 vs +154; tents
+38→54, but 10 of 56 holds fail via stop/breach and the hold blocks 32
+re-entries) and +7 on w50 without the stop. Exiting at the first crossing
+against the position instead of the seal saves 8 pts on 197 exits and
+pre-empts 4 of 38 tents; net −19. The sealed flip stays as the exit.
+
+**Tent timing (`tent_timing_20260910.py`).** A tent is a continuation event:
+completion arrives when spot has run a full width in the vertical's favour,
+median 48 min after entry, median 12:27. The fly's aggregate mark is flat
+from 13:00 to the close and equals settlement; every structural harvest
+(strike touch, strike cross, close at completion) is a wash or worse; the
+hindsight best is 2× but bimodal in time. Tent odds for a still-open
+vertical are one in three for 90 min, then fall with the clock: one in five
+after 14:30, none four hours after entry. Closing the open vertical at any
+hour vs holding is within ±0.5 pt per position. No timing edge exists in
+either structure; holding to the close is variance, not cost.
+
+**Decision.** Production unchanged. A tracked arm goes live 2026-09-11
+(TT-188): entry at the first crossing, the false-start regime until the seal,
+production rules after it. Two widths, `w25_5m_m0_kal_prov` and
+`w50_5m_m0_kal_prov`.
+
+**Full-arm replay of the arm (59 sessions, package engine + simulator on the
+recorded snapshots, `research_data/TT-156/provisional_arm_replay_20260911.py`;
+control reproduces the ledger exactly):**
+
+| Arm | All-in pts | Entries | Tents | Per entry | Sessions better / worse |
+|---|---|---|---|---|---|
+| w25 control | +154.4 | 240 | 38 | +0.64 | — |
+| w25 provisional | +145.6 | 323 | 43 | +0.45 | 31 / 27 |
+| w50 control | +133.2 | 240 | 4 | +0.56 | — |
+| w50 provisional | +76.8 | 326 | 4 | +0.24 | 28 / 30 |
+
+On w25 the 191 confirmed launches earn +292 at mids against the control's
++218 on 240 entries (+1.53 vs +0.91 per launch; 33 tents from launches,
+43 in all), which is the head start and the strike cushion showing up. The
+83 false starts give back −79 at mids plus their friction: 65 scratch at
++0.22 each, 9 time out at −3.9, 6 breach at −6.8, 3 stop at −5.7. On w50
+the −1× credit stop is the cost (10 stops at −10.9). The arm is live to
+answer, in real fills, whether the launches' gain survives the false
+starts' friction.
 
 ### 2026-09-10 — dxFeed transaction records sealed forming bars early and double-updated the Kalman (TT-187)
 
