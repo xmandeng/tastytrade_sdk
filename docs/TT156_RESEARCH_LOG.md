@@ -136,6 +136,163 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-12 — Sequential evidence at the crossing: CUSUM and Bayesian change-point statistics on 15 s ticks cannot tell a launch from a false start, and no bound beats the first crossing (TT-191)
+
+**Question.** The provisional entry (TT-188, TT-189) fires on the first
+intra-bar crossing of the provisional velocity, and the 2026-09-10 study
+found launches and false starts indistinguishable at that tick. Sequential
+detection theory offers statistics built to trade detection delay against a
+false-alarm rate: does evidence accumulated tick by tick, carried across bar
+boundaries, separate the two populations or move the delay-versus-false-alarm
+curve past the crossing?
+
+**Statistics.** Both computed on the 15 s chain-snapshot spot beside the
+provisional velocity, entry window 10:00–13:00 ET, production Kalman.
+(1) CUSUM (Page 1954; a Wald SPRT with reset at zero): one-sided drift-change
+test against the sealed regime, S_t = max(0, S_{t−1} − sgn(v_sealed)·r_t/σ_t − k),
+σ_t the rolling 15 s sigma over 15 minutes, reference value k ∈ {0.25, 0.5},
+reset when the sealed regime flips and after each alarm, otherwise continuous
+across bars. Algebraically it is the drift-adjusted drawdown of spot from its
+running extreme since the regime began. (2) Bayesian online change-point
+detection (Adams and MacKay 2007): Normal-Gamma run model (unknown mean and
+variance), constant hazard 1/λ with λ ∈ {20, 40, 80} ticks; per tick the
+run-length posterior gives P(a change occurred inside the forming bar) and a
+run-length-weighted posterior drift. Because that probability is dominated
+by the hazard prior, the decision statistic is its log Bayes factor against
+the prior odds (evidence in the data only), with the posterior drift
+required to point against the regime. Rig:
+`research_data/TT-156/sequential_entry_stats_20260912.py` (results `.json`,
+tables `_tables.md`); run `uv run python research_data/TT-156/sequential_entry_stats_20260912.py`.
+60 sessions 2026-06-11 to 2026-09-11 (06-23 and 06-24 have no 5m bars in
+InfluxDB), 2,220 window bars, 246 of them sealing a regime flip, 369 first
+crossings: 240 confirm at the seal, 56 are early by one bar (the next seal
+flips), 73 are false. The harness reproduces the engine's crossing count in
+every session and the control arm to the cent in every cell.
+
+**At the crossing tick, nothing accumulated separates the outcomes.** Rank
+AUC of each statistic for confirm against the rest (0.5 = no information):
+
+| Statistic at the first crossing | confirm median | early median | false median | AUC confirm vs rest | AUC confirm vs false |
+|---|---|---|---|---|---|
+| minutes into bar | 0.30 | 0.98 | 0.31 | 0.46 | 0.50 |
+| sealed \|v\| entering the bar | 0.27 | 0.48 | 0.30 | 0.43 | 0.51 |
+| provisional \|v\| at the crossing | 0.11 | 0.05 | 0.08 | 0.62 | 0.60 |
+| CUSUM k=0.25 (σ units) | 3.30 | 4.47 | 3.53 | 0.46 | 0.51 |
+| CUSUM k=0.5 (σ units) | 1.53 | 1.89 | 1.32 | 0.46 | 0.50 |
+| BOCPD log Bayes factor, change in bar, λ=40 | −0.00 | −0.81 | −0.08 | 0.55 | 0.51 |
+| BOCPD posterior drift against the regime, λ=40 | 0.04 | 0.02 | 0.04 | 0.49 | 0.48 |
+| head start to the seal (pts, favourable; defined by the outcome) | 1.40 | −1.90 | −4.33 | 0.96 | 0.98 |
+
+The only statistic with any rank information is the crossing's own
+magnitude (0.62). The sealed-velocity condition (TT-189) works as a base-rate
+shift, not a classifier: crossings entering with sealed |v| ≤ 0.25 confirm
+73 % (107 of 146) against 59–60 % above it. Timing carries the same
+message: 52 % of crossings fire inside the first 30 s of the bar (the prior
+bar's close did the work) and confirm 70 %; crossings between 30 s and 90 s
+confirm 47 %. The BOCPD Bayes factor never rises above zero inside a bar:
+at 15 s the changes that matter (drifts of tenths of a point per bar against
+a tick sigma near 0.9 pts) leave an undirected change-in-distribution model
+with no evidence to move; its change probability is the hazard prior.
+
+**Delay versus false alarm: every bound buys precision only with recall, and
+never reaches the crossing.** Window bars, all sessions; precision = alarms
+in bars whose seal flips / alarms, recall = those / all 246 flip bars; head
+start = favourable spot move from the alarm to the seal on confirmed bars.
+λ=20 and λ=80 behave as λ=40 (full grid in `_tables.md`).
+
+| Rule | alarms | confirm | early by one | false | precision | recall | minutes into bar (median) | head start median, confirmed | head start median, not confirmed |
+|---|---|---|---|---|---|---|---|---|---|
+| sealed rule (no alarm) | 246 | 246 | 0 | 0 | 100 % | 100 % | 5.00 | 0.00 | — |
+| first crossing (TT-188) | 369 | 240 | 56 | 73 | 65 % | 98 % | 0.36 | 1.40 | −3.17 |
+| crossing with sealed \|v\| ≤ 0.25 (TT-189) | 146 | 107 | 9 | 30 | 73 % | 43 % | 0.17 | 1.50 | −3.39 |
+| CUSUM k 0.25, h 1 | 2060 | 241 | 218 | 1601 | 12 % | 98 % | 1.06 | 2.98 | −0.34 |
+| CUSUM k 0.25, h 2 | 1434 | 220 | 181 | 1033 | 15 % | 89 % | 1.67 | 1.96 | −0.23 |
+| CUSUM k 0.25, h 3 | 878 | 181 | 125 | 572 | 21 % | 74 % | 2.10 | 1.50 | −0.16 |
+| CUSUM k 0.25, h 4 | 528 | 136 | 91 | 301 | 26 % | 55 % | 2.06 | 1.48 | −0.18 |
+| CUSUM k 0.25, h 5 | 308 | 92 | 57 | 159 | 30 % | 37 % | 2.17 | 1.25 | −0.24 |
+| CUSUM k 0.25, h 6 | 189 | 70 | 32 | 87 | 37 % | 28 % | 2.54 | 1.21 | −0.13 |
+| CUSUM k 0.25, h 8 | 75 | 35 | 17 | 23 | 47 % | 14 % | 2.56 | 0.78 | −0.72 |
+| CUSUM k 0.25, h 10 | 29 | 17 | 5 | 7 | 59 % | 7 % | 3.29 | −0.82 | −0.94 |
+| CUSUM k 0.25, h 12 | 15 | 9 | 3 | 3 | 60 % | 4 % | 4.14 | −1.42 | −1.02 |
+| CUSUM k 0.5, h 1 | 1745 | 236 | 199 | 1310 | 14 % | 96 % | 1.41 | 2.16 | −0.26 |
+| CUSUM k 0.5, h 2 | 902 | 174 | 123 | 605 | 19 % | 71 % | 2.04 | 1.45 | −0.23 |
+| CUSUM k 0.5, h 3 | 425 | 111 | 70 | 244 | 26 % | 45 % | 2.03 | 1.79 | −0.17 |
+| CUSUM k 0.5, h 4 | 201 | 63 | 33 | 105 | 31 % | 26 % | 2.05 | 0.78 | −0.12 |
+| CUSUM k 0.5, h 5 | 105 | 37 | 18 | 50 | 35 % | 15 % | 2.05 | 1.03 | −0.43 |
+| CUSUM k 0.5, h 6 | 60 | 29 | 8 | 23 | 48 % | 12 % | 2.55 | 0.18 | −0.64 |
+| CUSUM k 0.5, h 8 | 16 | 8 | 3 | 5 | 50 % | 3 % | 3.20 | −0.62 | −1.54 |
+| BOCPD λ 40, log BF ≥ 0 | 307 | 71 | 38 | 198 | 23 % | 29 % | 0.78 | 2.58 | 0.06 |
+| BOCPD λ 40, log BF ≥ 0.5 | 143 | 34 | 14 | 95 | 24 % | 14 % | 1.41 | 1.14 | 0.29 |
+| BOCPD λ 40, log BF ≥ 1 | 88 | 25 | 8 | 55 | 28 % | 10 % | 1.92 | −0.09 | 0.19 |
+| BOCPD λ 40, log BF ≥ 2 | 41 | 17 | 2 | 22 | 41 % | 7 % | 2.80 | −0.29 | −1.29 |
+| BOCPD λ 40, log BF ≥ 3 | 32 | 15 | 1 | 16 | 47 % | 6 % | 3.38 | −0.33 | −1.23 |
+| BOCPD λ 40, log BF ≥ 6 | 15 | 7 | 0 | 8 | 47 % | 3 % | 3.79 | −0.82 | −3.67 |
+
+The crossing sits above every point of both curves: at the CUSUM's matched
+recall (h 4, 55 %) precision is 26 % against the decayed crossing's 73 % at
+43 %; no CUSUM or BOCPD bound reaches 65 % precision until recall is under
+5 %. The reason is structural. The seal outcome is "does this bar's close
+flip the filter", and the provisional velocity is exactly that test on the
+current spot; the path statistics measure how far spot has run against the
+regime since it began, a noisier proxy for the same close. Their one real
+property is where the alarm lands: a CUSUM alarm sits at a drawdown extreme,
+so when the bar does not flip the price is about where it was (median head
+−0.2 pts) whereas a failed crossing has already given back 3 pts.
+
+**P&L (production simulator, provisional arms driven by each rule, the
+false-start regime as live; control = the sealed arms, identical in every
+cell; halves by session count, 30 / 30):**
+
+| 25-wide cell | all-in pts | first half | second half | entries | provisional | confirmed | tents | scratch / clock / stop / breach |
+|---|---|---|---|---|---|---|---|---|
+| control (sealed) | +155.1 | +135.0 | +20.1 | 246 | 0 | — | 38 | — |
+| first crossing (TT-188 arm as merged) | +138.9 | +108.0 | +30.8 | 332 | 281 | 195 | 43 | 67 / 10 / 3 / 6 |
+| crossing with sealed \|v\| ≤ 0.25 | +147.6 | +130.9 | +16.7 | 277 | 132 | 101 | 39 | 19 / 7 / 3 / 2 |
+| CUSUM k 0.25, h 3 | +20.4 | +85.4 | −65.0 | 742 | 661 | 165 | 45 | 452 / 10 / 21 / 12 |
+| CUSUM k 0.25, h 5 | +162.7 | +160.8 | +1.8 | 433 | 279 | 92 | 41 | 166 / 15 / 1 / 3 |
+| CUSUM k 0.25, h 8 | +179.1 | +152.3 | +26.8 | 285 | 74 | 35 | 40 | 36 / 1 / 0 / 1 |
+| CUSUM k 0.5, h 3 | +84.3 | +125.6 | −41.3 | 507 | 363 | 102 | 43 | 224 / 17 / 10 / 8 |
+| CUSUM k 0.5, h 5 | +189.6 | +166.8 | +22.8 | 314 | 105 | 37 | 41 | 59 / 5 / 0 / 2 |
+| BOCPD λ 40, log BF ≥ 0 | +177.8 | +166.6 | +11.2 | 427 | 244 | 63 | 45 | 156 / 8 / 7 / 8 |
+
+| 50-wide cell | all-in pts | first half | second half | entries | provisional | confirmed | tents | scratch / clock / stop / breach |
+|---|---|---|---|---|---|---|---|---|
+| control (sealed) | +135.6 | +105.6 | +30.0 | 246 | 0 | — | 4 | — |
+| first crossing (TT-188 arm as merged) | +68.8 | +41.8 | +27.0 | 335 | 284 | 195 | 4 | 68 / 10 / 11 / 0 |
+| crossing with sealed \|v\| ≤ 0.25 | +151.3 | +141.7 | +9.6 | 278 | 133 | 101 | 6 | 21 / 6 / 5 / 0 |
+| CUSUM k 0.25, h 3 | −2.3 | +57.1 | −59.4 | 750 | 666 | 162 | 5 | 461 / 9 / 34 / 0 |
+| CUSUM k 0.25, h 5 | +94.5 | +84.2 | +10.3 | 434 | 280 | 92 | 5 | 168 / 9 / 10 / 1 |
+| CUSUM k 0.25, h 8 | +137.9 | +110.3 | +27.6 | 285 | 74 | 35 | 4 | 38 / 0 / 1 / 0 |
+| CUSUM k 0.5, h 3 | −8.3 | +27.1 | −35.4 | 511 | 368 | 103 | 5 | 230 / 12 / 22 / 1 |
+| CUSUM k 0.5, h 5 | +156.4 | +129.5 | +26.9 | 313 | 105 | 38 | 5 | 62 / 3 / 2 / 0 |
+| BOCPD λ 40, log BF ≥ 0 | +129.8 | +93.5 | +36.4 | 423 | 244 | 67 | 5 | 158 / 5 / 14 / 0 |
+
+Three cells (CUSUM k 0.5 h 5, k 0.25 h 8, BOCPD ≥ 0) print above control on
+the 25-wide, and k 0.5 h 5 clears both halves there; none clears both halves
+on the 50-wide. The apparent edge is one session: the per-session gain over
+control has median 0.00 in every cell, and 2026-06-12 alone contributes
++31.3 of k 0.5 h 5's +34.5, +16.6 of h 8's +24.1 and +40.8 of BOCPD's
++22.7. These are the tight bounds (35–47 % precision, 3–29 % recall): a few
+dozen cheap provisional entries whose false starts scratch near flat (+0.36
+to +0.70 per scratch at mids) on top of the sealed entries. Loose bounds lose
+outright (h 3: −135 on 25-wide, 452 scratches, 21 stops) because friction and
+stops on hundreds of false starts swamp the launches. The mechanism the
+statistics do have, false alarms that land at the extreme and scratch
+cheaply, is worth about half a point per session and is not robust to the
+half split. The "cross" cell is the TT-188 arm as merged on `main` (a
+sealed flip with no prior crossing still enters the arm, a crossing into a
+live false start is refused); the TT-189 branch changes both, which is why
+its replay figures differ.
+
+**Decision.** No rule proposed; TT-156 rule not met on both widths. The
+sealed rule, the first crossing and the decayed crossing stay as they are.
+The finding closes tick-level change detection on price alone as an entry
+lever: the crossing already is the sufficient test for the seal, and any
+path statistic re-measures the same close with more noise. Earlier entries
+without more false starts need information the price path does not carry
+(bid/ask volume, implied-volatility change) or a change to what a false
+start costs, not a better detector.
+
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
 **Question.** The user's observation that the sealed 5m Kalman "sticks to a
