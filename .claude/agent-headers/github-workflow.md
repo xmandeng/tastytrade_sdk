@@ -1,6 +1,7 @@
 ---
 name: github-workflow
 description: GitHub pull request and repository operations via Bifrost MCP gateway
+model: sonnet
 tools: Read, Grep, Glob, Bash
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: ui-tester
 description: Browser-based UI testing via Playwright MCP through Bifrost gateway
+model: sonnet
 tools: Read, Bash
 ---
 

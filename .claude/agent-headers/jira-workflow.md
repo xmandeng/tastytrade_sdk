@@ -1,6 +1,7 @@
 ---
 name: jira-workflow
 description: Jira issue and project management via Bifrost MCP gateway
+model: sonnet
 tools: Read, Grep, Glob, Bash
 ---
 
