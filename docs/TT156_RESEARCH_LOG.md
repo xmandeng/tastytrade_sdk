@@ -195,6 +195,19 @@ same answer (exit-there totals +$5,085 and +$10,565 on 25-wide). This is
 the same mechanism that killed every stop level: adverse marks
 mean-revert, and the tent is on the far side of the adverse stretch.
 
+**The 1m kalman at the provisional crossing (follow-up, same day).** The
+user asked whether the 1m filter's state at the moment the 5m velocity
+crosses could screen out false starts. On the TT-191 crossing table (369
+first crossings: 240 confirm, 56 early by one bar, 73 false), the 1m
+kalman's signed velocity, how many 1m bars ago it flipped, its
+acceleration, and its recent flip count all have AUC 0.47–0.54 for
+confirm-vs-not; the crossing's own provisional velocity stays the only
+statistic with anything (0.62). Bucketed by the 1m filter's lead, the
+confirm rate is 62–70% in every bucket except "still opposed for 3+ bars"
+(56%, n=52). A 1m MACD histogram opposed at the crossing has a 33% false
+rate against 17% (n=58), too small and too weak to act on. Rig:
+`research_data/TT-156/kal1_at_crossing_20260913.py`.
+
 **Conclusion.** No setup pattern in the 1m or 5m hull / MACD / kalman
 families, at the entry or during the hold, has statistical alpha over the
 production rule on this ledger. The 1m timeframe is closed as an entry
