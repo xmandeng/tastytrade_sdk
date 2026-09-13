@@ -208,6 +208,28 @@ confirm rate is 62–70% in every bucket except "still opposed for 3+ bars"
 rate against 17% (n=58), too small and too weak to act on. Rig:
 `research_data/TT-156/kal1_at_crossing_20260913.py`.
 
+**Lookback history before the turn (follow-up, same day).** The user's
+refinement: not the 1m state at the instant but the shape of the prior
+period. Windows of 10 / 15 / 30 / 60 minutes ending at the turn; features
+describe the history — share of 1m bars aligned with the new direction,
+longest runs either way, net 1m velocity, peak opposing 1m velocity (how
+strong the move being reversed was), velocity slope, price net move and
+range over average range, retrace, and the old 5m regime's age and how far
+its velocity had decayed from its peak. Rig:
+`research_data/TT-156/lookback_history_20260913.py`. For sealed entries
+(winner vs loser) nothing exceeds AUC 0.60 on either width at any window,
+and the few 0.55–0.59 cells (net 1m velocity over 60 min, 25-wide) hold in
+about 30 of 48 sessions. For crossings (confirm vs not) the only coherent
+shape is exhaustion-before-turn: a strong opposing 1m velocity inside the
+last 15 minutes goes with failure (AUC 0.40, i.e. 0.60 reversed, in 38 of
+51 sessions) and an old 5m regime whose velocity has already faded to a
+small fraction of its peak goes with confirmation (0.41 reversed). Both are
+nearly independent of the crossing's own provisional velocity (Spearman
+0.11) but add nothing to it in rank-sum (0.62 → 0.63). Read: a sharp V off
+a strong move fails more often than a turn after the old move has faded,
+but the effect is far too weak to gate on; 10-minute windows are noisier
+than 15 on every feature.
+
 **Conclusion.** No setup pattern in the 1m or 5m hull / MACD / kalman
 families, at the entry or during the hold, has statistical alpha over the
 production rule on this ledger. The 1m timeframe is closed as an entry
