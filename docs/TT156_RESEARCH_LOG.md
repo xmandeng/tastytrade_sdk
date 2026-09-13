@@ -136,6 +136,74 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-13 — 1m and 5m hull / MACD / kalman context: nothing at the entry separates winners from losers, and a 1m bar against the trade is the normal path of a winner (TT-192)
+
+**Question.** Does information the rule ignores — the 1m hull, 1m MACD, a
+1m kalman, the 5m hull's position relative to the kalman flip, the 5m
+MACD, recent chop — separate the entries that end as winners from the
+ones that end as losers, either at the entry or early in the hold? The
+route deliberately treats these as context, not as the trigger: 1m flips
+as the entry signal were already dead on the clean replay (2026-08-27)
+and the 5m MACD gate was removed by directive.
+
+**Substrate.** The restated primary ledger, both kalman arms (25- and
+50-wide), 59 sessions 2026-06-11..09-11, 249 entries per width, all-in
+P&L at the recorded official close. SPX 1m and 5m candles from InfluxDB
+(complete for every session); the vertical's buyback mark from the 15 s
+chain snapshots. Rig: `research_data/TT-156/context_features_20260913.py`
+(tables beside it). Threshold-free: distributions, AUC, per-session
+consistency; no rule fitted.
+
+**Entry-time context: nothing separates.** Every continuous feature has
+AUC 0.45–0.57 (winner above loser) on both widths — 1m hull age, 1m MACD
+bars since zero cross, 1m velocity, 1m and 5m flip counts (chop), 5m hull
+age, 5m velocity magnitude at the flip, flip-bar size over average range.
+Every binary feature splits the sessions about in half: 5m MACD histogram
+agreement, the strongest-looking (25-wide +$104 vs +$54 per trade), holds
+in 25 of 53 sessions, and on a 38-session subset it had looked like
+53% vs 31% win rate before the last 21 sessions flattened it. The 1m
+family agrees with the direction at ~90% of entries by construction (a
+sealed 5m flip is a move the 1m tangent has already made), so it carries
+no information there. The report's "5m MACD at entry" label, tallied
+across the same ledger, gives agree +$96 / converge +$62 / diverge +$126
+per 25-wide trade: the pre-decontamination "agreement carries 87% of
+profits" was a lag artifact.
+
+**Hold-time context looks strong and is circular.** Ten minutes after
+entry, the 1m hull agrees with 75% of eventual winners and 32% of eventual
+losers (50-wide 71% / 26%); the buyback mark has AUC 0.78–0.80. But the
+eventual outcome contains the mark at that minute, and a loser's flip exit
+is by definition preceded by price turning against it. The honest test is
+the P&L *from* that moment to the production exit. Split by 1m hull
+agreement at minute m, the disagreeing group's forward P&L is positive
+less often (29–35% vs 42–54% of trades) but its mean is as large or larger
+(the recoveries into tents and wins sit in that group), and the agreeing
+group beats it in only about half the sessions (24 of 47 at minute 10,
+25-wide; 27 of 47, 50-wide). Same picture for 1m kalman agreement and 1m
+MACD histogram agreement.
+
+**A 1m bar against the trade is the normal path of a winner.** 238 of 249
+25-wide trades see a sealed 1m hull bar against them before the production
+exit, median 6 minutes in; 100 of the 104 winners and 30 of the 39 locked
+flies are among them. Losers see it earlier (median 5 min, quartiles 3–8)
+than winners (median 9, quartiles 5–14), but the overlap is most of the
+mass. Exiting at that bar instead of holding turns +$18,270 into +$4,218
+(25-wide) and +$15,594 into +$6,205 (50-wide, where all 126 winners saw one); the forward P&L the hold
+earns after that bar is positive in 33 of 58 sessions with a median
+session of +$79 — spread, not carried. The 1m kalman and 1m MACD give the
+same answer (exit-there totals +$5,085 and +$10,565 on 25-wide). This is
+the same mechanism that killed every stop level: adverse marks
+mean-revert, and the tent is on the far side of the adverse stretch.
+
+**Conclusion.** No setup pattern in the 1m or 5m hull / MACD / kalman
+families, at the entry or during the hold, has statistical alpha over the
+production rule on this ledger. The 1m timeframe is closed as an entry
+filter and as a hold/reject signal on price-derived indicators; the next
+lever is new information (order flow, IV, the option-side path) or the
+management of the completed structure. Reuse the rig's per-trade JSON
+(entry features, 5-minute hold samples, first-bar-against events) for any
+future context study.
+
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
 **Question.** The user's observation that the sealed 5m Kalman "sticks to a
