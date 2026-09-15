@@ -65,6 +65,14 @@ class FakeKalmanSignal:
     engine = "kalman"
 
 
+class FakeKalmanClose:
+    eventSymbol = "SPX{=5m}"
+    signal_type = "CLOSE"
+    direction = "BULLISH"
+    trigger = "kalman"
+    engine = "kalman"
+
+
 class FakeHullClose:
     eventSymbol = "SPX{=5m}"
     signal_type = "CLOSE"
@@ -174,14 +182,14 @@ class TestRouting:
         assert signal_matches(kal_arm, kal_sig)
         # entries stay disjoint: a hull OPEN never enters a kalman arm
         assert not signal_matches(kal_arm, hull_sig)
-        # either-exit backstop: a hull CLOSE also reaches kalman arms
-        assert signal_matches(kal_arm, hull_close)
+        # a hull CLOSE never reaches a kalman arm: exits are kalman-only
+        assert not signal_matches(kal_arm, hull_close)
         assert signal_matches(hull_arm, hull_close)
         # rig stubs without .engine stay hull-family
         assert signal_matches(hull_arm, rig_sig)
         assert not signal_matches(kal_arm, rig_sig)
 
-    def test_hull_flip_closes_kalman_position(self) -> None:
+    def test_hull_flip_leaves_kalman_position_open(self) -> None:
         kal_arm = VariantConfig(
             name="w25_5m_m0_kal",
             width=25.0,
@@ -205,8 +213,15 @@ class TestRouting:
             quotes_for(7740.0),
             cast("list[TradeSignal]", [FakeHullClose()]),
         )
+        assert all(s.status == "OPEN" for s in opened)
+        sim.on_snapshot(
+            later + timedelta(minutes=5),
+            7740.0,
+            quotes_for(7740.0),
+            cast("list[TradeSignal]", [FakeKalmanClose()]),
+        )
         assert all(s.status == "CLOSED" for s in opened)
-        assert all(s.close_reason == "signal_hull" for s in opened)
+        assert all(s.close_reason == "signal_kalman" for s in opened)
 
     def test_simulator_routes_families_to_their_arms(self) -> None:
         sim = ButterflySimulator(default_variants())

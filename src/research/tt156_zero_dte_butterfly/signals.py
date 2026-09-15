@@ -4,12 +4,12 @@ Two engines live here:
 
 - ``SealedBarSignalEngine`` — the ACTIVE forward-test engine: one pass
   over sealed 5m bars emits two signal families. The Kalman velocity
-  flip (primary since 2026-08-28) drives entries on the kalman arms; the
-  hull color flip (Basics v2, 2026-08-27) is the exit backstop on every
-  arm and still drives the lagging-control hull arms. OPEN only inside
-  the 10:00-13:00 ET window, CLOSE on the opposite flip of either
-  family. MACD is nowhere (removed by user directive after the
-  feed-lag contamination).
+  flip (primary since 2026-08-28) drives entries and exits on the kalman
+  arms; the hull color flip (Basics v2, 2026-08-27) drives the
+  lagging-control hull arms and nothing else. OPEN only inside the
+  10:00-13:00 ET window, CLOSE on the opposite flip of the arm's own
+  family. MACD is nowhere (removed by user directive after the feed-lag
+  contamination).
 - ``LiveSignalEngine`` — the retired Hull/MACD confluence wrapper, kept
   for replay tooling and history.
 
@@ -255,10 +255,9 @@ class SealedBarSignalEngine:
     calibration) is the primary rule: a velocity sign flip on a sealed bar
     emits the ``engine="kalman"`` family that the simulator routes to
     ``signal_source="kalman"`` variants. The hull color flip emits the
-    ``hull_only`` family: the exit backstop on every arm, and the entry
-    rule for the lagging-control hull arms. Either family's flip emits
-    CLOSE for the old direction (exits always fire); OPEN fires only
-    inside the entry window. Interface-compatible with the collector's
+    ``hull_only`` family, the entry and exit rule of the lagging-control
+    hull arms only. Each family's flip emits CLOSE for its old direction
+    (exits always fire); OPEN fires only inside the entry window. Interface-compatible with the collector's
     LiveSignalEngine usage. No MACD anywhere.
     """
 

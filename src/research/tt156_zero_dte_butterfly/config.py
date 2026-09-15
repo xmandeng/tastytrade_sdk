@@ -100,8 +100,8 @@ class VariantConfig:
     early_fly_adverse_pts: float | None = None
     # Which signal family drives this variant: "hull" (sealed-bar hull color
     # flips) or "kalman" (Kalman velocity sign flips). The simulator routes
-    # signals by this tag so the arms stay disjoint — except exits on kalman
-    # arms, which also honor hull flips (either-exit kill-switch backstop).
+    # signals by this tag so the arms stay disjoint: a kalman arm enters and
+    # exits on kalman flips only.
     signal_source: str = "hull"
     # Fill-persistence overlay (execution-sensitivity tracking, 2026-08-29):
     # the completion threshold must hold for this many consecutive snapshots

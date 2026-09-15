@@ -150,13 +150,12 @@ def atm_strike(spot: float) -> float:
 def signal_matches(variant: VariantConfig, signal: TradeSignal) -> bool:
     """Route a signal to a variant: same symbol AND same signal family.
 
-    Kalman arms enter only on the kalman tangent but exit on EITHER
-    family's flip — the hull flip is an independent kill-switch backstop
-    (user directive 2026-08-28; bound 12 times in the 53-session resim,
-    slightly additive on every arm). Hull arms stay a pure control: their
-    own family only. Signals without an ``engine`` attribute (replay-rig
-    stubs) belong to the hull family, so every pre-Kalman tool keeps
-    routing exactly as before.
+    Kalman arms enter and exit on the kalman tangent only; a hull flip is
+    never an exit for them (the "either-exit hull backstop" that once lived
+    here closed winning, right-side verticals and was not the intent). Hull
+    arms stay a pure control: their own family only. Signals without an
+    ``engine`` attribute (replay-rig stubs) belong to the hull family, so
+    every pre-Kalman tool keeps routing exactly as before.
     """
     if signal.eventSymbol != variant.signal_symbol:
         return False
@@ -169,7 +168,7 @@ def signal_matches(variant: VariantConfig, signal: TradeSignal) -> bool:
         )
     from_kalman = getattr(signal, "engine", None) == "kalman"
     if variant.signal_source == "kalman":
-        return signal.signal_type == "CLOSE" or from_kalman
+        return from_kalman
     return not from_kalman
 
 

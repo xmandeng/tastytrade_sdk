@@ -118,7 +118,7 @@ def quotes(short_put: float, long_put: float) -> Quotes:
     return q
 
 
-def signal(kind: str, direction: str, trigger: str):
+def signal(kind: str, direction: str, trigger: str, engine: str = "kalman"):
     eng = SealedBarSignalEngine()
     eng.emit_signal(
         CandleEvent(eventSymbol=SYM5, time=T0, close=K),
@@ -126,7 +126,7 @@ def signal(kind: str, direction: str, trigger: str):
         direction,
         trigger,
         0.0,
-        engine="kalman",
+        engine=engine,
     )
     return eng.capture.drain()[0]
 
@@ -206,11 +206,19 @@ def test_sealed_flip_with_no_crossing_enters_the_provisional_arm() -> None:
     assert sim.structures[0].status == "OPEN"
 
 
-def test_family_flip_does_not_close_an_unconfirmed_vertical() -> None:
+def test_kalman_flip_does_not_close_an_unconfirmed_vertical() -> None:
     sim, _ = opened()
-    hull_close = signal("CLOSE", "BULLISH", "hull")
-    sim.on_snapshot(T0 + timedelta(minutes=2), K, quotes(10.0, 2.0), [hull_close])
+    kalman_close = signal("CLOSE", "BULLISH", "kalman")
+    sim.on_snapshot(T0 + timedelta(minutes=2), K, quotes(10.0, 2.0), [kalman_close])
     assert sim.structures[0].status == "OPEN"
     sim.on_snapshot(T0 + timedelta(minutes=5), K, quotes(10.0, 2.0), [SEALED_OPEN])
+    sim.on_snapshot(T0 + timedelta(minutes=7), K, quotes(10.0, 2.0), [kalman_close])
+    assert sim.structures[0].close_reason == "signal_kalman"
+
+
+def test_hull_flip_never_closes_a_kalman_arm_vertical() -> None:
+    sim, _ = opened()
+    hull_close = signal("CLOSE", "BULLISH", "hull", engine="hull_only")
+    sim.on_snapshot(T0 + timedelta(minutes=5), K, quotes(10.0, 2.0), [SEALED_OPEN])
     sim.on_snapshot(T0 + timedelta(minutes=7), K, quotes(10.0, 2.0), [hull_close])
-    assert sim.structures[0].close_reason == "signal_hull"
+    assert sim.structures[0].status == "OPEN"
