@@ -16,8 +16,8 @@ function setStatus(state) { document.getElementById('statusDot').className = 'st
 
 // Trade arm pairs the chart can show; the server carries the same registry.
 const ARMS = [
-  { value: 'close', label: 'ON CLOSE' },
   { value: 'early', label: 'EARLY' },
+  { value: 'close', label: 'ON CLOSE' },
 ];
 
 function getParams() {
