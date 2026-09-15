@@ -7,11 +7,13 @@ const pnlRows = document.getElementById('pnlRows');
 const pnlFoot = document.getElementById('pnlFoot');
 const pnlFootK = document.getElementById('pnlFootK');
 const pnlFootV = document.getElementById('pnlFootV');
+const pnlSub = document.getElementById('pnlSub');
 
 function pnlUsd(v) { return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(); }
 
 function renderPnl(pnl) {
   if (!pnl || !pnl.arms || !pnl.arms.length) { pnlCard.classList.remove('on'); return; }
+  pnlSub.textContent = pnl.subtitle || '';
   const header = '<span></span><span class="pnl-hdr" style="text-align: center">CYC</span>' +
                  '<span class="pnl-hdr">P&amp;L</span><span class="pnl-hdr">MARGIN</span>';
   pnlRows.innerHTML = header + pnl.arms.map(a => {

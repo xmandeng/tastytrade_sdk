@@ -20,16 +20,50 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MARKER_SYMBOL = "SPX"
-# The two card arms carry chips; the early-fly sibling is a tracked
-# alternative that would only duplicate every row.
-STRATEGY_VARIANTS = ("w25_5m_m0_kal", "w50_5m_m0_kal")
-ARM_NAMES = {"w25_5m_m0_kal": "w25", "w50_5m_m0_kal": "w50"}
+# The chart shows one arm pair at a time (25-wide and 50-wide of the same
+# entry rule), chosen by the toolbar's ON CLOSE / EARLY control and carried
+# in the page URL. The early-fly sibling stays off the chart: it would only
+# duplicate every row.
+ARM_PAIRS: dict[str, dict[str, Any]] = {
+    "close": {
+        "variants": ("w25_5m_m0_kal", "w50_5m_m0_kal"),
+        "subtitle": "entry at candle close",
+    },
+    "early": {
+        "variants": ("w25_5m_m0_kal_prov", "w50_5m_m0_kal_prov"),
+        "subtitle": "early entry",
+    },
+}
+DEFAULT_ARM = "close"
+ARM_NAMES = {
+    "w25_5m_m0_kal": "w25",
+    "w50_5m_m0_kal": "w50",
+    "w25_5m_m0_kal_prov": "w25",
+    "w50_5m_m0_kal_prov": "w50",
+}
+PNL_LABELS = {"w25": "25-wide", "w50": "50-wide"}
 EOD_FLY_VARIANT = "pinfly25_all"
 CLOSE_REASONS = {
     "signal_kalman": "kalman flip",
     "signal_hull": "hull flip",
     "forced_eod": "forced EOD",
+    "false_start_scratch": "false start · scratch",
+    "false_start_clock": "false start · time stop",
+    "false_start_stop": "false start · stop",
+    "false_start_breach": "false start · long strike",
 }
+
+
+def resolve_arm(arm: str | None) -> str:
+    """The arm pair a request names, or the production pair when it names
+    none or one the chart does not carry."""
+    return arm if arm in ARM_PAIRS else DEFAULT_ARM
+
+
+def arm_variants(arm: str) -> tuple[str, ...]:
+    return tuple(ARM_PAIRS[resolve_arm(arm)]["variants"])
+
+
 DATA_DIR_ENV = "TT156_DATA_DIR"
 DEFAULT_DATA_DIR = "research_data/TT-156"
 
@@ -53,7 +87,9 @@ def in_tent(event: dict) -> bool:
     )
 
 
-def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
+def ledger_context(
+    day_dir: Path, variants: tuple[str, ...]
+) -> tuple[dict, dict, float | None, Any, Any]:
     """Final per-structure ledger rows for tooltip detail, via the report's
     own accounting (events_only_day / classify_first_entries / cell_all_in /
     order_outcome / usd) so tooltip numbers always match REPORT.md. Returns
@@ -74,11 +110,11 @@ def ledger_context(day_dir: Path) -> tuple[dict, dict, float | None, Any, Any]:
     except (OSError, KeyError, ValueError, TypeError):
         logger.exception("Ledger context unavailable for %s", day_dir)
         return {}, {}, None, None, None
-    strat = [r for r in rows if r["variant"] in STRATEGY_VARIANTS]
+    strat = [r for r in rows if r["variant"] in variants]
     first = classify_first_entries(strat) if strat else {}
     by_open: dict[str, list[dict]] = {}
     for r in rows:
-        if r["variant"] in STRATEGY_VARIANTS or r["variant"] == EOD_FLY_VARIANT:
+        if r["variant"] in variants or r["variant"] == EOD_FLY_VARIANT:
             by_open.setdefault(r["opened_at"], []).append(r)
     for group in by_open.values():
         group.sort(key=lambda r: r["width"])
@@ -107,7 +143,6 @@ def round2(v: float) -> float:
     return float(Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-PNL_ARMS = (("w25_5m_m0_kal", "25-wide"), ("w50_5m_m0_kal", "50-wide"))
 # The 14:00 long ATM butterfly, bought every session by decision (the
 # no-tent-only sibling stays in the grid as a tracked alternative).
 PNL_EOD_FLY = ("pinfly25_all", "EOD fly")
@@ -123,8 +158,9 @@ def latest_structures(events: list[dict]) -> list[dict]:
     return list(latest.values())
 
 
-def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
-    """Per-arm day P&L for the chart's floating tracker card.
+def pnl_summary(chart_date: date_type, arm: str = DEFAULT_ARM) -> dict[str, Any] | None:
+    """Per-arm day P&L for the chart's floating tracker card, for the arm
+    pair ``arm`` names (see ``ARM_PAIRS``) plus the EOD fly.
 
     Same accounting as REPORT.md (events_only_day / cell_all_in), so the
     card and the nightly report never disagree. Mid-session (no settlement
@@ -160,8 +196,10 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
     except (OSError, KeyError, ValueError, TypeError):
         logger.exception("P&L summary unavailable for %s", path)
         return None
+    arm = resolve_arm(arm)
     arms: list[dict[str, Any]] = []
-    for variant, label in PNL_ARMS:
+    for variant in arm_variants(arm):
+        label = PNL_LABELS[ARM_NAMES[variant]]
         sub = [r for r in rows if r["variant"] == variant]
         events = [e for e in raw if e.get("variant") == variant]
         entries = sum(1 for e in events if e.get("event") == "ENTRY")
@@ -203,7 +241,12 @@ def pnl_summary(chart_date: date_type) -> dict[str, Any] | None:
             ),
         }
     )
-    return {"arms": arms, "settled": settle is not None}
+    return {
+        "arms": arms,
+        "settled": settle is not None,
+        "arm": arm,
+        "subtitle": ARM_PAIRS[arm]["subtitle"],
+    }
 
 
 def fly_break_evens(body: float, width: float, credit: float) -> list[int]:
@@ -222,8 +265,11 @@ def long_fly_break_evens(body: float, width: float, debit: float) -> list[int]:
     return [round(body - half), round(body + half)]
 
 
-def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any]]:
-    """Marker dicts (UTC-epoch times) for one chart day, oldest first.
+def load_trade_markers(
+    symbol: str, chart_date: date_type, arm: str = DEFAULT_ARM
+) -> list[dict[str, Any]]:
+    """Marker dicts (UTC-epoch times) for one chart day, oldest first, for
+    the arm pair ``arm`` names (see ``ARM_PAIRS``) plus the EOD fly.
 
     One marker per order event, numbered per structure (``n``) so an entry
     and its close share a number:
@@ -245,6 +291,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
     path = events_path(chart_date)
     if not path.exists():
         return []
+    variants = arm_variants(arm)
 
     entries: dict[str, dict] = {}
     closes: dict[tuple[str, str], list[dict]] = {}
@@ -260,7 +307,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
                     if kind == "ENTRY":
                         eod.setdefault(e["opened_at"], e)
                     continue
-                if variant not in STRATEGY_VARIANTS:
+                if variant not in variants:
                     continue
                 if kind == "ENTRY":
                     entries.setdefault(e["opened_at"], {**e, "arms": []})[
@@ -274,7 +321,7 @@ def load_trade_markers(symbol: str, chart_date: date_type) -> list[dict[str, Any
         logger.exception("Unreadable trade event log: %s", path)
         return []
 
-    by_open, _first, _settle, all_in, _outcome = ledger_context(path.parent)
+    by_open, _first, _settle, all_in, _outcome = ledger_context(path.parent, variants)
 
     def ledger_row(opened_at: str, variant: str) -> dict | None:
         for r in by_open.get(opened_at, []):

@@ -410,3 +410,80 @@ class TestPnlSummary:
         assert pnl is not None
         fly = pnl["arms"][2]
         assert fly["total"] is None and fly["open"] is False and fly["cycles"] == 0
+
+
+class TestArmSelection:
+    """The chart shows one arm pair at a time; the early-entry pair is a
+    tracked alternative the toolbar switches to."""
+
+    def early_pair_day(self, root: Path) -> None:
+        write_events(
+            root,
+            [
+                entry("w25_5m_m0_kal", 25.0),
+                entry("w50_5m_m0_kal", 50.0),
+                {
+                    **entry("w25_5m_m0_kal_prov", 25.0),
+                    "opened_at": "2026-08-18T15:01:05-04:00",
+                    "entry_spot": 7699.0,
+                    "entry_timing": "provisional",
+                },
+                {
+                    **entry("w25_5m_m0_kal_prov", 25.0),
+                    "event": "CLOSE",
+                    "opened_at": "2026-08-18T15:01:05-04:00",
+                    "closed_at": "2026-08-18T15:31:05-04:00",
+                    "close_reason": "false_start_clock",
+                    "close_cost": 14.0,
+                    "status": "CLOSED",
+                    "pnl_points": -2.0,
+                },
+            ],
+        )
+
+    def test_default_pair_ignores_the_early_arm(self, data_root: Path) -> None:
+        self.early_pair_day(data_root)
+        markers = load_trade_markers("SPX", DAY)
+        assert [m["kind"] for m in markers] == ["entry"]
+        assert [leg["arm"] for leg in markers[0]["legs"]] == ["w25", "w50"]
+
+    def test_early_selects_the_provisional_pair(self, data_root: Path) -> None:
+        self.early_pair_day(data_root)
+        markers = load_trade_markers("SPX", DAY, arm="early")
+        assert [m["kind"] for m in markers] == ["entry", "close"]
+        assert markers[0]["price"] == 7699.0
+        assert [leg["arm"] for leg in markers[0]["legs"]] == ["w25"]
+
+    def test_false_start_reasons_read_in_trader_terms(self, data_root: Path) -> None:
+        self.early_pair_day(data_root)
+        close = load_trade_markers("SPX", DAY, arm="early")[1]
+        assert close["reason"] == "false start · time stop"
+
+    def test_unknown_arm_falls_back_to_the_production_pair(
+        self, data_root: Path
+    ) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary, resolve_arm
+
+        assert resolve_arm(None) == "close"
+        assert resolve_arm("bogus") == "close"
+        self.early_pair_day(data_root)
+        assert load_trade_markers("SPX", DAY, arm="bogus") == load_trade_markers(
+            "SPX", DAY
+        )
+        pnl = pnl_summary(DAY, "bogus")
+        assert pnl is not None and pnl["arm"] == "close"
+
+    def test_pnl_card_carries_the_pair_and_its_subtitle(self, data_root: Path) -> None:
+        from tastytrade.charting.trade_markers import pnl_summary
+
+        self.early_pair_day(data_root)
+        pnl = pnl_summary(DAY, "early")
+        assert pnl is not None
+        assert pnl["arm"] == "early" and pnl["subtitle"] == "early entry"
+        w25, w50, fly = pnl["arms"]
+        assert (w25["label"], w25["cycles"]) == ("25-wide", 1)
+        assert (w50["label"], w50["cycles"]) == ("50-wide", 0)
+        assert fly["label"] == "EOD fly"
+        base = pnl_summary(DAY)
+        assert base is not None and base["subtitle"] == "entry at candle close"
+        assert base["arms"][0]["cycles"] == 0
