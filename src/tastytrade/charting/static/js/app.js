@@ -14,9 +14,16 @@ let connectTimer = null;
 function intervalLabel(intv) { return INTERVALS.find(i => i.value === intv)?.label || intv; }
 function setStatus(state) { document.getElementById('statusDot').className = 'status-dot ' + state; }
 
+// Trade arm pairs the chart can show; the server carries the same registry.
+const ARMS = [
+  { value: 'close', label: 'ON CLOSE' },
+  { value: 'early', label: 'EARLY' },
+];
+
 function getParams() {
   const p = new URLSearchParams(window.location.search);
-  return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm', date: p.get('date') || '' };
+  const arm = ARMS.some(a => a.value === p.get('arm')) ? p.get('arm') : 'close';
+  return { symbol: p.get('symbol') || 'SPX', interval: p.get('interval') || 'm', date: p.get('date') || '', arm };
 }
 
 function renderControls() {
@@ -24,6 +31,21 @@ function renderControls() {
   seg.innerHTML = `
     <button class="seg-btn ${hasMarketHours ? 'active' : ''}" onclick="toggleMarketHours()">RTH</button>
     <button class="seg-btn ${hasMarketHours ? '' : 'active'}" onclick="toggleMarketHours()">EXT</button>`;
+  const current = getParams().arm;
+  document.getElementById('armCtrl').innerHTML = ARMS.map(a =>
+    `<button class="seg-btn ${a.value === current ? 'active' : ''}" onclick="setArm('${a.value}')">${a.label}</button>`
+  ).join('');
+}
+
+// The arm choice lives in the URL so a link or reload keeps it; the server
+// re-sends markers and the STATS card for the chosen pair on reconnect.
+function setArm(arm) {
+  if (arm === getParams().arm) return;
+  const p = new URLSearchParams(window.location.search);
+  p.set('arm', arm);
+  history.replaceState(null, '', '?' + p.toString());
+  renderControls();
+  connect();
 }
 
 function renderToolbar() {
@@ -165,7 +187,7 @@ function doConnect(dateOverride) {
 
   if (ws) { try { ws.close(); } catch (e) {} ws = null; }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}`;
+  let url = `${proto}//${location.host}/ws?symbol=${symbol}&interval=${interval}&arm=${getParams().arm}`;
   const chartDate = dateOverride || date;
   if (chartDate) url += `&date=${chartDate}`;
   ws = new WebSocket(url);

@@ -24,7 +24,11 @@ from influxdb_client import InfluxDBClient
 
 from tastytrade.charting.feed import ChartFeed
 from tastytrade.charting.indicators import StreamingIndicators
-from tastytrade.charting.trade_markers import load_trade_markers, pnl_summary
+from tastytrade.charting.trade_markers import (
+    load_trade_markers,
+    pnl_summary,
+    resolve_arm,
+)
 from research.tt156_zero_dte_butterfly.config import KALMAN_WARMUP_DAYS
 from tastytrade.common.logging import setup_logging
 from tastytrade.config.manager import RedisConfigManager
@@ -199,9 +203,10 @@ class ChartServer:
             symbol = ws.query_params.get("symbol", self.symbol)
             interval = ws.query_params.get("interval", self.interval)
             chart_date = ws.query_params.get("date")
+            arm = resolve_arm(ws.query_params.get("arm"))
 
             try:
-                await self.handle_chart_session(ws, symbol, interval, chart_date)
+                await self.handle_chart_session(ws, symbol, interval, chart_date, arm)
             except WebSocketDisconnect:
                 logger.info("Chart client disconnected for %s", symbol)
             except Exception:
@@ -230,8 +235,10 @@ class ChartServer:
         symbol: str,
         interval: str,
         chart_date: str | None = None,
+        arm: str = "close",
     ) -> None:
-        """Handle a single chart WebSocket session."""
+        """Handle a single chart WebSocket session; ``arm`` picks the trade
+        arm pair the markers and the P&L card show."""
         config = RedisConfigManager()
 
         influx_url = config.get("INFLUX_DB_URL", "http://localhost:8086")
@@ -388,7 +395,7 @@ class ChartServer:
             point["time"] = utc_epoch_to_et_epoch(point["time"])
 
         # --- TT-156 paper-trade markers (pass-through from the event log) ---
-        trades = load_trade_markers(symbol, target_date)
+        trades = load_trade_markers(symbol, target_date, arm)
         for m in trades:
             m["time"] = utc_epoch_to_et_epoch(m["time"])
             if m.get("end") is not None:
@@ -405,7 +412,7 @@ class ChartServer:
             "kalman": indicator_data["kalman"],
             "dailyCandle": daily_candle,
             "trades": trades,
-            "pnl": pnl_summary(target_date) if symbol == "SPX" else None,
+            "pnl": pnl_summary(target_date, arm) if symbol == "SPX" else None,
         }
 
         await ws.send_text(json.dumps(initial_payload))
@@ -422,7 +429,7 @@ class ChartServer:
         feed = ChartFeed(config)
         live_task = asyncio.create_task(
             self.stream_live_updates(
-                ws, feed, indicators, symbol, interval, target_date
+                ws, feed, indicators, symbol, interval, target_date, arm
             )
         )
 
@@ -457,6 +464,7 @@ class ChartServer:
         symbol: str,
         interval: str,
         target_date: date_type,
+        arm: str = "close",
     ) -> None:
         """Subscribe to Redis and stream deltas to the WebSocket client.
 
@@ -514,7 +522,7 @@ class ChartServer:
                         # event log is small and this keeps the card in step
                         # with the ledger without a second data path.
                         if symbol == "SPX":
-                            pnl = pnl_summary(target_date)
+                            pnl = pnl_summary(target_date, arm)
                             if pnl is not None:
                                 delta["pnl"] = pnl
 
