@@ -136,6 +136,56 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-15 — The hull either-exit challenged, removed, and reinstated on P&L; clipping winners is where it earns its keep (TT-194)
+
+**Trigger.** 2026-09-14 trade 3: the 25-wide leg completed into a lossless
+fly at 11:42 and rode to settlement; the 50-wide sibling (credit 8.68,
++7.43 in hand, spot ~35 pts above the strike, kalman still up) was closed
+at 12:35 by a hull flip. The user challenged the hull exit as never
+intended, it was removed and the ledger restated (PR #208, closed unmerged);
+the numbers reversed the decision the same evening. Rule unchanged: a
+kalman-arm vertical closes on the first flip of either family.
+
+**What removing it cost (28 hull-closed verticals, 14 sessions).** Left to
+the later kalman flip, 19 of 26 paid less, average −0.5 pt: 25-wide −6.2,
+50-wide −8.3 over 61 sessions. None reached a tent; the kalman flipped
+against every one before the close.
+
+**Three rules replayed (`research_data/TT-156/hull_backstop_scope_20260914.py`,
+61 sessions, rules applied by wrapping the simulator's close path):**
+
+| Arm | Every hull flip (production) | Losers only | Kalman only |
+|---|---|---|---|
+| 25-wide | +156.3 (135.0 / 21.4) | +153.2 (134.7 / 18.5) | +149.5 (134.3 / 15.3) |
+| 50-wide | +129.5 (105.6 / 23.9) | +125.3 (103.7 / 21.6) | +120.5 (103.4 / 17.2) |
+| 25-wide early | +144.2 (108.0 / 36.2) | +142.4 (108.1 / 34.3) | +138.3 (107.7 / 30.6) |
+| 50-wide early | +69.3 (41.8 / 27.5) | +65.5 (40.0 / 25.5) | +60.8 (39.7 / 21.1) |
+
+All-in points, first / second half in brackets; entries and tents identical
+across rules. "Losers only" closes on a hull flip only when the buyback
+exceeds the entry credit.
+
+| Hull exits under production | Count | Points |
+|---|---|---|
+| 25-wide, winners at the flip | 8 | +33.7 |
+| 25-wide, losers or flat | 4 | −3.5 |
+| 50-wide, winners at the flip | 13 | +82.4 |
+| 50-wide, losers or flat | 4 | −4.9 |
+
+**Reading.** Production > losers-only > kalman-only on every arm and in
+both halves. The hull's value is in clipping winners before the kalman
+flip gives a little back; a losers-only version keeps three exits per arm
+and forfeits most of it. Settled by P&L twice (2026-08-28, today); the
+cost is the occasional clipped winner such as trade 3.
+
+**Ledger.** Restated twice in place, no backup (user directive), and back
+on the either-exit rule: 25-wide +156.3, 50-wide +129.5, early arms −1.5 /
+−7.5. Side effect: three sessions with no hull exit (06-25, 08-31, 09-02)
+now carry the engine's clean replay rather than their as-lived rows
+(25-wide +23.8 → +9.9, −6.6 → −14.3, −4.1 → −10.7), and the live-only
+09-01 13:05 entry is not reproduced. The ledger is exactly what the
+current engine and simulator produce on the recorded snapshots.
+
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
 **Question.** The user's observation that the sealed 5m Kalman "sticks to a
