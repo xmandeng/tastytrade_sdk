@@ -16,10 +16,12 @@ Data home: `research_data/TT-156/` (per-day `events.jsonl` ledger,
 - **Entries:** on a kalman flip inside 10:00–13:00 ET, sell the ATM vertical
   in the flip direction (bull put spread on up-flip, bear call spread on
   down-flip). First 30 min is churn; 13:00+ entries lack time to complete.
-- **Exits (either-flip):** close an incomplete vertical on the FIRST flip from
-  *either* family — kalman or hull. The hull flip is a deliberate kill-switch
-  backstop for errant/wrong-direction spreads. No stop-loss, ever: every stop
-  level tested made results worse; the flip exit is the stop.
+- **Exits (kalman flip only):** close an incomplete vertical on the kalman
+  flip against it. The hull flip is NOT an exit on the kalman arms (corrected
+  2026-09-14, TT-194: the "either-exit hull backstop" recorded on 2026-08-28
+  was corrupted context, and it closed winning, right-side verticals). No
+  stop-loss, ever: every stop level tested made results worse; the flip exit
+  is the stop.
 - **Completion:** when total credit ≥ width, buy the counter vertical —
   lossless iron fly; hold tents to settlement. Forced close of
   incomplete verticals at 15:45.
@@ -105,9 +107,10 @@ three layers of the structure itself, not from a risk rule bolted on top:
 
 1. **Defined-risk vertical:** max theoretical loss is width − credit,
    ~$1,500–1,700 on a 25-wide, before any exit fires.
-2. **Either-flip exit:** the position closes on the first kalman *or* hull
-   flip against it, cutting errant spreads long before max loss — realized
-   losses cluster at $150–250, a fraction of the theoretical cap.
+2. **Kalman-flip exit:** the position closes on the kalman flip against it,
+   cutting errant spreads long before max loss — realized losses cluster at
+   $150–250, a fraction of the theoretical cap. (Until 2026-09-14 a hull
+   flip also closed positions; see the TT-194 finding.)
 3. **Early-fly conversion (5 pts adverse):** converts a losing vertical into
    a bounded-deficit fly, capping the cycle while keeping the tent alive.
 
@@ -117,8 +120,8 @@ the right tail (in-tent settlements: 42 cycles, +$28.8k; the 160 flip-exited
 cycles net −$4.0k combined — the cost of holding lottery tickets).
 
 **Where the win rate lives:** 44% per cycle is the *expected* shape — the
-strategy scratches often (152 kalman-flip closes net −$6.3k, hull backstop
-+$2.4k) and is paid by tents at 2.73:1. Judge the forward test on profit
+strategy scratches often (152 kalman-flip closes net −$6.3k in the
+pre-TT-194 ledger) and is paid by tents at 2.73:1. Judge the forward test on profit
 factor and the loss cap holding, not on cycle win rate.
 
 **Targets, execution-adjusted:** mid-fill resim overstates fillable edge
@@ -135,6 +138,95 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
   and the early-fly conversion *are* the stop.
 
 ## Findings log
+
+### 2026-09-14 — The hull flip was never an exit on the kalman arms; removed, ledger restated (TT-194)
+
+**What was wrong.** Since 2026-08-28 the simulator closed a kalman-arm
+vertical on a hull flip as well as on its own flip (the "either-exit
+backstop"). On 2026-09-14 trade 3 showed what that does: the 25-wide leg
+had completed into a lossless fly at 11:42 and rode to settlement, while
+the 50-wide sibling (credit 8.68, +7.43 in hand, spot ~35 pts above the
+strike, kalman still up) was closed at 12:35 by a hull flip. The user's
+ruling: the hull flip is not an exit on the kalman arms, not for confirmed
+launches and not for false starts; the 08-28 wording was corrupted context
+from a compacted session, not an intent. A kalman arm enters and exits on
+kalman flips only; completion, the forced close and the early-entry arm's
+false-start regime are unchanged; the hull arms keep their own flips as the
+lagging control.
+
+**Fix.** `signal_matches` routes kalman-family signals to kalman arms and
+hull-family signals to hull arms, nothing across. Unit tests: a hull CLOSE
+never matches a kalman arm; a hull flip leaves a kalman vertical open and
+the kalman flip closes it; a hull flip never closes a confirmed early-entry
+vertical; hull arms unchanged. The Current strategy section above and the
+08-28 entry below are corrected.
+
+**Restatement (`research_data/TT-156/restate_hull_exits_20260914.py`).**
+Every recorded session re-simulated by the fixed engine and simulator on its
+chain snapshots (sealed InfluxDB bars ingested as they close, the provisional
+crossing checked every snapshot, settlement at the recorded official close),
+only the arms the collector ran that day, rows of collector-written arms
+carried over. Rewritten in place, no backup (user directive: the trades the
+old rule produced were garbage). 61 sessions; 06-23 and 06-24 have no 5m
+bars in InfluxDB and stay as recorded. Every kalman-arm vertical the old rule
+closed on a hull flip, with its restated outcome:
+
+| Session | Arm | Entry | Spread | As recorded (hull exit) | Restated | Restated outcome |
+|---|---|---|---|---|---|---|
+| 2026-06-22 | w25_5m_m0_kal | 12:20 | bull 7480 | -1.40 | -1.80 | signal_kalman 12:35 |
+| 2026-06-22 | w50_5m_m0_kal | 12:20 | bull 7480 | -2.15 | -2.45 | signal_kalman 12:35 |
+| 2026-07-07 | w50_5m_m0_kal | 11:45 | bull 7490 | +7.98 | +7.78 | signal_kalman 13:20 |
+| 2026-07-15 | w50_5m_m0_kal | 12:50 | bull 7540 | +8.25 | +8.05 | signal_kalman 14:45 |
+| 2026-07-20 | w25_5m_m0_kal | 12:35 | bear 7485 | +5.92 | +5.53 | signal_kalman 13:55 |
+| 2026-07-20 | w50_5m_m0_kal | 12:35 | bear 7485 | +6.82 | +6.42 | signal_kalman 13:55 |
+| 2026-07-21 | w25_5m_m0_kal | 12:05 | bull 7505 | +2.20 | +2.30 | signal_kalman 13:15 |
+| 2026-07-21 | w50_5m_m0_kal | 12:05 | bull 7505 | +3.05 | +3.20 | signal_kalman 13:15 |
+| 2026-07-24 | w50_5m_m0_kal | 11:00 | bull 7430 | +9.25 | +7.98 | signal_kalman 12:35 |
+| 2026-08-06 | w25_5m_m0_kal | 11:15 | bear 7725 | +5.53 | +5.60 | signal_kalman 12:35 |
+| 2026-08-06 | w50_5m_m0_kal | 11:15 | bear 7725 | +6.95 | +7.05 | signal_kalman 12:35 |
+| 2026-08-07 | w25_5m_m0_kal | 10:25 | bull 7745 | +4.78 | +4.07 | signal_kalman 12:00 |
+| 2026-08-07 | w50_5m_m0_kal | 10:25 | bull 7745 | +7.33 | +6.55 | signal_kalman 12:00 |
+| 2026-08-07 | w25_5m_m0_kal | 12:55 | bear 7745 | +1.50 | +0.40 | signal_kalman 13:40 |
+| 2026-08-07 | w50_5m_m0_kal | 12:55 | bear 7745 | +1.90 | +0.65 | signal_kalman 13:40 |
+| 2026-08-13 | w25_5m_m0_kal | 10:50 | bear 7800 | +7.12 | +7.07 | signal_kalman 12:20 |
+| 2026-08-13 | w50_5m_m0_kal | 10:50 | bear 7800 | +8.42 | +8.38 | signal_kalman 12:20 |
+| 2026-08-19 | w25_5m_m0_kal | 10:20 | bull 7715 | +0.00 | -0.35 | signal_kalman 10:25 |
+| 2026-08-19 | w50_5m_m0_kal | 10:20 | bull 7715 | +0.00 | -0.45 | signal_kalman 10:25 |
+| 2026-08-28 | w50_5m_m0_kal | 11:40 | bear 7755 | +7.58 | +7.78 | signal_kalman 12:55 |
+| 2026-09-01 | w25_5m_m0_kal | 13:05 | bear 7635 | +1.50 | open | no row |
+| 2026-09-01 | w50_5m_m0_kal | 13:05 | bear 7635 | +1.85 | open | no row |
+| 2026-09-10 | w25_5m_m0_kal | 10:25 | bull 7610 | +0.20 | +0.05 | signal_kalman 11:20 |
+| 2026-09-10 | w50_5m_m0_kal | 10:25 | bull 7610 | +0.45 | +0.40 | signal_kalman 11:20 |
+| 2026-09-10 | w25_5m_m0_kal | 11:25 | bull 7605 | -0.82 | -2.53 | signal_kalman 11:55 |
+| 2026-09-10 | w50_5m_m0_kal | 11:25 | bull 7605 | -1.20 | -3.65 | signal_kalman 11:55 |
+| 2026-09-14 | w50_5m_m0_kal_prov | 11:05 | bull 7605 | +7.60 | +8.10 | signal_kalman 13:15 |
+| 2026-09-14 | w50_5m_m0_kal | 11:10 | bull 7605 | +7.43 | +7.93 | signal_kalman 13:15 |
+
+| Arm | Sessions' entries before -> after | All-in pts before | All-in pts after | Difference |
+|---|---|---|---|---|
+| w25_5m_m0_kal | 252 -> 249 | +184.0 | +149.5 | -34.4 |
+| w50_5m_m0_kal | 252 -> 249 | +149.9 | +120.5 | -29.4 |
+| w25_5m_m0_kal_prov | 12 -> 12 | -1.5 | -1.5 | +0.0 |
+| w50_5m_m0_kal_prov | 12 -> 12 | -7.5 | -7.0 | +0.5 |
+
+**Reading the totals.** The 28 hull exits themselves are worth about −6 pts
+on the 25-wide and −8 on the 50-wide over 61 sessions (the 08-28 "additive
+backstop" claim was right in sum and small); the user's ruling is about
+intent, not P&L, and stands. The rest of the −34 / −29 comes from three
+sessions with no hull exit at all whose recorded ledger never matched the
+engine's replay of its own rule: 06-25 (25-wide +23.8 recorded, +9.9 in
+both the old-rule replay of 2026-09-12 and this restatement), 08-31 (the
+feed-lag incident session, −6.6 recorded, −14.3 replayed either way) and
+09-02 (−4.1 recorded, −10.7 old-rule replay, −12.3 restated). Those rows
+were as-lived or produced by the 08-28 install replay before the
+transaction-marker fix, and are now the clean replay; a 13:05 entry on
+09-01 that only the live engine took is likewise gone. The restated ledger
+is, for the first time, exactly what the current engine and simulator
+produce on the recorded snapshots.
+
+**Live.** The collector must run the fixed code from the next session on,
+or the live ledger will again carry hull exits the restated history does
+not.
 
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
@@ -640,7 +732,10 @@ faster settings manufacture trades, slower ones revert to hull lag. Frozen at
 single-setting win would have been discarded as luck; the plateau is the
 evidence.
 
-**Either-exit backstop is free insurance.** Exits on whichever family flips
+**Either-exit backstop is free insurance.** *Superseded 2026-09-14 (TT-194):
+this paragraph and the table below record an exit that was never the intent;
+the hull flip is not an exit on the kalman arms, and the ledger has been
+restated without it. Kept as history.* Exits on whichever family flips
 first. The hull backstop bound on 12 distinct flips in 53 sessions and was
 *additive* on every arm — the hull occasionally seals a profit the kalman
 would have given back (worst bind -$240; typical binds +$400–800):
