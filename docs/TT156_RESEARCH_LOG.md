@@ -136,6 +136,80 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-16 — The opening velocity sorts the day, not the open: no opening structure earns, and the production warmup arrives at 09:30 with no velocity at all (TT-196)
+
+**Question.** The warmed filter holds a velocity at 09:30; can an opening
+structure (akin to the every-session 14:00 fly) be conditioned on that
+state instead of a flat rule? The 10:00 entry start is not in question.
+Rig: `research_data/TT-156/opening_velocity_study_20260916.py` (results
+`.json`, tables `.md`); 63 sessions 2026-06-11 to 2026-09-16, structures
+priced on 61 (the first snapshot from 09:31 whose legs all carry a bid; the
+09:30:0x snapshot quotes zero bids on many strikes).
+
+**First finding: the production filter has no opening velocity.** The SPX
+5m series in InfluxDB carries 206 flat after-hours rows per day (close
+pinned at the settle, eventFlags 14). The collector's warmup ingests them,
+so the velocity is decayed to zero by 09:30 on every recorded session
+(mean |v| 0.000). The chart's first velocity bar is therefore the gap
+reaction of a dead state, not a carried trend. A warmup on regular-session
+bars only (same recursion, prior three sessions) carries a real velocity,
+mean |v| 0.86 pts per bar, quartile edges 0.08 / 0.63 / 1.34. That
+RTH-only velocity is the state used below; whether production should warm
+that way is a separate replay (the 2026-09-09 warmup study compared only
+the dead-state warmup against a cold start).
+
+**Step 2: what the opening velocity predicts (RTH-only state):**
+
+| State | n | first-30 range, mean | first hour with the velocity sign | tent by 14:00 | kalman 25-wide, mean all-in | EOD fly, mean all-in |
+|---|---|---|---|---|---|---|
+| Q1 (weakest) | 16 | 27.2 | 56% | 31% | −0.90 | −7.42 |
+| Q2 | 16 | 25.5 | 56% | 31% | +3.04 | +2.82 |
+| Q3 | 15 | 30.6 | 47% | 53% | +4.86 | +3.95 |
+| Q4 (strongest) | 16 | 31.3 | 50% | 69% | +2.92 | +8.18 |
+| Up | 18 | 29.3 | 61% | 50% | +1.40 | +6.22 |
+| Down | 45 | 28.4 | 49% | 44% | +2.82 | +0.36 |
+| all | 63 | 28.6 | 52% | 46% | +2.40 | +1.53 |
+
+The sign predicts nothing: the first hour goes with it half the time in
+every bucket. The magnitude sorts the day: a tent by 14:00 rises from 31 %
+in the two weakest quartiles to 53 % and 69 %, and both the kalman arm and
+the EOD fly earn in the stronger half and lose or scratch in the weakest.
+A quiet coming-in tape is the chop day; a tape arriving with velocity, in
+either direction, is the day the structures complete. This is the
+characterization the regime work has been circling (the 2026-09 regime
+notes), read from a single number available before the open.
+
+**Step 3: opening structures by state (all-in points per session, mean / win rate):**
+
+| State | n | long straddle to 10:00 | long 25-wide fly to settle | short condor to 10:00 | short condor to 11:00 |
+|---|---|---|---|---|---|
+| Q1 (weakest) | 16 | −0.87 / 38% | −1.72 / 31% | −0.65 / 56% | −0.64 / 69% |
+| Q2 | 15 | −2.85 / 20% | +0.99 / 40% | +0.46 / 67% | +0.92 / 80% |
+| Q3 | 14 | +1.89 / 36% | +1.10 / 43% | −0.77 / 43% | −0.46 / 57% |
+| Q4 (strongest) | 16 | −1.42 / 19% | +1.41 / 44% | +0.07 / 62% | +0.29 / 75% |
+| all | 61 | −0.87 / 28% | +0.41 / 39% | −0.22 / 57% | +0.03 / 70% |
+
+Totals over 61 sessions, first / second half: straddle −52.9 (−14.8 /
+−38.1; it costs 35 pts and the first 30 minutes rarely moves that far
+net of decay), long fly +25.3 (+26.6 / −1.3), condor to 10:00 −13.2,
+condor to 11:00 +1.7 (+16.3 / −14.6). No structure has a cell that holds
+in both halves; the condor's 70 % win rate is the usual short-premium
+shape with the losses in the tail. Nothing at the open is worth buying or
+selling on this data, in any opening state.
+
+**Step 4: handoff.** The first 10:00 entry is a flip, so it is against the
+prevailing sign by construction; agreement with the opening sign carries
+no information and is not tabled. The arm's day by opening quartile is in
+the step-2 table.
+
+**Decision.** No opening structure and no change to the 10:00 start. Two
+things follow. The opening velocity magnitude is a day-quality state worth
+carrying into the regime characterization (it needs no threshold: quartiles
+sort the tent rate 31 / 31 / 53 / 69 %). And the after-hours rows in the 5m
+series mean the production warmup is not what anyone assumed; a replay of
+an RTH-only warmup against the current one is the next study, since it
+changes the first flips of every session.
+
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
 **Question.** The user's observation that the sealed 5m Kalman "sticks to a
