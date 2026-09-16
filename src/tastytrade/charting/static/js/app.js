@@ -153,6 +153,7 @@ function applyInit(msg) {
   if (msg.hma && msg.hma.length) hmaPrimitive.setData(msg.hma); else hmaPrimitive.clear();
   setLowerData('kalVel', msg.kalman || []);
   setLowerData('macd', msg.macd || []);
+  setLowerData('ivHv', msg.ivHv || []);
   if (msg.dailyCandle) registerPriorDay(msg.dailyCandle);
 
   renderControls();
@@ -174,7 +175,14 @@ function applyUpdate(msg) {
   if (msg.hma) hmaPrimitive.update(msg.hma);
   if (msg.kalman) updateLower('kalVel', msg.kalman);
   if (msg.macd) updateLower('macd', msg.macd);
+  applyStudy(msg);
   if (stripBarTime == null) renderStrips();
+}
+
+// Lower-study points that arrive on their own clock (the IV index's bars)
+// or alongside a candle; each is a partial point for one bar.
+function applyStudy(msg) {
+  (msg.ivHv || []).forEach(p => updateLower('ivHv', p));
 }
 
 function doConnect(dateOverride) {
@@ -198,6 +206,7 @@ function doConnect(dateOverride) {
     if (msg.type === 'error') { setStatus('disconnected'); return; }
     if (msg.type === 'init') { applyInit(msg); return; }
     if (msg.type === 'update') { applyUpdate(msg); return; }
+    if (msg.type === 'study') { applyStudy(msg); if (stripBarTime == null) renderStrips(); return; }
     if (msg.type === 'level') {
       const id = (msg.label || '').replace(/\s+/g, '').toLowerCase();
       registerLevel(id, [{ price: msg.price, label: msg.label, color: msg.color, lineStyle: msg.lineStyle }], false);

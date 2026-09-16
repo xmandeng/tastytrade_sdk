@@ -3,7 +3,7 @@
 // candle pane reclaims the height, and toggling it on remounts it at the
 // right index from cache. Pane label strips are HTML overlays positioned
 // from each pane's element.
-const LOWER_PANE_H = { two: 150, one: 195 };
+const LOWER_PANE_H = { three: 120, two: 150, one: 195 };
 
 const lineOpts = (extra) => ({
   priceLineVisible: false, lastValueVisible: false,
@@ -57,6 +57,31 @@ const LOWER_STUDIES = [
       return p ? [{ text: fmtPx(p.velocity, 3), color: p.velColor || C.text }] : [];
     },
   },
+  {
+    // Implied (VIX1D, one-day horizon) against realized vol of the charted
+    // symbol over one session of bars, both in vol points. A bar missing
+    // either value draws as a gap in that line.
+    key: 'ivHv', label: 'IV vs HV', params: '(VIX1D · session)',
+    mount(paneIndex) {
+      const iv = chart.addSeries(LightweightCharts.LineSeries, lineOpts({ color: C.ivLine, lineWidth: 1 }), paneIndex);
+      const hv = chart.addSeries(LightweightCharts.LineSeries, lineOpts({ color: C.hvLine, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed }), paneIndex);
+      return { iv, hv, all: [iv, hv] };
+    },
+    load(objs, points) {
+      objs.iv.setData(points.map(p => p.iv == null ? { time: p.time } : { time: p.time, value: p.iv }));
+      objs.hv.setData(points.map(p => p.hv == null ? { time: p.time } : { time: p.time, value: p.hv }));
+    },
+    update(objs, p) {
+      if (p.iv != null) objs.iv.update({ time: p.time, value: p.iv });
+      if (p.hv != null) objs.hv.update({ time: p.time, value: p.hv });
+    },
+    values(p) {
+      return p ? [
+        { text: `IV ${fmtPx(p.iv)}`, color: C.ivLine },
+        { text: `HV ${fmtPx(p.hv)}`, color: C.hvLine },
+      ] : [];
+    },
+  },
 ];
 
 const lowerStudy = key => LOWER_STUDIES.find(s => s.key === key);
@@ -75,10 +100,17 @@ function cacheLowerInit(key, points) {
   c.byTime = new Map(c.points.map(p => [p.time, p]));
 }
 
+// A live point may carry only some of a study's fields (the IV pane gets
+// its two lines at different moments), so a point for a known bar merges
+// into what that bar already holds instead of replacing it.
 function cacheLowerUpdate(key, p) {
   const c = paneCache[key];
-  const last = c.points[c.points.length - 1];
-  if (last && last.time === p.time) c.points[c.points.length - 1] = p; else c.points.push(p);
+  const existing = c.byTime.get(p.time);
+  if (existing) {
+    Object.assign(existing, p);
+    return;
+  }
+  c.points.push(p);
   c.byTime.set(p.time, p);
 }
 
@@ -146,13 +178,13 @@ function updateLower(key, p) {
   if (objs) lowerStudy(key).update(objs, p);
 }
 
-// Candle pane takes whatever the lower panes leave: 150 px each when two
-// are shown, 195 px when one, the full height when none.
+// Candle pane takes whatever the lower panes leave: 120 px each when three
+// are shown, 150 px when two, 195 px when one, the full height when none.
 function sizePanes() {
   const panes = chart.panes();
   if (!panes.length) return;
   const n = panes.length - 1;
-  const lowerH = n >= 2 ? LOWER_PANE_H.two : LOWER_PANE_H.one;
+  const lowerH = n >= 3 ? LOWER_PANE_H.three : n === 2 ? LOWER_PANE_H.two : LOWER_PANE_H.one;
   let axisH = 0;
   try { axisH = chart.timeScale().height(); } catch (e) {}
   const total = chartEl.clientHeight - axisH - n;
