@@ -136,6 +136,55 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-16 — The warmup's velocity does not reach the 10:00 window: session-only SPX, futures at 5 minutes and futures overnight at 30 minutes all replay to the current ledger (TT-197)
+
+**Question.** TT-196 found the production warmup arrives at 09:30 with
+zero velocity (the flat after-hours rows) while a velocity carried from
+bars that moved sorts the day. Approved test: warm on bars that moved and
+see whether the ledger changes. Rig
+`research_data/TT-156/warmup_source_replay_20260916.py` (results `.json`,
+tables `.md`); 37 sessions 2026-07-15 to 2026-09-03, the span where the
+recorded micro E-mini (/MESU26) history overlaps the ledger. Each session
+replayed through the production engine and simulator with only the Kalman
+state at 09:30 changed (velocity and covariance; the price state is the
+settle and the hull warms as production in every candidate).
+
+| Warmup | State carried into 09:30 | opening \|v\| quartiles (pts per 5m bar) |
+|---|---|---|
+| current | settle, zero velocity | 0.00 / 0.00 / 0.00 |
+| SPX session-only, prior 3 sessions | the closing trend | 0.09 / 0.59 / 1.41 |
+| futures 5-minute, session + overnight, to 09:25 | the pre-open hour | 0.40 / 0.85 / 1.20 |
+| futures 30-minute, overnight, velocity ÷ 6 | the night's drift at its own pace | 0.23 / 0.30 / 0.46 |
+
+| Arm | Warmup | all-in pts | first half | second half | entries | tents | sessions better / worse vs current |
+|---|---|---|---|---|---|---|---|
+| 25-wide | current | +55.1 | +29.5 | +25.5 | 149 | 19 | — |
+| 25-wide | SPX session-only | +44.5 | +29.5 | +15.0 | 147 | 18 | 1 / 1 |
+| 25-wide | futures 5-minute | +44.5 | +29.5 | +15.0 | 147 | 18 | 1 / 1 |
+| 25-wide | futures 30-minute | +55.1 | +29.5 | +25.5 | 149 | 19 | 0 / 0 |
+| 50-wide | current | +89.0 | +62.2 | +26.8 | 149 | 2 | — |
+| 50-wide | SPX session-only | +86.8 | +62.2 | +24.6 | 147 | 2 | 1 / 1 |
+| 50-wide | futures 5-minute | +86.8 | +62.2 | +24.6 | 147 | 2 | 1 / 1 |
+| 50-wide | futures 30-minute | +89.0 | +62.2 | +26.8 | 149 | 2 | 0 / 0 |
+
+**Reading.** Thirty-five of 37 sessions trade identically under every
+warmup; the two that differ (08-19, −11 pts; 08-21, +0.4) are the only
+sessions where a carried sign changed which 10:00 move counted as a flip.
+The mechanism is the filter's memory: with q/r 0.025 the velocity forgets
+in about nine bars, and six session bars pass before the window opens, so
+whatever 09:30 carried is gone by 10:00. The 30-minute overnight velocity,
+being small in 5-minute units, changes nothing at all. The dead start is
+harmless to the strategy for the same reason it was invisible: the 10:00
+start already discards it.
+
+**Decision.** Nothing changes: no candidate beats the current warmup in
+both halves (TT-156 rule), and two lose 11 points on one session. The
+after-hours rows stay an oddity of the series, not a defect in the
+strategy. The day-quality information in the opening velocity (TT-196) is
+real but cannot travel through the warmup; if it is used, it is used as a
+state read at 09:30 and carried alongside, which is a regime question, not
+a filter question.
+
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
 **Question.** The user's observation that the sealed 5m Kalman "sticks to a
