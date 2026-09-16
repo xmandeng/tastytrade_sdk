@@ -21,6 +21,7 @@ class ChartFeed:
 
     Channels:
         market:CandleEvent:{candle_symbol}   — live candle updates
+        market:CandleEvent:{implied_symbol}  — implied-vol index bars (IV pane)
         market:HorizontalLine:{symbol}       — level annotations as they lock in
     """
 
@@ -30,20 +31,30 @@ class ChartFeed:
         self.pubsub: PubSub | None = None
 
     async def listen(
-        self, symbol: str, candle_symbol: str
+        self,
+        symbol: str,
+        candle_symbol: str,
+        implied_symbol: str | None = None,
     ) -> AsyncIterator[tuple[str, dict]]:
         """Subscribe and yield (event_type, data) tuples.
 
-        event_type is either "candle" or "level".
+        event_type is "candle", "level" or, when ``implied_symbol`` is
+        given, "iv" for that symbol's candle bars.
         """
         candle_channel = f"market:CandleEvent:{candle_symbol}"
         level_channel = f"market:HorizontalLine:{symbol}"
+        implied_channel = (
+            f"market:CandleEvent:{implied_symbol}" if implied_symbol else None
+        )
 
         ps = self.redis.pubsub()
         self.pubsub = ps
-        await ps.subscribe(candle_channel, level_channel)
+        channels = [candle_channel, level_channel]
+        if implied_channel:
+            channels.append(implied_channel)
+        await ps.subscribe(*channels)
 
-        logger.info("Subscribed to Redis: %s, %s", candle_channel, level_channel)
+        logger.info("Subscribed to Redis: %s", ", ".join(channels))
 
         async for message in ps.listen():
             if message["type"] != "message":
@@ -60,6 +71,8 @@ class ChartFeed:
                 yield ("candle", data)
             elif channel == level_channel:
                 yield ("level", data)
+            elif channel == implied_channel:
+                yield ("iv", data)
 
     async def close(self) -> None:
         """Unsubscribe and close Redis connection."""

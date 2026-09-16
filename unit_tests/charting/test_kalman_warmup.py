@@ -7,6 +7,12 @@ import polars as pl
 from tastytrade.charting.indicators import KalmanState, StreamingIndicators
 
 
+def bars(closes: list[float]) -> list[tuple[int, float]]:
+    """Warmup bars five minutes apart, ending before the session frame."""
+    t0 = int(datetime(2026, 9, 8, 13, 30, tzinfo=timezone.utc).timestamp())
+    return [(t0 + 300 * i, c) for i, c in enumerate(closes)]
+
+
 def session_frame(closes: list[float]) -> pl.DataFrame:
     t0 = datetime(2026, 9, 9, 13, 30, tzinfo=timezone.utc)
     return pl.DataFrame(
@@ -25,7 +31,9 @@ class TestKalmanWarmup:
         warmup = [7673.5] * 40 + [7673.5 + 0.3 * i for i in range(20)]
         session = [7653.6, 7652.6, 7651.1, 7653.1, 7656.2, 7653.1, 7655.3]
 
-        seeded = StreamingIndicators().seed(session_frame(session), 7673.5, warmup)
+        seeded = StreamingIndicators().seed(
+            session_frame(session), 7673.5, bars(warmup)
+        )
         pane = [p["velocity"] for p in seeded["kalman"]]
 
         continuous = KalmanState()
@@ -42,7 +50,9 @@ class TestKalmanWarmup:
         # gap as negative velocity, a cold one reads the bounce as a turn
         session = [7653.6, 7652.6, 7651.1, 7653.1, 7656.2, 7653.1, 7655.3]
         cold = StreamingIndicators().seed(session_frame(session), 7673.5)
-        warm = StreamingIndicators().seed(session_frame(session), 7673.5, [7673.5] * 60)
+        warm = StreamingIndicators().seed(
+            session_frame(session), 7673.5, bars([7673.5] * 60)
+        )
         assert cold["kalman"][4]["velocity"] > 0
         assert warm["kalman"][4]["velocity"] < 0
 

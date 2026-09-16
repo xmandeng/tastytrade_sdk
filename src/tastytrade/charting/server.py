@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+from bisect import insort
 from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,11 @@ from tastytrade.charting.trade_markers import (
     load_trade_markers,
     pnl_summary,
     resolve_arm,
+)
+from tastytrade.charting.volatility import (
+    implied_vol_symbol,
+    known_time,
+    merge_vol_points,
 )
 from research.tt156_zero_dte_butterfly.config import KALMAN_WARMUP_DAYS
 from tastytrade.common.logging import setup_logging
@@ -125,6 +131,28 @@ def build_candle_payload(df: pl.DataFrame) -> list[dict[str, Any]]:
             }
         )
     return candles
+
+
+def candle_epochs_utc(df: pl.DataFrame) -> list[int]:
+    """Sorted UTC bar times of a candle frame."""
+    epochs: list[int] = []
+    for t in df["time"].to_list():
+        epochs.append(naive_utc_to_epoch(t) if isinstance(t, datetime) else int(t))
+    return sorted(epochs)
+
+
+def closes_by_time(df: pl.DataFrame | None) -> dict[int, float]:
+    """UTC bar time -> close for every priced bar of a candle frame."""
+    if df is None or df.is_empty() or "close" not in df.columns:
+        return {}
+    out: dict[int, float] = {}
+    for row in df.iter_rows(named=True):
+        t, close = row.get("time"), row.get("close")
+        if t is None or close is None or close == 0:
+            continue
+        epoch = naive_utc_to_epoch(t) if isinstance(t, datetime) else int(t)
+        out[epoch] = round(float(close), 3)
+    return out
 
 
 def find_last_trading_day(from_date: date_type, max_lookback: int = 7) -> date_type:
@@ -348,9 +376,10 @@ class ChartServer:
         except Exception:
             logger.warning("Could not fetch prior day candle for %s", symbol)
 
-        # --- Kalman warmup: the sessions before this one, same interval ---
-        # The engine replays this window before going live; without it the
-        # pane starts cold and disagrees with the engine after a gap open.
+        # --- Warmup: the sessions before this one, same interval ---
+        # The Kalman engine replays this window before going live; without it
+        # the pane starts cold and disagrees with the engine after a gap open.
+        # The realized-vol window fills from the same bars.
         session_start = datetime(
             target_date.year, target_date.month, target_date.day, tzinfo=ET
         )
@@ -361,27 +390,39 @@ class ChartServer:
             stop=session_start.astimezone(timezone.utc).replace(tzinfo=None),
             debug_mode=True,
         )
-        kalman_warmup_closes: list[float] = []
-        if (
-            warm_df is not None
-            and not warm_df.is_empty()
-            and "close" in warm_df.columns
-        ):
-            kalman_warmup_closes = (
-                warm_df.filter((pl.col("close").is_not_null()) & (pl.col("close") != 0))
-                .sort("time")["close"]
-                .to_list()
-            )
+        warmup_bars = sorted(closes_by_time(warm_df).items())
         logger.info(
-            "Kalman warmup: %d %s bars from %s",
-            len(kalman_warmup_closes),
+            "Warmup: %d %s bars from %s",
+            len(warmup_bars),
             candle_symbol,
             warm_start.date(),
         )
 
         # --- Compute indicators ---
-        indicators = StreamingIndicators()
-        indicator_data = indicators.seed(hist_df, prior_close, kalman_warmup_closes)
+        indicators = StreamingIndicators(interval=interval)
+        indicator_data = indicators.seed(hist_df, prior_close, warmup_bars)
+
+        # --- IV vs HV: the implied-vol index's bars for the same session ---
+        # Read like any other candle history; absent data just leaves the
+        # IV line empty.
+        session_stop = session_start + timedelta(days=1)
+        implied_symbol = implied_vol_symbol(symbol, interval)
+        implied_df = (
+            provider.download(
+                symbol=implied_symbol,
+                start=session_start.astimezone(timezone.utc).replace(tzinfo=None),
+                stop=session_stop.astimezone(timezone.utc).replace(tzinfo=None),
+                debug_mode=True,
+            )
+            if implied_symbol
+            else None
+        )
+        candle_epochs = candle_epochs_utc(hist_df)
+        vol_points = merge_vol_points(
+            candle_epochs, closes_by_time(implied_df), indicator_data["hv"]
+        )
+        for point in vol_points:
+            point["time"] = utc_epoch_to_et_epoch(point["time"])
 
         # --- Build payload with ET-converted timestamps ---
         candles = build_candle_payload(hist_df)
@@ -410,6 +451,7 @@ class ChartServer:
             "hma": indicator_data["hma"],
             "macd": indicator_data["macd"],
             "kalman": indicator_data["kalman"],
+            "ivHv": vol_points,
             "dailyCandle": daily_candle,
             "trades": trades,
             "pnl": pnl_summary(target_date, arm) if symbol == "SPX" else None,
@@ -417,19 +459,27 @@ class ChartServer:
 
         await ws.send_text(json.dumps(initial_payload))
         logger.info(
-            "Sent %s %s: %d candles, %d HMA, %d MACD",
+            "Sent %s %s: %d candles, %d HMA, %d MACD, %d IV bars",
             symbol,
             target_date,
             len(candles),
             len(indicator_data["hma"]),
             len(indicator_data["macd"]),
+            sum(1 for p in vol_points if p["iv"] is not None),
         )
 
         # --- Phase 2: Live updates from Redis ---
         feed = ChartFeed(config)
         live_task = asyncio.create_task(
             self.stream_live_updates(
-                ws, feed, indicators, symbol, interval, target_date, arm
+                ws,
+                feed,
+                indicators,
+                symbol,
+                interval,
+                target_date,
+                arm,
+                candle_epochs,
             )
         )
 
@@ -465,6 +515,7 @@ class ChartServer:
         interval: str,
         target_date: date_type,
         arm: str = "close",
+        candle_epochs: list[int] | None = None,
     ) -> None:
         """Subscribe to Redis and stream deltas to the WebSocket client.
 
@@ -473,27 +524,61 @@ class ChartServer:
         period — when a NEW candle timestamp appears — using the final close
         of the *previous* candle.  Otherwise HMA windows fill with duplicate
         values and MACD EMAs are over-updated, causing both to diverge.
+
+        ``candle_epochs`` are the session's known UTC bar times; implied-vol
+        bars are forwarded only for a bar the candle pane already has, so
+        the lower pane never adds time slots of its own.
         """
         candle_symbol = f"{symbol}{{={interval}}}"
+        known_epochs: list[int] = list(candle_epochs or [])
         prev_candle_epoch: int = 0
+        prev_candle_utc: int = 0
         prev_candle_close: float = 0.0
 
+        def event_epoch(event: dict) -> int | None:
+            t = event.get("time")
+            if t is None:
+                return None
+            if isinstance(t, (int, float)):
+                return int(t)
+            return int(datetime.fromisoformat(str(t)).timestamp())
+
         try:
-            async for event_type, event in feed.listen(symbol, candle_symbol):
-                if event_type == "candle":
+            async for event_type, event in feed.listen(
+                symbol, candle_symbol, implied_vol_symbol(symbol, interval)
+            ):
+                if event_type == "iv":
                     raw_close = event.get("close")
-                    t = event.get("time")
-                    if raw_close is None or t is None:
+                    utc_epoch = event_epoch(event)
+                    if raw_close is None or utc_epoch is None:
+                        continue
+                    if not known_time(known_epochs, utc_epoch):
+                        continue
+                    await ws.send_text(
+                        json.dumps(
+                            {
+                                "type": "study",
+                                "ivHv": [
+                                    {
+                                        "time": utc_epoch_to_et_epoch(utc_epoch),
+                                        "iv": round(float(raw_close), 3),
+                                    }
+                                ],
+                            }
+                        )
+                    )
+
+                elif event_type == "candle":
+                    raw_close = event.get("close")
+                    utc_epoch = event_epoch(event)
+                    if raw_close is None or utc_epoch is None:
                         continue
                     close = float(raw_close)
                     if close == 0:
                         continue
 
-                    utc_epoch = (
-                        int(t)
-                        if isinstance(t, (int, float))
-                        else int(datetime.fromisoformat(str(t)).timestamp())
-                    )
+                    if not known_time(known_epochs, utc_epoch):
+                        insort(known_epochs, utc_epoch)
                     et_epoch = utc_epoch_to_et_epoch(utc_epoch)
 
                     candle_msg = {
@@ -511,13 +596,24 @@ class ChartServer:
                     if prev_candle_epoch != 0 and et_epoch != prev_candle_epoch:
                         indicator_point = indicators.update(
                             prev_candle_close,
-                            prev_candle_epoch,
+                            prev_candle_utc,
                         )
                         if indicator_point:
+                            # Points carry the UTC bar time; the chart wants ET.
+                            for key in ("hma", "macd", "kalman", "hv"):
+                                point = indicator_point.get(key)
+                                if point:
+                                    point["time"] = prev_candle_epoch
                             delta["hma"] = indicator_point["hma"]
                             delta["macd"] = indicator_point["macd"]
                             if indicator_point.get("kalman"):
                                 delta["kalman"] = indicator_point["kalman"]
+                            delta["ivHv"] = [
+                                {
+                                    "time": prev_candle_epoch,
+                                    "hv": indicator_point["hv"]["value"],
+                                }
+                            ]
                         # Refresh the P&L tracker once per candle period — the
                         # event log is small and this keeps the card in step
                         # with the ledger without a second data path.
@@ -527,6 +623,7 @@ class ChartServer:
                                 delta["pnl"] = pnl
 
                     prev_candle_epoch = et_epoch
+                    prev_candle_utc = utc_epoch
                     prev_candle_close = close
 
                     await ws.send_text(json.dumps(delta))
