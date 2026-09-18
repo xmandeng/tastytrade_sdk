@@ -136,6 +136,120 @@ above; the fill-persistence arms (`_p2`/`_p4`) accumulate the live bound.
 
 ## Findings log
 
+### 2026-09-18 — A learned trade assessor finds nothing at the entry except where the entry sits in the day's flip sequence (TT-198)
+
+**Question.** Before building a neural-network or reinforcement-learning
+assessor that grades an entry from a chart snapshot and the day's prior
+trades, does a tabular model on the same information separate winners
+from losers out of sample? If gradient boosting on 49 features knowable
+at the entry finds nothing, a larger model on a picture of the same
+data will not either.
+
+**Substrate.** The restated primary ledger, both kalman arms (25- and
+50-wide), 64 sessions 2026-06-11..09-18, 265 entries per width, all-in
+P&L at the recorded official close. Four feature blocks, each computed
+strictly from what existed at the entry timestamp: the day's prior trades
+of the same arm (count, realized P&L of closed ones, flies already locked,
+the last trade's result and hold, minutes since its exit); day state
+(minutes since the open, range so far, spot's position in the range
+signed by direction, distance from the open, overnight gap, prior-day
+range and return, realized 5m volatility); the option side from the entry
+snapshot (credit as a fraction of width, ATM implied volatility, short
+delta, 25-point skew toward the trade, straddle over spot, chain put/call
+volume, counter-vertical credit, points still needed to lock); and the
+TT-192 price-derived 1m/5m context as a control block. Walk-forward by
+session: fit on every session before k, predict session k, from session
+21 onward (182 out-of-sample trades over 44 sessions per width), with
+logistic regression and a small gradient-boosted classifier, per block
+and combined. Reference: 40 within-session label shuffles through the
+same walk-forward, which keeps each session's base rate and destroys
+only the ordering of entries inside it. Rig:
+`research_data/TT-156/trade_assessor_20260918.py` (tables and cached
+trade table beside it; runs under `uv run --with scikit-learn`).
+
+**Pooled out-of-sample AUC is chance for every block.** The best cell is
+0.57 (sequence block, gradient boosting, 25-wide) and every other cell
+sits between 0.43 and 0.54. The permutation null's median is itself
+0.54–0.61, because session-level features let a model learn which
+sessions win, which pools into AUC above one half without ranking a
+single entry inside a session; no observed cell clears the null's 95th
+percentile. Day state and the option side add nothing (AUC 0.43–0.54,
+univariate 0.46–0.55 on every feature), the price block repeats TT-192,
+and the combined 49-feature model is no better than the 10-feature
+sequence block alone.
+
+| Width | Block | Model | OOS AUC | Null median / 95th | Sessions where winners scored above losers | Null median / 95th |
+|---|---|---|---|---|---|---|
+| 25 | sequence | logistic | 0.54 | 0.59 / 0.64 | 26 of 35 | 18 / 21 |
+| 25 | sequence | gradient boosting | 0.57 | 0.55 / 0.64 | 23 of 35 | 17 / 22 |
+| 25 | all 49 | logistic | 0.52 | 0.55 / 0.61 | 22 of 35 | 17 / 21 |
+| 25 | all 49 | gradient boosting | 0.54 | 0.54 / 0.62 | 20 of 35 | 16 / 22 |
+| 50 | sequence | logistic | 0.50 | 0.61 / 0.65 | 28 of 38 | 20 / 23 |
+| 50 | sequence | gradient boosting | 0.53 | 0.55 / 0.62 | 24 of 38 | 19 / 22 |
+| 50 | all 49 | logistic | 0.50 | 0.55 / 0.61 | 24 of 38 | 18 / 22 |
+| 50 | all 49 | gradient boosting | 0.48 | 0.54 / 0.59 | 22 of 38 | 19 / 22 |
+
+**The ordering inside a session is real, and it lives entirely in the
+prior-trade block.** Counting sessions where the model's out-of-sample
+scores put that session's winners above its losers, the sequence-only
+logistic model gets 26 of 35 (25-wide) and 28 of 38 (50-wide) against a
+null 95th percentile of 21 and 23; none of the 40 shuffles reached it on
+either width. The combined model keeps the effect only under logistic
+regression (22 of 35, 24 of 38); gradient boosting on 49 features
+dilutes it toward the null. So the information exists, it is small, and
+39 of the 49 features are noise around it.
+
+**What the sequence carries.** The first entry of the day is the weak
+group and an entry that closes a losing prior trade is the strong group,
+on both widths, in most sessions, and at every clock time.
+
+| 25-wide, previous trade of the same arm | n | Win rate | Flies locked | Avg all-in | Total | Sessions with a positive mean |
+|---|---|---|---|---|---|---|
+| closed at a loss | 119 | 47% | 21 | +$131 | +$15,563 | 36 of 58 |
+| closed at a gain | 55 | 40% | 2 | +$12 | +$672 | 15 of 37 |
+| locked a fly | 27 | 30% | 7 | +$52 | +$1,417 | 7 of 23 |
+| none (first entry of the day) | 64 | 28% | 10 | −$41 | −$2,632 | 18 of 64 |
+
+| 50-wide, previous trade of the same arm | n | Win rate | Avg all-in | Total | Sessions with a positive mean |
+|---|---|---|---|---|---|
+| closed at a loss | 116 | 53% | +$98 | +$11,410 | 37 of 56 |
+| closed at a gain | 83 | 47% | +$20 | +$1,635 | 25 of 52 |
+| none (first entry of the day) | 64 | 44% | +$5 | +$325 | 28 of 64 |
+
+Within sessions that have both kinds, an entry after a loss beats an
+entry after a gain in 25 of 34 sessions (25-wide) and 36 of 47 (50-wide).
+First entries lose in every time bucket on the 25-wide (−$12 to −$151
+average from the 10:00–10:30 bucket to the 12:00–13:00 bucket), so this
+is sequence position, not clock time; later entries in the same buckets
+are positive except after 12:00, where everything is flat. Tallied by
+the day's realized P&L before the entry: 25-wide entries taken while the
+day is negative made +$18,440 (131 trades, 25 of the 40 tents, 32 of 50
+sessions positive); entries taken while the day is flat or positive made
+−$3,419 combined. The same ordering holds on the 50-wide with a third of
+the spread (+$8,123 vs +$4,938).
+
+**Mechanism read.** The flip that closes a losing vertical at the same
+instant opens the next one: the previous move has already failed and
+price is moving in the new trade's direction, so the entry rides a
+reversal that has begun. The flip that closes a winning vertical is a
+counter-trend entry against a move that just paid; those get whipsawed
+more and lock almost no tents (2 of 55 on the 25-wide). The first flip of
+the window is neither, and is where the opening swing hands over to the
+day's structure. None of this needs a model; it is a two-state
+description of where an entry sits in the sequence.
+
+**What this means for the neural-network and RL question.** A chart
+snapshot at the entry is a rendering of the day-state and price blocks,
+which carry nothing out of sample; a convolutional model cannot recover
+information that is not in the numbers. The prior-trade dependence the
+user proposed as an input is the one thing that is real, and it is the
+kind of sequential structure RL is built for, but with 265 decisions per
+arm and a two-state dependence it is a contingency table, not a policy.
+No rule is proposed here: the sequence effect is an insight about how the
+strategy earns (from continuation entries after a failed move, while the
+day is underwater), and the ledger keeps trading every flip. Related:
+TT-191 (nothing at the crossing), TT-192 (nothing in price context).
+
 ### 2026-09-10 — Entry at the intra-bar crossing: the head start is real, the exit has no timing edge, and a tracked arm goes live (TT-188)
 
 **Question.** The user's observation that the sealed 5m Kalman "sticks to a
