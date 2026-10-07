@@ -308,3 +308,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Support
 
 For issues and questions, please [open a GitHub issue](https://github.com/yourusername/tastytrade_sdk/issues).
+
+
+<!-- Security scan triggered at 2026-10-07 11:39:23 -->
