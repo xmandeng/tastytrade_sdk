@@ -24,6 +24,8 @@ const STUDIES = {
     swatch: { color: C.macdValue, style: 'solid' } },
   kalVel: { kind: 'simple', section: 'lower', label: 'Kalman velocity', params: 'q/r 0.025',
     swatch: { color: C.kalVelUp, style: 'solid' } },
+  ivHv: { kind: 'simple', section: 'lower', label: 'IV vs HV', params: 'VIX1D · session',
+    swatch: { color: C.ivLine, style: 'solid' } },
 };
 
 const SECTIONS = [
@@ -33,7 +35,7 @@ const SECTIONS = [
 
 const STUDY_STORAGE_KEY = 'chart.studies.v1';
 const STUDY_DEFAULTS = {
-  hma: true, macd: true, kalVel: true, tradePins: true,
+  hma: true, macd: true, kalVel: true, ivHv: true, tradePins: true,
   priorOHLC: true, priorClose: true, priorHigh: true, priorLow: true,
   openingRange: true, or5: true, or15: true, or30: true,
 };

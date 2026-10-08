@@ -1,4 +1,5 @@
-"""Streaming-aware indicator wrappers for Hull MA and MACD.
+"""Streaming-aware indicator wrappers for Hull MA, MACD, Kalman and
+realized volatility.
 
 Wraps the batch functions in analytics/indicators/momentum.py with
 incremental state so each new candle produces one new indicator point
@@ -21,6 +22,7 @@ from tastytrade.analytics.indicators.momentum import (
     macd,
     padded_wma,
 )
+from tastytrade.charting.volatility import RealizedVolState, VolProfile
 
 
 @dataclass
@@ -143,6 +145,7 @@ class StreamingIndicators:
         macd_fast: int = 12,
         macd_slow: int = 26,
         macd_signal: int = 9,
+        interval: str = "m",
     ) -> None:
         self.hull_length = hull_length
         self.macd_fast = macd_fast
@@ -152,26 +155,34 @@ class StreamingIndicators:
         self.hull_state: HullState | None = None
         self.macd_state: MacdState | None = None
         self.kalman_state: KalmanState | None = None
+        # Realized vol needs the bar spacing to know what "consecutive" and
+        # "one session" mean; an interval it has no profile for gets no HV.
+        self.realized_state: RealizedVolState | None = None
+        try:
+            self.realized_state = RealizedVolState(VolProfile.for_interval(interval))
+        except ValueError:
+            self.realized_state = None
         self.seeded = False
 
     def seed(
         self,
         df: pl.DataFrame,
         prior_close: float | None = None,
-        kalman_warmup_closes: list[float] | None = None,
+        warmup_bars: list[tuple[int, float]] | None = None,
     ) -> dict:
         """Seed indicators from historical candle data.
 
         Returns the full computed series as lists for chart backfill.
         Also initializes rolling state for subsequent update() calls.
 
-        ``kalman_warmup_closes`` are the sealed closes of the sessions before
-        this one; the Kalman state steps through them first so the pane shows
-        the same filter the trading engine carries into the open, not a
-        cold start on the session's first bar.
+        ``warmup_bars`` are the sealed (UTC epoch, close) bars of the sessions
+        before this one. The Kalman state steps through them first so the
+        pane shows the same filter the trading engine carries into the open,
+        not a cold start on the session's first bar; the realized-vol window
+        fills from them so the open already carries a session of returns.
         """
         if df.is_empty():
-            return {"hma": [], "macd": [], "kalman": []}
+            return {"hma": [], "macd": [], "kalman": [], "hv": {}}
 
         pad = prior_close if prior_close is not None else float(df["close"][0])
 
@@ -277,26 +288,38 @@ class StreamingIndicators:
             )
 
         self.kalman_state = KalmanState()
-        for warm_close in kalman_warmup_closes or []:
+        for warm_epoch, warm_close in warmup_bars or []:
             self.kalman_state.step(float(warm_close))
+            if self.realized_state is not None:
+                self.realized_state.step(float(warm_close), warm_epoch)
         kalman_series = []
+        hv_by_time: dict[int, float | None] = {}
         times: list[datetime] = df["time"].to_list()
         for bar_time, close in zip(times, close_values, strict=True):
+            epoch = to_utc_epoch(bar_time)
             value = self.kalman_state.step(float(close))
             kalman_series.append(
                 {
-                    "time": to_utc_epoch(bar_time),
+                    "time": epoch,
                     "value": round(value, 4),
                     "color": KALMAN_COLOR,
                     "velocity": round(self.kalman_state.x_vel, 4),
                     "velColor": self.kalman_state.velocity_color(),
                 }
             )
+            if self.realized_state is not None:
+                hv_by_time[epoch] = self.realized_state.step(float(close), epoch)
 
-        return {"hma": hma_series, "macd": macd_series, "kalman": kalman_series}
+        return {
+            "hma": hma_series,
+            "macd": macd_series,
+            "kalman": kalman_series,
+            "hv": hv_by_time,
+        }
 
     def update(self, close: float, time_epoch: int) -> dict | None:
-        """Process one new candle close and return indicator deltas.
+        """Process one sealed candle close (``time_epoch`` is its UTC bar
+        time) and return indicator deltas.
 
         Returns None if not yet seeded.
         """
@@ -348,6 +371,10 @@ class StreamingIndicators:
             hist_color = "#FE0000" if histogram < ms.prev_histogram else "#7E0100"
         ms.prev_histogram = histogram
 
+        hv_value: float | None = None
+        if self.realized_state is not None:
+            hv_value = self.realized_state.step(close, time_epoch)
+
         kalman_point = None
         if self.kalman_state is not None:
             kalman_point = {
@@ -372,4 +399,5 @@ class StreamingIndicators:
                 "histogram": round(histogram, 6),
                 "histogramColor": hist_color,
             },
+            "hv": {"time": time_epoch, "value": hv_value},
         }

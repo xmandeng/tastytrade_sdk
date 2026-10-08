@@ -36,7 +36,7 @@ def live_stream_args(send_text: AsyncMock) -> tuple[WebSocket, ChartFeed]:
     """Build a fake WebSocket and a feed yielding two candle events."""
 
     async def listen(
-        symbol: str, candle_symbol: str
+        symbol: str, candle_symbol: str, implied_symbol: str | None = None
     ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         yield "candle", CANDLE
         yield "candle", {**CANDLE, "time": 1756645500}

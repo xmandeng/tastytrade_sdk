@@ -9,6 +9,9 @@ const C = {
   hmaUp:'#01FFFF', hmaDown:'#FF66FE',
   kalVelUp:'#2196F3', kalVelDown:'#FF9800',
   macdValue:'#01FFFF', macdSignal:'#F8E9A6', macdZero:'rgba(255,255,255,0.12)',
+  // IV vs HV pane: implied in lavender, realized in teal, both off the
+  // green/red and blue/orange the other panes use for direction.
+  ivLine:'#CE93D8', hvLine:'#80CBC4',
   // Prior-day reference levels — amber/green/red, slightly transparent so they
   // recede behind candles. Amber for Prior Close matches the conventional
   // "reference price" hue used by most charting platforms.
